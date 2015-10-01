@@ -35,7 +35,7 @@ type IdNodes = Map Identifier (FilePath -- ^ module's file
 
 type ModuleGraph = Gr (Module Position) Position
 
--- | Parse and resolves imports, returning the modules in evaluation order 
+-- | Parses and resolves imports, returning the modules in evaluation order 
 parseModuleFiles :: [FilePath] -> [FilePath] -> SecrecM [Module Position]
 parseModuleFiles paths files = liftM topsort' $ State.evalStateT (openModuleFiles paths files empty) (Map.empty,1)
 
@@ -89,9 +89,9 @@ openImport parent paths g (Import sl mn@(ModuleName l n)) = do
 findModule :: [FilePath] -> ModuleName Position -> SecrecM FilePath
 findModule [] (ModuleName l n) = modError l $ ModuleNotFound n
 findModule (p:ps) mn@(ModuleName l n) = do
-    files <- liftIO $ FilePath.find (depth ==? 0) (canonicalName ==? n) p
+    files <- liftIO $ FilePath.find (depth ==? 0) (canonicalName ==? addExtension n "sc") p
     case files of
-        [] -> findModule ps mn
+        [] -> liftIO (print p) >> findModule ps mn
         [file] -> return file
         otherwise -> modError l $ ModuleNotFound n 
 
