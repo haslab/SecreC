@@ -562,21 +562,19 @@ parseFileIO opts fn = ioSecrecM opts $ parseFile fn
 parseFile :: String -> SecrecM (Module Position)
 parseFile fn = do
     str <- liftIO (readFile fn)
-    liftIO $ putStrLn $ "Parsing " ++ show fn
     x <- parseSecreC fn str
-    liftIO $ putStrLn $ "Parsed " ++ show fn
     return x
 
 parseSecreCIO :: Options -> String -> String -> IO (Module Position)
 parseSecreCIO opts fn str = ioSecrecM opts $ parseSecreC fn str
 
-parseSecreCIOWith :: (Ord a,Show a) => Options -> String -> String -> ScParser a -> IO a
+parseSecreCIOWith :: (Ord a,PP a) => Options -> String -> String -> ScParser a -> IO a
 parseSecreCIOWith opts fn str parse = ioSecrecM opts $ parseSecreCWith fn str parse
 
 parseSecreC :: String -> String -> SecrecM (Module Position)
 parseSecreC fn str = parseSecreCWith fn str scModuleFile
 
-parseSecreCWith :: (Ord a,Show a) => String -> String -> ScParser a -> SecrecM a
+parseSecreCWith :: (Ord a,PP a) => String -> String -> ScParser a -> SecrecM a
 parseSecreCWith fn str parser = do
     case runLexer fn str of
         Left err -> throwError $ parserError $ LexicalException err
@@ -585,9 +583,11 @@ parseSecreCWith fn str parser = do
             when (debugLexer opts) $ liftIO $ hPutStrLn stderr "Lexer Tokens:" >> hPutStrLn stderr (show $ map tSymb toks)
             let res = runParse parser (derpToks toks)
             case Set.toList res of
-                [] -> throwError $ GenericError "no parse"
-                [x] -> return x
-                xs -> throwError $ GenericError $ "Ambiguous file " ++ concatMap (\x -> show x ++ "\n\n") xs
+                [] -> throwError $ parserError $ DerpException "no parse"
+                [x] -> do
+                    when (debugParser opts) $ liftIO $ hPutStrLn stderr ("Parsed " ++ fn ++ ":") >> hPutStrLn stderr (ppr x)
+                    return x
+                xs -> throwError $ parserError $ DerpException $ "Ambiguous file " ++ concatMap (\x -> ppr x ++ "\n\n") xs
         
 derpToks :: [TokenInfo] -> [Derp.Token TokenInfo]
 derpToks xs = map (\t -> Derp.Token t (ppr t)) xs

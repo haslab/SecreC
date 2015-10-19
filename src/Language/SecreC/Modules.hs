@@ -29,8 +29,7 @@ import Language.SecreC.Monad
 import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.Error
-import Language.SecreC.Parser.Parsec
---import Language.SecreC.Parser.Derp
+import Language.SecreC.Parser
 
 
 type IdNodes = Map Identifier (FilePath -- ^ module's file

@@ -1,6 +1,6 @@
 Name:               SecreC
 Version:            0.0.1
-Description:        SecreC analyser
+Description:        SecreC Analyser
 License:            GPL
 License-file:       COPYING
 Author:             Cryptography and Information Security Group, HASLab - INESC TEC and Universidade do Minho
@@ -16,7 +16,7 @@ Synopsis:           SecreC Analyser
 
 Extra-Source-Files: README.md examples tests stdlib
 
-Executable cao
+Executable secrec
   Main-is:          Main.hs
   Other-Modules:
                         Language.SecreC.Parser.Derp
@@ -42,7 +42,7 @@ Executable cao
                         Text.Derp.Combinator
   
   Hs-source-dirs:   src
-  Build-Depends:    
+  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl, array
   ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
   
   Build-Tools:      alex

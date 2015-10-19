@@ -14,7 +14,8 @@ import Text.Parsec
 
 data ParserException 
     = LexicalException String
-    | ParsingException ParseError 
+    | ParsecException ParseError 
+    | DerpException String
     deriving (Show,Typeable)
 
 parserError :: ParserException -> SecrecError

@@ -8,7 +8,7 @@ import Language.SecreC.Location
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Statement
 
-import Language.SecreC.Parser
+import Language.SecreC.Parser.Parsec
 
 import System.IO.Unsafe
 
