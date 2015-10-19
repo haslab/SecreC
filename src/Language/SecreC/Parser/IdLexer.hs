@@ -1,4 +1,4 @@
--- Happy is a LALR(1) parser generator, so we use an intermediate Parsec parser with infinite lookahead to resolve conflicts with ambiguous ids.
+-- Happy is a LALR(1) parser generator, so we use an intermediate lexer with infinite lookahead to resolve conflicts with ambiguous ids.
 
 {-# LANGUAGE ViewPatterns, FlexibleContexts #-}
 
@@ -92,9 +92,11 @@ scRetType :: ScRE
 scRetType = (scOptional scSecType) <++> scDataType <++> (scOptional scDimType) <++> scRetTypeVar
 
 scRetTypeVar :: ScRE
-scRetTypeVar = (scProcedureId <++> (scBraces scProcedureTypeArgs))
-               <|> (scVarId <++> (scToken (CHAR '=') <|> scToken (CHAR ',') <|> scToken (CHAR ';')))
+scRetTypeVar = (scProcedureId <++> (scBraces scProcedureTypeArgs) <++> scToken (CHAR '{'))
+               <|> (scVarId <++> scSizes <++> (scToken (CHAR '=') <|> scToken (CHAR ',') <|> scToken (CHAR ';')))
                <|> (scToken OPERATOR)
+  where
+      scSizes = scOptional $ scBraces $
 
 scProcedureTypeArgs :: ScRE
 scProcedureTypeArgs = scSepBy scTyArg (scToken (CHAR ','))

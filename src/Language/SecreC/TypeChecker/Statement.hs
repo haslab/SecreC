@@ -12,6 +12,7 @@ import Language.SecreC.Position
 import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 
 import Data.Traversable
 import Data.Set (Set(..))
@@ -35,7 +36,7 @@ tcStmts ret (s:ss) = do
     -- if the following statements are never executed, issue an error
     when (not (null ss) && Set.member StmtFallthru c) $ tcError (locpos $ loc $ head ss) $ UnreachableDeadCode $ map (fmap locpos) ss
     -- issue warning for unused variable declarations
-    forMapWithKeyM_ (idsOf VarID $ bvs s `Map.difference` fvsFoldable ss) $ \v l -> tcWarn (locpos l) $ UnusedVariable v
+    forSetM_ (bvs s `Set.difference` fvsFoldable ss) $ \(ScVar l v) -> tcWarn (locpos l) $ UnusedVariable v
     (ss',StmtType cs) <- tcStmts ret ss
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
@@ -85,7 +86,7 @@ tcStmt ret (WhileStatement l condE bodyS) = do
     condE' <- tcReaderM $ tcGuard condE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped l) condE' bodyS',t')
-tcStmt ret (PrintStatement l argsE) = error "print statement"
+tcStmt ret (PrintStatement l argsE) = error "tcStmt print statement"
 tcStmt ret (DowhileStatement l bodyS condE) = do
     condE' <- tcReaderM $ tcGuard condE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
@@ -94,19 +95,19 @@ tcStmt ret (AssertStatement l argE) = do
     argE' <- tcReaderM $ tcGuard argE
     let t = StmtType $ Set.singleton StmtFallthru
     return (AssertStatement (notTyped l) argE',t)
-tcStmt ret (SyscallStatement l sysproc args) = error "syscall statement"
+tcStmt ret (SyscallStatement l sysproc args) = error "tcStmt syscall statement"
 tcStmt ret (VarStatement l decl) = do
-    decl' <- tcVarDecl decl
-    let t = StmtType (Set.singleton $ StmtFallthru)
+    decl' <- tcVarDecl LocalScope decl
+    let t = StmtType (Set.singleton StmtFallthru)
     return (VarStatement (notTyped l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
     tcReaderM $ coerces l Void ret
-    let t = StmtType (Set.singleton $ StmtReturn Void)
+    let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
     (e',et') <- tcReaderM $ tcExpr e
     tcReaderM $ coerces l et' ret
-    let t = StmtType (Set.singleton $ StmtReturn et')
+    let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) (Just e'),t)
 tcStmt ret (ContinueStatement l) = do
     let t = StmtType (Set.singleton StmtContinue)
@@ -125,46 +126,35 @@ tcForInitializer (InitializerExpression (Just e)) = do
     (e',t) <- tcReaderM $ tcExpr e
     return $ InitializerExpression $ Just e'
 tcForInitializer (InitializerVariable vd) = do
-    vd' <- tcVarDecl vd
+    vd' <- tcVarDecl LocalScope vd
     return $ InitializerVariable vd'
 
-tcVarDecl :: Location loc => VariableDeclaration loc -> TcM loc (VariableDeclaration (Typed loc))
-tcVarDecl (VariableDeclaration l tyspec vars) = do
-    (tyspec',ty) <- tcTypeSpec tyspec
-    vars' <- mapM (tcVarInit ty) vars
+tcVarDecl :: Location loc => Scope -> VariableDeclaration loc -> TcM loc (VariableDeclaration (Typed loc))
+tcVarDecl scope (VariableDeclaration l tyspec vars) = do
+    tyspec' <- tcTypeSpec tyspec
+    let ty = typed $ loc tyspec'
+    vars' <- mapM (tcVarInit scope ty) vars
     return $ VariableDeclaration (notTyped l) tyspec' vars'
 
--- NOTE: return type without array sizes
-tcTypeSpec :: Location loc => TypeSpecifier loc -> TcM loc (TypeSpecifier (Typed loc),Type)
-tcTypeSpec = error "type spec"
-
-tcVarInit :: Location loc => Type -> VariableInitialization loc -> TcM loc (VariableInitialization (Typed loc))
-tcVarInit ty (VariableInitialization l v@(VarName vl vn) szs e) = do
-    szs' <- mapM (tcSizes v (typeDim ty)) szs
+tcVarInit :: Location loc => Scope -> Type -> VariableInitialization loc -> TcM loc (VariableInitialization (Typed loc))
+tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
+    d <- tcReaderM $ typeDim l ty
+    szs' <- mapM (tcSizes v d) szs
     e' <- mapM (tcReaderM . tcExprTy (typeBase ty)) e
     -- add the array size to the type
     let v' = VarName (Typed vl (refineTypeSizes ty szs')) vn
+    -- add variable to the environment
+    newVariable scope v'
     return $ VariableInitialization (notTyped l) v' szs' e'
 
 tcSizes :: Location loc => VarName loc -> Int -> Sizes loc -> TcM loc (Sizes (Typed loc))
 tcSizes v d (Sizes szs) = do
     -- check array's dimension
     unless (d == lengthNe szs) $ tcError (locpos $ loc v) $ MismatchingArrayDimension d (lengthNe szs) (fmap locpos v)
-    szs' <- mapM (tcSize v) szs
+    szs' <- mapM (tcDimSizeExpr $ Just v) szs
     return $ Sizes szs'
 
-tcSize :: Location loc => VarName loc -> Expression loc -> TcM loc (Expression (Typed loc))
-tcSize v sz = do
-    (sz',ty) <- tcReaderM $ tcExpr sz
-    -- size must be a value of the longest unsigned int
-    tcReaderM $ coerces (loc sz) ty (PrimType $ DatatypeUint64 ())
-    -- check if size is static and if so evaluate it
-    mb <- tcLocM notTyped unTyped $ tcReaderM $ integerLitExpr sz'
-    case mb of
-        Nothing -> do
-            tcWarn (locpos $ loc sz') $ DependentArraySize (fmap locpos sz') (fmap locpos v)
-            return sz'
-        Just isz' -> return isz'             
+        
 
 
 

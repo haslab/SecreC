@@ -341,8 +341,7 @@ Template_type_arguments
 
 Dimtype_specifier :: { DimtypeSpecifier Position }
 Dimtype_specifier
-    : '[' '[' Int_literal ']' ']' { DimIntSpecifier (loc $1) (unLoc $3) }
-    | '[' '[' VarId ']' ']' { DimVarSpecifier (loc $1) $3 }
+    : '[' '[' Expression ']' ']' { DimSpecifier (loc $1) $1 }
 
 -- Templates:                                                                
 
@@ -384,10 +383,10 @@ Return_type_specifier
     : VOID { ReturnType (loc $1) Nothing }
     | Type_specifier { ReturnType (loc $1) (Just $1) }
 
-Procedure_definition :: { ProcedureDefinition Position }
+Procedure_definition :: { ProcedureDeclaration Position }
 Procedure_definition
     : Operator_definition { $1 }
-    | Return_type_specifier ProcedureId '(' Procedure_parameter_list ')' Compound_statement { ProcedureDefinition (loc $1) $1 $2 $4 (unLoc $6) }
+    | Return_type_specifier ProcedureId '(' Procedure_parameter_list ')' Compound_statement { ProcedureDeclaration (loc $1) $1 $2 $4 (unLoc $6) }
   
 Procedure_parameter_list :: { [ProcedureParameter Position] }
 Procedure_parameter_list
@@ -421,9 +420,9 @@ Op
     | SHL_OP  { OpShl  }
     | SHR_OP  { OpShr  }
 
-Operator_definition :: { ProcedureDefinition Position }
+Operator_definition :: { ProcedureDeclaration Position }
 Operator_definition
-    :  Return_type_specifier OPERATOR Op Op_helper { let (ps,ss) = $4 in OperatorDefinition (loc $1) $1 $3 ps ss }
+    :  Return_type_specifier OPERATOR Op Op_helper { let (ps,ss) = $4 in OperatorDeclaration (loc $1) $1 $3 ps ss }
 
 -- Statements:                                                              
 
@@ -486,7 +485,6 @@ Print_statement :: { Statement Position }
 Print_statement
     : PRINT '(' Expression_list ')' ';' { PrintStatement (loc $1) $3 }
 
-
 Dowhile_statement :: { Statement Position }
 Dowhile_statement
     : DO Statement WHILE '(' Expression ')' ';' { DowhileStatement (loc $1) $2 $5 }
@@ -507,10 +505,10 @@ Syscall_parameters
 
 Syscall_parameter :: { SyscallParameter Position }
 Syscall_parameter
-    : Expression { SyscallPush (loc $1) $1 }
-    | SYSCALL_RETURN VarId { SyscallReturn (loc $1) $2 }
+    : SYSCALL_RETURN VarId { SyscallReturn (loc $1) $2 }
     | REF VarId { SyscallPushRef (loc $1) $2 }
     | CREF Expression { SyscallPushCRef (loc $1) $2 }
+    | Expression { SyscallPush (loc $1) $1 }
 
 -- Indices: not strictly expressions as they only appear in specific context  
 
@@ -739,7 +737,11 @@ Literal
 -- Parser Functions ------------------------------------------------------------
 
 parseFile :: String -> IO (Module Position)
-parseFile fn = liftIO (readFile fn) >>= parseSecreC fn
+parseFile fn = do
+    str <- liftIO (readFile fn)
+    let toks = runIdAlexTokens fn str
+    print toks
+    parseSecreC fn str
 
 parseSecreC :: String -> String -> IO (Module Position)
 parseSecreC fn str = case runIdAlex fn str parse of
@@ -751,9 +753,9 @@ parseError info = do
     flushLexer 
     f <- gets filename 
     let e = case tSymb info of
-            TokenError -> LexicalException (tText info)
+            TokenError -> LexicalException info
             TokenEOF   -> EOFException
-            _          -> ParsingException (tText info)
+            _          -> ParsingException info
     throwError $ parserError (tLoc info) f e
 
 }

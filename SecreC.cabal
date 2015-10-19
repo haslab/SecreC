@@ -1,0 +1,49 @@
+Name:               SecreC
+Version:            0.0.1
+Description:        SecreC analyser
+License:            GPL
+License-file:       COPYING
+Author:             Cryptography and Information Security Group, HASLab - INESC TEC and Universidade do Minho
+Maintainer:         Hugo Pacheco <hpacheco@gmail.com>
+Bug-reports:        mailto:hpacheco@gmail.com
+Stability:          experimental
+Homepage:           
+Category:           Compiler, Cryptography, Language
+Build-Type:         Simple
+Cabal-Version:      >=1.6
+Tested-with:        GHC==7.8.3
+Synopsis:           SecreC Analyser
+
+Extra-Source-Files: README.md examples tests stdlib
+
+Executable cao
+  Main-is:          Main.hs
+  Other-Modules:
+                        Language.SecreC.Parser.Derp
+                        Language.SecreC.Parser.Lexer
+                        Language.SecreC.Parser.Parsec
+                        Language.SecreC.Parser.Tokens
+                        Language.SecreC.TypeChecker.Base
+                        Language.SecreC.TypeChecker.Expression
+                        Language.SecreC.TypeChecker.Statement
+                        Language.SecreC.TypeChecker.Type
+                        Language.SecreC.Error
+                        Language.SecreC.Location
+                        Language.SecreC.Modules
+                        Language.SecreC.Monad
+                        Language.SecreC.Parser
+                        Language.SecreC.Position
+                        Language.SecreC.Pretty
+                        Language.SecreC.Syntax
+                        Language.SecreC.TypeChecker
+                        Language.SecreC.Utils
+                        Language.SecreC.Vars
+                        Text.Derp
+                        Text.Derp.Combinator
+  
+  Hs-source-dirs:   src
+  Build-Depends:    
+  ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
+  
+  Build-Tools:      alex
+

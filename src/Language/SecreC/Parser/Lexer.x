@@ -10,13 +10,10 @@ import Control.Monad.State
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Position
 import Language.SecreC.Error
-import Language.SecreC.Parser.IdLexer
 
 }
 
 %wrapper "monadUserState"
-
-
 
 -- Character classes
 
@@ -49,17 +46,19 @@ tokens :-
 <0>       \/\*              { enterNewComment }
 <comment> \/\*              { embedComment    }
 <comment> \*\/              { unembedComment  }
+<comment> @newline                 ;
+<comment> .                 ;
 
 <0>       $white+           ;
                         
 -- String literals:   
 <0>                     \"                      { enterStateString }
-<state_string>          \"                      { saveStateString }
+<state_string>          \"                      { leaveStateString }
 <state_string>          \$                      { enterStateStringVariable }
 <state_string>          \\n                     { bufferChar (const '\n') }
 <state_string>          \\t                     { bufferChar (const '\t') }
 <state_string>          \\r                     { bufferChar (const '\r') }
-<state_string>          \\.                     { bufferChar (!!1) }
+<state_string>          \\\.                     { bufferChar (!!1) }
 <state_string>          .                       { bufferChar (!!0) }
 
 -- String identifier:
@@ -126,12 +125,12 @@ tokens :-
 <0>                     __return              { lexerTokenInfo SYSCALL_RETURN }
 <0>                     __syscall             { lexerTokenInfo SYSCALL }
 
-<0>                     @identifier             { lexerTokenInfoFunc (return . flip IDENTIFIER Nothing) }
+<0>                     @identifier             { lexerTokenInfoFunc (return . IDENTIFIER) }
 <0>                     @binarylit              { lexerTokenInfoFunc (return . BIN_LITERAL . convert_to_base 2) }
 <0>                     @octallit               { lexerTokenInfoFunc (return . OCT_LITERAL . convert_to_base 8) }
 <0>                     @hexlit                 { lexerTokenInfoFunc (return . HEX_LITERAL . convert_to_base 16) }
-<0>                     @simplefloat            { lexerTokenInfoFunc (return . FLOAT_LITERAL . read) }
-<0>                     @scientificfloat        { lexerTokenInfoFunc (return . FLOAT_LITERAL . read) }
+<0>                     @simplefloat            { lexerTokenInfoFunc (return . FLOAT_LITERAL . readFloat) }
+<0>                     @scientificfloat        { lexerTokenInfoFunc (return . FLOAT_LITERAL . readFloat) }
 <0>                     @decimal                { lexerTokenInfoFunc (return . DEC_LITERAL . convert_to_base 10) }
 
 <0>                     \+=                   { lexerTokenInfo ADD_ASSIGN }
@@ -153,38 +152,12 @@ tokens :-
 <0>                     \-=                   { lexerTokenInfo SUB_ASSIGN }
 <0>                     ::                   { lexerTokenInfo TYPE_QUAL }
 <0>                     ^=                   { lexerTokenInfo XOR_ASSIGN }
-<0>                     =                 { lexerTokenInfo (CHAR '=') }
-<0>                     \?                 { lexerTokenInfo (CHAR '?') }
-<0>                     :                 { lexerTokenInfo (CHAR ':') }
-<0>                     \.                 { lexerTokenInfo (CHAR '.') }
-<0>                     \,                    { lexerTokenInfo (CHAR ',') }
-<0>                     \(                    { lexerTokenInfo (CHAR '(') }
-<0>                     \)                    { lexerTokenInfo (CHAR ')') }
-<0>                     \{                    { lexerTokenInfo (CHAR '{') }
-<0>                     \}                    { lexerTokenInfo (CHAR '}') }
-<0>                     !                    { lexerTokenInfo (CHAR '!') }
-<0>                     \~                     { lexerTokenInfo (CHAR '~') }
-<0>                     \[                     { lexerTokenInfo (CHAR '[') }
-<0>                     \]                     { lexerTokenInfo (CHAR ']') }
-<0>                     \;                     { lexerTokenInfo (CHAR ';') }
-<0>                     \|                     { lexerTokenInfo (CHAR '|') }
-<0>                     \^                     { lexerTokenInfo (CHAR '^') }
-<0>                     &                     { lexerTokenInfo (CHAR '&') }
-<0>                     \<                     { lexerTokenInfo (CHAR '<') }
-<0>                     \>                     { lexerTokenInfo (CHAR '>') }
-<0>                     \+                     { lexerTokenInfo (CHAR '+') }
-<0>                     \-                     { lexerTokenInfo (CHAR '-') }
-<0>                     \*                     { lexerTokenInfo (CHAR '*') }
-<0>                     \/                     { lexerTokenInfo (CHAR '/') }
-<0>                     \%                     { lexerTokenInfo (CHAR '%') }
 
-<0>                     $simpleop               { skip }
+<0>                     $simpleop               { simpleOp }
 <0>                     @newline                { skip }
 <0>                     $whitespace             { skip }
 
 <0>                     .                       { lexerTokenInfoFunc handleError     }
-<comment>               .                       ;
-
 
 {
 
@@ -200,6 +173,9 @@ lexerTokenInfoFunc f (AlexPn a ln c, _, _, s) l = do
     r <- f (take (fromIntegral l) s)
     fn <- alexFilename
     return $ TokenInfo r (take (fromIntegral l) s) (pos fn ln c a)
+
+simpleOp :: AlexInput -> Int -> Alex TokenInfo
+simpleOp input len = lexerTokenInfoFunc (return . CHAR . head) input len
 
 handleError :: String -> Alex Token
 handleError _ = return TokenError
@@ -219,11 +195,15 @@ enterStateStringVariable :: AlexInput -> Int -> Alex TokenInfo
 enterStateStringVariable input len = do
     alexSetStartCode state_string_variable
     saveStateString input len
+
+leaveStateString :: AlexInput -> Int -> Alex TokenInfo
+leaveStateString i n = do
+    alexSetStartCode 0
+    saveStateString i n
     
 saveStateString :: AlexInput -> Int -> Alex TokenInfo
 saveStateString input len = do
     aus <- get
-    skip input len
     modify (\ aus -> aus { stateString = "" } )
     lexerTokenInfo (STR_FRAGMENT $ stateString aus) input len
 
@@ -231,7 +211,6 @@ leaveStateStringVariable :: AlexInput -> Int -> Alex TokenInfo
 leaveStateStringVariable input len = do
     aus <- get
     alexSetStartCode state_string
-    skip input len
     lexerTokenInfo (STR_IDENTIFIER $ stateString aus) input len
 
 enterNewComment :: AlexInput -> Int -> Alex TokenInfo
@@ -260,14 +239,13 @@ data AlexUserState = AlexUserState
     , types        :: [String]
     , commentDepth :: Integer
     , stateString  :: String
-    , tokens       :: [TokenInfo]
     }
 
 alexFilename :: Alex String
 alexFilename = liftM filename get
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "" [] 0 "" []
+alexInitUserState = AlexUserState "" [] 0 ""
 
 instance MonadState AlexUserState Alex where
     get = alexGetUserState
@@ -277,7 +255,7 @@ instance MonadError SecrecError Alex where
     throwError e = Alex $ \ s -> Left (show e)
     catchError (Alex un) f = Alex $ \ s -> either (catchMe s) Right (un s)
         where 
-        catchMe s = fmap (split (const s) id) . runAlex "" . f . read
+        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError
 
 {-# INLINE split #-}
 split :: (a -> b) -> (a -> c) -> a -> (b, c)
@@ -292,40 +270,29 @@ alexEOF = do
 
 -- Processing Functions --------------------------------------------------------
 
-runIdAlex :: String -> String -> Alex a -> Either String a
-runIdAlex fn str parse = runAlex str $ do
+runLexerWith :: String -> String -> ([TokenInfo] -> Alex a) -> Either String a
+runLexerWith fn str parse = runAlex str $ do
     put (alexInitUserState { filename = fn })
-    toks <- getAlexTokens
-    idtoks <- runIdLexer fn toks
-    modify $ \aus -> aus { tokens = idtoks }
-    parse
+    toks <- getTokens
+    parse toks
 
-runIdAlexTokens :: String -> String -> Either String [TokenInfo]
-runIdAlexTokens fn str = runIdAlex fn str $ liftM tokens get
+runLexer :: String -> String -> Either String [TokenInfo]
+runLexer fn str = runLexerWith fn str return
 
 injectResult :: Either String a -> Alex a
-injectResult (Left err) = throwError (read err)
+injectResult (Left err) = throwError (GenericError err)
 injectResult (Right a) = return a
 
 -- | Alex lexer
---lexer :: (TokenInfo -> Alex a) -> Alex a
---lexer cont = alexMonadScan >>= cont
-
--- Composite lexer
 lexer :: (TokenInfo -> Alex a) -> Alex a
-lexer cont = do
-    next <- state $ \aus -> let tok:toks = tokens aus in (tok,aus {tokens = toks} )
-    cont next
+lexer cont = alexMonadScan >>= cont
 
-getAlexTokens :: Alex [TokenInfo]
-getAlexTokens = do 
+getTokens :: Alex [TokenInfo]
+getTokens = do 
     tok <- alexMonadScan
     case tSymb tok of
         TokenEOF -> return [tok]
-        _ -> liftM (tok:) getAlexTokens
-
-getTokens :: Alex [TokenInfo]
-getTokens = liftM tokens get
+        _ -> liftM (tok:) getTokens
 
 flushLexer :: Alex ()
 flushLexer = return ()

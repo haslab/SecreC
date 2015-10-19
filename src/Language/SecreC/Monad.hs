@@ -11,21 +11,50 @@ import Control.Applicative
 import Control.Monad.Catch
 import Control.Exception (throwIO)
 import Control.Monad.Signatures
+import Control.Monad.Reader (MonadReader,ReaderT(..),ask,local)
+import qualified Control.Monad.Reader as Reader
+
 import Data.Generics
 
 import System.IO
 
-data SecrecM a = SecrecM { runSecrecM :: IO (Either SecrecError (a,[SecrecWarning])) }
-  deriving (Data,Typeable)
+-- | SecreC options
+data Options
+    = Opts  { 
+          inputs                :: [FilePath]
+        , outputs               :: [FilePath]
+        , paths                 :: [FilePath]
+        , parser                :: ParserOpt
+        , knowledgeInference    :: Bool
+        , typeCheck             :: Bool
+        , debugLexer            :: Bool
+        , debugParser           :: Bool
+        }
+    | Help
+    deriving (Show, Data, Typeable)
 
-ioSecrecM :: SecrecM a -> IO a
-ioSecrecM m = do
+data ParserOpt = Parsec | Derp
+  deriving (Data,Typeable,Read,Show)
+
+defaultOptions :: Options
+defaultOptions = Opts [] [] [] Parsec False True False False
+
+-- | SecreC Monad
+data SecrecM a = SecrecM { runSecrecM :: ReaderT Options IO (Either SecrecError (a,[SecrecWarning])) }
+  deriving (Typeable)
+
+ioSecrecM :: Options -> SecrecM a -> IO a
+ioSecrecM opts m = flip runReaderT opts $ do
     e <- runSecrecM m
     case e of
         Left err -> throwError $ userError $ show err
         Right (x,warns) -> do
-            forM_ warns $ \w -> hPutStrLn stderr (show w)
+            forM_ warns $ \w -> lift $ hPutStrLn stderr (show w)
             return x
+
+instance MonadReader Options SecrecM where
+    ask = SecrecM $ liftM (Right . (,[])) ask
+    local f (SecrecM m) = SecrecM $ local f m 
 
 instance MonadWriter [SecrecWarning] SecrecM where
     writer (x,ws) = SecrecM $ return $ Right (x,ws)
@@ -41,7 +70,7 @@ instance MonadError SecrecError SecrecM where
             otherwise -> return x
 
 instance MonadIO SecrecM where
-    liftIO io = SecrecM $ liftM (Right . (,[])) io
+    liftIO io = SecrecM $ lift $ liftM (Right . (,[])) io
 
 instance MonadThrow SecrecM where
 	throwM e = liftIO $ throwIO e
@@ -49,14 +78,14 @@ instance MonadThrow SecrecM where
 instance MonadCatch SecrecM where
     catch = liftCatch catch
 
-liftCatch :: Catch e IO (Either SecrecError (a,[SecrecWarning])) -> Catch e SecrecM a
+liftCatch :: Catch e (ReaderT Options IO) (Either SecrecError (a,[SecrecWarning])) -> Catch e SecrecM a
 liftCatch catchE m h = SecrecM $ runSecrecM m `catchE` \ e -> runSecrecM (h e)
 
 instance MonadMask SecrecM where
 	mask a = SecrecM $ mask $ \u -> runSecrecM (a $ liftMask u)	
 	uninterruptibleMask a = SecrecM $ uninterruptibleMask $ \u -> runSecrecM (a $ liftMask u)
 
-liftMask :: (IO ((Either SecrecError (a,[SecrecWarning]))) -> IO ((Either SecrecError (a,[SecrecWarning])))) -> SecrecM a -> SecrecM a
+liftMask :: (ReaderT Options IO ((Either SecrecError (a,[SecrecWarning]))) -> ReaderT Options IO ((Either SecrecError (a,[SecrecWarning])))) -> SecrecM a -> SecrecM a
 liftMask u (SecrecM b) = SecrecM (u b)
 
 instance Functor SecrecM where

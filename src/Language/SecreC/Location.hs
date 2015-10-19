@@ -15,9 +15,12 @@ class Location (LocOf a) => Located a where
 
 class Location loc where
     locpos :: loc -> Position
+    -- | Default location
+    noloc :: loc
     
 instance Location Position where
     locpos = id
+    noloc = UnhelpfulPos "no position info"
     
 data Loc loc a = Loc loc a
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)

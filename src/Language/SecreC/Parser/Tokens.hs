@@ -2,6 +2,8 @@
 
 module Language.SecreC.Parser.Tokens where
 
+import Safe
+
 import Data.Generics
 import Text.PrettyPrint
 
@@ -19,6 +21,11 @@ data TokenInfo
         }
   deriving (Show,Read,Data,Typeable)
 
+instance Eq TokenInfo where
+    x == y = tSymb x == tSymb y
+instance Ord TokenInfo where
+    compare x y = compare (tSymb x) (tSymb y)
+
 instance Located TokenInfo where
     type LocOf TokenInfo = Position
     loc = tLoc
@@ -34,8 +41,7 @@ data Token
     | BOOL
     | BREAK
     | CAT
-    | CONTINUE
-    | CRef 
+    | CONTINUE 
     | DECLASSIFY
     | DIMENSIONALITY
     | DO
@@ -88,7 +94,7 @@ data Token
     | STRINGFROMBYTES
     | SYSCALL_RETURN
     | SYSCALL
-    | IDENTIFIER String (Maybe IdentifierType)
+    | IDENTIFIER String
     | BIN_LITERAL Integer
     | OCT_LITERAL Integer
     | HEX_LITERAL Integer
@@ -115,9 +121,10 @@ data Token
     | XOR_ASSIGN
     | TokenEOF
     | TokenError
-  deriving (Show,Read,Data,Typeable,Eq)
+  deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP Token where
+    pp (STR_FRAGMENT s) = text s
     pp (STR_IDENTIFIER s) = text s
     pp (CHAR c) = char c
     pp ASSERT = text "assert"
@@ -177,7 +184,7 @@ instance PP Token where
     pp STRINGFROMBYTES = text "__string_from_bytes"
     pp SYSCALL_RETURN = text "__return"
     pp SYSCALL = text "__syscall"
-    pp (IDENTIFIER s _) = text s
+    pp (IDENTIFIER s) = text s
     pp (BIN_LITERAL i) = text (convert_from_base 2 i)
     pp (OCT_LITERAL i) = text (convert_from_base 8 i)
     pp (HEX_LITERAL i) = text (convert_from_base 1 i)
@@ -202,7 +209,7 @@ instance PP Token where
     pp SUB_ASSIGN = text "-="
     pp TYPE_QUAL = text "::"
     pp XOR_ASSIGN = text "^="
-    pp TokenEOF = text ""
+    pp TokenEOF = text "<EOF>"
     pp TokenError = text "error <unknown>"
 
 isIntToken :: Token -> Bool
@@ -212,23 +219,11 @@ isIntToken (HEX_LITERAL i) = True
 isIntToken (DEC_LITERAL i) = True
 isIntToken _ = False
 
-data IdentifierType
-    = DomainID
-    | KindID
-    | VarID
-    | TypeID
-    | ProcedureID
-    | TemplateArgID -- domain, type or variable identifier
-    | ModuleID
-  deriving (Show,Read,Data,Typeable,Eq,Ord)
-
 convertBase :: Integral a => a -> a -> [a] -> [a]
 convertBase from to = digits to . unDigits from
 
 convert_to_base :: Int -> String -> Integer
-convert_to_base base input = unDigits (toEnum base) $ convertBase 10 (toEnum base) ds
-    where
-    ds :: [Integer] = read input
+convert_to_base base input = unDigits (toEnum base) $ convertBase 10 (toEnum base) $ digits 10 $ readInteger input
 
 convert_from_base :: Int -> Integer -> String
 convert_from_base base input = concatMap show ds10
@@ -262,7 +257,7 @@ isPrimitiveTypeToken _          = False
 tokenString :: TokenInfo -> String
 tokenString (TokenInfo (STR_FRAGMENT s) _ _) = s
 tokenString (TokenInfo (STR_IDENTIFIER s) _ _) = s
-tokenString (TokenInfo (IDENTIFIER s _) _ _) = s
+tokenString (TokenInfo (IDENTIFIER s) _ _) = s
 
 tokenInteger :: TokenInfo -> Integer
 tokenInteger (TokenInfo (BIN_LITERAL i) _ _) = i
@@ -276,4 +271,11 @@ tokenBool (TokenInfo FALSE_B _ _) = False
 
 tokenFloat :: TokenInfo -> Float
 tokenFloat (TokenInfo (FLOAT_LITERAL f) _ _) = f
+
+readFloat :: String -> Float
+readFloat = readNote "read Float"
+
+readInteger :: String -> Integer
+readInteger = readNote "read Integer"
+
 

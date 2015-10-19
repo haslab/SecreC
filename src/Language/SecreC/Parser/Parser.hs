@@ -61,7 +61,7 @@ data HappyAbsSyn
 	| HappyAbsSyn41 ([Attribute Position])
 	| HappyAbsSyn42 (Attribute Position)
 	| HappyAbsSyn43 (ReturnTypeSpecifier Position)
-	| HappyAbsSyn44 (ProcedureDefinition Position)
+	| HappyAbsSyn44 (ProcedureDeclaration Position)
 	| HappyAbsSyn45 ([ProcedureParameter Position])
 	| HappyAbsSyn46 (([ProcedureParameter Position],[Statement Position]))
 	| HappyAbsSyn47 (Op)
@@ -6397,7 +6397,7 @@ action_436 _ = happyFail
 
 action_437 _ = happyReduce_151
 
-action_438 _ = happyReduce_152
+action_438 _ = happyReduce_155
 
 action_439 (100) = happyShift action_170
 action_439 (101) = happyShift action_171
@@ -6469,11 +6469,11 @@ action_441 _ = happyFail
 
 action_442 _ = happyReduce_144
 
-action_443 _ = happyReduce_153
+action_443 _ = happyReduce_152
 
-action_444 _ = happyReduce_154
+action_444 _ = happyReduce_153
 
-action_445 _ = happyReduce_155
+action_445 _ = happyReduce_154
 
 action_446 (100) = happyShift action_170
 action_446 (101) = happyShift action_171
@@ -7500,7 +7500,7 @@ happyReduction_92 ((HappyAbsSyn49  happy_var_6) `HappyStk`
 	(HappyAbsSyn43  happy_var_1) `HappyStk`
 	happyRest)
 	 = HappyAbsSyn44
-		 (ProcedureDefinition (loc happy_var_1) happy_var_1 happy_var_2 happy_var_4 (unLoc happy_var_6)
+		 (ProcedureDeclaration (loc happy_var_1) happy_var_1 happy_var_2 happy_var_4 (unLoc happy_var_6)
 	) `HappyStk` happyRest
 
 happyReduce_93 = happySpecReduce_3  45 happyReduction_93
@@ -7655,7 +7655,7 @@ happyReduction_116 ((HappyAbsSyn46  happy_var_4) `HappyStk`
 	(HappyAbsSyn43  happy_var_1) `HappyStk`
 	happyRest)
 	 = HappyAbsSyn44
-		 (let (ps,ss) = happy_var_4 in OperatorDefinition (loc happy_var_1) happy_var_1 happy_var_3 ps ss
+		 (let (ps,ss) = happy_var_4 in OperatorDeclaration (loc happy_var_1) happy_var_1 happy_var_3 ps ss
 	) `HappyStk` happyRest
 
 happyReduce_117 = happySpecReduce_2  49 happyReduction_117
@@ -7954,36 +7954,36 @@ happyReduction_151 (HappyAbsSyn63  happy_var_1)
 	)
 happyReduction_151 _  = notHappyAtAll 
 
-happyReduce_152 = happySpecReduce_1  63 happyReduction_152
-happyReduction_152 (HappyAbsSyn68  happy_var_1)
+happyReduce_152 = happySpecReduce_2  63 happyReduction_152
+happyReduction_152 (HappyAbsSyn6  happy_var_2)
+	(HappyTerminal happy_var_1)
 	 =  HappyAbsSyn63
-		 (SyscallPush (loc happy_var_1) happy_var_1
+		 (SyscallReturn (loc happy_var_1) happy_var_2
 	)
-happyReduction_152 _  = notHappyAtAll 
+happyReduction_152 _ _  = notHappyAtAll 
 
 happyReduce_153 = happySpecReduce_2  63 happyReduction_153
 happyReduction_153 (HappyAbsSyn6  happy_var_2)
 	(HappyTerminal happy_var_1)
 	 =  HappyAbsSyn63
-		 (SyscallReturn (loc happy_var_1) happy_var_2
+		 (SyscallPushRef (loc happy_var_1) happy_var_2
 	)
 happyReduction_153 _ _  = notHappyAtAll 
 
 happyReduce_154 = happySpecReduce_2  63 happyReduction_154
-happyReduction_154 (HappyAbsSyn6  happy_var_2)
-	(HappyTerminal happy_var_1)
-	 =  HappyAbsSyn63
-		 (SyscallPushRef (loc happy_var_1) happy_var_2
-	)
-happyReduction_154 _ _  = notHappyAtAll 
-
-happyReduce_155 = happySpecReduce_2  63 happyReduction_155
-happyReduction_155 (HappyAbsSyn68  happy_var_2)
+happyReduction_154 (HappyAbsSyn68  happy_var_2)
 	(HappyTerminal happy_var_1)
 	 =  HappyAbsSyn63
 		 (SyscallPushCRef (loc happy_var_1) happy_var_2
 	)
-happyReduction_155 _ _  = notHappyAtAll 
+happyReduction_154 _ _  = notHappyAtAll 
+
+happyReduce_155 = happySpecReduce_1  63 happyReduction_155
+happyReduction_155 (HappyAbsSyn68  happy_var_1)
+	 =  HappyAbsSyn63
+		 (SyscallPush (loc happy_var_1) happy_var_1
+	)
+happyReduction_155 _  = notHappyAtAll 
 
 happyReduce_156 = happySpecReduce_3  64 happyReduction_156
 happyReduction_156 _
@@ -8990,7 +8990,11 @@ happySeq = happyDontSeq
 -- Parser Functions ------------------------------------------------------------
 
 parseFile :: String -> IO (Module Position)
-parseFile fn = liftIO (readFile fn) >>= parseSecreC fn
+parseFile fn = do
+    str <- liftIO (readFile fn)
+    let toks = runIdAlexTokens fn str
+    print toks
+    parseSecreC fn str
 
 parseSecreC :: String -> String -> IO (Module Position)
 parseSecreC fn str = case runIdAlex fn str parse of
@@ -9002,9 +9006,9 @@ parseError info = do
     flushLexer 
     f <- gets filename 
     let e = case tSymb info of
-            TokenError -> LexicalException (tText info)
+            TokenError -> LexicalException info
             TokenEOF   -> EOFException
-            _          -> ParsingException (tText info)
+            _          -> ParsingException info
     throwError $ parserError (tLoc info) f e
 {-# LINE 1 "templates/GenericTemplate.hs" #-}
 -- Id: GenericTemplate.hs,v 1.26 2005/01/14 14:47:22 simonmar Exp 

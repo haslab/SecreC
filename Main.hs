@@ -6,13 +6,14 @@ module Main where
 import qualified Data.List as List
 import Data.List.Split
 
-import Language.SecreC.Parser.Parser
 import Language.SecreC.Pretty
 import Language.SecreC.Syntax
 import Language.SecreC.Position
 import Language.SecreC.Modules
 import Language.SecreC.TypeChecker.Base
+import Language.SecreC.TypeChecker
 import Language.SecreC.Monad
+import Language.SecreC.Utils
 
 import System.Console.CmdArgs
 import System.Environment
@@ -31,24 +32,16 @@ main = do
 
 -- * front-end options
 
-data Options
-    = Opts  { 
-          inputs                :: [FilePath]
-        , output                :: Maybe FilePath
-        , paths                 :: [FilePath]
-        , knowledgeInference    :: Bool
-        , typeCheck             :: Bool
-        }
-    | Help
-    deriving (Show, Data, Typeable)
-
 opts  :: Options
 opts  = Opts { 
       inputs                = def &= args &= typ "FILE.sc"
-    , output                = def &= typ "FILE.sc" &= help "Output SecreC file"
+    , outputs               = def &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
     , paths                 = def &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
+    , parser                = Parsec &= typ "parsec OR derp" &= "backend Parser type"
     , knowledgeInference    = def &= name "ki" &= help "Infer private data from public data" &= groupname "Optimization"
     , typeCheck             = True &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
+    , debugLexer            = def &= name "debug-lexer" &= explicit &= help "Print lexer tokens to stderr" &= groupname "Debugging"
+    , debugParser            = def &= name "debug-parser" &= explicit &= help "Print parser result to stderr" &= groupname "Debugging"
     }
     &= help "SecreC analyser"
 
@@ -77,25 +70,46 @@ getOpts = getArgs >>= doGetOpts
 processOpts :: Options -> Options
 processOpts opts = Opts
     (inputs opts)
-    (output opts)
-    (parsePaths (paths opts))
+    (parsePaths $ outputs opts)
+    (parsePaths $ paths opts)
     (knowledgeInference opts)
     (typeCheck opts || knowledgeInference opts)
+    (debugLexer opts)
+    (debugParser opts)
 
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")
 
 -- back-end code
 
+data OutputType = OutputFile FilePath | OutputStdout | NoOutput
+  deriving (Show,Read,Data,Typeable)
+
+defaultOutputType = NoOutput
+
+-- | Set output mode for processed modules:
+-- * inputs with explicit output files write to the file
+-- * inputs without explicit output files write to stdout
+-- * non-input modules do not output
+resolveOutput :: [FilePath] -> [FilePath] -> [Module Position] -> [(Module Position,OutputType)]
+resolveOutput inputs outputs modules = map res modules
+    where
+    db = zipLeft secrecFiles (outputs opts) 
+    res m = case List.find (moduleFile m) db of
+        Just (Just o) -> OutputFile o
+        Just Nothing -> OutputStdout
+        Nothing -> NoOutput
+
 secrec :: Options -> IO ()
 secrec opts = do
     let secrecFiles = inputs opts
     when (List.null secrecFiles) $ error "no SecreC input files"
-    ioSecrecM $ do
-        modules <- parseModuleFiles (paths opts) secrecFiles
-        when (typeCheck opts) $ runTcM $ forM_ modules $ \ast -> do
-            -- TODO: make this actually do something!
-            liftIO $ secreCOutput opts ast
+    ioSecrecM opts $ do
+        modules <- parseModuleFiles secrecFiles
+        moduleso <- resolveOutput inputs outputs modules
+        when (typeCheck opts) $ runTcM $ do
+            typedModulesO <- mapFstM tcModule moduleso
+            return ()
 
 secreCOutput :: Options -> Module loc -> IO ()
 secreCOutput opts ast = case output opts of

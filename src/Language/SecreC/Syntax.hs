@@ -9,12 +9,16 @@ import Text.PrettyPrint
 
 import Language.SecreC.Pretty
 import Language.SecreC.Location
+import Language.SecreC.Position
 import Language.SecreC.Utils
 
 -- Program and variable declarations:                                          
 
 data Module loc = Module loc (Maybe (ModuleName loc)) (Program loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+
+moduleFile :: Location loc => Module loc -> String
+moduleFile (Module l _ _) = posFileName $ locpos l
 
 moduleId :: Module loc -> Identifier
 moduleId (Module _ Nothing _) = "main"
@@ -30,6 +34,16 @@ instance Location loc => Located (Module loc) where
 instance PP (Module loc) where
     pp (Module _ (Just modulename) prog) = text "module" <+> pp modulename <+> text "where" $$ pp prog
     pp (Module _ Nothing prog) = pp prog
+
+data AttributeName loc = AttributeName loc Identifier
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  
+instance Location loc => Located (AttributeName loc) where
+    type LocOf (AttributeName loc) = loc
+    loc (AttributeName l _) = l
+  
+instance PP (AttributeName loc) where
+    pp (AttributeName _ iden) = text iden
 
 data ModuleName loc = ModuleName loc Identifier
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
@@ -84,7 +98,7 @@ data GlobalDeclaration loc
     = GlobalVariable loc (VariableDeclaration loc)
     | GlobalDomain loc (DomainDeclaration loc)
     | GlobalKind loc (KindDeclaration loc)
-    | GlobalProcedure loc (ProcedureDefinition loc)
+    | GlobalProcedure loc (ProcedureDeclaration loc)
     | GlobalStructure loc (StructureDeclaration loc)
     | GlobalTemplate loc (TemplateDeclaration loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
@@ -118,6 +132,9 @@ instance PP (KindDeclaration loc) where
   
 data KindName loc = KindName loc Identifier
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+
+kindId :: KindName loc -> Identifier
+kindId (KindName _ n) = n
 
 instance Location loc => Located (KindName loc) where
     type LocOf (KindName loc) = loc
@@ -169,6 +186,9 @@ instance PP (VarName loc) where
 data TypeName loc = TypeName loc Identifier
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
+typeId :: TypeName loc -> Identifier
+typeId (TypeName _ i) = i
+
 instance Location loc => Located (TypeName loc) where
     type LocOf (TypeName loc) = loc
     loc (TypeName l _) = l
@@ -192,7 +212,7 @@ instance PP (VariableInitialization loc) where
     pp (VariableInitialization _ v dim ex) = pp v <+> ppDim dim <+> ppExp ex
         where
         ppDim Nothing = empty
-        ppDim (Just dim) = braces (pp dim)
+        ppDim (Just dim) = parens (pp dim)
         ppExp Nothing = empty
         ppExp (Just e) = text "=" <+> pp e
 
@@ -219,8 +239,11 @@ instance Location loc => Located (VariableDeclaration loc) where
 instance PP (VariableDeclaration loc) where
     pp (VariableDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
 
-data (ProcedureParameter loc) = ProcedureParameter loc (TypeSpecifier loc) (VarName loc)
+data ProcedureParameter loc = ProcedureParameter loc (TypeSpecifier loc) (VarName loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+
+procedureParameterName :: ProcedureParameter loc -> VarName loc
+procedureParameterName (ProcedureParameter _ _ n) = n
 
 instance Location loc => Located (ProcedureParameter loc) where
     type LocOf (ProcedureParameter loc) = loc
@@ -364,33 +387,33 @@ instance PP (TemplateTypeArgument loc) where
     pp (PublicTemplateTypeArgument _) = text "public"
   
 data DimtypeSpecifier loc
-    = DimIntSpecifier loc Integer
-    | DimVarSpecifier loc (VarName loc)
+    = DimSpecifier loc (Expression loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (DimtypeSpecifier loc) where
     type LocOf (DimtypeSpecifier loc) = loc
-    loc (DimIntSpecifier l _) = l
-    loc (DimVarSpecifier l _) = l
+    loc (DimSpecifier l _) = l
   
 instance PP (DimtypeSpecifier loc) where
-    pp (DimIntSpecifier _ i) = brackets $ brackets $ integer i
-    pp (DimVarSpecifier _ n) = brackets $ brackets $ pp n
+    pp (DimSpecifier _ n) = brackets $ brackets $ pp n
   
 -- Templates:                                                                  
 
 data TemplateDeclaration loc
-    = TemplateStructureDeclaration loc (NeList (TemplateQuantifier loc)) (StructureDeclaration loc)
-    | TemplateProcedureDeclaration loc (NeList (TemplateQuantifier loc)) (ProcedureDefinition loc)
+    = TemplateStructureDeclaration loc [TemplateQuantifier loc] (StructureDeclaration loc)
+    | TemplateStructureSpecialization loc [TemplateQuantifier loc] [TemplateTypeArgument loc] (StructureDeclaration loc)
+    | TemplateProcedureDeclaration loc [TemplateQuantifier loc] (ProcedureDeclaration loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (TemplateDeclaration loc) where
     type LocOf (TemplateDeclaration loc) = loc
     loc (TemplateStructureDeclaration l _ _) = l
+    loc (TemplateStructureSpecialization l _ _ _) = l
     loc (TemplateProcedureDeclaration l _ _) = l
   
 instance PP (TemplateDeclaration loc) where
-    pp (TemplateStructureDeclaration _ qs struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> pp struct
+    pp (TemplateStructureDeclaration _ qs struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct Nothing struct
+    pp (TemplateStructureSpecialization _ qs specials struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct (Just specials) struct
     pp (TemplateProcedureDeclaration _ qs proc) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> pp proc
   
 data TemplateQuantifier loc
@@ -415,15 +438,22 @@ instance PP (TemplateQuantifier loc) where
 
 data StructureDeclaration loc = StructureDeclaration loc (TypeName loc) [Attribute loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
+ 
+structureDeclarationId :: StructureDeclaration loc -> Identifier
+structureDeclarationId (StructureDeclaration _ tn _) = typeId tn
+ 
 instance Location loc => Located (StructureDeclaration loc) where
     type LocOf (StructureDeclaration loc) = loc
     loc (StructureDeclaration l _ _) = l
   
 instance PP (StructureDeclaration loc) where
-    pp (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
+    pp s = ppStruct Nothing s
   
-data Attribute loc = Attribute loc (TypeSpecifier loc) (VarName loc)
+ppStruct :: Maybe [TemplateTypeArgument loc] -> StructureDeclaration loc -> Doc
+ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
+ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> (sepBy comma (fmap pp specials)) <+> braces (vcat $ map pp as)
+  
+data Attribute loc = Attribute loc (TypeSpecifier loc) (AttributeName loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (Attribute loc) where
@@ -446,62 +476,84 @@ instance PP (ReturnTypeSpecifier loc) where
     pp (ReturnType loc Nothing) = text "void"
     pp (ReturnType loc (Just t)) = pp t
   
-data ProcedureDefinition loc
-    = OperatorDefinition loc (ReturnTypeSpecifier loc) Op [ProcedureParameter loc] [Statement loc]
-    | ProcedureDefinition loc (ReturnTypeSpecifier loc) (ProcedureName loc) [ProcedureParameter loc] [Statement loc]
+data ProcedureDeclaration loc
+    = OperatorDeclaration loc (ReturnTypeSpecifier loc) (Op loc) [ProcedureParameter loc] [Statement loc]
+    | ProcedureDeclaration loc (ReturnTypeSpecifier loc) (ProcedureName loc) [ProcedureParameter loc] [Statement loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (ProcedureDefinition loc) where
-    type LocOf (ProcedureDefinition loc) = loc
-    loc (OperatorDefinition l _ _ _ _) = l
-    loc (ProcedureDefinition l _ _ _ _) = l
+instance Location loc => Located (ProcedureDeclaration loc) where
+    type LocOf (ProcedureDeclaration loc) = loc
+    loc (OperatorDeclaration l _ _ _ _) = l
+    loc (ProcedureDeclaration l _ _ _ _) = l
   
-instance PP (ProcedureDefinition loc) where
-    pp (OperatorDefinition _ ret op params stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
-    pp (ProcedureDefinition _ ret proc params stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
+instance PP (ProcedureDeclaration loc) where
+    pp (OperatorDeclaration _ ret op params stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
+    pp (ProcedureDeclaration _ ret proc params stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
   
-data Op
-    = OpAdd
-    | OpBand 
-    | OpBor  
-    | OpDiv  
-    | OpGt   
-    | OpLt   
-    | OpMod  
-    | OpMul  
-    | OpSub  
-    | OpXor  
-    | OpEq   
-    | OpGe   
-    | OpLand 
-    | OpLe   
-    | OpLor  
-    | OpNe   
-    | OpShl  
-    | OpShr  
-    | OpExcM
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
+data Op loc
+    = OpAdd      loc
+    | OpBand     loc
+    | OpBor      loc
+    | OpDiv      loc
+    | OpGt       loc
+    | OpLt       loc
+    | OpMod      loc
+    | OpMul      loc
+    | OpSub      loc
+    | OpXor      loc
+    | OpEq       loc
+    | OpGe       loc
+    | OpLand     loc
+    | OpLe       loc
+    | OpLor      loc
+    | OpNe       loc
+    | OpShl      loc
+    | OpShr      loc
+    | OpExcM     loc
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
 
-instance PP Op where
-    pp OpAdd  = text "+"
-    pp OpBand = text "&" 
-    pp OpBor  = text "|" 
-    pp OpDiv  = text "/" 
-    pp OpGt   = text ">" 
-    pp OpLt   = text "<" 
-    pp OpMod  = text "%" 
-    pp OpMul  = text "*" 
-    pp OpSub  = text "-" 
-    pp OpXor  = text "^" 
-    pp OpEq   = text "==" 
-    pp OpGe   = text ">=" 
-    pp OpLand = text "&&" 
-    pp OpLe   = text "<=" 
-    pp OpLor  = text "||" 
-    pp OpNe   = text "!=" 
-    pp OpShl  = text "<<" 
-    pp OpShr  = text ">>" 
-    pp OpExcM = text "!"
+instance PP (Op loc) where
+    pp (OpAdd  l) = text "+"
+    pp (OpBand l) = text "&" 
+    pp (OpBor  l) = text "|" 
+    pp (OpDiv  l) = text "/" 
+    pp (OpGt   l) = text ">" 
+    pp (OpLt   l) = text "<" 
+    pp (OpMod  l) = text "%" 
+    pp (OpMul  l) = text "*" 
+    pp (OpSub  l) = text "-" 
+    pp (OpXor  l) = text "^" 
+    pp (OpEq   l) = text "==" 
+    pp (OpGe   l) = text ">=" 
+    pp (OpLand l) = text "&&" 
+    pp (OpLe   l) = text "<=" 
+    pp (OpLor  l) = text "||" 
+    pp (OpNe   l) = text "!=" 
+    pp (OpShl  l) = text "<<" 
+    pp (OpShr  l) = text ">>" 
+    pp (OpExcM l) = text "!"
+  
+instance Location loc => Located (Op loc) where
+    type LocOf (Op loc) = loc
+    loc (OpAdd  l) = l
+    loc (OpBand l) = l
+    loc (OpBor  l) = l
+    loc (OpDiv  l) = l
+    loc (OpGt   l) = l
+    loc (OpLt   l) = l
+    loc (OpMod  l) = l
+    loc (OpMul  l) = l
+    loc (OpSub  l) = l
+    loc (OpXor  l) = l
+    loc (OpEq   l) = l 
+    loc (OpGe   l) = l 
+    loc (OpLand l) = l 
+    loc (OpLe   l) = l 
+    loc (OpLor  l) = l 
+    loc (OpNe   l) = l 
+    loc (OpShl  l) = l 
+    loc (OpShr  l) = l 
+    loc (OpExcM l) = l
   
 -- Statements: 
 
@@ -953,7 +1005,7 @@ data PostfixExpression loc
     | BytesFromStringExpr loc (Expression loc)
     | ProcCallExpr loc (ProcedureName loc) [Expression loc]
     | PostIndexExpr loc (PostfixExpression loc) (Subscript loc)
-    | SelectionExpr loc (PostfixExpression loc) (VarName loc)
+    | SelectionExpr loc (PostfixExpression loc) (AttributeName loc)
     | PostPrimExpr loc (PrimaryExpression loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
