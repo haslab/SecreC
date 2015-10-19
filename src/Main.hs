@@ -116,6 +116,6 @@ secrec opts = do
             then runTcM $ do
                 --typedModulesO <- mapFstM tcModule moduleso
                 printMsg "are well-typed"
-            else printMsg "parsed"
+            else printMsg "parsed OK"
         
 

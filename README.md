@@ -29,5 +29,5 @@ Currently only the parser is functional.
 To test the parser for a concrete program, you can invoke the tool with the typechecker disabled, e.g.:
 ```
 > secrec examples/sign_x_y.sc --paths=stdlib/lib --tc=false
-Modules sign_x_y, stdlib parsed.
+Modules sign_x_y, stdlib parsed OK.
 ```
