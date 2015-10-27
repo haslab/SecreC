@@ -27,6 +27,14 @@ type Substs a = (VarOf a -> Maybe (SubstOf a))
 class Vars a => Subst a where
     type SubstOf a :: *
     subst :: Substs a -> a -> a
+    
+    emptySubsts :: Proxy a -> Substs a
+    emptySubsts _ = const Nothing
+    
+    appendSubsts :: Proxy a -> Substs a -> Substs a -> Substs a
+    appendSubsts _ f g v = case f v of
+        Nothing -> g v
+        Just x -> Just x
 
 substTraversable :: (Traversable t,Subst a) => Substs a -> t a -> t a
 substTraversable s = fmap (subst s)

@@ -38,6 +38,9 @@ instance PP (Module loc) where
 data AttributeName loc = AttributeName loc Identifier
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
+attributeNameId :: AttributeName loc -> Identifier
+attributeNameId (AttributeName _ i) = i
+  
 instance Location loc => Located (AttributeName loc) where
     type LocOf (AttributeName loc) = loc
     loc (AttributeName l _) = l
@@ -257,6 +260,9 @@ instance PP (ProcedureParameter loc) where
 data TypeSpecifier loc = TypeSpecifier loc (Maybe (SecTypeSpecifier loc)) (DatatypeSpecifier loc) (Maybe (DimtypeSpecifier loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
+typeSpecifierLoc :: TypeSpecifier loc -> loc
+typeSpecifierLoc (TypeSpecifier l _ _ _) = l
+
 instance Location loc => Located (TypeSpecifier loc) where
     type LocOf (TypeSpecifier loc) = loc
     loc (TypeSpecifier l _ _ _) = l

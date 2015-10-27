@@ -65,34 +65,34 @@ tcStmt ret (CompoundStatement l s) = do
     (ss',t) <- tcBlock $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
 tcStmt ret (IfStatement l condE thenS Nothing) = do
-    condE' <- tcReaderM $ tcGuard condE
+    condE' <- tcGuard condE
     (thenS',StmtType cs) <- tcBlock $ tcNonEmptyStmt ret thenS
     -- an if falls through if the condition is not satisfied
     let t = StmtType $ Set.insert StmtFallthru cs
     return (IfStatement (notTyped l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
-    condE' <- tcReaderM $ tcGuard condE
+    condE' <- tcGuard condE
     (thenS',StmtType cs1) <- tcBlock $ tcNonEmptyStmt ret thenS
     (elseS',StmtType cs2) <- tcBlock $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped l) condE' thenS' (Just elseS'),t)
 tcStmt ret (ForStatement l startE whileE incE bodyS) = tcBlock $ do
     startE' <- tcForInitializer startE
-    whileE' <- mapM (tcReaderM . tcGuard) whileE
-    incE' <- mapM (liftM fst . tcReaderM . tcExpr) incE
+    whileE' <- mapM (tcGuard) whileE
+    incE' <- mapM (tcExpr) incE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped l) startE' whileE' incE' bodyS',t')
 tcStmt ret (WhileStatement l condE bodyS) = do
-    condE' <- tcReaderM $ tcGuard condE
+    condE' <- tcGuard condE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped l) condE' bodyS',t')
 tcStmt ret (PrintStatement l argsE) = error "tcStmt print statement"
 tcStmt ret (DowhileStatement l bodyS condE) = do
-    condE' <- tcReaderM $ tcGuard condE
+    condE' <- tcGuard condE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (DowhileStatement (notTyped l) bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
-    argE' <- tcReaderM $ tcGuard argE
+    argE' <- tcGuard argE
     let t = StmtType $ Set.singleton StmtFallthru
     return (AssertStatement (notTyped l) argE',t)
 tcStmt ret (SyscallStatement l sysproc args) = error "tcStmt syscall statement"
@@ -105,7 +105,8 @@ tcStmt ret (ReturnStatement l Nothing) = do
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
-    (e',et') <- tcReaderM $ tcExpr e
+    e' <- tcExpr e
+    let et' = typed $ loc e'
     tcReaderM $ coerces l et' ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) (Just e'),t)
@@ -116,14 +117,14 @@ tcStmt ret (BreakStatement l) = do
     let t = StmtType (Set.singleton StmtBreak)
     return (BreakStatement $ Typed l t,t)
 tcStmt ret (ExpressionStatement l e) = do
-    (e',et') <- tcReaderM $ tcExpr e -- we discard the expression's result type
+    e' <- tcExpr e -- we discard the expression's result type
     let t = StmtType (Set.singleton StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
 
 tcForInitializer :: Location loc => ForInitializer loc -> TcM loc (ForInitializer (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing
 tcForInitializer (InitializerExpression (Just e)) = do
-    (e',t) <- tcReaderM $ tcExpr e
+    e' <- tcExpr e
     return $ InitializerExpression $ Just e'
 tcForInitializer (InitializerVariable vd) = do
     vd' <- tcVarDecl LocalScope vd
@@ -138,19 +139,21 @@ tcVarDecl scope (VariableDeclaration l tyspec vars) = do
 
 tcVarInit :: Location loc => Scope -> Type -> VariableInitialization loc -> TcM loc (VariableInitialization (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
-    d <- tcReaderM $ typeDim l ty
+    d <- typeDim l ty
     szs' <- mapM (tcSizes v d) szs
-    e' <- mapM (tcReaderM . tcExprTy (typeBase ty)) e
+    e' <- mapM (tcExprTy (typeBase ty)) e
     -- add the array size to the type
     let v' = VarName (Typed vl (refineTypeSizes ty szs')) vn
     -- add variable to the environment
     newVariable scope v'
     return $ VariableInitialization (notTyped l) v' szs' e'
 
-tcSizes :: Location loc => VarName loc -> Int -> Sizes loc -> TcM loc (Sizes (Typed loc))
-tcSizes v d (Sizes szs) = do
+tcSizes :: Location loc => VarName loc -> Maybe Integer -> Sizes loc -> TcM loc (Sizes (Typed loc))
+tcSizes v Nothing (Sizes szs) = tcError (locpos $ loc v) $ NoDimensionForMatrixInitialization (varNameId v)
+tcSizes v (Just d) (Sizes szs) = do
     -- check array's dimension
-    unless (d == lengthNe szs) $ tcError (locpos $ loc v) $ MismatchingArrayDimension d (lengthNe szs) (fmap locpos v)
+    let ds = toEnum (lengthNe szs)
+    unless (d == ds) $ tcError (locpos $ loc v) $ MismatchingArrayDimension d ds $ Just (fmap locpos v)
     szs' <- mapM (tcDimSizeExpr $ Just v) szs
     return $ Sizes szs'
 

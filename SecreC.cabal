@@ -42,7 +42,7 @@ Executable secrec
                         Text.Derp.Combinator
   
   Hs-source-dirs:   src
-  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl, array
+  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array
   ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
   
   Build-Tools:      alex

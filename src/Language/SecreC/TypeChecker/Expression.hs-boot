@@ -5,14 +5,16 @@ import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.TypeChecker.Base
 
-tcExpr :: Location loc => Expression loc -> TcReaderM loc (Expression (Typed loc),Type)
+tcExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
 
-tcGuard :: Location loc => Expression loc -> TcReaderM loc (Expression (Typed loc))
+tcGuard :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
 
-integerLitExpr :: Location loc => Expression loc -> TcReaderM loc (Maybe (Expression loc,Int))
+integerLitExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc),Maybe Integer)
 
-tcExprTy :: Location loc => Type -> Expression loc -> TcReaderM loc (Expression (Typed loc))
+tcExprTy :: Location loc => Type -> Expression loc -> TcM loc (Expression (Typed loc))
 
 tcDimSizeExpr :: Location loc => Maybe (VarName loc) -> Expression loc -> TcM loc (Expression (Typed loc))
 
-zeroExpr :: Expression ()
+integerExpr :: Integer -> Expression ()
+
+isStaticIntegerExpr :: Location loc => Expression () -> TcM loc (Maybe Integer)

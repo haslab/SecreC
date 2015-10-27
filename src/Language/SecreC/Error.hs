@@ -29,12 +29,17 @@ data SecrecError = TypecheckerError Position TypecheckerErr
 
 data TypecheckerErr
     = UnreachableDeadCode [Statement Position]
-    | MismatchingArrayDimension Int Int (VarName Position)
+    | NonStaticDimension -- ^ array dimension is not known statically
+    | MismatchingArrayDimension -- ^ array dimension does not match sizes
+        Integer -- defined dimension
+        Integer -- expected dimension
+        (Maybe (VarName Position)) -- name of the array variable
     | MultipleDefinedVariable (VarName Position)
     | NoReturnStatement (Either (Op Position) (ProcedureName Position))
-    | NoStaticDimension (Expression Position)
     | NoTemplateType (TypeName Position) Position
-    | NoMatchingTemplate (TypeName Position) [TemplateTypeArgument Position] [Position]
+    | NoMatchingTemplateOrProcedure -- ^ suitable template instantiation not found
+        Identifier -- ^ template name
+        [Position] -- ^ declared instantiations in scope
     | NotDefinedDomain Identifier
     | NotDefinedKind Identifier
     | InvalidDomainVariableName -- ^ a domain already exists with the declared domain variable name
@@ -48,6 +53,8 @@ data TypecheckerErr
         Position -- ^ position of the existing kind definition
     | NotDefinedType -- ^ type not found
         Identifier -- ^ type name
+    | NotDefinedProcedure -- ^ procedure not found
+        Identifier -- ^ procedure name
     | NoNonTemplateType -- ^ found a template type instead of a regular type
         Identifier -- ^ type name
     | MultipleDefinedDomain -- ^ a newly-declared domain already exists
@@ -62,6 +69,21 @@ data TypecheckerErr
     | MultipleDefinedStructTemplate -- ^ overloaded template structs not supported
         Identifier -- ^ template name
         Position -- ^ position of the already defined struct
+    | EqualityException -- ^ @equals@ fails to prove equality
+        String
+    | ComparisonException -- ^ @compares@ fails to compare two types
+        String
+    | MultipleDefinedStruct -- ^ a struct is multiply defined
+        Identifier -- ^struct name
+        Position -- ^existing definition
+    | NonDeclassifiableExpression -- ^ an expression cannot be declassified
+    | FieldNotFound -- ^ field not found in structure definition
+        Identifier -- ^ field name
+    | NoDimensionForMatrixInitialization -- ^ no static dimension known for matrix initialization
+        Identifier -- variable name
+    | ArrayAccessOutOfBounds
+        Integer -- array size
+        (Integer,Integer) -- selection range
   deriving (Show,Read,Data,Typeable)
 
 data ModuleErr
@@ -90,10 +112,13 @@ data SecrecWarning = TypecheckerWarning Position TypecheckerWarn
   
 data TypecheckerWarn
     = UnusedVariable Identifier
-    | DependentDimensionSize (Expression Position) (Maybe (VarName Position))
+    | DependentSizeSelection -- dependent size in selection
+    | DependentMatrixSize (Expression Position) (Maybe (VarName Position))
     | EmptyBranch (Statement Position)
     | SingleIterationLoop (Statement Position)
     | ShadowedVariable
         Identifier -- ^ name of the shadowed variable
         Position -- ^ shadowed position
+    | NoStaticDimension -- ^ matrix dimension not known at static time
+        (Expression Position)
   deriving (Show,Read,Data,Typeable)

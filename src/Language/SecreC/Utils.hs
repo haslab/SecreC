@@ -2,7 +2,7 @@
 
 module Language.SecreC.Utils where
 
-import Data.Generics
+import Data.Generics hiding (GT)
 import Data.Traversable as Traversable
 import Data.Foldable
 import Data.Map (Map(..))
@@ -61,9 +61,28 @@ mapFstM f = Traversable.mapM (\(a,c) -> liftM (,c) $ f a)
 funzip :: Traversable t => t (a,b) -> (t a,t b)
 funzip xs = (fmap fst xs,fmap snd xs)
 
-mapAndUnzipM :: (Traversable t,Monad m) => (a -> m (b,c)) -> t a -> m (t b,t c)
+mapAndUnzipM :: (Monad m,Traversable t) => (c -> m (a,b)) -> t c -> m (t a,t b)
 mapAndUnzipM f = liftM funzip . Traversable.mapM f
 
 sortByM :: Monad m => (a -> a -> m Ordering) -> [a] -> m [a]
-sortByM = undefined
+sortByM cmp = mergeAll <=< sequences
+  where
+    sequences (a:b:xs) = do { ok <- a `cmp` b; if ok == GT then descending b [a]  xs else ascending  b (a:) xs }
+    sequences xs = return [xs]
+
+    descending a as (b:bs) = do { ok <- a `cmp` b; if ok == GT then descending b (a:as) bs else liftM ((a:as):) (sequences (b:bs)) }
+    descending a as bs  = liftM ((a:as):) (sequences bs)
+
+    ascending a as (b:bs) = do { ok <- a `cmp` b; if ok /= GT then ascending b (\ys -> as (a:ys)) bs else liftM (as [a]:) (sequences (b:bs)) }
+    ascending a as bs   = liftM (as [a]:) (sequences bs)
+
+    mergeAll [x] = return x
+    mergeAll xs  = mergePairs xs >>= mergeAll
+
+    mergePairs (a:b:xs) = do { h <- merge a b;  t <- mergePairs xs; return (h:t) }
+    mergePairs xs       = return xs
+
+    merge as@(a:as') bs@(b:bs') = do { ok <- a `cmp` b; if ok == GT then liftM (b:) (merge as bs') else liftM (a:) (merge as' bs) }
+    merge [] bs         = return bs
+    merge as []         = return as
 

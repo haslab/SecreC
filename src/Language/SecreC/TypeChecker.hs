@@ -57,7 +57,7 @@ tcDomainDecl (Domain l d@(DomainName dl dn) k) = do
     let t = DType $ Just $ kindId k
     let d' = DomainName (Typed dl t) dn
     newDomain d'
-    checkKind k
+    tcReaderM $ checkKind k
     return $ Domain (notTyped l) d' (fmap notTyped k)
 
 tcKindDecl :: Location loc => KindDeclaration loc -> TcM loc (KindDeclaration (Typed loc))
@@ -87,7 +87,8 @@ tcProcedureDecl addOp addProc (ProcedureDeclaration l ret proc@(ProcedureName pl
     ps' <- mapM tcProcedureParam ps
     (s',st) <- tcStmts tret s
     when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Right $ fmap locpos proc)
-    let tproc = ProcType (map (fmap typed . procedureParameterName) ps') tret
+    let vars = map (fmap typed . procedureParameterName) ps'
+    let tproc = ProcType vars tret
     let proc' = ProcedureName (Typed pl tproc) pn
     addProc proc'
     return $ ProcedureDeclaration (notTyped l) ret' proc' ps' s'
@@ -113,23 +114,20 @@ tcAttribute (Attribute l ty v@(AttributeName vl vn)) = do
     ty' <- tcTypeSpec ty
     let t = typed $ loc ty'
     let v' = AttributeName (Typed vl t) vn
-    newField v'
     return $ Attribute (notTyped l) ty' v'
 
---tcTemplateTypeArgument :: Location loc => TemplateTypeArgument loc -> TcM loc (TemplateTypeArgument (Typed loc))
-
 tcTemplateDecl :: Location loc => TemplateDeclaration loc -> TcM loc (TemplateDeclaration (Typed loc))
-tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplateTypeBlock $ do
+tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplateBlock $ do
     (targs',toList -> tvars) <- mapAndUnzipM tcTemplateQuantifier targs
     s' <- tcStructureDecl (addTemplateStruct tvars) s
     return $ TemplateStructureDeclaration (notTyped l) targs' s'
-tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplateTypeBlock $ do
+tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplateBlock $ do
     (targs',toList -> tvars) <- mapAndUnzipM tcTemplateQuantifier targs
     tspecials' <- mapM tcTemplateTypeArgument tspecials
     let tspecs = map (typed . loc) tspecials'
     s' <- tcStructureDecl (addTemplateStructSpecialization tvars tspecs) s
     return $ TemplateStructureSpecialization (notTyped l) targs' tspecials' s'
-tcTemplateDecl (TemplateProcedureDeclaration l targs p) = do
+tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplateBlock $ do
     (targs',toList -> tvars) <- mapAndUnzipM tcTemplateQuantifier targs
     p' <- tcProcedureDecl (addTemplateOperator tvars) (addTemplateProcedure tvars) p
     return $ TemplateProcedureDeclaration (notTyped l) targs' p'
@@ -139,7 +137,7 @@ tcTemplateQuantifier (DomainQuantifier l v@(DomainName dl dn) mbk) = do
     (mbk,dk) <- case mbk of
         Just k -> do -- domain variable of kind @k@
             k' <- tcKindName k
-            checkKind k
+            tcReaderM $ checkKind k
             return (Just k',Just $ kindId k)
         Nothing -> do -- domain variable of any kind
             return (Nothing,Nothing)
