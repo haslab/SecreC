@@ -71,6 +71,8 @@ data TypecheckerErr
         Position -- ^ position of the already defined struct
     | EqualityException -- ^ @equals@ fails to prove equality
         String
+    | UnificationException -- ^ @unifies@ fails to unify two types
+        String
     | ComparisonException -- ^ @compares@ fails to compare two types
         String
     | MultipleDefinedStruct -- ^ a struct is multiply defined
@@ -84,6 +86,8 @@ data TypecheckerErr
     | ArrayAccessOutOfBounds
         Integer -- array size
         (Integer,Integer) -- selection range
+    | VariableNotFound -- variable not found in scope
+        Identifier -- ^ variable name
   deriving (Show,Read,Data,Typeable)
 
 data ModuleErr

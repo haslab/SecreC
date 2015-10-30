@@ -10,6 +10,7 @@ import Language.SecreC.Position
 import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Unification
 
 import Data.Traversable
 import Data.Maybe
@@ -19,7 +20,12 @@ import qualified Data.Set as Set
 import Data.Map (Map(..))
 import qualified Data.Map as Map
 import Data.List as List
+
 import Control.Monad hiding (mapM)
+import Control.Monad.Trans
+import Control.Monad.State (State(..),StateT(..))
+import qualified Control.Monad.State as State
+
 import Prelude hiding (mapM)
 
 tcTypeSpec :: Location loc => TypeSpecifier loc -> TcM loc (TypeSpecifier (Typed loc))
@@ -54,8 +60,8 @@ tcDatatypeSpec (PrimitiveSpecifier l p) = do
 tcDatatypeSpec tplt@(TemplateSpecifier {}) = do
     b <- insideTemplate
     if b
-        then tcTemplateTypeConstraint tplt
-        else tcTemplateTypeResolve tplt 
+        then tcTemplateTypeConstraint tplt -- delaying constraint resolution within templates is closer to C++'s template mechanism
+        else tcTemplateTypeResolve tplt -- outside templates we simply resolve the template constraint
 tcDatatypeSpec (VariableSpecifier l v) = do
     t <- tcReaderM $ checkNonTemplateType v
     let v' = fmap (flip Typed t) v 
@@ -65,8 +71,9 @@ tcDatatypeSpec (VariableSpecifier l v) = do
 tcTemplateTypeConstraint :: Location loc => DatatypeSpecifier loc -> TcM loc (DatatypeSpecifier (Typed loc))
 tcTemplateTypeConstraint (TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM tcTemplateTypeArgument args
-    let t = TApp tn (map (typed . loc) args') mempty
-    let cstr = TCstr (Left tn) (map (typed . loc) args')
+    let ts = map (typed . loc) args'
+    let t = TApp (Left tn) ts mempty
+    let cstr = TCstr (Left tn) ts
     let l' = Typed l t
     let n' = fmap notTyped n -- we dont't type the template name, only the application
     addTemplateConstraint cstr -- add constraint to the environment
@@ -79,7 +86,7 @@ tcTemplateTypeResolve :: Location loc => DatatypeSpecifier loc -> TcM loc (Datat
 tcTemplateTypeResolve (TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM tcTemplateTypeArgument args
     let targs = map (typed . loc) args'
-    (t,pos,_) <- matchTemplateType l tn targs (checkTemplateType n) mempty
+    (t,pos,_) <- matchTemplateType l (Left tn) targs (checkTemplateType n) mempty
     let l' = Typed l t
     let n' = fmap notTyped n -- we don't type the template name, only the application
     return $ TemplateSpecifier l' n' args'
@@ -91,14 +98,14 @@ resolveTemplateConstraints l cstrs dict = foldM (\d c -> resolveTemplateConstrai
 -- | Matches a constraint and produces a dictionary as a witness
 resolveTemplateConstraint :: Location loc => loc -> TCstr -> TDict -> TcM loc TDict
 resolveTemplateConstraint l (TCstr (Left n) args) dict = do
-    (t,pos,dict') <- matchTemplateType l n args (checkTemplateType (TypeName l n)) dict
+    (t,pos,dict') <- matchTemplateType l (Left n) args (checkTemplateType (TypeName l n)) dict
     return dict'
 resolveTemplateConstraint l (TCstr (Right n) args) dict = do
-    (t,pos,dict') <- matchTemplateType l n args (checkProcedure (ProcedureName l n)) dict
+    (t,pos,dict') <- matchTemplateType l (Right n) args (checkProcedure (ProcedureName l n)) dict
     return dict'
     
 -- | Matches a list of template arguments against a list of template declarations
-matchTemplateType :: Location loc => loc -> Identifier -> [Type] -> TcReaderM loc [EntryEnv loc] -> TDict -> TcM loc (Type,Position,TDict)
+matchTemplateType :: Location loc => loc -> TIdentifier -> [Type] -> TcReaderM loc [EntryEnv loc] -> TDict -> TcM loc (Type,Position,TDict)
 matchTemplateType l n args check dict = do
     entries <- tcReaderM $ check
     let entries' = case lookupTDict n args dict of
@@ -106,43 +113,46 @@ matchTemplateType l n args check dict = do
             Just p -> filter (\e -> locpos (entryLoc e) == p) entries
     instances <- instantiateTemplateEntries n args entries'
     case instances of
-        [] -> tcError (locpos l) $ NoMatchingTemplateOrProcedure n (map (locpos . entryLoc) entries')
+        [] -> tcError (locpos l) $ NoMatchingTemplateOrProcedure (tId n) (map (locpos . entryLoc) entries')
         es -> do
             -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
-            ((e,subst):_) <- tcReaderM $ sortByM (compareTemplateDecls l n) es
+            ((e,subst):_) <- sortByM (compareTemplateDecls l n) es
             -- return the instantiated body of the most specific declaration
             resolveTemplateEntry e subst $ mappend dict $ TDict $ Map.singleton (n,args) (locpos l)
 
 resolveTemplateEntry :: Location loc => EntryEnv loc -> Substs Type -> TDict -> TcM loc (Type,Position,TDict)
 resolveTemplateEntry e s dict = case entryType e of
-    TpltType vars cstrs specials body -> do
+    TpltType _ vars cstrs specials body -> do
         let cstrs' = substTraversable s cstrs -- specialize the constraints
         let specials' = substTraversable s specials -- specialize the specializations
         dict' <- resolveTemplateConstraints (entryLoc e) cstrs' dict -- compute a dictionary from the constraints
         let body' = subst s body -- specialize the struct's body
         let body'' = addTDict dict' body' -- pass the dictionary to resolve inner template instantiations
+        removeTemplateConstraints dict'
         return (body'',locpos $ entryLoc e,dict')
 
 -- | Tells if one declaration is strictly more specific than another, and if not it fails
-compareTemplateDecls :: Location loc => loc -> Identifier -> (EntryEnv loc,Substs Type) -> (EntryEnv loc,Substs Type) -> TcReaderM loc Ordering
+compareTemplateDecls :: Location loc => loc -> TIdentifier -> (EntryEnv loc,Substs Type) -> (EntryEnv loc,Substs Type) -> TcM loc Ordering
 compareTemplateDecls l n (e1,s1) (e2,d2) = do
-    ord <- comparesList l (uniqueTemplateArgs n e1) (uniqueTemplateArgs n e2)
-    when (ord == EQ) $ tcError (locpos l) $ ComparisonException $ "Duplicate instances for template or overload" ++ n
+    e1' <- localTemplate e1
+    e2' <- localTemplate e2
+    (ord,_) <- tcProofM $ comparesList l (templateArgs n $ e1') (templateArgs n e2')
+    when (ord == EQ) $ tcError (locpos l) $ ComparisonException $ "Duplicate instances for template or overload" ++ tId n
     return ord
      
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
-instantiateTemplateEntries :: Location loc => Identifier -> [Type] -> [EntryEnv loc] -> TcM loc [(EntryEnv loc,Substs Type)]
+instantiateTemplateEntries :: Location loc => TIdentifier -> [Type] -> [EntryEnv loc] -> TcM loc [(EntryEnv loc,Substs Type)]
 instantiateTemplateEntries n args es = foldM (\xs e -> liftM (xs ++) (instantiateTemplateEntry n args e)) [] es
 
-instantiateTemplateEntry :: Location loc => Identifier -> [Type] -> EntryEnv loc -> TcM loc [(EntryEnv loc,Substs Type)]
+instantiateTemplateEntry :: Location loc => TIdentifier -> [Type] -> EntryEnv loc -> TcM loc [(EntryEnv loc,Substs Type)]
 instantiateTemplateEntry n args e = do
-    -- we are just unifying type variables, without coercions, and hence just check for pure equality
-    ok <- tcReaderM $ prove (equalsList (entryLoc e) args $ uniqueTemplateArgs n e)
+    e' <- localTemplate e
+    ok <- prove (unifiesList (entryLoc e) args $ templateArgs n e')
     case ok of
         Nothing -> return []
-        Just subst -> return [(e,subst)]
+        Just ((),subst) -> return [(e,subst)]
 
 tcPrimitiveDatatype :: Location loc => PrimitiveDatatype loc -> TcM loc (PrimitiveDatatype (Typed loc))
 tcPrimitiveDatatype p = do
@@ -193,14 +203,14 @@ tcRetTypeSpec (ReturnType l (Just s)) = do
 typeDim :: Location loc => loc -> Type -> TcM loc (Maybe Integer)
 typeDim l (CType _ _ e _) = do
     let le = fmap (const noloc) e
-    (_,mb) <- integerLitExpr le
+    (_,mb) <- uintLitExpr le
     when (isNothing mb) $ tcWarn (locpos l) $ NoStaticDimension (fmap locpos le)
     return mb
 typeDim l _ = error "no dimension"
 
 projectMatrixType :: Location loc => loc -> Type -> [(Maybe Integer,Maybe Integer)] -> TcM loc Type
 projectMatrixType l (CType sec t dim szs) rngs = do
-    mb <- isStaticIntegerExpr dim
+    mb <- isStaticUintExpr dim
     case mb of
         Nothing -> tcError (locpos l) $ NonStaticDimension
         Just d -> do
@@ -214,7 +224,7 @@ projectSizes :: Location loc => loc -> [Expression ()] -> [(Maybe Integer,Maybe 
 projectSizes l [] _ = return []
 projectSizes l _ [] = return []
 projectSizes l (x:xs) (y:ys) = do
-    mb <- isStaticIntegerExpr x
+    mb <- isStaticUintExpr x
     z <- case mb of
         Just sz -> do
             let low = maybe 0 id (fst y)
@@ -230,11 +240,11 @@ projectSizes l (x:xs) (y:ys) = do
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
 projectStructField :: Location loc => loc -> Type -> AttributeName loc -> TcM loc Type
-projectStructField l (StructType atts) (AttributeName _ a) = do -- project the field
+projectStructField l (StructType _ atts) (AttributeName _ a) = do -- project the field
     case List.find (\(Attribute _ t f) -> attributeNameId f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound a
         Just (Attribute _ t f) -> return $ typeSpecifierLoc t
-projectStructField l (TApp n args dict) a = do -- resolve templates
-    (t,pos,dict') <- matchTemplateType l n args (checkTemplateType (TypeName l n)) dict
+projectStructField l (TApp n@(Left iden) args dict) a = do -- resolve templates
+    (t,pos,dict') <- matchTemplateType l n args (checkTemplateType (TypeName l iden)) dict
     projectStructField l t a -- project the field
 

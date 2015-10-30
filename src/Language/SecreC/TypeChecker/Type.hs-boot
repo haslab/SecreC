@@ -14,7 +14,7 @@ tcRetTypeSpec :: Location loc => ReturnTypeSpecifier loc -> TcM loc (ReturnTypeS
 
 typeDim :: Location loc => loc -> Type -> TcM loc (Maybe Integer)
 
-matchTemplateType :: Location loc => loc -> Identifier -> [Type] -> TcReaderM loc [EntryEnv loc] -> TDict -> TcM loc (Type,Position,TDict)
+matchTemplateType :: Location loc => loc -> TIdentifier -> [Type] -> TcReaderM loc [EntryEnv loc] -> TDict -> TcM loc (Type,Position,TDict)
 
 projectStructField :: Location loc => loc -> Type -> AttributeName loc -> TcM loc Type
 

@@ -98,7 +98,7 @@ data Token
     | BIN_LITERAL Integer
     | OCT_LITERAL Integer
     | HEX_LITERAL Integer
-    | FLOAT_LITERAL Float
+    | FLOAT_LITERAL Double
     | DEC_LITERAL Integer
     | ADD_ASSIGN
     | AND_ASSIGN
@@ -269,10 +269,10 @@ tokenBool :: TokenInfo -> Bool
 tokenBool (TokenInfo TRUE_B _ _) = True
 tokenBool (TokenInfo FALSE_B _ _) = False
 
-tokenFloat :: TokenInfo -> Float
+tokenFloat :: TokenInfo -> Double
 tokenFloat (TokenInfo (FLOAT_LITERAL f) _ _) = f
 
-readFloat :: String -> Float
+readFloat :: String -> Double
 readFloat = readNote "read Float"
 
 readInteger :: String -> Integer

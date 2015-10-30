@@ -13,6 +13,7 @@ import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Unification
 
 import Data.Traversable
 import Data.Set (Set(..))
@@ -78,7 +79,7 @@ tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     return (IfStatement (notTyped l) condE' thenS' (Just elseS'),t)
 tcStmt ret (ForStatement l startE whileE incE bodyS) = tcBlock $ do
     startE' <- tcForInitializer startE
-    whileE' <- mapM (tcGuard) whileE
+    whileE' <- mapM tcGuard whileE
     incE' <- mapM (tcExpr) incE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped l) startE' whileE' incE' bodyS',t')
@@ -101,13 +102,13 @@ tcStmt ret (VarStatement l decl) = do
     let t = StmtType (Set.singleton StmtFallthru)
     return (VarStatement (notTyped l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
-    tcReaderM $ coerces l Void ret
+    tcProofM $ coerces l Void ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
-    tcReaderM $ coerces l et' ret
+    tcProofM $ coerces l et' ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) (Just e'),t)
 tcStmt ret (ContinueStatement l) = do

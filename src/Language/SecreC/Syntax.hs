@@ -675,17 +675,53 @@ instance PP (Index loc) where
 
 data Expression loc
     = BinaryAssign loc (PostfixExpression loc) BinaryAssignOp (Expression loc)
-    | QualifiedAssignExpr loc (QualifiedExpression loc)
+    | QualExpr loc (Expression loc) (NeList (QualifiedType loc))
+    | CondExpr loc (Expression loc) (Expression loc) (Expression loc)
+    | BinaryExpr loc (Expression loc) (Op loc) (Expression loc)
+    | PrimCastExpr loc (PrimitiveDatatype loc) (Expression loc)
+    | VarCastExpr loc (TypeName loc) (Expression loc)
+    | PrefixInc loc (PostfixExpression loc)
+    | PrefixDec loc (PostfixExpression loc)
+    | PostfixInc loc (PostfixExpression loc)
+    | PostfixDec loc (PostfixExpression loc)
+    | UminusExpr loc (Expression loc)
+    | UnegExpr loc (Expression loc)
+    | UinvExpr loc (Expression loc)
+    | Upost loc (PostfixExpression loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (Expression loc) where
     type LocOf (Expression loc) = loc
     loc (BinaryAssign l _ _ _) = l
-    loc (QualifiedAssignExpr l _) = l
+    loc (QualExpr l _ _) = l
+    loc (CondExpr l _ _ _) = l
+    loc (BinaryExpr l _ _ _) = l
+    loc (PrimCastExpr l _ _) = l
+    loc (VarCastExpr l _ _) = l
+    loc (PrefixInc l _) = l
+    loc (PrefixDec l _) = l
+    loc (PostfixInc l _) = l
+    loc (PostfixDec l _) = l
+    loc (UminusExpr l _) = l
+    loc (UnegExpr l _) = l
+    loc (UinvExpr l _) = l
+    loc (Upost l _) = l
   
 instance PP (Expression loc) where
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
-    pp (QualifiedAssignExpr _ qe) = pp qe
+    pp (QualExpr _ e ts) = pp e <+> text "::" <+> sepBy space (fmap pp ts)
+    pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
+    pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
+    pp (PrimCastExpr _ t e) = parens (pp t) <+> pp e
+    pp (VarCastExpr _ t e) = parens (pp t) <+> pp e
+    pp (PrefixInc _ e) = text "++" <+> pp e
+    pp (PrefixDec _ e) = text "--" <+> pp e
+    pp (PostfixInc _ e) = pp e <+> text "++"
+    pp (PostfixDec _ e) = pp e <+> text "--"
+    pp (UminusExpr _ e) = char '-' <+> pp e
+    pp (UnegExpr _ e) = char '!' <+> pp e
+    pp (UinvExpr _ e) = char '~' <+> pp e
+    pp (Upost _ e) = pp e
   
 data BinaryAssignOp
     = BinaryAssignEqual
@@ -729,263 +765,6 @@ instance PP (QualifiedType loc) where
     pp (PrimitiveQualifiedType _ p) = pp p
     pp (DimQualifiedType _ dim) = pp dim
     pp (GenericQualifiedType _ iden) = pp iden
-  
-data QualifiedExpression loc
-    = QualExpr loc (QualifiedExpression loc) (NeList (QualifiedType loc))
-    | QualCond loc (ConditionalExpression loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (QualifiedExpression loc) where
-    type LocOf (QualifiedExpression loc) = loc
-    loc (QualExpr l _ _) = l
-    loc (QualCond l _) = l
-  
-instance PP (QualifiedExpression loc) where
-    pp (QualExpr _ e ts) = pp e <+> text "::" <+> sepBy space (fmap pp ts)
-    pp (QualCond _ e) = pp e
-  
-data ConditionalExpression loc
-    = CondExpr loc (LorExpression loc) (Expression loc) (Expression loc)
-    | LorExpr loc (LorExpression loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (ConditionalExpression loc) where
-    type LocOf (ConditionalExpression loc) = loc
-    loc (CondExpr l _ _ _) = l
-    loc (LorExpr l _) = l
-  
-instance PP (ConditionalExpression loc) where
-    pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
-    pp (LorExpr l e) = pp e
-  
-newtype LorExpression loc = LorExpression (NeList (LandExpression loc))
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-
-instance Functor LorExpression where
-    fmap f (LorExpression xs) = LorExpression $ fmap (fmap f) xs
-
-instance Location loc => Located (LorExpression loc) where
-    type LocOf (LorExpression loc) = loc
-    loc (LorExpression es) = loc (headNe es)
-
-instance PP (LorExpression loc) where
-    pp (LorExpression es) = sepBy (text "||") (fmap pp es)
-
-newtype LandExpression loc = LandExpression (NeList (BitwiseOrExpression loc))
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-
-instance Functor LandExpression where
-    fmap f (LandExpression xs) = LandExpression $ fmap (fmap f) xs
-
-instance Location loc => Located (LandExpression loc) where
-    type LocOf (LandExpression loc) = loc
-    loc (LandExpression xs) = loc (headNe xs)
-
-instance PP (LandExpression loc) where
-    pp (LandExpression es) = sepBy (text "&&") (fmap pp es)
-
-newtype BitwiseOrExpression loc = BitwiseOrExpression (NeList (BitwiseXorExpression loc))
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-
-instance Functor BitwiseOrExpression where
-    fmap f (BitwiseOrExpression xs) = BitwiseOrExpression $ fmap (fmap f) xs
-
-instance Location loc => Located (BitwiseOrExpression loc) where
-    type LocOf (BitwiseOrExpression loc) = loc
-    loc (BitwiseOrExpression xs) = loc (headNe xs)
-
-instance PP (BitwiseOrExpression loc) where
-    pp (BitwiseOrExpression es) = sepBy (text "|") (fmap pp es)
-
-newtype BitwiseXorExpression loc = BitwiseXorExpression (NeList (BitwiseAndExpression loc))
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-  
-instance Functor BitwiseXorExpression where
-    fmap f (BitwiseXorExpression xs) = BitwiseXorExpression $ fmap (fmap f) xs
-
-instance Location loc => Located (BitwiseXorExpression loc) where
-    type LocOf (BitwiseXorExpression loc) = loc
-    loc (BitwiseXorExpression es) = loc (headNe es)
-
-instance PP (BitwiseXorExpression loc) where
-    pp (BitwiseXorExpression es) = sepBy (text "^") (fmap pp es)
-
-newtype BitwiseAndExpression loc = BitwiseAndExpression (NeList (EqualityExpression loc))
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-
-instance Functor BitwiseAndExpression where
-    fmap f (BitwiseAndExpression xs) = BitwiseAndExpression $ fmap (fmap f) xs
-
-instance Location loc => Located (BitwiseAndExpression loc) where
-    type LocOf (BitwiseAndExpression loc) = loc
-    loc (BitwiseAndExpression xs) = loc (headNe xs)
-
-instance PP (BitwiseAndExpression loc) where
-    pp (BitwiseAndExpression es) = sepBy (text "&") (fmap pp es)
-
-newtype EqualityExpression loc = EqualityExpression (SepList EqExprOp (RelationalExpression loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-
-instance Location loc => Located (EqualityExpression loc) where
-    type LocOf (EqualityExpression loc) = loc
-    loc (EqualityExpression xs) = loc (headSep xs)
-
-instance PP (EqualityExpression loc) where
-    pp (EqualityExpression (WrapSep x)) = pp x
-    pp (EqualityExpression (ConsSep x sep xs)) = pp x <+> pp sep <+> pp (EqualityExpression xs)
-
-data EqExprOp = EqOp | NeOp
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-  
-instance PP EqExprOp where
-    pp EqOp = text "=="
-    pp NeOp = text "!="
-
-newtype RelationalExpression loc = RelationalExpression (SepList RelExprOp (ShiftExpression loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-
-instance Location loc => Located (RelationalExpression loc) where
-    type LocOf (RelationalExpression loc) = loc
-    loc (RelationalExpression xs) = loc (headSep xs)
-
-instance PP (RelationalExpression loc) where
-    pp (RelationalExpression (WrapSep x)) = pp x
-    pp (RelationalExpression (ConsSep x sep xs)) = pp x <+> pp sep <+> pp (RelationalExpression xs)
-
-data RelExprOp = LeOp | GeOp | LtOp | GtOp
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-
-instance PP RelExprOp where
-    pp LeOp = text "<="
-    pp GeOp = text ">="
-    pp LtOp = text "<"
-    pp GtOp = text ">"
-
-newtype ShiftExpression loc = ShiftExpression (SepList ShExprOp (AdditiveExpression loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-
-instance Location loc => Located (ShiftExpression loc) where
-    type LocOf (ShiftExpression loc) = loc
-    loc (ShiftExpression xs) = loc (headSep xs)
-
-instance PP (ShiftExpression loc) where
-    pp (ShiftExpression (WrapSep x)) = pp x
-    pp (ShiftExpression (ConsSep x sep xs)) = pp x <+> pp sep <+> pp (ShiftExpression xs)
-
-data ShExprOp = ShlOp | ShrOp
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-  
-instance PP ShExprOp where
-    pp ShlOp = text "<<"
-    pp ShrOp = text ">>"
-  
-newtype AdditiveExpression loc = AdditiveExpression (SepList AddExprOp (MultiplicativeExpression loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-
-instance Location loc => Located (AdditiveExpression loc) where
-    type (LocOf (AdditiveExpression loc)) = loc
-    loc (AdditiveExpression xs) = loc (headSep xs)
-
-instance PP (AdditiveExpression loc) where
-    pp (AdditiveExpression (WrapSep x)) = pp x
-    pp (AdditiveExpression (ConsSep x sep xs)) = pp x <+> pp sep <+> pp (AdditiveExpression xs)
-
-data AddExprOp = PlusOp | MinusOp
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-  
-instance PP AddExprOp where
-    pp PlusOp = text "+"
-    pp MinusOp = text "-"
-  
-newtype MultiplicativeExpression loc = MultiplicativeExpression (SepList MulExprOp (CastExpression loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-
-instance Location loc => Located (MultiplicativeExpression loc) where
-    type (LocOf (MultiplicativeExpression loc)) = loc
-    loc (MultiplicativeExpression xs) = loc (headSep xs)
-
-instance PP (MultiplicativeExpression loc) where
-    pp (MultiplicativeExpression (WrapSep x)) = pp x
-    pp (MultiplicativeExpression (ConsSep x sep xs)) = pp x <+> pp sep <+> pp (MultiplicativeExpression xs)
-
-data MulExprOp = MulOp | DivOp | ModOp
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-  
-instance PP MulExprOp where
-    pp MulOp = text "*"
-    pp DivOp = text "/"
-    pp ModOp = text "%"
-  
-data CastExpression loc
-    = PrimCastExpr loc (PrimitiveDatatype loc) (CastExpression loc)
-    | VarCastExpr loc (TypeName loc) (CastExpression loc)
-    | PrefixCastExpr loc (PrefixOp loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (CastExpression loc) where
-    type (LocOf (CastExpression loc)) = loc
-    loc (PrimCastExpr l _ _) = l
-    loc (VarCastExpr l _ _) = l
-    loc (PrefixCastExpr l _) = l
-  
-instance PP (CastExpression loc) where
-    pp (PrimCastExpr _ t e) = parens (pp t) <+> pp e
-    pp (VarCastExpr _ t e) = parens (pp t) <+> pp e
-    pp (PrefixCastExpr _ op) = pp op
-  
-data PrefixOp loc
-    = PrefixInc loc (PostfixExpression loc)
-    | PrefixDec loc (PostfixExpression loc)
-    | PrefixPost loc (PostfixOp loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (PrefixOp loc) where
-    type (LocOf (PrefixOp loc)) = loc
-    loc (PrefixInc l _) = l
-    loc (PrefixDec l _) = l
-    loc (PrefixPost l _) = l
-  
-instance PP (PrefixOp loc) where
-    pp (PrefixInc _ e) = text "++" <+> pp e
-    pp (PrefixDec _ e) = text "--" <+> pp e
-    pp (PrefixPost _ op) = pp op
-  
-data PostfixOp loc
-    = PostfixInc loc (PostfixExpression loc)
-    | PostfixDec loc (PostfixExpression loc)
-    | PostfixUnary loc (UnaryExpression loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-    
-instance Location loc => Located (PostfixOp loc) where
-    type (LocOf (PostfixOp loc)) = loc
-    loc (PostfixInc l _) = l
-    loc (PostfixDec l _) = l
-    loc (PostfixUnary l _) = l
-    
-instance PP (PostfixOp loc) where
-    pp (PostfixInc _ e) = pp e <+> text "++"
-    pp (PostfixDec _ e) = pp e <+> text "--"
-    pp (PostfixUnary _ e) = pp e
-    
-data UnaryExpression loc
-    = UminusExpr loc (CastExpression loc)
-    | UnegExpr loc (CastExpression loc)
-    | UinvExpr loc (CastExpression loc)
-    | Upost loc (PostfixExpression loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (UnaryExpression loc) where
-    type (LocOf (UnaryExpression loc)) = loc
-    loc (UminusExpr l _) = l
-    loc (UnegExpr l _) = l
-    loc (UinvExpr l _) = l
-    loc (Upost l _) = l
-  
-instance PP (UnaryExpression loc) where
-    pp (UminusExpr _ e) = char '-' <+> pp e
-    pp (UnegExpr _ e) = char '!' <+> pp e
-    pp (UinvExpr _ e) = char '~' <+> pp e
-    pp (Upost _ e) = pp e
   
 data CatExpression loc = CatExpr loc (Expression loc) (Expression loc) (Maybe Integer)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
@@ -1072,7 +851,7 @@ data Literal loc
     = IntLit loc Integer
     | StringLit loc String
     | BoolLit loc Bool
-    | FloatLit loc Float
+    | FloatLit loc Double
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (Literal loc) where

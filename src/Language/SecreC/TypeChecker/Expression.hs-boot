@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeFamilies #-}
+
 module Language.SecreC.TypeChecker.Expression where
 
 import Language.SecreC.Syntax
@@ -9,12 +11,10 @@ tcExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
 
 tcGuard :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
 
-integerLitExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc),Maybe Integer)
+uintLitExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc),Maybe Integer)
 
 tcExprTy :: Location loc => Type -> Expression loc -> TcM loc (Expression (Typed loc))
 
 tcDimSizeExpr :: Location loc => Maybe (VarName loc) -> Expression loc -> TcM loc (Expression (Typed loc))
 
-integerExpr :: Integer -> Expression ()
-
-isStaticIntegerExpr :: Location loc => Expression () -> TcM loc (Maybe Integer)
+isStaticUintExpr :: Location loc => Expression () -> TcM loc (Maybe Integer)

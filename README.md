@@ -14,7 +14,7 @@ This tool takes a set of specific analysis flags, receives a SecreC program as i
 1. In the base directory, simply run the command
 ```
 cabal install SecreC.cabal
-````
+```
 2. Add the installation directory to your path, e.g., `~/.cabal/bin` or `./dist/build/secrec/secrec`
 
 #### Usage:

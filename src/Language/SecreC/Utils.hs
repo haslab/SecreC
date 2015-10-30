@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
 
@@ -9,6 +9,7 @@ import Data.Map (Map(..))
 import qualified Data.Map as Map
 import Data.Set (Set(..))
 import qualified Data.Set as Set
+import Data.Maybe
 
 import Control.Monad
 
@@ -19,6 +20,26 @@ data NeList a = WrapNe a | ConsNe a (NeList a)
 -- | Non-empty list with separators
 data SepList sep a = WrapSep a | ConsSep a sep (SepList sep a)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable)
+
+foldNeM :: Monad m => (a -> b -> m b) -> (a -> m b) -> NeList a -> m b
+foldNeM f g (WrapNe x) = g x
+foldNeM f g (ConsNe x xs) = do
+    y <- foldNeM f g xs
+    f x y
+    
+foldSepM :: Monad m => (a -> sep -> b -> m b) -> (a -> m b) -> SepList sep a -> m b
+foldSepM f g (WrapSep x) = g x
+foldSepM f g (ConsSep x sep xs) = do
+    y <- foldSepM f g xs
+    f x sep y
+
+foldr1M :: (Monad m,Foldable t) => (a -> a -> m a) -> t a -> m a
+foldr1M f xs = liftM (fromMaybe (error "foldr1: empty structure"))
+                    (foldrM mf Nothing xs)
+      where
+        mf x m = liftM Just (case m of
+                         Nothing -> return x
+                         Just y  -> f x y)
 
 fromListNe :: [a] -> NeList a
 fromListNe [x] = WrapNe x

@@ -33,6 +33,7 @@ instance PP Position where
 
 instance Show Position where
     show (Pos file line col off) = "file " ++ show file ++ " line " ++ show line ++ " column " ++ show col ++ " offset " ++ show off
+    show (UnhelpfulPos s) = s
 
 -- | Create a 'Position'
 --

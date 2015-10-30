@@ -11,6 +11,7 @@ import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Statement
 import Language.SecreC.TypeChecker.Expression
 import Language.SecreC.TypeChecker.Type
+import Language.SecreC.TypeChecker.Unification
 import Language.SecreC.Utils
 
 import Prelude hiding (mapM)
@@ -77,7 +78,8 @@ tcProcedureDecl addOp addProc (OperatorDeclaration l ret op ps s) = do
     ps' <- mapM tcProcedureParam ps
     (s',st) <- tcStmts tret s
     when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Left $ fmap locpos op)
-    let tproc = ProcType (map (fmap typed . procedureParameterName) ps') tret
+    i <- newTyVarId
+    let tproc = ProcType i (map (fmap typed . procedureParameterName) ps') tret
     let op' = fmap (\l -> Typed l tproc) op
     addOp op'
     return $ OperatorDeclaration (notTyped l) ret' op' ps' s'
@@ -88,7 +90,8 @@ tcProcedureDecl addOp addProc (ProcedureDeclaration l ret proc@(ProcedureName pl
     (s',st) <- tcStmts tret s
     when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Right $ fmap locpos proc)
     let vars = map (fmap typed . procedureParameterName) ps'
-    let tproc = ProcType vars tret
+    i <- newTyVarId
+    let tproc = ProcType i vars tret
     let proc' = ProcedureName (Typed pl tproc) pn
     addProc proc'
     return $ ProcedureDeclaration (notTyped l) ret' proc' ps' s'
@@ -104,7 +107,8 @@ tcStructureDecl :: Location loc => (TypeName (Typed loc) -> TcM loc ())
                 -> StructureDeclaration loc -> TcM loc (StructureDeclaration (Typed loc))
 tcStructureDecl addStruct (StructureDeclaration l ty@(TypeName tl tn) atts) = do
     atts' <- mapM tcAttribute atts
-    let t = StructType $ map (fmap typed) atts'
+    i <- newTyVarId
+    let t = StructType i $ map (fmap typed) atts'
     let ty' = TypeName (Typed tl t) tn
     addStruct ty'
     return $ StructureDeclaration (notTyped l) ty' atts'
@@ -118,18 +122,21 @@ tcAttribute (Attribute l ty v@(AttributeName vl vn)) = do
 
 tcTemplateDecl :: Location loc => TemplateDeclaration loc -> TcM loc (TemplateDeclaration (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplateBlock $ do
-    (targs',toList -> tvars) <- mapAndUnzipM tcTemplateQuantifier targs
-    s' <- tcStructureDecl (addTemplateStruct tvars) s
+    (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    let tvars' = map (fmap Left) $ toList tvars
+    s' <- tcStructureDecl (addTemplateStruct tvars') s
     return $ TemplateStructureDeclaration (notTyped l) targs' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplateBlock $ do
-    (targs',toList -> tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    let tvars' = map (fmap Left) $ toList tvars
     tspecials' <- mapM tcTemplateTypeArgument tspecials
     let tspecs = map (typed . loc) tspecials'
-    s' <- tcStructureDecl (addTemplateStructSpecialization tvars tspecs) s
+    s' <- tcStructureDecl (addTemplateStructSpecialization tvars' tspecs) s
     return $ TemplateStructureSpecialization (notTyped l) targs' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplateBlock $ do
-    (targs',toList -> tvars) <- mapAndUnzipM tcTemplateQuantifier targs
-    p' <- tcProcedureDecl (addTemplateOperator tvars) (addTemplateProcedure tvars) p
+    (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    let tvars' = map (fmap Left) $ toList tvars
+    p' <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedure tvars') p
     return $ TemplateProcedureDeclaration (notTyped l) targs' p'
     
 tcTemplateQuantifier :: Location loc => TemplateQuantifier loc -> TcM loc (TemplateQuantifier (Typed loc),Typed Identifier)
@@ -146,7 +153,7 @@ tcTemplateQuantifier (DomainQuantifier l v@(DomainName dl dn) mbk) = do
     newDomainVariable LocalScope v'
     return (DomainQuantifier (notTyped l) v' mbk,Typed dn t)
 tcTemplateQuantifier (DimensionQuantifier l v@(VarName dl dn)) = do
-    let t = largestInt -- variable is a dimension
+    let t = largestUint -- variable is a dimension
     let v' = VarName (Typed dl t) dn
     newVariable LocalScope v'
     return (DimensionQuantifier (notTyped l) v',Typed dn t)

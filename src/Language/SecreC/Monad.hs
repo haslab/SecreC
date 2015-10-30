@@ -110,4 +110,3 @@ instance Monad SecrecM where
 instance Applicative SecrecM where
     pure = return
     (<*>) = ap
-    

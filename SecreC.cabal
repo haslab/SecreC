@@ -27,6 +27,7 @@ Executable secrec
                         Language.SecreC.TypeChecker.Expression
                         Language.SecreC.TypeChecker.Statement
                         Language.SecreC.TypeChecker.Type
+                        Language.SecreC.TypeChecker.Unification
                         Language.SecreC.Error
                         Language.SecreC.Location
                         Language.SecreC.Modules

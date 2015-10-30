@@ -36,6 +36,11 @@ class Vars a => Subst a where
         Nothing -> g v
         Just x -> Just x
 
+substFromList :: (Subst a,Eq (VarOf a)) => Proxy a -> [(VarOf a,SubstOf a)] -> Substs a
+substFromList p [] = emptySubsts p
+substFromList p ((v,s):xs) = appendSubsts p f (substFromList p xs)
+    where f x = if x==v then Just s else Nothing
+
 substTraversable :: (Traversable t,Subst a) => Substs a -> t a -> t a
 substTraversable s = fmap (subst s)
 
@@ -108,9 +113,34 @@ instance Vars (Sizes loc) where
 instance Vars (Expression loc) where
     type VarOf (Expression loc) = ScVar loc
     fvs (BinaryAssign _ e1 op e2) = fvs e1 `Set.union` fvs e2
-    fvs (QualifiedAssignExpr _ q) = fvs q
+    fvs (QualExpr l e ts) = fvs e `Set.union` fvsFoldable ts
+    fvs (CondExpr l e1 e2 e3) = fvs e1 `Set.union` fvs e2 `Set.union` fvs e3
+    fvs (BinaryExpr l e1 o e2) = fvs e1 `Set.union` fvs e2
+    fvs (UminusExpr l e) = fvs e
+    fvs (UnegExpr l e) = fvs e
+    fvs (UinvExpr l e) = fvs e
+    fvs (Upost l e) = fvs e
+    fvs (PrefixInc l e) = fvs e
+    fvs (PrefixDec l e) = fvs e
+    fvs (PostfixInc l e) = fvs e
+    fvs (PostfixDec l e) = fvs e
+    fvs (PrimCastExpr l p e) = fvs p `Set.union` fvs e
+    fvs (VarCastExpr l t e) = fvs t `Set.union` fvs e
+    
     bvs (BinaryAssign _ e1 op e2) = bvs e1 `Set.union` bvs e2
-    bvs (QualifiedAssignExpr _ q) = bvs q
+    bvs (QualExpr l e ts) = bvs e `Set.union` bvsFoldable ts
+    bvs (CondExpr l e1 e2 e3) = bvs e1 `Set.union` bvs e2 `Set.union` bvs e3    
+    bvs (BinaryExpr l e1 o e2) = bvs e1 `Set.union` bvs e2
+    bvs (UminusExpr l e) = bvs e
+    bvs (UnegExpr l e) = bvs e
+    bvs (UinvExpr l e) = bvs e
+    bvs (Upost l e) = bvs e
+    bvs (PrefixInc l e) = bvs e
+    bvs (PrefixDec l e) = bvs e
+    bvs (PostfixInc l e) = bvs e
+    bvs (PostfixDec l e) = bvs e
+    bvs (PrimCastExpr l p e) = bvs p `Set.union` bvs e
+    bvs (VarCastExpr l t e) = bvs t `Set.union` bvs e
 
 instance Vars (PostfixExpression loc) where
     type VarOf (PostfixExpression loc) = ScVar loc
@@ -155,112 +185,10 @@ instance Vars (Index loc) where
     bvs (IndexSlice l e1 e2) = bvsMaybe e1 `Set.union` bvsMaybe e2
     bvs (IndexInt l e) = bvs e
 
-instance Vars (QualifiedExpression loc) where
-    type VarOf (QualifiedExpression loc) = ScVar loc
-    fvs (QualExpr l e ts) = fvs e `Set.union` fvsFoldable ts
-    fvs (QualCond l e) = fvs e
-    bvs (QualExpr l e ts) = bvs e `Set.union` bvsFoldable ts
-    bvs (QualCond l e) = bvs e
-
-instance Vars (ConditionalExpression loc) where
-    type VarOf (ConditionalExpression loc) = ScVar loc
-    fvs (CondExpr l e1 e2 e3) = fvs e1 `Set.union` fvs e2 `Set.union` fvs e3
-    fvs (LorExpr l e) = fvs e
-    bvs (CondExpr l e1 e2 e3) = bvs e1 `Set.union` bvs e2 `Set.union` bvs e3
-    bvs (LorExpr l e) = bvs e
-
-instance Vars (LorExpression loc) where
-    type VarOf (LorExpression loc) = ScVar loc
-    fvs (LorExpression e) = fvsFoldable e
-    bvs (LorExpression e) = bvsFoldable e
-
-instance Vars (LandExpression loc) where
-    type VarOf (LandExpression loc) = ScVar loc
-    fvs (LandExpression e) = fvsFoldable e
-    bvs (LandExpression e) = bvsFoldable e 
-
-instance Vars (BitwiseOrExpression loc) where
-    type VarOf (BitwiseOrExpression loc) = ScVar loc
-    fvs (BitwiseOrExpression e) = fvsFoldable e
-    bvs (BitwiseOrExpression e) = bvsFoldable e    
-    
-instance Vars (BitwiseXorExpression loc) where
-    type VarOf (BitwiseXorExpression loc) = ScVar loc
-    fvs (BitwiseXorExpression e) = fvsFoldable e
-    bvs (BitwiseXorExpression e) = bvsFoldable e    
-    
-instance Vars (BitwiseAndExpression loc) where
-    type VarOf (BitwiseAndExpression loc) = ScVar loc
-    fvs (BitwiseAndExpression e) = fvsFoldable e
-    bvs (BitwiseAndExpression e) = bvsFoldable e    
-
-instance Vars (EqualityExpression loc) where
-    type VarOf (EqualityExpression loc) = ScVar loc
-    fvs (EqualityExpression e) = fvsFoldable e
-    bvs (EqualityExpression e) = bvsFoldable e    
-    
-instance Vars (RelationalExpression loc) where
-    type VarOf (RelationalExpression loc) = ScVar loc
-    fvs (RelationalExpression e) = fvsFoldable e
-    bvs (RelationalExpression e) = bvsFoldable e    
-
-instance Vars (ShiftExpression loc) where
-    type VarOf (ShiftExpression loc) = ScVar loc
-    fvs (ShiftExpression e) = fvsFoldable e
-    bvs (ShiftExpression e) = bvsFoldable e    
-
-instance Vars (AdditiveExpression loc) where
-    type VarOf (AdditiveExpression loc) = ScVar loc
-    fvs (AdditiveExpression e) = fvsFoldable e
-    bvs (AdditiveExpression e) = bvsFoldable e    
-
-instance Vars (MultiplicativeExpression loc) where
-    type VarOf (MultiplicativeExpression loc) = ScVar loc
-    fvs (MultiplicativeExpression e) = fvsFoldable e
-    bvs (MultiplicativeExpression e) = bvsFoldable e    
-
 instance Vars (StructureDeclaration loc) where
     type VarOf (StructureDeclaration loc) = ScVar loc
     fvs (StructureDeclaration l t as) = fvs t `Set.union` fvsFoldable as
     bvs (StructureDeclaration l t as) = bvs t `Set.union` bvsFoldable as
-
-instance Vars (CastExpression loc) where
-    type VarOf (CastExpression loc) = ScVar loc
-    fvs (PrimCastExpr l p e) = fvs p `Set.union` fvs e
-    fvs (VarCastExpr l t e) = fvs t `Set.union` fvs e
-    fvs (PrefixCastExpr l o) = fvs o
-    bvs (PrimCastExpr l p e) = bvs p `Set.union` bvs e
-    bvs (VarCastExpr l t e) = bvs t `Set.union` bvs e
-    bvs (PrefixCastExpr l o) = bvs o
-
-instance Vars (PrefixOp loc) where
-    type VarOf (PrefixOp loc) = ScVar loc
-    fvs (PrefixInc l e) = fvs e
-    fvs (PrefixDec l e) = fvs e
-    fvs (PrefixPost l o) = fvs o
-    bvs (PrefixInc l e) = bvs e
-    bvs (PrefixDec l e) = bvs e
-    bvs (PrefixPost l o) = bvs o
-
-instance Vars (PostfixOp loc) where
-    type VarOf (PostfixOp loc) = ScVar loc
-    fvs (PostfixInc l e) = fvs e
-    fvs (PostfixDec l e) = fvs e
-    fvs (PostfixUnary l e) = fvs e
-    bvs (PostfixInc l e) = bvs e
-    bvs (PostfixDec l e) = bvs e
-    bvs (PostfixUnary l e) = bvs e
-
-instance Vars (UnaryExpression loc) where
-    type VarOf (UnaryExpression loc) = ScVar loc
-    fvs (UminusExpr l e) = fvs e
-    fvs (UnegExpr l e) = fvs e
-    fvs (UinvExpr l e) = fvs e
-    fvs (Upost l e) = fvs e
-    bvs (UminusExpr l e) = bvs e
-    bvs (UnegExpr l e) = bvs e
-    bvs (UinvExpr l e) = bvs e
-    bvs (Upost l e) = bvs e
 
 instance Vars (QualifiedType loc) where
     type VarOf (QualifiedType loc) = ScVar loc

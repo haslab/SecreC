@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections, TypeFamilies #-}
 
 module Language.SecreC.Parser.Parsec where
 
@@ -140,7 +140,7 @@ scIntLiteral = liftM (\x1 -> Loc (loc x1) (tokenInteger x1)) (scTokPred p) <?> "
     p (TokenInfo (OCT_LITERAL _) _ _) = True
     p _ = False
 
-scFloatLiteral :: Monad m => ScParserT u m (Loc Position Float)
+scFloatLiteral :: Monad m => ScParserT u m (Loc Position Double)
 scFloatLiteral = liftM (\x1 -> Loc (loc x1) (tokenFloat x1)) (scTokPred p) <?> "float literal"
     where
     p (TokenInfo (FLOAT_LITERAL _) _ _) = True
@@ -477,7 +477,7 @@ scExpression = scAssignmentExpression <?> "expression"
 
 scAssignmentExpression :: Monad m => ScParserT u m (Expression Position)
 scAssignmentExpression = (apA3 scLvalue op scAssignmentExpression (\x1 x2 x3 -> BinaryAssign (loc x1) x1 x2 x3)
-                      <||> apA scQualifiedExpression (\x1 -> QualifiedAssignExpr (loc x1) x1)
+                      <||> scQualifiedExpression
                      ) <?> "assignment expression"
     where
     op = apA (scChar '=') (const BinaryAssignEqual)
@@ -499,103 +499,128 @@ scQualifiedType = (apA (scTok PUBLIC) (\x1 -> PublicQualifiedType (loc x1))
               <|> apA scDimtypeSpecifier (\x1 -> DimQualifiedType (loc x1) x1)
               <|> apA scIdentifier (\x1 -> GenericQualifiedType (loc x1) (tokenString x1))) <?> "qualified type"
 
-scQualifiedExpression :: Monad m => ScParserT u m (QualifiedExpression Position)
+scQualifiedExpression :: Monad m => ScParserT u m (Expression Position)
 scQualifiedExpression = scFoldl
     (\qe t -> return $ QualExpr (loc qe) qe t)
-    (liftM (\x1 -> QualCond (loc x1) x1) scConditionalExpression)
+    scConditionalExpression
     (scTok TYPE_QUAL *> scQualifiedTypes) <?> "qualified expression"
 
-scConditionalExpression :: Monad m => ScParserT u m (ConditionalExpression Position)
+scConditionalExpression :: Monad m => ScParserT u m (Expression Position)
 scConditionalExpression = (do
     x1 <- scLogicalOrExpression 
     mb <- optionMaybe (scChar '?' *> scExpression >*< scChar ':' *> scExpression) 
     case mb of
-        Nothing -> return $ LorExpr (loc x1) (LorExpression x1)
-        Just (x2,x3) -> return $ CondExpr (loc x1) (LorExpression x1) x2 x3) <?> "conditional expression"
+        Nothing -> return x1
+        Just (x2,x3) -> return $ CondExpr (loc x1) x1 x2 x3) <?> "conditional expression"
 
-scLogicalOrExpression :: Monad m => ScParserT u m (NeList (LandExpression Position))
-scLogicalOrExpression = apA (sepBy1 (liftM LandExpression scLogicalAndExpression) (scTok LOR_OP)) fromListNe <?> "logical or expression"
+scLogicalOrExpression :: Monad m => ScParserT u m (Expression Position)
+scLogicalOrExpression = scFoldl
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scLogicalAndExpression
+    (ops >*< scLogicalAndExpression) <?> "logical or expression"
+  where
+    ops = apA (scTok LOR_OP) (OpLor . loc)
 
-scLogicalAndExpression :: Monad m => ScParserT u m (NeList (BitwiseOrExpression Position))
-scLogicalAndExpression = apA (sepBy1 (liftM BitwiseOrExpression scBitwiseOrExpression) (scTok LAND_OP)) fromListNe <?> "logical and expression"
+scLogicalAndExpression :: Monad m => ScParserT u m (Expression Position)
+scLogicalAndExpression = scFoldl
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scBitwiseOrExpression
+    (ops >*< scBitwiseOrExpression) <?> "logical and expression"
+  where
+    ops = apA (scTok LAND_OP) (OpLand . loc)
 
-scBitwiseOrExpression :: Monad m => ScParserT u m (NeList (BitwiseXorExpression Position))
-scBitwiseOrExpression = apA (sepBy1 (liftM BitwiseXorExpression scBitwiseXorExpression) (scChar '|')) fromListNe <?> "bitwise or expression"
+scBitwiseOrExpression :: Monad m => ScParserT u m (Expression Position)
+scBitwiseOrExpression = scFoldl
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scBitwiseXorExpression
+    (ops >*< scBitwiseXorExpression) <?> "bitwise or expression"
+  where
+    ops = apA (scChar '|') (OpBor . loc)
 
-scBitwiseXorExpression :: Monad m => ScParserT u m (NeList (BitwiseAndExpression Position))
-scBitwiseXorExpression = apA (sepBy1 (liftM BitwiseAndExpression scBitwiseAndExpression) (scChar '^')) fromListNe <?> "bitwise xor expression"
+scBitwiseXorExpression :: Monad m => ScParserT u m (Expression Position)
+scBitwiseXorExpression = scFoldl
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scBitwiseAndExpression
+    (ops >*< scBitwiseAndExpression) <?> "bitwise xor expression"
+  where
+    ops = apA (scChar '^') (OpXor . loc)
+    
+scBitwiseAndExpression :: Monad m => ScParserT u m (Expression Position)
+scBitwiseAndExpression = scFoldl
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scEqualityExpression
+    (ops >*< scEqualityExpression) <?> "bitwise and expression"
+  where
+    ops = apA (scChar '&') (OpBand . loc)
 
-scBitwiseAndExpression :: Monad m => ScParserT u m (NeList (EqualityExpression Position))
-scBitwiseAndExpression = apA (sepBy1 (liftM EqualityExpression scEqualityExpression) (scChar '&')) fromListNe <?> "bitwise and expression"
-
-scEqualityExpression :: Monad m => ScParserT u m (SepList EqExprOp (RelationalExpression Position))
+scEqualityExpression :: Monad m => ScParserT u m (Expression Position)
 scEqualityExpression = scFoldl
-    (\re1 (op,re2) -> return $ snocSep re1 op $ RelationalExpression re2)
-    (liftM (WrapSep . RelationalExpression) scRelationalExpression)
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scRelationalExpression
     (ops >*< scRelationalExpression) <?> "equality expression"
   where
-    ops = apA (scTok EQ_OP) (const EqOp)
-      <|> apA (scTok NE_OP) (const NeOp)
+    ops = apA (scTok EQ_OP) (OpEq . loc)
+      <|> apA (scTok NE_OP) (OpNe . loc)
 
-scRelationalExpression :: Monad m => ScParserT u m (SepList RelExprOp (ShiftExpression Position))
+scRelationalExpression :: Monad m => ScParserT u m (Expression Position)
 scRelationalExpression = scFoldl
-    (\se1 (op,se2) -> return $ snocSep se1 op $ ShiftExpression se2)
-    (liftM (WrapSep . ShiftExpression) scShiftExpression)
+    (\se1 (op,se2) -> return $ BinaryExpr (loc se1) se1 op se2)
+    scShiftExpression
     (ops >*< scShiftExpression) <?> "relational expression"
   where
-    ops = apA (scTok LE_OP) (const LeOp)
-      <|> apA (scTok GE_OP) (const GeOp)
-      <|> apA (scChar '<') (const LtOp)
-      <|> apA (scChar '>') (const GtOp)
+    ops = apA (scTok LE_OP) (OpLe . loc)
+      <|> apA (scTok GE_OP) (OpGe . loc)
+      <|> apA (scChar '<') (OpLt . loc)
+      <|> apA (scChar '>') (OpGt . loc)
 
-scShiftExpression :: Monad m => ScParserT u m (SepList ShExprOp (AdditiveExpression Position))
+scShiftExpression :: Monad m => ScParserT u m (Expression Position)
 scShiftExpression = scFoldl
-    (\a1 (op,a2) -> return $ snocSep a1 op $ AdditiveExpression a2)
-    (liftM (WrapSep . AdditiveExpression) scAdditiveExpression)
+    (\a1 (op,a2) -> return $ BinaryExpr (loc a1) a1 op a2)
+    scAdditiveExpression
     (ops >*< scAdditiveExpression) <?> "shift expression"
   where
-    ops = apA (scTok SHL_OP) (const ShlOp)
-      <|> apA (scTok SHR_OP) (const ShrOp)
+    ops = apA (scTok SHL_OP) (OpShl . loc)
+      <|> apA (scTok SHR_OP) (OpShr . loc)
 
-scAdditiveExpression :: Monad m => ScParserT u m (SepList AddExprOp (MultiplicativeExpression Position))
+scAdditiveExpression :: Monad m => ScParserT u m (Expression Position)
 scAdditiveExpression = scFoldl
-    (\a1 (op,a2) -> return $ snocSep a1 op $ MultiplicativeExpression a2)
-    (liftM (WrapSep . MultiplicativeExpression) scMultiplicativeExpression)
+    (\a1 (op,a2) -> return $ BinaryExpr (loc a1) a1 op a2)
+    scMultiplicativeExpression
     (ops >*< scMultiplicativeExpression) <?> "additive expression"
   where
-    ops = apA (scChar '+') (const PlusOp)
-      <|> apA (scChar '-') (const MinusOp)
+    ops = apA (scChar '+') (OpAdd . loc)
+      <|> apA (scChar '-') (OpSub . loc)
 
-scMultiplicativeExpression :: Monad m => ScParserT u m (SepList MulExprOp (CastExpression Position))
+scMultiplicativeExpression :: Monad m => ScParserT u m (Expression Position)
 scMultiplicativeExpression = scFoldl
-    (\a1 (op,a2) -> return $ snocSep a1 op a2)
-    (liftM WrapSep scCastExpression)
+    (\a1 (op,a2) -> return $ BinaryExpr (loc a1) a1 op a2)
+    scCastExpression
     (ops >*< scCastExpression) <?> "multiplicative expression"
   where
-    ops = apA (scChar '*') (const MulOp)
-      <|> apA (scChar '/') (const DivOp)
-      <|> apA (scChar '%') (const ModOp)
+    ops = apA (scChar '*') (OpMul . loc)
+      <|> apA (scChar '/') (OpDiv . loc)
+      <|> apA (scChar '%') (OpMod . loc)
 
-scCastExpression :: Monad m => ScParserT u m (CastExpression Position)
+scCastExpression :: Monad m => ScParserT u m (Expression Position)
 scCastExpression = (apA2 (scBraces' types) scCastExpression ($)
-            <||> apA scPrefixOp (\x1 -> PrefixCastExpr (loc x1) x1)) <?> "cast expression"
+            <||> scPrefixOp) <?> "cast expression"
   where
     types x1 = apA scPrimitiveDatatype (\x2 -> PrimCastExpr (loc x1) x2)
            <|> apA scTypeId (\x2 -> VarCastExpr (loc x1) x2)
 
-scPrefixOp :: Monad m => ScParserT u m (PrefixOp Position)
+scPrefixOp :: Monad m => ScParserT u m (Expression Position)
 scPrefixOp = (apA2 (scTok INC_OP) scLvalue (\x1 x2 -> PrefixInc (loc x1) x2)
          <|> apA2 (scTok DEC_OP) scLvalue (\x1 x2 -> PrefixDec (loc x1) x2)
-         <|> apA scPostfixOp (\x1 -> PrefixPost (loc x1) x1)) <?> "prefix op"
+         <|> scPostfixOp) <?> "prefix op"
 
-scPostfixOp :: Monad m => ScParserT u m (PostfixOp Position)
+scPostfixOp :: Monad m => ScParserT u m (Expression Position)
 scPostfixOp = ((scLvalue >>= \x1 ->
                     apA (scTok INC_OP) (const $ PostfixInc (loc x1) x1)
                 <|> apA (scTok DEC_OP) (const $ PostfixDec (loc x1) x1)
               )
-          <||> apA scUnaryExpression (\x1 -> PostfixUnary (loc x1) x1)) <?> "postix op"
+          <||> scUnaryExpression) <?> "postix op"
 
-scUnaryExpression :: Monad m => ScParserT u m (UnaryExpression Position)
+scUnaryExpression :: Monad m => ScParserT u m (Expression Position)
 scUnaryExpression = (apA2 (scChar '~') scCastExpression (\x1 x2 -> UinvExpr (loc x1) x2)
                 <|> apA2 (scChar '!') scCastExpression (\x1 x2 -> UnegExpr (loc x1) x2)
                 <|> apA2 (scChar '-') scCastExpression (\x1 x2 -> UminusExpr (loc x1) x2)
