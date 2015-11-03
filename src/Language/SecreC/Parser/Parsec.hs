@@ -24,6 +24,8 @@ import Control.Monad.Identity
 
 import System.IO
 
+import Safe
+
 import qualified Data.Foldable as Foldable
 
 type ScParserT u m a = ParsecT [TokenInfo] u m a
@@ -353,8 +355,9 @@ scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Noth
                           <?> "return type specifier"
 
 scProcedureDeclaration :: Monad m => ScParserT u m (ProcedureDeclaration Position)
-scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOp (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
+scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOpOrCast (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
                     <||> (scReturnTypeSpecifier $ \x1 -> apA3 scProcedureId (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 -> ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)))) <?> "procedure definition"
+  where scOpOrCast = apA (optionMaybe scOp) (maybe (OpCast noloc) id)
     
 scProcedureParameterList :: Monad m => ScParserT u m [ProcedureParameter Position]
 scProcedureParameterList = sepBy1 scProcedureParameter (scChar ',') <?> "procedure parameters"
@@ -370,7 +373,7 @@ scOp = (apA (scChar '+') (OpAdd . loc)
    <|> apA (scChar '*') (OpMul  . loc)
    <|> apA (scChar '-') (OpSub  . loc)
    <|> apA (scChar '^') (OpXor  . loc)
-   <|> apA (scChar '!') (OpExcM . loc)
+   <|> apA (scChar '!') (OpNot . loc)
    <|> apA (scTok EQ_OP) (OpEq . loc)
    <|> apA (scTok GE_OP) (OpGe . loc)
    <|> apA (scTok LAND_OP) (OpLand . loc)
@@ -661,7 +664,7 @@ scPrimaryExpression = (scBraces' (\x1 -> apA scExpression (PExpr (loc x1)))
 scStringLiteral :: Monad m => ScParserT u m (Loc Position String)
 scStringLiteral = apA (many1 scStringPart) mergeStrs <?> "string literal"
     where
-    mergeStrs xs = Loc (loc $ head xs) (concatMap unLoc xs)
+    mergeStrs xs = Loc (loc $ headNote "head parsec" xs) (concatMap unLoc xs)
 
 scStringPart :: Monad m => ScParserT u m (Loc Position String)
 scStringPart = (apA scStrIdentifier (\x1 -> Loc (loc x1) (tokenString x1))

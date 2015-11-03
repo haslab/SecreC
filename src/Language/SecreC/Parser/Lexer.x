@@ -9,6 +9,7 @@ import Control.Monad.State
 
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Position
+import Language.SecreC.Location
 import Language.SecreC.Error
 
 }
@@ -255,7 +256,7 @@ instance MonadError SecrecError Alex where
     throwError e = Alex $ \ s -> Left (show e)
     catchError (Alex un) f = Alex $ \ s -> either (catchMe s) Right (un s)
         where 
-        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError
+        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError noloc
 
 {-# INLINE split #-}
 split :: (a -> b) -> (a -> c) -> a -> (b, c)
@@ -280,7 +281,7 @@ runLexer :: String -> String -> Either String [TokenInfo]
 runLexer fn str = runLexerWith fn str return
 
 injectResult :: Either String a -> Alex a
-injectResult (Left err) = throwError (GenericError err)
+injectResult (Left err) = throwError (GenericError noloc err)
 injectResult (Right a) = return a
 
 -- | Alex lexer

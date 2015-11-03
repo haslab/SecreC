@@ -12,10 +12,12 @@ tcSecTypeSpec :: Location loc => SecTypeSpecifier loc -> TcReaderM loc (SecTypeS
 
 tcRetTypeSpec :: Location loc => ReturnTypeSpecifier loc -> TcM loc (ReturnTypeSpecifier (Typed loc))
 
+tcPrimitiveDatatype :: Location loc => PrimitiveDatatype loc -> TcM loc (PrimitiveDatatype (Typed loc))
+
 typeDim :: Location loc => loc -> Type -> TcM loc (Maybe Integer)
 
-matchTemplateType :: Location loc => loc -> TIdentifier -> [Type] -> TcReaderM loc [EntryEnv loc] -> TDict -> TcM loc (Type,Position,TDict)
+projectMatrixType :: Location loc => loc -> Type -> [(Maybe Integer,Maybe Integer)] -> TcProofM loc Type
 
-projectStructField :: Location loc => loc -> Type -> AttributeName loc -> TcM loc Type
+projectStructField :: Location loc => loc -> Type -> AttributeName () -> TcProofM loc Type
 
-projectMatrixType :: Location loc => loc -> Type -> [(Maybe Integer,Maybe Integer)] -> TcM loc Type
+castType :: Location loc => loc -> Type -> Type -> TcProofM loc Type

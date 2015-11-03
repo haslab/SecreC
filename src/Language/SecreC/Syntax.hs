@@ -515,7 +515,8 @@ data Op loc
     | OpNe       loc
     | OpShl      loc
     | OpShr      loc
-    | OpExcM     loc
+    | OpNot      loc
+    | OpCast     loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
 
 instance PP (Op loc) where
@@ -537,7 +538,8 @@ instance PP (Op loc) where
     pp (OpNe   l) = text "!=" 
     pp (OpShl  l) = text "<<" 
     pp (OpShr  l) = text ">>" 
-    pp (OpExcM l) = text "!"
+    pp (OpNot l) = text "!"
+    pp (OpCast l) = text ""
   
 instance Location loc => Located (Op loc) where
     type LocOf (Op loc) = loc
@@ -559,7 +561,8 @@ instance Location loc => Located (Op loc) where
     loc (OpNe   l) = l 
     loc (OpShl  l) = l 
     loc (OpShr  l) = l 
-    loc (OpExcM l) = l
+    loc (OpNot l) = l
+    loc (OpCast l) = l
   
 -- Statements: 
 

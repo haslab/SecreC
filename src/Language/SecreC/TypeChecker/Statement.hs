@@ -13,14 +13,17 @@ import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
-import {-# SOURCE #-} Language.SecreC.TypeChecker.Unification
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 
 import Data.Traversable
 import Data.Set (Set(..))
 import qualified Data.Set as Set
 import Data.Map (Map(..))
 import qualified Data.Map as Map
+
 import Control.Monad hiding (mapM)
+import Control.Monad.IO.Class
+
 import Prelude hiding (mapM)
 
 -- | Left-biased merge of two @StmtClass@es
@@ -28,14 +31,13 @@ extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.delete StmtFallthru s1) `Set.union` s2
 
 tcStmts :: Location loc => Type -> [Statement loc] -> TcM loc ([Statement (Typed loc)],Type)
-tcStmts ret [] = return ([],StmtType $ Set.singleton StmtFallthru)
-tcStmts ret [s] = do
-    (s',t) <- tcStmt ret s
-    return ([s'],t)
+tcStmts ret [] = return ([],StmtType $ Set.empty)
 tcStmts ret (s:ss) = do
     (s',StmtType c) <- tcStmt ret s
     -- if the following statements are never executed, issue an error
-    when (not (null ss) && Set.member StmtFallthru c) $ tcError (locpos $ loc $ head ss) $ UnreachableDeadCode $ map (fmap locpos) ss
+    case ss of
+        [] -> return ()
+        ss -> unless (Set.member StmtFallthru c) $ tcError (locpos $ loc ss) $ UnreachableDeadCode $ map (fmap locpos) ss
     -- issue warning for unused variable declarations
     forSetM_ (bvs s `Set.difference` fvsFoldable ss) $ \(ScVar l v) -> tcWarn (locpos l) $ UnusedVariable v
     (ss',StmtType cs) <- tcStmts ret ss
@@ -96,19 +98,23 @@ tcStmt ret (AssertStatement l argE) = do
     argE' <- tcGuard argE
     let t = StmtType $ Set.singleton StmtFallthru
     return (AssertStatement (notTyped l) argE',t)
-tcStmt ret (SyscallStatement l sysproc args) = error "tcStmt syscall statement"
+tcStmt ret (SyscallStatement l n args) = do
+    args' <- mapM tcSyscallParam args
+    let t = StmtType $ Set.singleton StmtFallthru
+    isSupportedSyscall l n $ map (typed . loc) args'
+    return (SyscallStatement (Typed l t) n args',t)
 tcStmt ret (VarStatement l decl) = do
     decl' <- tcVarDecl LocalScope decl
     let t = StmtType (Set.singleton StmtFallthru)
     return (VarStatement (notTyped l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
-    tcProofM $ coerces l Void ret
+    tcCstrM l $ Coerces Void ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
-    tcProofM $ coerces l et' ret
+    tcCstrM l $ Coerces et' ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) (Just e'),t)
 tcStmt ret (ContinueStatement l) = do
@@ -121,6 +127,27 @@ tcStmt ret (ExpressionStatement l e) = do
     e' <- tcExpr e -- we discard the expression's result type
     let t = StmtType (Set.singleton StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
+
+isSupportedSyscall :: Location loc => loc -> Identifier -> [Type] -> TcM loc ()
+isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
+
+tcSyscallParam :: Location loc => SyscallParameter loc -> TcM loc (SyscallParameter (Typed loc))
+tcSyscallParam (SyscallPush l e) = do
+    e' <- tcExpr e
+    let t = SysPush $ typed $ loc e'
+    return $ SyscallPush (Typed l t) e'
+tcSyscallParam (SyscallReturn l v) = do
+    v' <- tcVarName v
+    let t = SysRet $ typed $ loc v'
+    return $ SyscallReturn (Typed l t) v'
+tcSyscallParam (SyscallPushRef l v) = do
+    v' <- tcVarName v
+    let t = SysRef $ typed $ loc v'
+    return $ SyscallPushRef (Typed l t) v'
+tcSyscallParam (SyscallPushCRef l e) = do
+    e' <- tcExpr e
+    let t = SysCRef $ typed $ loc e'
+    return $ SyscallPushCRef (Typed l t) e'
 
 tcForInitializer :: Location loc => ForInitializer loc -> TcM loc (ForInitializer (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing

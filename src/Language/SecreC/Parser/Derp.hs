@@ -31,6 +31,8 @@ import Text.Derp.Combinator as Derp
 import Data.Set (Set(..))
 import qualified Data.Set as Set
 
+import Safe
+
 type ScParser a = Parser TokenInfo a
 
 scTok :: Token -> ScParser TokenInfo
@@ -277,8 +279,9 @@ scReturnTypeSpecifier = scTok VOID ==> (\x1 -> ReturnType (loc x1) Nothing)
                     <|> scTypeSpecifier ==> (\x1 -> ReturnType (loc x1) (Just x1))
 
 scProcedureDeclaration :: ScParser (ProcedureDeclaration Position)
-scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOp) <+> scProcedureId) <~> scBraces scProcedureParameterList <~> scCompoundStatement ==> f
+scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOpOrCast) <+> scProcedureId) <~> scBraces scProcedureParameterList <~> scCompoundStatement ==> f
     where
+    scOpOrCast = optionMaybe scOp ==> (maybe (OpCast noloc) id)
     f (x1,(Left x2,(x3,x4))) = OperatorDeclaration (loc x1) x1 x2 x3 (unLoc x4)
     f (x1,(Right x2,(x3,x4))) = ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)
 
@@ -296,7 +299,7 @@ scOp = scChar '+' ==> (OpAdd . loc)
    <|> scChar '*' ==> (OpMul . loc)
    <|> scChar '-' ==> (OpSub . loc)
    <|> scChar '^' ==> (OpXor . loc)
-   <|> scChar '!' ==> (OpExcM . loc )
+   <|> scChar '!' ==> (OpNot . loc )
    <|> scTok EQ_OP ==> (OpEq . loc)
    <|> scTok GE_OP ==> (OpGe . loc)
    <|> scTok LAND_OP ==> (OpLand . loc)
@@ -562,7 +565,7 @@ scPrimaryExpression = scChar '(' <~> scExpression <~ scChar ')' ==> (\(x1,x2) ->
 scStringLiteral :: ScParser (Loc Position String)
 scStringLiteral = many1 scStringPart ==> mergeStrs 
     where
-    mergeStrs xs = Loc (loc $ head xs) (concatMap unLoc xs)
+    mergeStrs xs = Loc (loc $ headNote "head derp" xs) (concatMap unLoc xs)
 
 scStringPart :: ScParser (Loc Position String)
 scStringPart = scStrIdentifier ==> (\x1 -> Loc (loc x1) (tokenString x1))

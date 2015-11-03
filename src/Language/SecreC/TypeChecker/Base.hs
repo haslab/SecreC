@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
 
 module Language.SecreC.TypeChecker.Base where
 
@@ -14,7 +14,8 @@ import Language.SecreC.Parser.Parsec
 
 import Data.Maybe
 import Data.Monoid
-import Data.Generics
+import Data.Generics hiding (GT)
+import Data.Dynamic
 import qualified Data.Foldable as Foldable
 import qualified Data.List as List
 import Data.Set (Set(..))
@@ -28,6 +29,7 @@ import qualified Control.Monad.Trans.RWS as RWS
 import Control.Monad.Except
 
 import System.IO.Unsafe
+import Unsafe.Coerce
 
 -- warn for unused local variables
 
@@ -48,31 +50,21 @@ data TcEnv loc = TcEnv {
     -- | a base template and a list of specializations; akin to Haskell type functions
     , structs :: Map Identifier (EntryEnv loc,Map Position (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
     , inTemplate :: Bool -- ^ @True@ if we are type checking the body of a template declaration
-    , templateConstraints :: [TCstr] -- a set of inferred template constraints
+    , templateConstraints :: TDict -- a dictionary with a set of inferred constraints and resolved constraints
     , tyVarId :: TyVarId
     }
   deriving Functor
 
 vars env = Map.union (localVars env) (globalVars env)
 
--- | Adds a new template constraint to the environment
-addTemplateConstraint :: TCstr -> TcM loc ()
-addTemplateConstraint cstr = modify $ \env -> env { templateConstraints = cstr : templateConstraints env }
-
--- | Given a dictionary of resolved constraints, removes those constraints from the state
-removeTemplateConstraints :: TDict -> TcM loc ()
-removeTemplateConstraints (TDict dict) = modify $ \env -> env { templateConstraints = filter cond (templateConstraints env) }
-    where
-    cond (TCstr n args) = Map.notMember (n,args) dict
-
 insideTemplate :: TcM loc Bool
 insideTemplate = liftM inTemplate State.get
 
 resetLocal :: TcEnv loc -> TcEnv loc
-resetLocal e = e { localVars = Map.empty }
+resetLocal e = e { localVars = Map.empty, templateConstraints = mempty }
 
 emptyTcEnv :: TcEnv loc
-emptyTcEnv = TcEnv Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty False [] 0
+emptyTcEnv = TcEnv Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty False mempty 0
 
 data EntryEnv loc = EntryEnv {
       entryLoc :: loc -- ^ Location where the entry is defined
@@ -154,19 +146,10 @@ checkPrivateDomain (DomainName l n) = do
     case Map.lookup n ds of
         Just e -> return $ entryType e
         Nothing -> do
-            dvars <- getVars GlobalScope DomainC
+            dvars <- getVars LocalScope DomainC
             case Map.lookup n dvars of
                 Just e -> return $ entryType e
                 Nothing -> tcError (locpos l) $ NotDefinedDomain n
-
--- | Checks if a non-template type exists in scope
--- Returns a single match
-checkNonTemplateType :: Location loc => TypeName loc -> TcReaderM loc Type
-checkNonTemplateType tn@(TypeName l n) = do
-    es <- checkType tn
-    case es of
-        [e] -> return $ entryType e 
-        es -> tcError (locpos l) $ NoNonTemplateType n
     
 -- | Checks if a type exists in scope
 -- Searches for both user-defined types and type variables
@@ -176,10 +159,19 @@ checkType (TypeName l n) = do
     case Map.lookup n ss of
         Just (base,es) -> return (base : Map.elems es)
         Nothing -> do
-            vars <- getVars GlobalScope TypeStarC
+            vars <- getVars LocalScope TypeStarC
             case Map.lookup n vars of
                 Just e -> return [ e { entryType = TVar (Typed (Left n) $ entryType e) } ] -- return the type variable
                 Nothing -> tcError (locpos l) $ NotDefinedType n
+
+-- | Checks if a non-template type exists in scope
+-- Returns a single match
+checkNonTemplateType :: Location loc => TypeName loc -> TcReaderM loc Type
+checkNonTemplateType tn@(TypeName l n) = do
+    es <- checkType tn
+    case es of
+        [e] -> return $ entryType e 
+        es -> tcError (locpos l) $ NoNonTemplateType n
 
 -- | Checks if a template type exists in scope
 -- Returns all template type declarations in scope, base template first
@@ -237,7 +229,7 @@ addTemplateOperator vars op = do
     cstrs <- liftM templateConstraints get
     i <- newTyVarId
     let e = EntryEnv l (TpltType i vars cstrs [] t)
-    modify $ \env -> env { operators = Map.update (Just . Map.insert (locpos l) e) o (operators env) }
+    modify $ \env -> env { operators = Map.alter (Just . Map.insert (locpos l) e . maybe Map.empty id) o (operators env) }
 
 -- | Adds a new (possibly overloaded) operator to the environment.
 newOperator :: Location loc => Op (Typed loc) -> TcM loc ()
@@ -245,7 +237,7 @@ newOperator op = do
     let Typed l t = loc op
     let o = fmap (const ()) op
     let e = EntryEnv l t
-    modify $ \env -> env { operators = Map.update (Just . Map.insert (locpos l) e) o (operators env) }
+    modify $ \env -> env { operators = Map.alter (Just . Map.insert (locpos l) e . maybe Map.empty id) o (operators env) }
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
@@ -254,13 +246,13 @@ addTemplateProcedure vars (ProcedureName (Typed l t) n) = do
     cstrs <- liftM templateConstraints get
     i <- newTyVarId
     let e = EntryEnv l (TpltType i vars cstrs [] t)
-    modify $ \env -> env { procedures = Map.update (Just . Map.insert (locpos l) e) n (procedures env) }
+    modify $ \env -> env { procedures = Map.alter (Just . Map.insert (locpos l) e . maybe Map.empty id) n (procedures env) }
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
 newProcedure :: Location loc => ProcedureName (Typed loc) -> TcM loc ()
 newProcedure (ProcedureName (Typed l t) n) = do
     let e = EntryEnv l t
-    modify $ \env -> env { procedures = Map.update (Just . Map.insert (locpos l) e) n (procedures env) }
+    modify $ \env -> env { procedures = Map.alter (Just . Map.insert (locpos l) e . maybe Map.empty id) n (procedures env) }
   
  -- | Checks that a procedure exists.
 checkProcedure :: Location loc => ProcedureName loc -> TcReaderM loc [EntryEnv loc]
@@ -306,18 +298,10 @@ type TcM loc = StateT (TcEnv loc) SecrecM
 
 type TcReaderM loc = ReaderT (TcEnv loc) SecrecM
 
-type TcProofM loc = StateT (Substs Type,TDict) (TcM loc)
+type TcProofM loc = StateT (Substs Type) (TcM loc)
 
 tcProofM :: TcProofM loc a -> TcM loc (a,Substs Type)
-tcProofM m = do
-   (a,s,d) <- tcProofM' m
-   removeTemplateConstraints d
-   return (a,s)
-
-tcProofM' :: TcProofM loc a -> TcM loc (a,Substs Type,TDict)
-tcProofM' m = do
-    (a,(substs,dict)) <- runStateT m (emptySubsts (Proxy::Proxy Type),mempty)
-    return (a,substs,dict)
+tcProofM m = runStateT m (emptySubsts (Proxy::Proxy Type))
 
 tcReaderM :: TcReaderM loc a -> TcM loc a
 tcReaderM r = do
@@ -335,9 +319,9 @@ tcLocM f g m = do
 -- | Enters a template declaration
 tcTemplateBlock :: TcM loc a -> TcM loc a
 tcTemplateBlock m = do
-    State.modify (\env -> env { inTemplate = True, templateConstraints = [] })
+    State.modify (\env -> env { inTemplate = True, templateConstraints = mempty })
     x <- m
-    State.modify (\env -> env { inTemplate = False, templateConstraints = [] })
+    State.modify (\env -> env { inTemplate = False, templateConstraints = mempty })
     return x
 
 -- | Typechecks a code block, with local declarations only within its scope
@@ -355,46 +339,88 @@ tcGlobal m = do
 runTcM :: TcM loc a -> SecrecM a
 runTcM m = evalStateT m emptyTcEnv
 
--- | A template constraint
-data TCstr = TCstr TIdentifier [Type]
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-
+-- | A template constraint with a result type
+data TCstr
+    = TApp Identifier [Type] -- ^ type template application
+    | TDec Identifier [Type] -- ^ type template declaration
+    | PApp Identifier [Type] (Maybe Type) -- ^ procedure template application (optional return type)
+    | PDec Identifier [Type] (Maybe Type) -- ^ procedure template declaration (optional return type)
+    | SupportedOp (Op ()) Type -- ^ operation supported over given type
+    | Coerces Type Type -- ^ types coercible
+    | Coerces2 Type Type -- ^ bidirectional coercion
+    | Declassify Type -- ^ declassification
+    | SupportedSize Type -- ^ can call size on the argument type
+    | SupportedToString Type -- ^ can call tostring on the argument type
+    | ProjectStruct Type (AttributeName ()) -- ^ struct type projection
+    | ProjectMatrix Type [(Maybe Integer,Maybe Integer)] -- ^ matrix type projection
+    | Cast Type Type -- ^ explicit type cast
+  deriving (Data,Typeable,Show,Eq,Ord)
+    
 instance Vars TCstr where
     type VarOf TCstr = Typed VarIdentifier
-    fvs (TCstr _ ts) = fvsFoldable ts
-    bvs (TCstr _ ts) = bvsFoldable ts
+    fvs (TApp n args) = fvsFoldable args
+    fvs (TDec n args) = fvsFoldable args
+    fvs (PApp n args r) = fvsFoldable args `Set.union` fvsFoldable r
+    fvs (PDec n args r) = fvsFoldable args `Set.union` fvsFoldable r
+    fvs (Coerces x y) = fvs x `Set.union` fvs y
+    fvs (Coerces2 x y) = fvs x `Set.union` fvs y
+    fvs (Declassify x) = fvs x
+    fvs (SupportedSize x) = fvs x
+    fvs (SupportedToString x) = fvs x
+    fvs (ProjectStruct x _) = fvs x
+    fvs (ProjectMatrix t _) = fvs t
+    bvs (TApp n args) = bvsFoldable args
+    bvs (TDec n args) = bvsFoldable args
+    bvs (PApp n args r) = bvsFoldable args `Set.union` bvsFoldable r
+    bvs (PDec n args r) = bvsFoldable args `Set.union` bvsFoldable r
+    bvs (Coerces x y) = bvs x `Set.union` bvs y
+    bvs (Coerces2 x y) = bvs x `Set.union` bvs y
+    bvs (Declassify x) = bvs x
+    bvs (SupportedSize x) = bvs x
+    bvs (SupportedToString x) = bvs x
+    bvs (ProjectStruct x _) = bvs x
+    bvs (ProjectMatrix t rs) = bvs t
 
 instance Subst TCstr where
     type SubstOf TCstr = Type
-    subst s (TCstr n ts) = TCstr n (substTraversable s ts)
+    subst f (TApp n args) = TApp n (substTraversable f args)
+    subst f (TDec n args) = TDec n (substTraversable f args)
+    subst f (PApp n args r) = PApp n (substTraversable f args) (substTraversable f r)
+    subst f (PDec n args r) = PDec n (substTraversable f args) (substTraversable f r)
+    subst f (Coerces x y) = Coerces (subst f x) (subst f y)
+    subst f (Coerces2 x y) = Coerces2 (subst f x) (subst f y)
+    subst f (Declassify x) = Declassify (subst f x)
+    subst f (SupportedSize x) = SupportedSize (subst f x)
+    subst f (SupportedToString x) = SupportedToString (subst f x)
+    subst f (ProjectStruct x a) = ProjectStruct (subst f x) a
+    subst f (ProjectMatrix x a) = ProjectMatrix (subst f x) a
 
--- | Template application dictionary
+-- | Template constraint dictionary: Mappings from keys @TCstr t@ to values @t@
+data TDict = TDict { unTDict :: Map TCstr (Maybe Type) }
+  deriving (Typeable,Eq,Ord,Show,Data)
 
-newtype TDict = TDict { unTDict :: (Map (TIdentifier,[Type]) Position) }
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
+insertTDict :: TCstr -> Maybe Type -> TDict -> TDict
+insertTDict cstr t (TDict dict) = TDict $ Map.insertWith join cstr t dict
+    where join x y = maybe y Just x
 
--- Left = type template
--- Right = procedure overload
-type TIdentifier = Either Identifier Identifier
-
-tId :: TIdentifier -> Identifier
-tId = either id id
-
-lookupTDict :: TIdentifier -> [Type] -> TDict -> Maybe Position
-lookupTDict i args = Map.lookup (i,args) . unTDict
+-- | Adds a new template constraint to the environment
+addTemplateConstraint :: TCstr -> Maybe Type -> TcM loc ()
+addTemplateConstraint cstr res = modify $ \env -> env { templateConstraints = insertTDict cstr res (templateConstraints env) }
 
 instance Monoid TDict where
     mempty = TDict Map.empty
-    mappend (TDict xs) (TDict ys) = TDict $ Map.union xs ys
+    mappend (TDict xs) (TDict ys) = TDict $ Map.unionWith join xs ys
+        where join x y = maybe y Just x
 
 instance Vars TDict where
     type VarOf TDict = Typed VarIdentifier
-    fvs (TDict m) = Set.foldl' (\s (_,ts) -> s `Set.union` fvsFoldable ts) Set.empty $ Map.keysSet m
-    bvs (TDict m) = Set.foldl' (\s (_,ts) -> s `Set.union` bvsFoldable ts) Set.empty $ Map.keysSet m
+    fvs (TDict m) = fvsFoldable (Map.keys m) `Set.union` (Set.unions $ map fvsFoldable $ Map.elems m)
+    bvs (TDict m) = bvsFoldable (Map.keys m) `Set.union` (Set.unions $ map bvsFoldable $ Map.elems m)
 
 instance Subst TDict where
     type SubstOf TDict = Type
-    subst s (TDict m) = TDict $ Map.mapKeys (\(n,ts) -> (n,substTraversable s ts)) m
+    subst s (TDict m) = TDict $ Map.foldrWithKey (\cstr mb d -> Map.insertWith join (subst s cstr) (fmap (subst s) mb) d) Map.empty m
+        where join x y = maybe y Just x
 
 type TyVarId = Int
 
@@ -403,30 +429,45 @@ newTyVarId = do
     i <- liftM tyVarId get
     modify $ \env -> env { tyVarId = succ (tyVarId env) }
     return i
+    
+newTyVar :: TcM loc Type
+newTyVar = do
+    i <- newTyVarId
+    return $ TVar (Typed (Right i) TType)
 
 type VarIdentifier = Either Identifier TyVarId
 
+-- | Checks if a type contains any type variables
+hasTypeVars :: Type -> Bool
+hasTypeVars = everything (&&) (mkQ False q)
+    where
+    q :: Type -> Bool
+    q (TVar _) = True
+    q t = False
+
 data Type
     = NoType -- ^ For locations with no associated type information
-    | ProcType -- ^procedure type
+    | ProcType -- ^ procedure type
         TyVarId -- ^ unique procedure declaration id
+        Position -- ^ location of the procedure declaration
         [VarName Type] -- typed procedure arguments
         Type -- return type
     | StructType -- ^ Struct type
             TyVarId -- ^ unique structure declaration id
+            Position -- ^ location of the procedure declaration
             [Attribute Type] -- ^ typed arguments
-    | TApp -- template application
-            TIdentifier -- ^ template name
-            [Type] -- ^ template argument types
-            TDict -- ^ reference to a dictionary to be used for inner template applications
+    | TK -- ^ the result of resolving a constraint
+        TCstr -- ^ a constraint returning a type
     | TpltType -- ^ Template type
             TyVarId -- ^ unique template declaration id
             [Typed VarIdentifier] -- ^ template variables
-            [TCstr] -- ^ template constraints depending on the variables
+            TDict -- ^ template constraints depending on the variables
             [Type] -- ^ template specializations
             Type -- ^ template's type
     | TVar -- ^ type variable
         (Typed VarIdentifier) -- ^ typed variable name
+    | TyLit -- ^ the most concrete type for a literal
+        (Literal ()) -- ^ the literal itself
     | TDim Integer -- constant dimension
     | TType -- ^ Type of types
     | KType -- ^ Type of kinds
@@ -444,7 +485,11 @@ data Type
     | Private -- ^ private domain
         Identifier -- ^ domain
         Identifier -- ^ kind
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
+    | SysPush Type
+    | SysRet Type
+    | SysRef Type
+    | SysCRef Type
+  deriving (Show,Data,Typeable,Eq,Ord)
 
 data TypeClass
     = KindStarC -- type of kinds
@@ -453,6 +498,7 @@ data TypeClass
     | TypeStarC -- type of types
     | TypeC -- regular type
     | DimC -- dimension type
+    | SysC -- system call parameters
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
 typeClass :: Type -> TypeClass
@@ -464,20 +510,66 @@ typeClass (Private _ _) = DomainC
 typeClass (TDim i) = DimC
 typeClass (TVar (Typed v t)) | typeClass t == KindC = DomainC -- domain variables
                              | typeClass t == TypeStarC = TypeC -- type variables
-                             | t == largestUint = DimC -- dimension variables
+                             | isIntType t = DimC -- dimension variables
+typeClass (SysPush _) = SysC
+typeClass (SysRet _) = SysC
+typeClass (SysRef _) = SysC
+typeClass (SysCRef _) = SysC
 typeClass _ = TypeC
 
+isBoolType :: Type -> Bool
+isBoolType (PrimType (DatatypeBool _)) = True
+isBoolType _ = False
+
+isIntType :: Type -> Bool
+isIntType (TyLit (IntLit _ i)) = True
+isIntType (PrimType p) = isIntPrimType p
+isIntType t = False
+
+isIntPrimType :: PrimitiveDatatype () -> Bool
+isIntPrimType (DatatypeInt _) = True
+isIntPrimType (DatatypeUint   _) = True
+isIntPrimType (DatatypeInt8   _) = True
+isIntPrimType (DatatypeUint8  _) = True
+isIntPrimType (DatatypeInt16  _) = True
+isIntPrimType (DatatypeUint16 _) = True
+isIntPrimType (DatatypeInt32  _) = True
+isIntPrimType (DatatypeUint32 _) = True
+isIntPrimType (DatatypeInt64  _) = True
+isIntPrimType (DatatypeUint64 _) = True
+isIntPrimType (DatatypeXorUint8   _) = True
+isIntPrimType (DatatypeXorUint16  _) = True
+isIntPrimType (DatatypeXorUint32  _) = True
+isIntPrimType (DatatypeXorUint64  _) = True
+isIntPrimType (DatatypeXorUint    _) = True
+isIntPrimType t = False
+
+isFloatType :: Type -> Bool
+isFloatType (TyLit (FloatLit _ f)) = True
+isFloatType (PrimType p) = isFloatPrimType p
+isFloatType t = False
+
+isFloatPrimType :: PrimitiveDatatype () -> Bool
+isFloatPrimType (DatatypeFloat _) = True
+isFloatPrimType (DatatypeFloat32   _) = True
+isFloatPrimType (DatatypeFloat64   _) = True
+isFloatPrimType t = False
+
+isNumericType :: Type -> Bool
+isNumericType t = isIntType t || isFloatType t
+  
 typedScVar :: ScVar Type -> Typed VarIdentifier
 typedScVar (ScVar t i) = Typed (Left i) t
 
 instance Vars Type where
     type VarOf Type = Typed VarIdentifier
     fvs NoType = Set.empty
-    fvs (ProcType i vs t) = fvsFoldable (map (\(VarName l _) -> l) vs) `Set.union` fvs t
-    fvs (StructType i as) = Set.map typedScVar $ fvsFoldable as
-    fvs (TApp n ts dict) = fvsFoldable ts `Set.union` fvs dict
-    fvs (TpltType i vs cs ss t) = (fvsFoldable cs `Set.union` fvsFoldable ss `Set.union` fvs t) `Set.difference` (Set.fromList vs)
+    fvs (ProcType i p vs t) = fvsFoldable (map (\(VarName l _) -> l) vs) `Set.union` fvs t
+    fvs (StructType i p as) = Set.map typedScVar $ fvsFoldable as
+    fvs (TK k) = fvs k
+    fvs (TpltType i vs cs ss t) = (fvs cs `Set.union` fvsFoldable ss `Set.union` fvs t) `Set.difference` (Set.fromList vs)
     fvs (TVar v) = Set.singleton v
+    fvs (TyLit l) = Set.empty
     fvs (TDim i) = Set.empty
     fvs TType = Set.empty
     fvs KType = Set.empty
@@ -488,12 +580,17 @@ instance Vars Type where
     fvs (PrimType _) = Set.empty
     fvs Public = Set.empty
     fvs (Private _ _) = Set.empty
+    fvs (SysPush t) = fvs t
+    fvs (SysRet t) = fvs t
+    fvs (SysRef t) = fvs t
+    fvs (SysCRef t) = fvs t
     bvs NoType = Set.empty
-    bvs (ProcType i vs t) = bvsFoldable (map (\(VarName l _) -> l) vs) `Set.union` bvs t
-    bvs (StructType i as) = Set.map typedScVar $ bvsFoldable as
-    bvs (TApp n ts dict) = fvsFoldable ts `Set.union` fvs dict
-    bvs (TpltType i vs cs ss t) = Set.fromList vs `Set.union` bvsFoldable cs `Set.union` bvsFoldable ss `Set.union` bvs t
+    bvs (ProcType i p vs t) = bvsFoldable (map (\(VarName l _) -> l) vs) `Set.union` bvs t
+    bvs (StructType i p as) = Set.map typedScVar $ bvsFoldable as
+    bvs (TK k) = bvs k
+    bvs (TpltType i vs cs ss t) = Set.fromList vs `Set.union` bvs cs `Set.union` bvsFoldable ss `Set.union` bvs t
     bvs (TVar v) = Set.empty
+    bvs (TyLit l) = Set.empty
     bvs (TDim i) = Set.empty
     bvs TType = Set.empty
     bvs KType = Set.empty
@@ -504,19 +601,24 @@ instance Vars Type where
     bvs (PrimType _) = Set.empty
     bvs Public = Set.empty
     bvs (Private _ _) = Set.empty
+    bvs (SysPush t) = bvs t
+    bvs (SysRet t) = bvs t
+    bvs (SysRef t) = bvs t
+    bvs (SysCRef t) = bvs t
 
 instance Subst Type where
     type SubstOf Type = Type
     subst f NoType = NoType
-    subst f (ProcType i vs t) = ProcType i (map (fmap (subst f)) vs) (subst f t)
-    subst f (StructType i as) = StructType i $ map (fmap (subst f)) as
-    subst f (TApp n ts dict) = TApp n (map (subst f) ts) (subst f dict)
-    subst f (TpltType i vs cs ss t) = TpltType i (map (mapTyped (subst g)) vs) (map (subst g) cs) (map (subst g) ss) (subst g t)
+    subst f (ProcType i p vs t) = ProcType i p (map (fmap (subst f)) vs) (subst f t)
+    subst f (StructType i p as) = StructType i p $ map (fmap (subst f)) as
+    subst f (TK k) = TK (subst f k)
+    subst f (TpltType i vs cs ss t) = TpltType i (map (mapTyped (subst g)) vs) (subst g cs) (map (subst g) ss) (subst g t)
         -- we don't substitute the template's variables, that may shadow the substitution variables
         where g v = if List.elem (unTyped v) (map unTyped vs) then Nothing else f v
     subst f (TVar v) = case f v of
         Nothing -> TVar v
         Just t -> t
+    subst f (TyLit l) = TyLit l
     subst f (TDim i) = TDim i
     subst f TType = TType
     subst f KType = KType
@@ -527,14 +629,16 @@ instance Subst Type where
     subst f (PrimType t) = PrimType t
     subst f Public = Public
     subst f (Private d k) = Private d k
+    subst f (SysPush t) = SysPush $ subst f t
+    subst f (SysRet t) = SysRet $ subst f t
+    subst f (SysRef t) = SysRef $ subst f t
+    subst f (SysCRef t) = SysCRef $ subst f t
         
 -- | Update the size of a compound type
 refineTypeSizes :: Type -> Maybe (Sizes loc) -> Type
 refineTypeSizes (CType s t d sz) Nothing = CType s t d []
 refineTypeSizes (CType s t d sz) (Just ss) = let Sizes sz' = fmap (const ()) ss in CType s t d $ Foldable.toList sz'
 refineTypeSizes _ _ = error "no size"
-
---integerLitExpr :: Location loc => Expression loc -> TcReaderM loc (Maybe (Expression loc,Int))
 
 typeBase :: Type -> Type
 typeBase (CType _ b _ _) = b
@@ -566,7 +670,7 @@ isIterationStmtClass :: StmtClass -> Bool
 isIterationStmtClass c = List.elem c [StmtContinue,StmtFallthru]
 
 data Typed a = Typed a Type
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Show,Data,Typeable,Functor,Eq,Ord)
 
 mapTyped :: (Type -> Type) -> Typed a -> Typed a
 mapTyped f (Typed a t) = Typed a (f t)
@@ -597,53 +701,12 @@ typeLoc t l = Typed l t
 noTypeLoc :: Loc loc a -> Loc (Typed loc) a
 noTypeLoc = mapLoc (flip Typed NoType)
 
-largestUint :: Type
-largestUint = PrimType $ DatatypeUint64 ()
-
 defCType :: Type -> Type
 defCType t = CType Public t (integerExpr 0) []
 
 -- | constant integer literal
 integerExpr :: Integer -> Expression ()
 integerExpr i = fmap (const ()) $ unsafePerformIO $ parseSecreCIOWith defaultOptions "" (show i) scExpression
-    
--- propagates a dictionary down to template applications
-addTDict :: TDict -> Type -> Type
-addTDict dict = everywhere (mkT (`mappend` dict))
-
--- | Creates a distinct head signature from a template type declaration
--- Rename variables to make sure that they are unique to this signature
-templateArgs :: Location loc => TIdentifier -> EntryEnv loc -> [Type]
-templateArgs (Left name) e = case entryType e of
-    TpltType _ args cstrs [] body -> map TVar args -- a base template uses the base arguments
-    TpltType _ args cstrs specials body -> specials -- a specialization uses the specialized arguments
-
--- | renames the variables in a template to local names
-localTemplate :: Location loc => EntryEnv loc -> TcM loc (EntryEnv loc)
-localTemplate e = case entryType e of
-    TpltType _ args cstrs specials body -> do
-        s <- mapM uniqueVar args
-        return $ EntryEnv (entryLoc e) (subst (substFromList proxy s) (entryType e))
-  where
-    uniqueVar i@(Typed v t) = newTyVarId >>= \j -> return (i,TVar $ Typed (Right j) t)
-    proxy = Proxy :: Proxy Type
-
--- declassifies 
-declassifyType :: Location loc => loc -> Type -> TcReaderM loc Type
-declassifyType l (CType _ t d sz) = return $ CType Public t d sz
-declassifyType l t | typeClass t == TypeC = return t
-                 | otherwise = tcError (locpos l) $ NonDeclassifiableExpression
-
--- | Operation supported over the given type
-isSupportedOp :: Op () -> Type -> TcReaderM loc ()
-isSupportedOp (OpMul ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpDiv ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpMod ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpAdd ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpSub ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpBand ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpBor ()) = error "isSupportedOp" -- TODO
-isSupportedOp (OpXor ()) = error "isSupportedOp" -- TODO
 
 -- integer types
 primIntBounds :: PrimitiveDatatype () -> (Integer,Integer)
@@ -652,18 +715,36 @@ primIntBounds (DatatypeInt16 _) = (-32768,32767)
 primIntBounds (DatatypeInt32 _) = (-2147483648,2147483647)
 primIntBounds (DatatypeInt64 _) = (-9223372036854775808,9223372036854775807)
 primIntBounds (DatatypeInt _) = (-9223372036854775808,9223372036854775807)
-printIntBounds (DatatypeUint8 _) = (0,255)
-printIntBounds (DatatypeUint16 _) = (0,65535)
-printIntBounds (DatatypeUint32 _) = (0,4294967295)
-printIntBounds (DatatypeUint64 _) = (0,18446744073709551615)
-printIntBounds (DatatypeUint _) = (0,18446744073709551615)
-printIntBounds (DatatypeXorUint8 _) = (0,255)
-printIntBounds (DatatypeXorUint16 _) = (0,65535)
-printIntBounds (DatatypeXorUint32 _) = (0,4294967295)
-printIntBounds (DatatypeXorUint64 _) = (0,18446744073709551615)
-printIntBounds (DatatypeXorUint _) = (0,18446744073709551615)
+primIntBounds (DatatypeUint8 _) = (0,255)
+primIntBounds (DatatypeUint16 _) = (0,65535)
+primIntBounds (DatatypeUint32 _) = (0,4294967295)
+primIntBounds (DatatypeUint64 _) = (0,18446744073709551615)
+primIntBounds (DatatypeUint _) = (0,18446744073709551615)
+primIntBounds (DatatypeXorUint8 _) = (0,255)
+primIntBounds (DatatypeXorUint16 _) = (0,65535)
+primIntBounds (DatatypeXorUint32 _) = (0,4294967295)
+primIntBounds (DatatypeXorUint64 _) = (0,18446744073709551615)
+primIntBounds (DatatypeXorUint _) = (0,18446744073709551615)
+primIntBounds _ = (0,-1) -- nonsensical bounds
 
 primFloatBounds :: PrimitiveDatatype () -> (Double,Double)
 primFloatBounds (DatatypeFloat _) = (-2.802597 * 10 ^(-45),3.402823 * (10 ^38))
 primFloatBounds (DatatypeFloat32 _) = (-2.802597 * 10 ^(-45),3.402823 * (10 ^38))
 primFloatBounds (DatatypeFloat64 _) = (-4.940656 * 10 ^ (-324),1.797693 * (10 ^308))
+primFloatBounds _ = (0,-1) -- nonsensical bounds
+
+indexType :: Type
+indexType = PrimType $ DatatypeUint64 ()
+
+bytesType :: Type
+bytesType = CType Public (PrimType $ DatatypeUint8 ()) (integerExpr 1) []
+
+stringType :: Type
+stringType = PrimType $ DatatypeString ()
+
+boolType :: Type
+boolType = PrimType $ DatatypeBool ()
+
+isPublicType :: Type -> Bool
+isPublicType Public = True
+isPublicType _ = False

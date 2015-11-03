@@ -3,6 +3,7 @@
 module Language.SecreC.Monad where
     
 import Language.SecreC.Error
+import Language.SecreC.Location
     
 import Control.Monad.IO.Class
 import Control.Monad.Except
@@ -77,6 +78,14 @@ instance MonadThrow SecrecM where
 
 instance MonadCatch SecrecM where
     catch = liftCatch catch
+
+instance MonadPlus SecrecM where
+    mzero = genericError noloc "mzero"
+    mplus x y = catchError x (const y)
+    
+instance Alternative SecrecM where
+    empty = mzero
+    (<|>) = mplus
 
 liftCatch :: Catch e (ReaderT Options IO) (Either SecrecError (a,[SecrecWarning])) -> Catch e SecrecM a
 liftCatch catchE m h = SecrecM $ runSecrecM m `catchE` \ e -> runSecrecM (h e)

@@ -8,6 +8,8 @@ import Language.SecreC.Pretty
 import Language.SecreC.Position
 import Language.SecreC.Utils
 
+import Safe
+
 class Location (LocOf a) => Located a where
     type LocOf a :: *
     -- | Returns the top location
@@ -21,6 +23,10 @@ class Location loc where
 instance Location Position where
     locpos = id
     noloc = UnhelpfulPos "no position info"
+    
+instance Location () where
+    locpos () = noloc
+    noloc = ()
     
 data Loc loc a = Loc loc a
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
@@ -40,7 +46,7 @@ instance Location loc => Located (Loc loc a) where
 
 instance Located a => Located [a] where
     type LocOf [a] = LocOf a
-    loc = loc . head
+    loc = loc . headNote "located list"
 
 instance Located a => Located (NeList a) where
     type LocOf (NeList a) = LocOf a

@@ -24,7 +24,9 @@ parserError = ParserError
 data SecrecError = TypecheckerError Position TypecheckerErr
                  | ParserError ParserException
                  | ModuleError Position ModuleErr
-                 | GenericError String -- ^message
+                 | GenericError
+                     Position -- ^ position
+                     String -- ^message
   deriving (Show,Typeable)
 
 data TypecheckerErr
@@ -71,6 +73,8 @@ data TypecheckerErr
         Position -- ^ position of the already defined struct
     | EqualityException -- ^ @equals@ fails to prove equality
         String
+    | CoercionException -- ^ @coerces@ fails to prove equality
+        String
     | UnificationException -- ^ @unifies@ fails to unify two types
         String
     | ComparisonException -- ^ @compares@ fails to compare two types
@@ -88,6 +92,10 @@ data TypecheckerErr
         (Integer,Integer) -- selection range
     | VariableNotFound -- variable not found in scope
         Identifier -- ^ variable name
+    | NonSupportedOperation -- operation
+        (Op ()) -- ^ operation
+    | InvalidToStringArgument
+    | InvalidSizeArgument
   deriving (Show,Read,Data,Typeable)
 
 data ModuleErr
@@ -101,6 +109,9 @@ moduleError = ModuleError
 
 modError :: MonadError SecrecError m => Position -> ModuleErr -> m a
 modError pos msg = throwError $ moduleError pos msg
+
+genericError :: MonadError SecrecError m => Position -> String -> m a
+genericError pos msg = throwError $ GenericError pos msg
 
 typecheckerError :: Position -> TypecheckerErr -> SecrecError
 typecheckerError = TypecheckerError
@@ -125,4 +136,9 @@ data TypecheckerWarn
         Position -- ^ shadowed position
     | NoStaticDimension -- ^ matrix dimension not known at static time
         (Expression Position)
+    | LiteralOutOfRange -- literal out of range
+        String -- literal value
+        String -- type
+        String -- min range
+        String -- max range
   deriving (Show,Read,Data,Typeable)

@@ -1,5 +1,7 @@
 {-# LANGUAGE ViewPatterns, DeriveDataTypeable #-}
 
+-- We delay resolution of all possible constraints inside the  body of templates, even those that do not depend on template variables, to better match C++ templates that are only typechecked on full instantiation.
+
 module Language.SecreC.TypeChecker where
 
 import Language.SecreC.Monad
@@ -11,7 +13,7 @@ import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Statement
 import Language.SecreC.TypeChecker.Expression
 import Language.SecreC.TypeChecker.Type
-import Language.SecreC.TypeChecker.Unification
+import Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.Utils
 
 import Prelude hiding (mapM)
@@ -19,8 +21,12 @@ import Prelude hiding (mapM)
 import Data.Generics
 import Data.Traversable
 import Data.Foldable
+import qualified Data.Map as Map
 
 import Control.Monad hiding (mapM,mapAndUnzipM)
+import Control.Monad.IO.Class
+import Control.Monad.State (State(..),StateT(..))
+import qualified Control.Monad.State as State
 
 tcModule :: Location loc => Module loc -> TcM loc (Module (Typed loc))
 tcModule (Module l name prog) = do
@@ -79,7 +85,7 @@ tcProcedureDecl addOp addProc (OperatorDeclaration l ret op ps s) = do
     (s',st) <- tcStmts tret s
     when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Left $ fmap locpos op)
     i <- newTyVarId
-    let tproc = ProcType i (map (fmap typed . procedureParameterName) ps') tret
+    let tproc = ProcType i (locpos l) (map (fmap typed . procedureParameterName) ps') tret
     let op' = fmap (\l -> Typed l tproc) op
     addOp op'
     return $ OperatorDeclaration (notTyped l) ret' op' ps' s'
@@ -91,7 +97,7 @@ tcProcedureDecl addOp addProc (ProcedureDeclaration l ret proc@(ProcedureName pl
     when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Right $ fmap locpos proc)
     let vars = map (fmap typed . procedureParameterName) ps'
     i <- newTyVarId
-    let tproc = ProcType i vars tret
+    let tproc = ProcType i (locpos l) vars tret
     let proc' = ProcedureName (Typed pl tproc) pn
     addProc proc'
     return $ ProcedureDeclaration (notTyped l) ret' proc' ps' s'
@@ -101,6 +107,7 @@ tcProcedureParam (ProcedureParameter l s v) = do
     s' <- tcTypeSpec s
     let t = typed $ loc s'
     let v' = fmap (flip Typed t) v
+    newVariable LocalScope v'
     return $ ProcedureParameter (notTyped l) s' v'
 
 tcStructureDecl :: Location loc => (TypeName (Typed loc) -> TcM loc ())
@@ -108,7 +115,7 @@ tcStructureDecl :: Location loc => (TypeName (Typed loc) -> TcM loc ())
 tcStructureDecl addStruct (StructureDeclaration l ty@(TypeName tl tn) atts) = do
     atts' <- mapM tcAttribute atts
     i <- newTyVarId
-    let t = StructType i $ map (fmap typed) atts'
+    let t = StructType i (locpos l) $ map (fmap typed) atts'
     let ty' = TypeName (Typed tl t) tn
     addStruct ty'
     return $ StructureDeclaration (notTyped l) ty' atts'
@@ -153,7 +160,7 @@ tcTemplateQuantifier (DomainQuantifier l v@(DomainName dl dn) mbk) = do
     newDomainVariable LocalScope v'
     return (DomainQuantifier (notTyped l) v' mbk,Typed dn t)
 tcTemplateQuantifier (DimensionQuantifier l v@(VarName dl dn)) = do
-    let t = largestUint -- variable is a dimension
+    let t = indexType -- variable is a dimension
     let v' = VarName (Typed dl t) dn
     newVariable LocalScope v'
     return (DimensionQuantifier (notTyped l) v',Typed dn t)

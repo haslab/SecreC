@@ -18,3 +18,5 @@ tcExprTy :: Location loc => Type -> Expression loc -> TcM loc (Expression (Typed
 tcDimSizeExpr :: Location loc => Maybe (VarName loc) -> Expression loc -> TcM loc (Expression (Typed loc))
 
 isStaticUintExpr :: Location loc => Expression () -> TcM loc (Maybe Integer)
+
+tcVarName :: Location loc => VarName loc -> TcM loc (VarName (Typed loc))

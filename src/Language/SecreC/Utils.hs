@@ -1,4 +1,4 @@
-{-# LANGUAGE StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
 
@@ -12,6 +12,8 @@ import qualified Data.Set as Set
 import Data.Maybe
 
 import Control.Monad
+
+import Unsafe.Coerce
 
 -- | Non-empty list
 data NeList a = WrapNe a | ConsNe a (NeList a)
@@ -107,3 +109,96 @@ sortByM cmp = mergeAll <=< sequences
     merge [] bs         = return bs
     merge as []         = return as
 
+data EqDyn where
+    EqDyn :: (Data a,Typeable a,Eq a) => a -> EqDyn
+  deriving Typeable
+
+instance Data EqDyn where
+    gfoldl k z (EqDyn x) = z EqDyn `k` x
+    gunfold = error "gunfold unsupported"
+    toConstr (EqDyn _) = conEqDyn
+    dataTypeOf _ = tyEqDyn
+
+conEqDyn = mkConstr tyEqDyn "EqDyn" [] Prefix
+tyEqDyn = mkDataType "Language.SecreC.Utils.EqDyn" [conEqDyn]
+
+instance Show EqDyn where
+    show q = "EqDyn"
+
+instance Eq EqDyn where
+    (EqDyn a) == (EqDyn b) = (typeOf a == typeOf b) && (a == unsafeCoerce b)
+
+toEqDyn :: (Data a,Typeable a,Eq a) => a -> EqDyn
+toEqDyn v = EqDyn v
+
+fromEqDyn :: (Data a,Typeable a,Eq a) => EqDyn -> Maybe a
+fromEqDyn (EqDyn v) = case unsafeCoerce v of 
+    r | typeOf v == typeOf r -> Just r
+      | otherwise     -> Nothing
+      
+data OrdDyn where
+    OrdDyn :: (Data a,Typeable a,Eq a,Ord a) => a -> OrdDyn
+  deriving Typeable
+  
+instance Data OrdDyn where
+    gfoldl k z (OrdDyn x) = z OrdDyn `k` x
+    gunfold = error "gunfold unsupported"
+    toConstr (OrdDyn _) = conOrdDyn
+    dataTypeOf _ = tyOrdDyn
+
+conOrdDyn = mkConstr tyOrdDyn "OrdDyn" [] Prefix
+tyOrdDyn = mkDataType "Language.SecreC.Utils.OrdDyn" [conOrdDyn]
+  
+instance Show OrdDyn where
+    show d = "OrdDyn"
+
+instance Eq OrdDyn where
+    (OrdDyn a) == (OrdDyn b) = (typeOf a == typeOf b) && (a == unsafeCoerce b)
+
+instance Ord OrdDyn where
+    compare (OrdDyn a) (OrdDyn b) = case compare (typeOf a) (typeOf b) of
+        EQ -> compare a (unsafeCoerce b)
+        c -> c
+
+toOrdDyn :: (Data a,Typeable a,Eq a,Ord a) => a -> OrdDyn
+toOrdDyn v = OrdDyn v
+
+fromOrdDyn :: (Data a,Typeable a,Eq a,Ord a) => OrdDyn -> Maybe a
+fromOrdDyn (OrdDyn v) = case unsafeCoerce v of 
+    r | typeOf v == typeOf r -> Just r
+      | otherwise     -> Nothing
+      
+data ShowOrdDyn where
+    ShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
+  deriving Typeable
+  
+instance Data ShowOrdDyn where
+    gfoldl k z (ShowOrdDyn x) = z ShowOrdDyn `k` x
+    gunfold = error "gunfold unsupported"
+    toConstr (ShowOrdDyn _) = conShowOrdDyn
+    dataTypeOf _ = tyShowOrdDyn
+
+conShowOrdDyn = mkConstr tyShowOrdDyn "ShowOrdDyn" [] Prefix
+tyShowOrdDyn = mkDataType "Language.SecreC.Utils.ShowOrdDyn" [conShowOrdDyn]
+  
+instance Show ShowOrdDyn where
+    show (ShowOrdDyn d) = show d
+
+instance Eq ShowOrdDyn where
+    (ShowOrdDyn a) == (ShowOrdDyn b) = (typeOf a == typeOf b) && (a == unsafeCoerce b)
+
+instance Ord ShowOrdDyn where
+    compare (ShowOrdDyn a) (ShowOrdDyn b) = case compare (typeOf a) (typeOf b) of
+        EQ -> compare a (unsafeCoerce b)
+        c -> c
+
+toShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
+toShowOrdDyn v = ShowOrdDyn v
+
+fromShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => ShowOrdDyn -> Maybe a
+fromShowOrdDyn (ShowOrdDyn v) = case unsafeCoerce v of 
+    r | typeOf v == typeOf r -> Just r
+      | otherwise     -> Nothing
+
+within :: Ord a => (a,a) -> (a,a) -> Bool
+within (min1,max1) (min2,max2) = min1 >= min2 && min1 <= max2 && max1 >= min2 && max1 <= max2
