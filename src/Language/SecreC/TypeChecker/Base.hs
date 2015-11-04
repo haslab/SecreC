@@ -303,6 +303,10 @@ type TcProofM loc = StateT (Substs Type) (TcM loc)
 tcProofM :: TcProofM loc a -> TcM loc (a,Substs Type)
 tcProofM m = runStateT m (emptySubsts (Proxy::Proxy Type))
 
+addSubstM :: [(Typed VarIdentifier,Type)] -> TcProofM loc ()
+addSubstM xs = modify $ \s -> appendSubsts proxy s (substFromList proxy xs)
+    where proxy = Proxy :: Proxy Type
+
 tcReaderM :: TcReaderM loc a -> TcM loc a
 tcReaderM r = do
     s <- get
@@ -403,9 +407,15 @@ insertTDict :: TCstr -> Maybe Type -> TDict -> TDict
 insertTDict cstr t (TDict dict) = TDict $ Map.insertWith join cstr t dict
     where join x y = maybe y Just x
 
+deleteTDict :: TCstr -> TDict -> TDict
+deleteTDict cstr (TDict dict) = TDict $ Map.delete cstr dict
+
 -- | Adds a new template constraint to the environment
 addTemplateConstraint :: TCstr -> Maybe Type -> TcM loc ()
 addTemplateConstraint cstr res = modify $ \env -> env { templateConstraints = insertTDict cstr res (templateConstraints env) }
+
+remTemplateConstraint :: TCstr -> TcM loc ()
+remTemplateConstraint cstr = modify $ \env -> env { templateConstraints = deleteTDict cstr (templateConstraints env) }
 
 instance Monoid TDict where
     mempty = TDict Map.empty

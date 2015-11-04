@@ -17,7 +17,7 @@ coerces :: Location loc => loc -> Type -> Type -> TcProofM loc ()
 
 coerces2 :: Location loc => loc -> Type -> Type -> TcProofM loc Type
 
-compares :: loc -> Type -> Type -> TcProofM loc Ordering
+compares :: Location loc => loc -> Type -> Type -> TcProofM loc Ordering
 
 comparesList :: Location loc => loc -> [Type] -> [Type] -> TcProofM loc Ordering
 

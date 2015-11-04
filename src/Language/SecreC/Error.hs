@@ -94,6 +94,7 @@ data TypecheckerErr
         Identifier -- ^ variable name
     | NonSupportedOperation -- operation
         (Op ()) -- ^ operation
+        String -- message
     | InvalidToStringArgument
     | InvalidSizeArgument
   deriving (Show,Read,Data,Typeable)

@@ -28,7 +28,7 @@ prove proof = (liftM Just $ tcProofM proof) `mplus` (return Nothing)
 equals :: Location loc => loc -> Type -> Type -> TcProofM loc ()
 equals l (ProcType i1 _ _ _) (ProcType i2 _ _ _) | i1 == i2 = return ()
 equals l (StructType i1 _ _) (StructType i2 _ _) | i1 == i2 = return ()
-equals l (TK c1) (TK c2) = equalsCstr () equals l c1 c2
+equals l (TK c1) (TK c2) = provesCstr mempty (\x y -> return $ mappend x y) equals (const ()) equals l c1 c2
 equals l (TK cstr) t2 = do
     t1' <- resolveTK l cstr (Just t2)
     equals l t1' t2
@@ -38,11 +38,11 @@ equals l t1 (TK cstr) = do
 equals l (TpltType i1 _ _ _ _) (TpltType i2 _ _ _ _) | i1 == i2 = return ()
 equals l (TVar (Typed n1 t1)) (TVar (Typed n2 t2)) | n1 == n2 = do
     equals l t1 t2
-equals l t1@(TVar {}) t2 = do
-    t1' <- resolveTVar l t1
+equals l (TVar v1) t2 = do
+    t1' <- resolveTVar l v1
     equals l t1' t2
-equals l t1 t2@(TVar {}) = do
-    t2' <- resolveTVar l t2
+equals l t1 (TVar v2) = do
+    t2' <- resolveTVar l v2
     equals l t1 t2'
 equals l (TDim i1) (TDim i2) | i1 == i2 = return ()
 equals l TType TType = return ()
@@ -99,27 +99,38 @@ equalsExpr l e1 e2 = do
     (e2',v2) <- evalExpr e2
     unless (v1 == v2 || e1' == e2') $ tcError (locpos l) $ EqualityException $ "Expressions not equal"
 
--- | tests if two constraint are equal, possibly without resolving them
-equalsCstr :: Location loc => b -> (loc -> Type -> Type -> TcProofM loc b) -> loc -> TCstr -> TCstr -> TcProofM loc b
-equalsCstr def fallback l c1 c2 = (equalsCstrEq l c1 c2 >> return def)
-                          `mplus` (equalsCstrNeq l c1 c2)
-    where
-    equalsCstrEq l (TApp n1 args1) (TApp n2 args2) | n1 == n2 = equalsFoldable l args1 args2
-    equalsCstrEq l (TDec n1 args1) (TDec n2 args2) | n1 == n2 = equalsFoldable l args1 args2
-    equalsCstrEq l (PApp n1 args1 r1) (PApp n2 args2 r2) | n1 == n2 = equalsFoldable l args1 args2 >> equalsFoldable l r1 r2
-    equalsCstrEq l (PDec n1 args1 r1) (PDec n2 args2 r2) | n1 == n2 = equalsFoldable l args1 args2 >> equalsFoldable l r1 r2
-    equalsCstrEq l (SupportedOp o1 t1) (SupportedOp o2 t2) | o1 == o2 = equals l t1 t2
-    equalsCstrEq l (Coerces a1 b1) (Coerces a2 b2) = equals l a1 a2 >> equals l b1 b2
-    equalsCstrEq l (Coerces2 a1 b1) (Coerces2 a2 b2) = equals l a1 a2 >> equals l b1 b2
-    equalsCstrEq l (Declassify x) (Declassify y) = equals l x y
-    equalsCstrEq l (SupportedSize x) (SupportedSize y) = equals l x y
-    equalsCstrEq l (SupportedToString x) (SupportedToString y) = equals l x y
-    equalsCstrEq l (ProjectStruct t1 a1) (ProjectStruct t2 a2) | a1 == a2 = equals l t1 t2
-    equalsCstrEq l (ProjectMatrix t1 a1) (ProjectMatrix t2 a2) | a1 == a2 = equals l t1 t2 
-    equalsCstrEq l (Cast a1 b1) (Cast a2 b2) = equals l a1 a2 >> equals l b1 b2
-    equalsCstrEq l c1 c2 = tcError (locpos l) $ EqualityException "constraints not equal"
+provesFoldable :: (Location loc,Foldable t) => b -> (b -> b -> TcProofM loc b) -> (loc -> Type -> Type -> TcProofM loc b) -> loc -> t Type -> t Type -> TcProofM loc b
+provesFoldable z plus prove l t1 t2 = provesList z plus prove l (toList t1) (toList t2)
 
-    equalsCstrNeq l c1 c2 = do
+provesList :: (Location loc) => b -> (b -> b -> TcProofM loc b) -> (loc -> Type -> Type -> TcProofM loc b) -> loc -> [Type] -> [Type] -> TcProofM loc b
+provesList z plus prove l [] [] = return z
+provesList z plus prove l (x:xs) (y:ys) = do
+    m1 <- prove l x y
+    m2 <- provesList z plus prove l xs ys
+    m1 `plus` m2
+provesList z plus prove l xs ys = tcError (locpos l) $ EqualityException "Different number of arguments"
+
+-- | tests if two constraint are equal, possibly without resolving them
+provesCstr :: (Location loc) => a -> (a -> a -> TcProofM loc a) -> (loc -> Type -> Type -> TcProofM loc a) -> (a -> b) -> (loc -> Type -> Type -> TcProofM loc b) -> loc -> TCstr -> TCstr -> TcProofM loc b
+provesCstr z p eq def fallback l c1 c2 = (liftM def (provesCstrEq l c1 c2))
+                                 `mplus` (provesCstrNeq l c1 c2)
+    where
+    provesCstrEq l (TApp n1 args1) (TApp n2 args2) | n1 == n2 = provesFoldable z p eq l args1 args2
+    provesCstrEq l (TDec n1 args1) (TDec n2 args2) | n1 == n2 = provesFoldable z p eq l args1 args2
+    provesCstrEq l (PApp n1 args1 r1) (PApp n2 args2 r2) | n1 == n2 = provesFoldable z p eq l args1 args2 >> provesFoldable z p eq l r1 r2
+    provesCstrEq l (PDec n1 args1 r1) (PDec n2 args2 r2) | n1 == n2 = provesFoldable z p eq l args1 args2 >> provesFoldable z p eq l r1 r2
+    provesCstrEq l (SupportedOp o1 t1) (SupportedOp o2 t2) | o1 == o2 = eq l t1 t2
+    provesCstrEq l (Coerces a1 b1) (Coerces a2 b2) = eq l a1 a2 >> eq l b1 b2
+    provesCstrEq l (Coerces2 a1 b1) (Coerces2 a2 b2) = eq l a1 a2 >> eq l b1 b2
+    provesCstrEq l (Declassify x) (Declassify y) = eq l x y
+    provesCstrEq l (SupportedSize x) (SupportedSize y) = eq l x y
+    provesCstrEq l (SupportedToString x) (SupportedToString y) = eq l x y
+    provesCstrEq l (ProjectStruct t1 a1) (ProjectStruct t2 a2) | a1 == a2 = eq l t1 t2
+    provesCstrEq l (ProjectMatrix t1 a1) (ProjectMatrix t2 a2) | a1 == a2 = eq l t1 t2 
+    provesCstrEq l (Cast a1 b1) (Cast a2 b2) = eq l a1 a2 >> eq l b1 b2
+    provesCstrEq l c1 c2 = tcError (locpos l) $ EqualityException "constraints not equal"
+
+    provesCstrNeq l c1 c2 = do
         t1 <- resolveTCstr l c1
         t2 <- resolveTCstr l c2
         fallback l t1 t1
@@ -129,7 +140,7 @@ equalsCstr def fallback l c1 c2 = (equalsCstrEq l c1 c2 >> return def)
 coerces :: Location loc => loc -> Type -> Type -> TcProofM loc ()
 coerces l (ProcType i1 _ _ _) (ProcType i2 _ _ _) | i1 == i2 = return ()
 coerces l (StructType i1 _ _) (StructType i2 _ _) | i1 == i2 = return ()
-coerces l (TK c1) (TK c2) = equalsCstr () coerces l c1 c2
+coerces l (TK c1) (TK c2) = provesCstr mempty (\x y -> return $ mappend x y) equals (const ()) coerces l c1 c2
 coerces l (TK cstr) t2 = do
     t1' <- resolveTK l cstr (Just t2)
     coerces l t1' t2
@@ -139,11 +150,11 @@ coerces l t1 (TK cstr) = do
 coerces l (TpltType i1 _ _ _ _) (TpltType i2 _ _ _ _) | i1 == i2 = return ()
 coerces l (TVar (Typed n1 t1)) (TVar (Typed n2 t2)) | n1 == n2 = do
     coerces l t1 t2
-coerces l t1@(TVar {}) t2 = do
-    t1' <- resolveTVar l t1
+coerces l (TVar v1) t2 = do
+    t1' <- resolveTVar l v1
     coerces l t1' t2
-coerces l t1 t2@(TVar {}) = do
-    t2' <- resolveTVar l t2
+coerces l t1 (TVar v2) = do
+    t2' <- resolveTVar l v2
     coerces l t1 t2'
 coerces l (CType s1 t1 dim1 szs1) (CType s2 t2 dim2 szs2) = do
     coerces l s1 s2
@@ -213,13 +224,13 @@ coercesPrim l (DatatypeXorUint32 _) (DatatypeXorUint64 _) = return ()
 coercesPrim l (DatatypeXorUint32 _) (DatatypeXorUint _) = return ()
 coercesPrim l (DatatypeFloat _) (DatatypeFloat64 _) = return ()
 coercesPrim l (DatatypeFloat32 _) (DatatypeFloat64 _) = return ()
-coercesPrim l t1 t2 = equalsPrim l t1 t2
+coercesPrim l t1 t2 = (equalsPrim l t1 t2) `mplus` (tcError (locpos l) $ CoercionException $ "Primitive types not coercible")
 
 -- | bidirectional coercion, no substitutions
 coerces2 :: Location loc => loc -> Type -> Type -> TcProofM loc Type
 coerces2 l t@(ProcType i1 _ _ _) (ProcType i2 _ _ _) | i1 == i2 = return t
 coerces2 l t@(StructType i1 _ _) (StructType i2 _ _) | i1 == i2 = return t
-coerces2 l t1@(TK c1) (TK c2) = equalsCstr t1 coerces2 l c1 c2
+coerces2 l t1@(TK c1) (TK c2) = provesCstr mempty (\x y -> return $ mappend x y) equals (const t1) coerces2 l c1 c2
 coerces2 l (TK cstr) t2 = do
     t1' <- resolveTK l cstr (Just t2)
     coerces2 l t1' t2
@@ -230,11 +241,11 @@ coerces2 l t@(TpltType i1 _ _ _ _) (TpltType i2 _ _ _ _) | i1 == i2 = return t
 coerces2 l (TVar (Typed n1 t1)) (TVar (Typed n2 t2)) | n1 == n2 = do
     t3 <- coerces2 l t1 t2
     return $ TVar (Typed n1 t3)
-coerces2 l t1@(TVar {}) t2 = do
-    t1' <- resolveTVar l t1
+coerces2 l (TVar v1) t2 = do
+    t1' <- resolveTVar l v1
     coerces2 l t1' t2
-coerces2 l t1 t2@(TVar {}) = do
-    t2' <- resolveTVar l t2
+coerces2 l t1 (TVar v2) = do
+    t2' <- resolveTVar l v2
     coerces2 l t1 t2'
 coerces2 l t@(TDim i1) (TDim i2) | i1 == i2 = return t
 coerces2 l t@TType TType = return t
@@ -306,29 +317,112 @@ coercesLit2 l t1@(TyLit l1) (TyLit l2) | l1 == l2 = return t1
 coercesLit2 l t1 t2 = tcError (locpos l) $ CoercionException $ "Types not coercible\n\t" ++ show t1 ++ "\n\t" ++ show t2
 
 -- | Checks if a type is more specific than another, performing substitutions
-compares :: loc -> Type -> Type -> TcProofM loc Ordering
-compares l t1 t2 = error "compares" -- TODO
+compares :: Location loc => loc -> Type -> Type -> TcProofM loc Ordering
+compares l t1@(TVar v1) t2@(TVar v2) = provesVar EQ compares l v2 t1
+compares l (TVar v1) t2 = provesVar GT compares l v1 t2
+compares l t1 (TVar v2) = provesVar LT compares l v2 t1
+compares l (ProcType i1 _ _ _) (ProcType i2 _ _ _) | i1 == i2 = return EQ
+compares l (StructType i1 _ _) (StructType i2 _ _) | i1 == i2 = return EQ
+compares l (TpltType i1 _ _ _ _) (TpltType i2 _ _ _ _) | i1 == i2 = return EQ
+compares l (TK c1) (TK c2) = provesCstr EQ (appendOrdering l) compares id compares l c1 c2
+compares l (TK c1) t2 = do
+    t1' <- resolveTK l c1 (Just t2)
+    compares l t1' t2
+compares l t1 (TK c2) = do
+    t2' <- resolveTK l c2 (Just t1)
+    compares l t1 t2'
+compares l (TDim i1) (TDim i2) | i1 == i2 = return EQ
+compares l TType TType = return EQ
+compares l KType KType = return EQ
+compares l (DType k1) (DType k2) | k1 == k2 = return EQ
+compares l Void Void = return EQ
+compares l (StmtType s1) (StmtType s2) | s1 == s2 = return EQ
+compares l (CType s1 t1 dim1 szs1) (CType s2 t2 dim2 szs2) = do
+        o1 <- compares l s1 s2
+        o2 <- compares l t1 t2
+        equalsExpr l dim1 dim2
+        mapM_ (uncurry (equalsExpr l)) $ zip szs1 szs2
+        appendOrdering l o1 o2
+compares l t1@(CType {}) t2 = compares l t1 (defCType t2)
+compares l t1 t2@(CType {}) = compares l (defCType t1) t2
+compares l Public Public = return EQ
+compares l (Private d1 k1) (Private d2 k2) | d1 == d2 && k1 == k2 = return EQ
+compares l (SysPush t1) (SysPush t2) = compares l t1 t2
+compares l (SysRet t1) (SysRet t2) = compares l t1 t2
+compares l (SysRef t1) (SysRef t2) = compares l t1 t2
+compares l (SysCRef t1) (SysCRef t2) = compares l t1 t2
+compares l (TyLit lit1) (TyLit lit2) | lit1 == lit2 = return EQ
+compares l (TyLit lit) t2 = coercesLit l lit t2 >> return GT
+compares l t1 (TyLit lit) = coercesLit l lit t1 >> return LT
+compares l (PrimType p1) (PrimType p2) = (equalsPrim l p1 p2 >> return EQ) `mplus` (tcError (locpos l) $ ComparisonException "Primitive types not comparable")
+compares l t1 t2 = tcError (locpos l) $ ComparisonException "Types not comparable"
     
 comparesFoldable :: (Foldable t,Location loc) => loc -> t Type -> t Type -> TcProofM loc Ordering
 comparesFoldable l xs ys = comparesList l (toList xs) (toList ys)
-    
+
 comparesList :: Location loc => loc -> [Type] -> [Type] -> TcProofM loc Ordering
 comparesList l [] [] = return EQ
 comparesList l (x:xs) (y:ys) = do
     f <- compares l x y
     g <- comparesList l xs ys
-    appendOrdering f g
-  where
-    appendOrdering EQ y = return y
-    appendOrdering x EQ = return x
-    appendOrdering x y = if x == y then return x else tcError (locpos l) $ ComparisonException "Non-comparable types"
+    appendOrdering l f g
 comparesList l xs ys = tcError (locpos l) $ ComparisonException "Different number of arguments"
+    
+appendOrdering :: Location loc => loc -> Ordering -> Ordering -> TcProofM loc Ordering
+appendOrdering l EQ y = return y
+appendOrdering l x EQ = return x
+appendOrdering l LT LT = return LT
+appendOrdering l GT GT = return GT
+appendOrdering l x y = tcError (locpos l) $ ComparisonException "Non-comparable types"
     
 -- | Non-directed unification, without coercions
 -- takes a type variable for the result of the unification
 -- applies substitutions
 unifies :: Location loc => loc -> Type -> Type -> TcProofM loc ()
-unifies = error "unifies" -- TODO
+unifies l t1@(TVar v1) t2 = provesVar () unifies l v1 t2
+unifies l t1 t2@(TVar v2) = provesVar () unifies l v2 t1
+unifies l (ProcType i1 _ _ _) (ProcType i2 _ _ _) | i1 == i2 = return ()
+unifies l (StructType i1 _ _) (StructType i2 _ _) | i1 == i2 = return ()
+unifies l (TK c1) (TK c2) = provesCstr mempty (\x y -> return $ mappend x y) unifies (const ()) unifies l c1 c2
+unifies l (TK c1) t2 = do
+    t1' <- resolveTK l c1 (Just t2)
+    unifies l t1' t2
+unifies l t1 (TK c2) = do
+    t2' <- resolveTK l c2 (Just t1)
+    unifies l t1 t2'
+unifies l (TpltType i1 _ _ _ _) (TpltType i2 _ _ _ _) | i1 == i2 = return ()
+unifies l (TDim i1) (TDim i2) | i1 == i2 = return ()
+unifies l TType TType = return ()
+unifies l KType KType = return ()
+unifies l (DType k1) (DType k2) | k1 == k2 = return ()
+unifies l Void Void = return ()
+unifies l (StmtType s1) (StmtType s2) | s1 == s2 = return ()
+unifies l (CType s1 t1 dim1 szs1) (CType s2 t2 dim2 szs2) = do
+    s3 <- unifies l s1 s2
+    t3 <- unifies l t1 t2
+    equalsExpr l dim1 dim2
+    mapM_ (uncurry (equalsExpr l)) $ zip szs1 szs2
+unifies l t1@(CType {}) t2 = unifies l t1 (defCType t2)
+unifies l t1 t2@(CType {}) = unifies l (defCType t1) t2
+unifies l (PrimType p1) (PrimType p2) = (equalsPrim l p1 p2) `mplus` (tcError (locpos l) $ UnificationException $ "Primitive types not unifiable")
+unifies l Public Public = return ()
+unifies l (Private d1 k1) (Private d2 k2) | d1 == d2 && k1 == k2 = return ()
+unifies l (SysPush t1) (SysPush t2) = unifies l t1 t2
+unifies l (SysRet t1) (SysRet t2) = unifies l t1 t2
+unifies l (SysRef t1) (SysRef t2) = unifies l t1 t2
+unifies l (SysCRef t1) (SysCRef t2) = unifies l t1 t2
+unifies l (TyLit lit) t2 = coercesLit l lit t2
+unifies l t1 (TyLit lit) = coercesLit l lit t1
+unifies l t1 t2 = tcError (locpos l) $ UnificationException $ "Types not unifiable"
+
+provesVar :: Location loc => b -> (loc -> Type -> Type -> TcProofM loc b) -> loc -> Typed VarIdentifier -> Type -> TcProofM loc b
+provesVar z go l v1 t2 = do
+    mb <- tryResolveTVar l v1
+    case mb of
+        Nothing -> if typeClass (TVar v1) == typeClass t2
+            then addSubstM [(v1,t2)] >> return z
+            else tcError (locpos l) $ UnificationException "different type classes"
+        Just t1' -> go l t1' t2
 
 unifiesFoldable :: (Foldable t,Location loc) => loc -> t Type -> t Type -> TcProofM loc ()
 unifiesFoldable l xs ys = unifiesList l (toList xs) (toList ys)
@@ -342,17 +436,28 @@ unifiesList l xs ys = tcError (locpos l) $ UnificationException "Different numbe
 
 -- | Tries to resolve a constraint inside a proof
 resolveTK :: Location loc => loc -> TCstr -> Maybe Type -> TcProofM loc Type
-resolveTK l (PApp n args Nothing) (Just t) = resolveTCstr l $ PApp n args (Just t) -- add return type
-resolveTK l (PDec n args Nothing) (Just t) = resolveTCstr l $ PDec n args (Just t) -- add return type
+resolveTK l (PApp n args (Just r)) _ = return r -- we just want the return type
+resolveTK l cstr@(PApp n args Nothing) (Just t) = do -- we just want the return type
+    lift $ remTemplateConstraint cstr -- remove the old constraint
+    tcCstr l $ PApp n args (Just t) -- throw the new constraint; it does not need to be resolved
+    return t
+resolveTK l cstr@(PDec n args Nothing) (Just t) = do
+    lift $ remTemplateConstraint cstr  -- remove the old constraint
+    resolveTCstr l $ PDec n args (Just t) -- resolve new constraint
 resolveTK l cstr t = resolveTCstr l cstr
 
+resolveTVar :: Location loc => loc -> Typed VarIdentifier -> TcProofM loc Type
+resolveTVar l v = do
+    mb <- tryResolveTVar l v
+    case mb of
+        Nothing -> tcError (locpos l) $ EqualityException "cannot resolve variable"
+        Just t -> return t
+
 -- | tries to resolve a type variable by looking its value in the substitutions and in the environment
-resolveTVar :: Location loc => loc -> Type -> TcProofM loc Type
-resolveTVar l t@(TVar v) = do
+tryResolveTVar :: Location loc => loc -> Typed VarIdentifier -> TcProofM loc (Maybe Type)
+tryResolveTVar l v = do
     s <- State.get
-    case s v of
-        Nothing -> tcError (locpos l) $ EqualityException "variable type not equal"
-        Just t' -> return t
+    return (s v)
 
 -- typechecks a constraint
 tcCstr :: Location loc => loc -> TCstr -> TcProofM loc (Maybe Type)
@@ -443,25 +548,25 @@ declassifyType l t | typeClass t == TypeC = return t
 
 -- | Operation supported over the given type
 isSupportedOp :: Location loc => loc -> Op () -> Type -> TcProofM loc Type
-isSupportedOp l o@(OpDiv ()) t = if (isIntType t) then return t else tcError (locpos l) $ NonSupportedOperation o
-isSupportedOp l o@(OpMod ()) t = if (isIntType t) then return t else tcError (locpos l) $ NonSupportedOperation o
-isSupportedOp l o@(OpMul ()) t = if (isNumericType t) then return t else tcError (locpos l) $ NonSupportedOperation o
-isSupportedOp l o@(OpAdd ()) t = if (isNumericType t) then return t else tcError (locpos l) $ NonSupportedOperation o
-isSupportedOp l o@(OpSub ()) t = if (isNumericType t) then return t else tcError (locpos l) $ NonSupportedOperation o
+isSupportedOp l o@(OpDiv ()) t = if (isIntType t) then return t else tcError (locpos l) $ NonSupportedOperation o (show t)
+isSupportedOp l o@(OpMod ()) t = if (isIntType t) then return t else tcError (locpos l) $ NonSupportedOperation o (show t)
+isSupportedOp l o@(OpMul ()) t = if (isNumericType t) then return t else tcError (locpos l) $ NonSupportedOperation o (show t)
+isSupportedOp l o@(OpAdd ()) t = if (isNumericType t) then return t else tcError (locpos l) $ NonSupportedOperation o (show t)
+isSupportedOp l o@(OpSub ()) t = if (isNumericType t) then return t else tcError (locpos l) $ NonSupportedOperation o (show t)
 isSupportedOp l o@(OpBand ()) t = error "isSupportedOp" -- TODO
 isSupportedOp l o@(OpBor ()) t = error "isSupportedOp" -- TODO
 isSupportedOp l o@(OpXor ()) t = error "isSupportedOp" -- TODO
-isSupportedOp l o@(OpGt ()) t = return $ PrimType $ DatatypeBool ()
-isSupportedOp l o@(OpLt ()) t = return $ PrimType $ DatatypeBool ()
-isSupportedOp l o@(OpEq ()) t = return $ PrimType $ DatatypeBool ()
-isSupportedOp l o@(OpGe ()) t = return $ PrimType $ DatatypeBool ()
-isSupportedOp l o@(OpLe ()) t = return $ PrimType $ DatatypeBool ()
+isSupportedOp l o@(OpGt ()) t = return $ PrimType $ DatatypeBool () -- work over any type
+isSupportedOp l o@(OpLt ()) t = return $ PrimType $ DatatypeBool () -- work over any type
+isSupportedOp l o@(OpEq ()) t = return $ PrimType $ DatatypeBool () -- work over any type
+isSupportedOp l o@(OpGe ()) t = return $ PrimType $ DatatypeBool () -- work over any type
+isSupportedOp l o@(OpLe ()) t = return $ PrimType $ DatatypeBool () -- work over any type
 isSupportedOp l o@(OpLand ()) t = error "isSupportedOp" -- TODO
 isSupportedOp l o@(OpLor ()) t = error "isSupportedOp" -- TODO
 isSupportedOp l o@(OpNe ()) t = return $ PrimType $ DatatypeBool ()
 isSupportedOp l o@(OpShl ()) t = error "isSupportedOp" -- TODO
 isSupportedOp l o@(OpShr ()) t = error "isSupportedOp" -- TODO
-isSupportedOp l o@(OpNot ()) t = if isBoolType t then return t else tcError (locpos l) $ NonSupportedOperation o
+isSupportedOp l o@(OpNot ()) t = if isBoolType t then return t else tcError (locpos l) $ NonSupportedOperation o (show t)
 
 isSupportedSize :: Location loc => loc -> Type -> TcProofM loc ()
 isSupportedSize l t | typeClass t /= TypeC || t == Void = tcError (locpos l) InvalidSizeArgument

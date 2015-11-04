@@ -13,6 +13,7 @@ import Data.Maybe
 import qualified Data.Map as Map
 
 import Control.Monad
+import Control.Monad.IO.Class
 
 -- Left = type template
 -- Right = procedure overload
