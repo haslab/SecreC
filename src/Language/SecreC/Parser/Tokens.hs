@@ -29,6 +29,7 @@ instance Ord TokenInfo where
 instance Located TokenInfo where
     type LocOf TokenInfo = Position
     loc = tLoc
+    updLoc t l = t { tLoc = l }
  
 instance PP TokenInfo where
     pp = pp . tSymb
@@ -40,9 +41,7 @@ data Token
     | ASSERT
     | BOOL
     | BREAK
-    | CAT
     | CONTINUE 
-    | DECLASSIFY
     | DIMENSIONALITY
     | DO
     | DOMAIN
@@ -64,15 +63,10 @@ data Token
     | OPERATOR
     | PRINT
     | PUBLIC
-    | RESHAPE
     | RETURN
-    | SHAPE
-    | SIZE
     | STRING
-    | STRLEN
     | STRUCT
     | TEMPLATE
-    | TOSTRING
     | TRUE_B
     | TYPE
     | UINT
@@ -130,9 +124,7 @@ instance PP Token where
     pp ASSERT = text "assert"
     pp BOOL = text "bool"
     pp BREAK = text "break"
-    pp CAT = text "cat"
     pp CONTINUE = text "continue"
-    pp DECLASSIFY = text "declassify"
     pp DIMENSIONALITY = text " =dim"
     pp DO = text "do"
     pp DOMAIN = text "domain"
@@ -154,15 +146,10 @@ instance PP Token where
     pp OPERATOR = text "operator"
     pp PRINT = text "print"
     pp PUBLIC = text "public"
-    pp RESHAPE = text "reshape"
     pp RETURN = text "return"
-    pp SHAPE = text "shape"
-    pp SIZE = text "size"
     pp STRING = text "string"
-    pp STRLEN = text "strlen"
     pp STRUCT = text "struct"
     pp TEMPLATE = text "template"
-    pp TOSTRING = text "tostring"
     pp TRUE_B = text "true"
     pp TYPE = text "type"
     pp UINT = text "uint"

@@ -14,12 +14,18 @@ import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.TypeChecker.Semantics
 
 import Data.Traversable
+import qualified Data.Foldable as Foldable
 import Data.Set (Set(..))
 import qualified Data.Set as Set
 import Data.Map (Map(..))
 import qualified Data.Map as Map
+import Data.Int
+import Data.Word
+
+import Text.PrettyPrint
 
 import Control.Monad hiding (mapM)
 import Control.Monad.IO.Class
@@ -28,42 +34,45 @@ import Prelude hiding (mapM)
 
 -- | Left-biased merge of two @StmtClass@es
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
-extendStmtClasses s1 s2 = (Set.delete StmtFallthru s1) `Set.union` s2
+extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
-tcStmts :: Location loc => Type -> [Statement loc] -> TcM loc ([Statement (Typed loc)],Type)
+tcStmts :: (Vars loc,Location loc) => Type -> [Statement Identifier loc] -> TcM loc ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
+tcStmts ret [s] = do
+    (s,st) <- tcStmt ret s
+    return ([s],st)
 tcStmts ret (s:ss) = do
     (s',StmtType c) <- tcStmt ret s
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
-        ss -> unless (Set.member StmtFallthru c) $ tcError (locpos $ loc ss) $ UnreachableDeadCode $ map (fmap locpos) ss
+        ss -> unless (hasStmtFallthru c) $ tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat $ map pp ss)
     -- issue warning for unused variable declarations
-    forSetM_ (bvs s `Set.difference` fvsFoldable ss) $ \(ScVar l v) -> tcWarn (locpos l) $ UnusedVariable v
+    forSetM_ (bvs s `Set.difference` fvs ss) $ \(ScVar v) -> tcWarn (locpos $ loc s) $ UnusedVariable (pp v)
     (ss',StmtType cs) <- tcStmts ret ss
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
 -- | Typecheck a non-empty statement
-tcNonEmptyStmt :: Location loc => Type -> Statement loc -> TcM loc (Statement (Typed loc),Type)
+tcNonEmptyStmt :: (Vars loc,Location loc) => Type -> Statement Identifier loc -> TcM loc (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcStmt ret s
-    when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (fmap locpos s)
+    when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
-tcLoopBodyStmt :: Location loc => Type -> loc -> Statement loc -> TcM loc (Statement (Typed loc),Type)
+tcLoopBodyStmt :: (Vars loc,Location loc) => Type -> loc -> Statement Identifier loc -> TcM loc (Statement VarIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcStmt ret s
     -- check that the body can perform more than iteration
-    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop $ fmap locpos s
+    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop (pp s)
     -- return the @StmtClass@ for the whole loop
-    let t' = StmtType $ Set.insert StmtFallthru (Set.filter (not . isLoopStmtClass) cs)
+    let t' = StmtType $ Set.insert (StmtFallthru) (Set.filter (not . isLoopStmtClass) cs)
     return (s',t')
     
 -- | Typechecks a @Statement@
-tcStmt :: Location loc => Type -- ^ return type
-    -> Statement loc -- ^ input statement
-    -> TcM loc (Statement (Typed loc),Type)
+tcStmt :: (Vars loc,Location loc) => Type -- ^ return type
+    -> Statement Identifier loc -- ^ input statement
+    -> TcM loc (Statement VarIdentifier (Typed loc),Type)
 tcStmt ret (CompoundStatement l s) = do
     (ss',t) <- tcBlock $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
@@ -71,7 +80,7 @@ tcStmt ret (IfStatement l condE thenS Nothing) = do
     condE' <- tcGuard condE
     (thenS',StmtType cs) <- tcBlock $ tcNonEmptyStmt ret thenS
     -- an if falls through if the condition is not satisfied
-    let t = StmtType $ Set.insert StmtFallthru cs
+    let t = StmtType $ Set.insert (StmtFallthru) cs
     return (IfStatement (notTyped l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     condE' <- tcGuard condE
@@ -89,32 +98,37 @@ tcStmt ret (WhileStatement l condE bodyS) = do
     condE' <- tcGuard condE
     (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped l) condE' bodyS',t')
-tcStmt ret (PrintStatement l argsE) = error "tcStmt print statement"
-tcStmt ret (DowhileStatement l bodyS condE) = do
+tcStmt ret (PrintStatement l argsE) = do
+    argsE' <- mapM tcExpr argsE
+    let targs = map (typed . loc) $ Foldable.toList argsE'
+    tcCstrM l (SupportedPrint targs)
+    let t = StmtType $ Set.singleton $ StmtFallthru
+    return (PrintStatement (Typed l t) argsE',t)
+tcStmt ret (DowhileStatement l bodyS condE) = tcBlock $ do
+    (bodyS',t') <- tcLoopBodyStmt ret l bodyS
     condE' <- tcGuard condE
-    (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
     return (DowhileStatement (notTyped l) bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
     argE' <- tcGuard argE
-    let t = StmtType $ Set.singleton StmtFallthru
+    let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped l) argE',t)
 tcStmt ret (SyscallStatement l n args) = do
     args' <- mapM tcSyscallParam args
-    let t = StmtType $ Set.singleton StmtFallthru
+    let t = StmtType $ Set.singleton $ StmtFallthru
     isSupportedSyscall l n $ map (typed . loc) args'
     return (SyscallStatement (Typed l t) n args',t)
 tcStmt ret (VarStatement l decl) = do
     decl' <- tcVarDecl LocalScope decl
-    let t = StmtType (Set.singleton StmtFallthru)
+    let t = StmtType (Set.singleton $ StmtFallthru)
     return (VarStatement (notTyped l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
-    tcCstrM l $ Coerces Void ret
+    tcCstrM l $ Unifies Void ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
-    tcCstrM l $ Coerces et' ret
+    tcCstrM l $ Unifies et' ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) (Just e'),t)
 tcStmt ret (ContinueStatement l) = do
@@ -124,14 +138,15 @@ tcStmt ret (BreakStatement l) = do
     let t = StmtType (Set.singleton StmtBreak)
     return (BreakStatement $ Typed l t,t)
 tcStmt ret (ExpressionStatement l e) = do
-    e' <- tcExpr e -- we discard the expression's result type
-    let t = StmtType (Set.singleton StmtFallthru)
+    e' <- tcExpr e
+    let te = typed $ loc e'
+    let t = StmtType (Set.singleton $ StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
 
 isSupportedSyscall :: Location loc => loc -> Identifier -> [Type] -> TcM loc ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 
-tcSyscallParam :: Location loc => SyscallParameter loc -> TcM loc (SyscallParameter (Typed loc))
+tcSyscallParam :: (Vars loc,Location loc) => SyscallParameter Identifier loc -> TcM loc (SyscallParameter VarIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
     e' <- tcExpr e
     let t = SysPush $ typed $ loc e'
@@ -149,7 +164,7 @@ tcSyscallParam (SyscallPushCRef l e) = do
     let t = SysCRef $ typed $ loc e'
     return $ SyscallPushCRef (Typed l t) e'
 
-tcForInitializer :: Location loc => ForInitializer loc -> TcM loc (ForInitializer (Typed loc))
+tcForInitializer :: (Vars loc,Location loc) => ForInitializer Identifier loc -> TcM loc (ForInitializer VarIdentifier (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing
 tcForInitializer (InitializerExpression (Just e)) = do
     e' <- tcExpr e
@@ -158,33 +173,35 @@ tcForInitializer (InitializerVariable vd) = do
     vd' <- tcVarDecl LocalScope vd
     return $ InitializerVariable vd'
 
-tcVarDecl :: Location loc => Scope -> VariableDeclaration loc -> TcM loc (VariableDeclaration (Typed loc))
+tcVarDecl :: (Vars loc,Location loc) => Scope -> VariableDeclaration Identifier loc -> TcM loc (VariableDeclaration VarIdentifier (Typed loc))
 tcVarDecl scope (VariableDeclaration l tyspec vars) = do
     tyspec' <- tcTypeSpec tyspec
     let ty = typed $ loc tyspec'
     vars' <- mapM (tcVarInit scope ty) vars
     return $ VariableDeclaration (notTyped l) tyspec' vars'
 
-tcVarInit :: Location loc => Scope -> Type -> VariableInitialization loc -> TcM loc (VariableInitialization (Typed loc))
+tcVarInit :: (Vars loc,Location loc) => Scope -> Type -> VariableInitialization Identifier loc -> TcM loc (VariableInitialization VarIdentifier (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     d <- typeDim l ty
-    szs' <- mapM (tcSizes v d) szs
-    e' <- mapM (tcExprTy (typeBase ty)) e
+    szs' <- mapM (tcSizes ty v d) szs
+    let tszs' = fmap (fmap typed) szs'
+    ty' <- refineTypeSizes l ty tszs'
+    e' <- mapM (tcExprTy ty') e
     -- add the array size to the type
-    let v' = VarName (Typed vl (refineTypeSizes ty szs')) vn
+    let v' = VarName (Typed vl ty') $ mkVarId vn
     -- add variable to the environment
-    newVariable scope v'
+    let val = maybe NoValue KnownExpression e'
+    newVariable scope v' val
     return $ VariableInitialization (notTyped l) v' szs' e'
 
-tcSizes :: Location loc => VarName loc -> Maybe Integer -> Sizes loc -> TcM loc (Sizes (Typed loc))
-tcSizes v Nothing (Sizes szs) = tcError (locpos $ loc v) $ NoDimensionForMatrixInitialization (varNameId v)
-tcSizes v (Just d) (Sizes szs) = do
+tcSizes :: (Vars loc,Location loc) => Type -> VarName Identifier loc -> Maybe Word64 -> Sizes Identifier loc -> TcM loc (Sizes VarIdentifier (Typed loc))
+tcSizes ty v Nothing (Sizes szs) = tcError (locpos $ loc v) $ NoDimensionForMatrixInitialization (varNameId v)
+tcSizes ty v (Just d) x@(Sizes szs) = do
     -- check array's dimension
     let ds = toEnum (lengthNe szs)
-    unless (d == ds) $ tcError (locpos $ loc v) $ MismatchingArrayDimension d ds $ Just (fmap locpos v)
-    szs' <- mapM (tcDimSizeExpr $ Just v) szs
+    unless (d == ds) $ tcError (locpos $ loc v) $ MismatchingArrayDimension (pp ty) d ds $ Right (pp v,pp x)
+    szs' <- mapM (\(i,x) -> tcSizeExpr ty i (Just v) x) (fromListNe $ zip [1..] $ Foldable.toList szs)
     return $ Sizes szs'
-
         
 
 

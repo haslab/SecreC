@@ -6,18 +6,21 @@ import Language.SecreC.Location
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.Vars
 
-tcTypeSpec :: Location loc => TypeSpecifier loc -> TcM loc (TypeSpecifier (Typed loc))
+import Data.Int
+import Data.Word
 
-tcSecTypeSpec :: Location loc => SecTypeSpecifier loc -> TcReaderM loc (SecTypeSpecifier (Typed loc))
+tcTypeSpec :: (Vars loc,Location loc) => TypeSpecifier Identifier loc -> TcM loc (TypeSpecifier VarIdentifier (Typed loc))
 
-tcRetTypeSpec :: Location loc => ReturnTypeSpecifier loc -> TcM loc (ReturnTypeSpecifier (Typed loc))
+tcSecTypeSpec :: Location loc => SecTypeSpecifier Identifier loc -> TcM loc (SecTypeSpecifier VarIdentifier (Typed loc))
+
+tcRetTypeSpec :: (Vars loc,Location loc) => ReturnTypeSpecifier Identifier loc -> TcM loc (ReturnTypeSpecifier VarIdentifier (Typed loc))
 
 tcPrimitiveDatatype :: Location loc => PrimitiveDatatype loc -> TcM loc (PrimitiveDatatype (Typed loc))
 
-typeDim :: Location loc => loc -> Type -> TcM loc (Maybe Integer)
+typeDim :: (Vars loc,Location loc) => loc -> Type -> TcM loc (Maybe Word64)
 
-projectMatrixType :: Location loc => loc -> Type -> [(Maybe Integer,Maybe Integer)] -> TcProofM loc Type
+projectMatrixType :: (Vars loc,Location loc) => loc -> Type -> [ArrayProj] -> TcM loc Type
 
-projectStructField :: Location loc => loc -> Type -> AttributeName () -> TcProofM loc Type
+projectStructField :: (Vars loc,Location loc) => loc -> Type -> AttributeName VarIdentifier () -> TcM loc Type
 
-castType :: Location loc => loc -> Type -> Type -> TcProofM loc Type
+refineTypeSizes :: (Vars loc,Location loc) => loc -> Type -> Maybe (Sizes VarIdentifier Type) -> TcM loc Type

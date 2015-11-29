@@ -4,6 +4,7 @@ module Language.SecreC.Monad where
     
 import Language.SecreC.Error
 import Language.SecreC.Location
+import Language.SecreC.Pretty
     
 import Control.Monad.IO.Class
 import Control.Monad.Except
@@ -48,9 +49,9 @@ ioSecrecM :: Options -> SecrecM a -> IO a
 ioSecrecM opts m = flip runReaderT opts $ do
     e <- runSecrecM m
     case e of
-        Left err -> throwError $ userError $ show err
+        Left err -> throwError $ userError $ ppr err
         Right (x,warns) -> do
-            forM_ warns $ \w -> lift $ hPutStrLn stderr (show w)
+            forM_ warns $ \w -> lift $ hPutStrLn stderr (ppr w)
             return x
 
 instance MonadReader Options SecrecM where
@@ -74,7 +75,7 @@ instance MonadIO SecrecM where
     liftIO io = SecrecM $ lift $ liftM (Right . (,[])) io
 
 instance MonadThrow SecrecM where
-	throwM e = liftIO $ throwIO e
+    throwM e = liftIO $ throwIO e
 
 instance MonadCatch SecrecM where
     catch = liftCatch catch
@@ -91,8 +92,8 @@ liftCatch :: Catch e (ReaderT Options IO) (Either SecrecError (a,[SecrecWarning]
 liftCatch catchE m h = SecrecM $ runSecrecM m `catchE` \ e -> runSecrecM (h e)
 
 instance MonadMask SecrecM where
-	mask a = SecrecM $ mask $ \u -> runSecrecM (a $ liftMask u)	
-	uninterruptibleMask a = SecrecM $ uninterruptibleMask $ \u -> runSecrecM (a $ liftMask u)
+    mask a = SecrecM $ mask $ \u -> runSecrecM (a $ liftMask u)
+    uninterruptibleMask a = SecrecM $ uninterruptibleMask $ \u -> runSecrecM (a $ liftMask u)
 
 liftMask :: (ReaderT Options IO ((Either SecrecError (a,[SecrecWarning]))) -> ReaderT Options IO ((Either SecrecError (a,[SecrecWarning])))) -> SecrecM a -> SecrecM a
 liftMask u (SecrecM b) = SecrecM (u b)

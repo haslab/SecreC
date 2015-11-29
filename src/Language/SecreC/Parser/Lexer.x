@@ -69,9 +69,7 @@ tokens :-
 <0>                     assert                { lexerTokenInfo ASSERT }
 <0>                     bool                  { lexerTokenInfo BOOL }
 <0>                     break                 { lexerTokenInfo BREAK }
-<0>                     cat                   { lexerTokenInfo CAT }
 <0>                     continue              { lexerTokenInfo CONTINUE }
-<0>                     declassify            { lexerTokenInfo DECLASSIFY }
 <0>                     dim                   { lexerTokenInfo DIMENSIONALITY }
 <0>                     do                    { lexerTokenInfo DO }
 <0>                     domain                { lexerTokenInfo DOMAIN }
@@ -81,7 +79,7 @@ tokens :-
 <0>                     float32               { lexerTokenInfo FLOAT32 }
 <0>                     float64               { lexerTokenInfo FLOAT64 }
 <0>                     for                   { lexerTokenInfo FOR }
-<0>                     if                   { lexerTokenInfo IF }
+<0>                     if                    { lexerTokenInfo IF }
 <0>                     import                { lexerTokenInfo IMPORT }
 <0>                     int                   { lexerTokenInfo INT }
 <0>                     int16                 { lexerTokenInfo INT16 }
@@ -93,15 +91,10 @@ tokens :-
 <0>                     operator              { lexerTokenInfo OPERATOR }
 <0>                     print                 { lexerTokenInfo PRINT }
 <0>                     public                { lexerTokenInfo PUBLIC }
-<0>                     reshape               { lexerTokenInfo RESHAPE }
 <0>                     return                { lexerTokenInfo RETURN }
-<0>                     shape                 { lexerTokenInfo SHAPE }
-<0>                     size                  { lexerTokenInfo SIZE }
 <0>                     string                { lexerTokenInfo STRING }
-<0>                     strlen                { lexerTokenInfo STRLEN }
 <0>                     struct                { lexerTokenInfo STRUCT }
 <0>                     template              { lexerTokenInfo TEMPLATE }
-<0>                     tostring              { lexerTokenInfo TOSTRING }
 <0>                     true                  { lexerTokenInfo TRUE_B }
 <0>                     type                  { lexerTokenInfo TYPE }
 <0>                     uint                  { lexerTokenInfo UINT }
@@ -256,7 +249,7 @@ instance MonadError SecrecError Alex where
     throwError e = Alex $ \ s -> Left (show e)
     catchError (Alex un) f = Alex $ \ s -> either (catchMe s) Right (un s)
         where 
-        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError noloc
+        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError (UnhelpfulPos "lexer")
 
 {-# INLINE split #-}
 split :: (a -> b) -> (a -> c) -> a -> (b, c)
@@ -281,7 +274,7 @@ runLexer :: String -> String -> Either String [TokenInfo]
 runLexer fn str = runLexerWith fn str return
 
 injectResult :: Either String a -> Alex a
-injectResult (Left err) = throwError (GenericError noloc err)
+injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") err)
 injectResult (Right a) = return a
 
 -- | Alex lexer

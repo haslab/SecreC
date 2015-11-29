@@ -17,11 +17,14 @@ import Language.SecreC.Utils
 
 import System.Console.CmdArgs
 import System.Environment
+import System.FilePath
 
 import Control.Monad
 import Control.Monad.IO.Class
 
 import Text.PrettyPrint hiding (mode,Mode(..))
+
+import Paths_SecreC
 
 -- * main function
 
@@ -67,18 +70,21 @@ getOpts = getArgs >>= doGetOpts
     where 
     doGetOpts as
         | null as   = withArgs ["help"] $ cmdArgsRun mode
-        | otherwise = liftM processOpts $ cmdArgsRun mode
+        | otherwise = cmdArgsRun mode >>= processOpts
 
-processOpts :: Options -> Options
-processOpts opts = Opts
-    (inputs opts)
-    (parsePaths $ outputs opts)
-    (parsePaths $ paths opts)
-    (parser opts)
-    (knowledgeInference opts)
-    (typeCheck opts || knowledgeInference opts)
-    (debugLexer opts)
-    (debugParser opts)
+processOpts :: Options -> IO Options
+processOpts opts = do
+    p1 <- getDataFileName "imports"
+    p2 <- getDataFileName ("imports" </> "stdlib" </> "lib")
+    return $ Opts
+        (inputs opts)
+        (parsePaths $ outputs opts)
+        (parsePaths $ p1 : p2 : paths opts)
+        (parser opts)
+        (knowledgeInference opts)
+        (typeCheck opts || knowledgeInference opts)
+        (debugLexer opts)
+        (debugParser opts)
 
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")
@@ -94,14 +100,14 @@ defaultOutputType = NoOutput
 -- * inputs with explicit output files write to the file
 -- * inputs without explicit output files write to stdout
 -- * non-input modules do not output
-resolveOutput :: [FilePath] -> [FilePath] -> [Module Position] -> [(Module Position,OutputType)]
+resolveOutput :: [FilePath] -> [FilePath] -> [Module Identifier Position] -> [(Module Identifier Position,OutputType)]
 resolveOutput inputs outputs modules = map res modules
     where
     db = zipLeft inputs outputs
     res m = case List.lookup (moduleFile m) db of
-        Just (Just o) -> (m,OutputFile o)
-        Just Nothing -> (m,OutputStdout)
-        Nothing -> (m,NoOutput)
+        Just (Just o) -> (m,OutputFile o) -- input with matching output
+        Just Nothing -> (m,OutputStdout) -- intput without matching output
+        Nothing -> (m,NoOutput) -- non-input loaded module
 
 secrec :: Options -> IO ()
 secrec opts = do
@@ -111,7 +117,7 @@ secrec opts = do
     ioSecrecM opts $ do
         modules <- parseModuleFiles secrecFiles
         let moduleso = resolveOutput secrecFiles secrecOuts modules
-        let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId) modules) <+> text str <> char '.'
+        let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . modulePosId) modules) <+> text str <> char '.'
         if (typeCheck opts)
             then runTcM $ do
                 typedModulesO <- mapFstM tcModule moduleso

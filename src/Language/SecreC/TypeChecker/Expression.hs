@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DataKinds, TypeFamilies #-}
 
 module Language.SecreC.TypeChecker.Expression where
 
@@ -7,10 +7,12 @@ import Language.SecreC.Error
 import Language.SecreC.Syntax
 import Language.SecreC.Position
 import Language.SecreC.Location
+import Language.SecreC.Pretty
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Statement
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.TypeChecker.Semantics
 import Language.SecreC.Vars
 import Language.SecreC.Utils
 
@@ -19,285 +21,257 @@ import Prelude hiding (mapM)
 import Control.Monad hiding (mapAndUnzipM,mapM)
 import Control.Monad.IO.Class
 
+import Data.Bifunctor
 import Data.Monoid
 import Data.Maybe
 import Data.Traversable
 import qualified Data.Foldable as Foldable
 import qualified Data.Map as Map
+import Data.Int
+import Data.Word
 
-tcGuard :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
-tcGuard e = tcExprTy boolType e
+import Text.PrettyPrint
 
-tcExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
+tcGuard :: (Vars loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
+tcGuard e = tcExprTy bool e
+
+tcExpr :: (Vars loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 tcExpr (BinaryAssign l pe op e) = do
-    pe' <- tcPostfixExpr pe
+    pe' <- tcExpr pe
     e' <- tcExpr e
-    t <- tcBinaryAssignOp l op (typed $ loc pe') (typed $ loc e')
-    return $ BinaryAssign (Typed l t) pe' op e'
-tcExpr (QualExpr l e ts) = genericError (locpos l) "tcExprQual"-- TODO
+    op' <- tcBinaryAssignOp l op (typed $ loc pe') (typed $ loc e')
+    return $ BinaryAssign (notTyped l) pe' op' e'
+tcExpr (QualExpr l e t) = do
+    e' <- tcExpr e
+    t' <- tcTypeSpec t
+    tcCstrM l $ Unifies (typed $ loc t') (typed $ loc e')
+    return $ QualExpr (Typed l $ typed $ loc t') e' t'
 tcExpr (CondExpr l c e1 e2) = do
     c' <- tcGuard c
     e1' <- tcExpr e1
     let t1 = typed $ loc e1'
     e2' <- tcExpr e2
     let t2 = typed $ loc e2'
-    t <- tcCstrM l $ Coerces2 t2 t1
-    return $ CondExpr (Typed l t) c' e1' e2'
+    tcCstrM l $ Unifies t2 t1
+    return $ CondExpr (Typed l t2) c' e1' e2'
 tcExpr (BinaryExpr l e1 op e2) = do
     e1' <- tcExpr e1
     e2' <- tcExpr e2
-    t <- tcCstrM l $ Coerces2 (typed $ loc e1') (typed $ loc e2')
-    ret <- tcCstrM l $ SupportedOp (fmap (const ()) op) t
-    return $ BinaryExpr (Typed l ret) e1' (fmap notTyped op) e2'
-tcExpr (PrimCastExpr l p e) = do
+    let t1 = typed $ loc e1'
+    let t2 = typed $ loc e2'
+    let cop = fmap (const ()) op
+    v <- newTyVar
+    dec <- tcCstrM l $ PDec (Right cop) [t1,t2] v
+    return $ BinaryExpr (Typed l v) e1' (fmap (flip Typed dec) op) e2'
+tcExpr (CastExpr l p e) = do
     e' <- tcExpr e
     let te = typed $ loc e'
-    p' <- tcPrimitiveDatatype p
-    let t = typed $ loc p'
-    ret <- tcCstrM l $ Cast te t
-    return $ PrimCastExpr (Typed l t) p' e'
-tcExpr (VarCastExpr l v e) = do
-    e' <- tcExpr e
-    let te = typed $ loc e'
-    v' <- tcTypeName v
-    let t = typed $ loc v'
-    ret <- tcCstrM l $ Cast te t
-    return $ VarCastExpr (Typed l t) v' e'
-tcExpr (PrefixInc l e) = genericError (locpos l) "tcExprPredInc" -- TODO
-tcExpr (PrefixDec l e) = genericError (locpos l) "tcExprPreDec" -- TODO
-tcExpr (PostfixInc l e) = genericError (locpos l) "tcExprPostInc" -- TODO
-tcExpr (PostfixDec l e) = genericError (locpos l) "tcExprPostDec" -- TODO
-tcExpr (UminusExpr l e) = do
+    (ret,p') <- tcCast p te
+    return $ CastExpr (Typed l ret) p' e'
+tcExpr (PreOp l op e) = do
     e' <- tcExpr e
     let t = typed $ loc e'
-    ret <- tcCstrM l $ SupportedOp (OpSub ()) t
-    return $ UminusExpr (Typed l ret) e'
-tcExpr (UnegExpr l e) = do
+    (t',op') <- tcBinaryOp l op t t
+    return $ PreOp (Typed l t') op' e'
+tcExpr (PostOp l op e) = do
     e' <- tcExpr e
     let t = typed $ loc e'
-    ret <- tcCstrM l $ SupportedOp (OpNot ()) t
-    tcReaderM $ return $ UnegExpr (Typed l ret) e'
-tcExpr (UinvExpr l e) = genericError (locpos l) "tcExprUinv" -- TODO
-tcExpr (Upost l pe) = do
-    pe' <- tcPostfixExpr pe
-    let t = typed $ loc pe'
-    return $ Upost (Typed l t) pe'
-
-tcBinaryAssignOp :: Location loc => loc -> BinaryAssignOp -> Type -> Type -> TcM loc Type
-tcBinaryAssignOp l bop t1 t2 = do 
-    tcCstrM l $ Coerces t2 t1
-    tcCstrM l $ SupportedOp (binAssignOpToOp bop) t1
-
-tcPostfixExpr :: Location loc => PostfixExpression loc -> TcM loc (PostfixExpression (Typed loc))
-tcPostfixExpr (DeclassifyExpr l e) = do
+    (t',op') <- tcBinaryOp l op t t
+    return $ PostOp (Typed l t') op' e'
+tcExpr (UnaryExpr l op e) = do
     e' <- tcExpr e
-    let et' = typed $ loc e'
-    t <- tcCstrM l $ Declassify et'
-    return $ DeclassifyExpr (Typed l t) e'
-tcPostfixExpr (SizeExpr l e) = do
-    e' <- tcExpr e
-    tcCstrM l $ SupportedSize (typed $ loc e')
-    return $ SizeExpr (Typed l indexType) e'
-tcPostfixExpr (ShapeExpr l e) = do
-    e' <- tcExpr e
-    genericError (locpos l) $ "tcPostfixExprShape" -- TODO
-tcPostfixExpr (PostCatExpr l e) = do
-    e' <- tcReaderM $ tcCatExpr e
     let t = typed $ loc e'
-    return $ PostCatExpr (Typed l t) e'
-tcPostfixExpr (DomainIdExpr l s) = do
-    s' <- tcReaderM $ tcSecTypeSpec s
+    v <- newTyVar
+    let cop = fmap (const ()) op
+    dec <- tcCstrM l $ PDec (Right cop) [t] v
+    return $ UnaryExpr (Typed l v) (fmap (flip Typed dec) op) e'
+tcExpr (DomainIdExpr l s) = do
+    s' <- tcSecTypeSpec s
     let t = typed $ loc s'
     return $ DomainIdExpr (Typed l t) s'
-tcPostfixExpr (ReshapeExpr l es) = genericError (locpos l) $ "tcPostfixExprReshape" -- TODO
-tcPostfixExpr (ToStringExpr l e) = do
-    e' <- tcExpr e
-    tcCstrM l $ SupportedToString (typed $ loc e')
-    return $ ToStringExpr (Typed l stringType) e'
-tcPostfixExpr (StrlenExpr l e) = do
-    e' <- tcExprTy stringType e
-    return $ StrlenExpr (Typed l indexType) e'
-tcPostfixExpr (StringFromBytesExpr l e) = do
-    e' <- tcExprTy bytesType e
-    return $ StringFromBytesExpr (Typed l stringType) e'
-tcPostfixExpr (BytesFromStringExpr l e) = do
-    e' <- tcExprTy stringType e
-    return $ BytesFromStringExpr (Typed l bytesType) e'
-tcPostfixExpr call@(ProcCallExpr l n@(ProcedureName pl pn) es) = do
+tcExpr (StringFromBytesExpr l e) = do
+    e' <- tcExprTy bytes e
+    return $ StringFromBytesExpr (Typed l string) e'
+tcExpr (BytesFromStringExpr l e) = do
+    e' <- tcExprTy string e
+    return $ BytesFromStringExpr (Typed l bytes) e'
+tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) es) = do
+    let vn = bimap mkVarId id n
     es' <- mapM tcExpr es
     let ts = map (typed . loc) es'
-    ret <- tcCstrM l $ PApp pn ts Nothing -- we don't know the return type on application
-    dec <- tcCstrM l $ PDec pn ts Nothing -- we don't know the return type on application
-    return $ ProcCallExpr (Typed l ret) (fmap (flip Typed dec) n) es'
-tcPostfixExpr (PostIndexExpr l e s) = do
-    e' <- tcPostfixExpr e
+    v <- newTyVar
+    dec <- tcCstrM l $ PDec (Left $ fmap (const ()) vn) ts v -- we don't know the return type on application
+    return $ ProcCallExpr (Typed l v) (fmap (flip Typed dec) vn) es'
+tcExpr (PostIndexExpr l e s) = do
+    e' <- tcExpr e
     let t = typed $ loc e'
     (s',t') <- tcSubscript t s
     return $ PostIndexExpr (Typed l t') e' s'
-tcPostfixExpr (SelectionExpr l pe a) = do
-    pe' <- tcPostfixExpr pe
+tcExpr (SelectionExpr l pe a) = do
+    let va = bimap mkVarId id a
+    pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
-    t <- tcCstrM l $ ProjectStruct tpe' (fmap (const ()) a)
-    return $ SelectionExpr (Typed l t) pe' (fmap notTyped a)
-tcPostfixExpr (PostPrimExpr l pe) = do
-    pe' <- tcPrimExpr pe
-    let t = typed $ loc pe'
-    return $ PostPrimExpr (Typed l t) pe'
-
--- | Selects a list of indices from a type, and returns the type of the selection
-tcSubscript :: Location loc => Type -> Subscript loc -> TcM loc (Subscript (Typed loc),Type)
-tcSubscript t s = do
-    (s',rngs) <- mapAndUnzipM tcIndex s
-    t' <- tcCstrM (loc s) $ ProjectMatrix t (Foldable.toList rngs)
-    return (s',t')
-
-tcIndex :: Location loc => Index loc -> TcM loc (Index (Typed loc),(Maybe Integer,Maybe Integer))
-tcIndex (IndexInt l e) = do
-    (e',mb) <- uintLitExpr e
-    return (IndexInt (notTyped l) e',(mb,mb))
-tcIndex (IndexSlice l e1 e2) = do
-    let f x = case x of
-                Nothing -> (Nothing,Nothing)
-                Just (x,mb) -> (Just x,mb)
-    (e1',mb1) <- liftM f $ mapM uintLitExpr e1
-    (e2',mb2) <- liftM f $ mapM uintLitExpr e2
-    return (IndexSlice (notTyped l) e1' e2',(mb1,mb2))
-
-tcCatExpr :: Location loc => CatExpression loc -> TcReaderM loc (CatExpression (Typed loc))
-tcCatExpr = error "tcCatExpr" -- TODO
-    
-tcPrimExpr :: Location loc => PrimaryExpression loc -> TcM loc (PrimaryExpression (Typed loc))
-tcPrimExpr (PExpr l e) = do
-    e' <- tcExpr e
-    let t = typed $ loc e'
-    return (PExpr (Typed l t) e')
-tcPrimExpr (ArrayConstructorPExpr l es) = error "tcPrimExpr" -- TODO
-tcPrimExpr (RVariablePExpr l v) = do
+    t <- tcCstrM l $ ProjectStruct tpe' (fmap (const ()) va)
+    return $ SelectionExpr (Typed l t) pe' (fmap notTyped va)
+tcExpr (ArrayConstructorPExpr l es) = error "tcExpr" -- TODO
+tcExpr (RVariablePExpr l v) = do
     v' <- tcVarName v
     let t = typed $ loc v'
     return $ RVariablePExpr (Typed l t) v'
-tcPrimExpr (LitPExpr l lit) = do
+tcExpr (LitPExpr l lit) = do
     lit' <- tcLiteral lit
-    let t = typed $ loc lit'
-    return $ LitPExpr (Typed l t) lit'
+    let tlit = typed $ loc lit'
+    return $ LitPExpr (Typed l tlit) lit'
+
+-- special handling for arrays: cast its inner elements
+tcCast :: Location loc => CastType Identifier loc -> Type -> TcM loc (Type,CastType VarIdentifier (Typed loc))
+tcCast (CastPrim l p) te = do
+    p' <- tcPrimitiveDatatype p
+    let bp = typed $ loc p'
+    (dec,to) <- tcCastTy l bp te
+    return $ (to,CastPrim (Typed l dec) p')
+tcCast (CastTy l v) te = do
+    v' <- tcTypeName v
+    let bp = typed $ loc v'
+    (dec,to) <- tcCastTy l bp te
+    return $ (to,CastTy (Typed l dec) v')
+
+tcCastTy :: Location loc => loc -> Type -> Type -> TcM loc (Type,Type)
+tcCastTy l bto from = do
+    bfrom <- tcCstrM l $ GetCBase from
+    dec <- tcCstrM l $ Cast bfrom bto
+    to <- tcCstrM l $ SetCBase from bto
+    return (dec,to)
+
+tcBinaryAssignOp :: Location loc => loc -> BinaryAssignOp loc -> Type -> Type -> TcM loc (BinaryAssignOp (Typed loc))
+tcBinaryAssignOp l bop t1 t2 = do 
+    let mb_op = binAssignOpToOp bop
+    dec <- case mb_op of
+        Just op -> tcCstrM l $ PDec (Right op) [t1,t2] t1
+        Nothing -> tcCstrM l $ Unifies t1 t2
+    return (fmap (flip Typed dec) bop)
+    
+tcBinaryOp :: (Vars loc,Location loc) => loc -> Op loc -> Type -> Type -> TcM loc (Type,Op (Typed loc))
+tcBinaryOp l op t1 t2 = do 
+    v <- newTyVar
+    let cop = fmap (const ()) op
+    dec <- tcCstrM l $ PDec (Right cop) [t1,t2] v
+    return (v,fmap (flip Typed dec) op)
+
+-- | Selects a list of indices from a type, and returns the type of the selection
+tcSubscript :: (Vars loc,Location loc) => Type -> Subscript Identifier loc -> TcM loc (Subscript VarIdentifier (Typed loc),Type)
+tcSubscript t s = do
+    let l = loc s
+    (s',rngs) <- mapAndUnzipM tcIndex s
+    ret <- tcCstrM l $ ProjectMatrix t (Foldable.toList rngs)
+    return (s',ret)
+
+tcIndex :: (Vars loc,Location loc) => Index Identifier loc -> TcM loc (Index VarIdentifier (Typed loc),ArrayProj)
+tcIndex (IndexInt l e) = do
+    (e',mb) <- tcIndexExpr e
+    let ei = case mb of
+                Left err -> DynArrayIndex (fmap typed e') err
+                Right i -> StaticArrayIndex i
+    return (IndexInt (notTyped l) e',ArrayIdx ei)
+tcIndex (IndexSlice l e1 e2) = do
+    let f x = case x of
+                Nothing -> (Nothing,NoArrayIndex)
+                Just (y,Left err) -> (Just y,DynArrayIndex (fmap typed y) err)
+                Just (y,Right i) -> (Just y,StaticArrayIndex i)
+    (e1',mb1) <- liftM f $ mapM tcIndexExpr e1
+    (e2',mb2) <- liftM f $ mapM tcIndexExpr e2
+    return (IndexSlice (notTyped l) e1' e2',ArraySlice mb1 mb2)
 
 tcLiteral :: Location loc => Literal loc -> TcM loc (Literal (Typed loc))
 tcLiteral (IntLit l i) = do
-    let t = TyLit (IntLit () i)
-    return $ IntLit (Typed l t) i
+    let lit = IntLit () i
+    v <- newTyVar
+    bv <- tcCstrM l $ GetCBase v
+    tcCstrM l $ Coerces (TyLit lit) bv
+    return $ IntLit (Typed l v) i
 tcLiteral (StringLit l s) = do
-    let t = PrimType $ DatatypeString ()
-    return $ StringLit (Typed l t) s
+    let lit = StringLit () s
+    v <- newTyVar
+    bv <- tcCstrM l $ GetCBase v
+    tcCstrM l $ Coerces (TyLit lit) bv
+    return $ StringLit (Typed l v) s
 tcLiteral (BoolLit l b) = do
-    let t = PrimType $ DatatypeBool ()
-    return $ BoolLit (Typed l t) b
+    let lit = BoolLit () b
+    v <- newTyVar
+    bv <- tcCstrM l $ GetCBase v
+    tcCstrM l $ Coerces (TyLit lit) bv
+    return $ BoolLit (Typed l v) b
 tcLiteral (FloatLit l f) = do
-    let t = TyLit (FloatLit () f)
-    return $ FloatLit (Typed l t) f
+    let lit = FloatLit () f
+    v <- newTyVar
+    bv <- tcCstrM l $ GetCBase v
+    tcCstrM l $ Coerces (TyLit lit) bv
+    return $ FloatLit (Typed l v) f
 
-tcVarName :: Location loc => VarName loc -> TcM loc (VarName (Typed loc))
+tcVarName :: Location loc => VarName Identifier loc -> TcM loc (VarName VarIdentifier (Typed loc))
 tcVarName v@(VarName l n) = do
-    t <- tcReaderM $ checkVariable LocalScope v
-    return $ VarName (Typed l t) n
+    t <- checkVariable LocalScope $ bimap mkVarId id v
+    return $ VarName (Typed l t) $ mkVarId n
 
-tcTypeName :: Location loc => TypeName loc -> TcM loc (TypeName (Typed loc))
+tcTypeName :: Location loc => TypeName Identifier loc -> TcM loc (TypeName VarIdentifier (Typed loc))
 tcTypeName v@(TypeName l n) = do
-    t <- tcReaderM $ checkNonTemplateType v
-    return $ TypeName (Typed l t) n
+    t <- checkNonTemplateType (bimap mkVarId id v)
+    return $ TypeName (Typed l t) (mkVarId n)
 
 -- | returns the operation performed by a binary assignment operation
-binAssignOpToOp :: BinaryAssignOp -> Op ()
-binAssignOpToOp BinaryAssignEqual = OpEq ()
-binAssignOpToOp BinaryAssignMul = OpMul ()
-binAssignOpToOp BinaryAssignDiv = OpDiv ()
-binAssignOpToOp BinaryAssignMod = OpMod ()
-binAssignOpToOp BinaryAssignAdd = OpAdd ()
-binAssignOpToOp BinaryAssignSub = OpSub ()
-binAssignOpToOp BinaryAssignAnd = OpBand ()
-binAssignOpToOp BinaryAssignOr = OpBor ()
-binAssignOpToOp BinaryAssignXor = OpXor ()
+binAssignOpToOp :: BinaryAssignOp loc -> Maybe (Op ())
+binAssignOpToOp (BinaryAssignEqual _) = Nothing
+binAssignOpToOp (BinaryAssignMul _) = Just $ OpMul ()
+binAssignOpToOp (BinaryAssignDiv _) = Just $ OpDiv ()
+binAssignOpToOp (BinaryAssignMod _) = Just $ OpMod ()
+binAssignOpToOp (BinaryAssignAdd _) = Just $ OpAdd ()
+binAssignOpToOp (BinaryAssignSub _) = Just $ OpSub ()
+binAssignOpToOp (BinaryAssignAnd _) = Just $ OpBand ()
+binAssignOpToOp (BinaryAssignOr _)  = Just $ OpBor ()
+binAssignOpToOp (BinaryAssignXor _) = Just $ OpXor ()
 
--- | typechecks an expression and tries to evaluate it to a literal integer
-uintLitExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc),Maybe Integer)
-uintLitExpr e = do
-    e' <- tcExprTy indexType e
-    (e'',mb) <- evalUintExpr e' 
-    case mb of
-        Nothing -> return (e'',Nothing)
-        Just i -> return (fmap (const $ Typed noloc indexType) e'',Just i)
+-- | typechecks an expression and tries to evaluate it to an index
+tcIndexExpr :: (Vars loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc),Either SecrecError Word64)
+tcIndexExpr e = do
+    e' <- tcExprTy index e
+    mb <- tryEvalIndexExpr e'
+    return (e',mb)
 
-isStaticUintExpr :: Location loc => Expression () -> TcM loc (Maybe Integer)
-isStaticUintExpr e = liftM snd $ uintLitExpr (fmap (const noloc) e)
-
-tcExprTy :: Location loc => Type -> Expression loc -> TcM loc (Expression (Typed loc))
+tcExprTy :: (Vars loc,Location loc) => Type -> Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 tcExprTy ty e = do
     e' <- tcExpr e
     let Typed l ty' = loc e'
-    tcCstrM l $ Coerces ty' ty
+    tcCstrM l $ Unifies ty' ty
     return e'
-    
-tcDimSizeExpr :: Location loc => Maybe (VarName loc) -> Expression loc -> TcM loc (Expression (Typed loc))
-tcDimSizeExpr v sz = do
-    (sz',mb) <- uintLitExpr sz
+
+tcDimExpr :: (Vars loc,Location loc) => Doc -> Maybe (VarName Identifier loc) -> Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
+tcDimExpr doc v sz = do
+    (sz',mb) <- tcIndexExpr sz
     let ty = typed $ loc sz'
     -- size must be a value of the longest unsigned int
-    tcCstrM (loc sz) $ Coerces ty indexType
+    tcCstrM (loc sz) $ Unifies ty index
     -- check if size is static and if so evaluate it
-    when (isNothing mb) $ tcWarn (locpos $ loc sz') $ DependentMatrixSize (fmap locpos sz') (fmap (fmap locpos) v)
+    case mb of
+        Left err -> tcWarn (locpos $ loc sz') $ DependentMatrixDimension doc (pp sz') (fmap pp v) err
+        Right _ -> return ()
+    return sz'     
+    
+tcSizeExpr :: (Vars loc,Location loc) => Type -> Word64 -> Maybe (VarName Identifier loc) -> Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
+tcSizeExpr t i v sz = do
+    (sz',mb) <- tcIndexExpr sz
+    let ty = typed $ loc sz'
+    -- size must be a value of the longest unsigned int
+    tcCstrM (loc sz) $ Unifies ty index
+    -- check if size is static and if so evaluate it
+    case mb of
+        Left err -> tcWarn (locpos $ loc sz') $ DependentMatrixSize (pp t) i (pp sz') (fmap pp v) err
+        Right _ -> return ()
     return sz'     
 
-evalUintExpr :: (Monad m,Location loc) => Expression loc -> m (Expression loc,Maybe Integer)
-evalUintExpr e = do
-    (e',mb) <- evalExpr e
-    return (e',maybe Nothing fromEqDyn mb)
 
-evalExpr :: (Monad m,Location loc) => Expression loc -> m (Expression loc,Maybe EqDyn)
-evalExpr (BinaryAssign l e1 o e2) = error "evalExpr" -- TODO
-evalExpr (QualExpr l e ts) = error "evalExpr" -- TODO
-evalExpr (CondExpr l c e1 e2) = error "evalExpr" -- TODO
-evalExpr (BinaryExpr l e1 o e2) = error "evalExpr" -- TODO
-evalExpr (PrimCastExpr l t e) = error "evalExpr" -- TODO
-evalExpr (VarCastExpr l t e) = error "evalExpr" -- TODO
-evalExpr (PrefixInc l e) = error "evalExpr" -- TODO
-evalExpr (PrefixDec l e) = error "evalExpr" -- TODO
-evalExpr (PostfixInc l e) = error "evalExpr" -- TODO
-evalExpr (PostfixDec l e) = error "evalExpr" -- TODO
-evalExpr (UminusExpr l e) = error "evalExpr" -- TODO
-evalExpr (UnegExpr l e) = error "evalExpr" -- TODO
-evalExpr (UinvExpr l e) = error "evalExpr" -- TODO
-evalExpr (Upost l e) = do
-    (e',mb) <- evalPostfixExpr e
-    return (Upost l e',mb)
 
-evalPostfixExpr :: (Monad m,Location loc) => PostfixExpression loc -> m (PostfixExpression loc,Maybe EqDyn)
-evalPostfixExpr (DeclassifyExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (SizeExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (ShapeExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (PostCatExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (DomainIdExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (ReshapeExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (ToStringExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (StrlenExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (StringFromBytesExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (BytesFromStringExpr l e) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (ProcCallExpr l n es) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (PostIndexExpr l e s) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (SelectionExpr l e a) = error "evalPostfixExpr" -- TODO
-evalPostfixExpr (PostPrimExpr l p) = do
-    (p',mb) <- evalPrimExpr p
-    return (PostPrimExpr l p',mb)
 
-evalPrimExpr :: (Monad m,Location loc) => PrimaryExpression loc -> m (PrimaryExpression loc,Maybe EqDyn)
-evalPrimExpr (PExpr l e) = error "evalPrimExpr" -- TODO
-evalPrimExpr (ArrayConstructorPExpr l es) = error "evalPrimExpr" -- TODO
-evalPrimExpr e@(RVariablePExpr l v) = return (e,Nothing)
-evalPrimExpr (LitPExpr l lit) = do
-    d <- evalLit lit
-    return (LitPExpr l lit,Just d)
 
-evalLit :: (Monad m,Location loc) => Literal loc -> m EqDyn
-evalLit (IntLit l i) = return $ toEqDyn i
-evalLit (StringLit l s) = return $ toEqDyn s
-evalLit (BoolLit l b) = return $ toEqDyn b
-evalLit (FloatLit l f) = return $ toEqDyn f
+
+
 

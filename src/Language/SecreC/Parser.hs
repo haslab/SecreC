@@ -14,12 +14,12 @@ import Language.SecreC.Syntax
 
 import Control.Monad.Reader
 
-parseFileIO :: Options -> String -> IO (Module Position)
+parseFileIO :: Options -> String -> IO (Module Identifier Position)
 parseFileIO opts fn = case parser opts of
     Parsec -> Parsec.parseFileIO opts fn
     Derp -> Derp.parseFileIO opts fn
 
-parseFile :: String -> SecrecM (Module Position)
+parseFile :: String -> SecrecM (Module Identifier Position)
 parseFile s = do
     opts <- ask
     case parser opts of

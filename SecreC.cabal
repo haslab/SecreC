@@ -11,40 +11,50 @@ Homepage:
 Category:           Compiler, Cryptography, Language
 Build-Type:         Simple
 Cabal-Version:      >=1.6
-Tested-with:        GHC==7.8.3
+Tested-with:        GHC==7.10.2
 Synopsis:           SecreC Analyser
 
-Extra-Source-Files: README.md examples tests stdlib
+Extra-Source-Files: README.md examples tests
+Data-files: imports/*.sc imports/stdlib/lib/*.sc
 
 Executable secrec
   Main-is:          Main.hs
   Other-Modules:
-                        Language.SecreC.Parser.Derp
-                        Language.SecreC.Parser.Lexer
-                        Language.SecreC.Parser.Parsec
-                        Language.SecreC.Parser.Tokens
-                        Language.SecreC.TypeChecker.Base
-                        Language.SecreC.TypeChecker.Expression
-                        Language.SecreC.TypeChecker.Statement
-                        Language.SecreC.TypeChecker.Type
-                        Language.SecreC.TypeChecker.Constraint
-                        Language.SecreC.Error
-                        Language.SecreC.Location
-                        Language.SecreC.Modules
-                        Language.SecreC.Monad
-                        Language.SecreC.Parser
-                        Language.SecreC.Position
-                        Language.SecreC.Pretty
-                        Language.SecreC.Syntax
-                        Language.SecreC.TypeChecker
-                        Language.SecreC.Utils
-                        Language.SecreC.Vars
-                        Text.Derp
-                        Text.Derp.Combinator
-  
+                        Paths_SecreC
+        
   Hs-source-dirs:   src
-  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array
+  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors
   ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
-  
   Build-Tools:      alex
 
+
+--Library
+--  exposed-modules:
+--                        Language.SecreC.Parser.Derp
+--                        Language.SecreC.Parser.Lexer
+--                        Language.SecreC.Parser.Parsec
+--                        Language.SecreC.Parser.Tokens
+--                        Language.SecreC.TypeChecker.Base
+--                        Language.SecreC.TypeChecker.Expression
+--                        Language.SecreC.TypeChecker.Statement
+--                        Language.SecreC.TypeChecker.Type
+--                        Language.SecreC.TypeChecker.Constraint
+--                        Language.SecreC.Error
+--                        Language.SecreC.Location
+--                        Language.SecreC.Modules
+--                        Language.SecreC.Monad
+--                        Language.SecreC.Parser
+--                        Language.SecreC.Position
+--                        Language.SecreC.Pretty
+--                        Language.SecreC.Syntax
+--                        Language.SecreC.TypeChecker
+--                        Language.SecreC.Utils
+--                        Language.SecreC.Vars
+--                        Text.Derp
+--                        Text.Derp.Combinator
+--  Other-Modules:
+--                        Paths_SecreC
+--  Hs-Source-Dirs: src
+--  Build-Depends:     base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors
+--  ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
+--  Build-Tools:      alex

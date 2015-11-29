@@ -15,6 +15,9 @@ import Control.Monad
 
 import Unsafe.Coerce
 
+mapSetM :: (Monad m,Ord a) => (a -> m a) -> Set a -> m (Set a)
+mapSetM f xs = liftM Set.fromList $ mapM f $ Set.toList xs
+
 -- | Non-empty list
 data NeList a = WrapNe a | ConsNe a (NeList a)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable)
@@ -55,9 +58,17 @@ headSep :: SepList sep a -> a
 headSep (WrapSep x) = x
 headSep (ConsSep x _ _) = x
 
+updHeadSep :: (a -> a) -> SepList sep a -> SepList sep a
+updHeadSep f (WrapSep x) = WrapSep (f x)
+updHeadSep f (ConsSep x s xs) = ConsSep (f x) s xs
+
 headNe :: NeList a -> a
 headNe (WrapNe x) = x
 headNe (ConsNe x _) = x
+
+updHeadNe :: (a -> a) -> NeList a -> NeList a
+updHeadNe f (WrapNe x) = WrapNe (f x)
+updHeadNe f (ConsNe x xs) = ConsNe (f x) xs
 
 snocNe :: NeList a -> a -> NeList a
 snocNe (WrapNe x) y = ConsNe x (WrapNe y)
@@ -77,6 +88,25 @@ zipLeft :: [a] -> [b] -> [(a,Maybe b)]
 zipLeft [] ys = []
 zipLeft xs [] = map (,Nothing) xs
 zipLeft (x:xs) (y:ys) = (x,Just y) : zipLeft xs ys
+
+partitionM :: Monad m => (a -> m Bool) -> [a] -> m ([a],[a])
+partitionM f [] = return ([],[])
+partitionM f (x:xs) = do
+    b <- f x
+    (l,r) <- partitionM f xs
+    if b then return (x:l,r) else return (l,x:r)
+
+-- | monadic @span@ from tail to head
+trailingM :: Monad m => (a -> m Bool) -> [a] -> m ([a], [a])
+trailingM p xs = do
+    (l,r) <- spanM p (reverse xs)
+    return (reverse r,reverse l)
+
+spanM :: Monad m => (a -> m Bool) -> [a] -> m ([a],[a])
+spanM p [] = return ([],[])
+spanM p (x:xs) = do
+    ok <- p x
+    if ok then do { (l,r) <- spanM p xs; return (x:l,r) } else return ([],x:xs)
 
 mapFstM :: (Traversable t,Monad m) => (a -> m b) -> t (a,c) -> m (t (b,c))
 mapFstM f = Traversable.mapM (\(a,c) -> liftM (,c) $ f a)
@@ -202,3 +232,26 @@ fromShowOrdDyn (ShowOrdDyn v) = case unsafeCoerce v of
 
 within :: Ord a => (a,a) -> (a,a) -> Bool
 within (min1,max1) (min2,max2) = min1 >= min2 && min1 <= max2 && max1 >= min2 && max1 <= max2
+
+
+-- | A monomorphic type representation to support type equality
+data TypeOf a where
+    TypeOf :: Typeable a => TypeRep -> TypeOf a
+
+compareTypeOf :: TypeOf a -> TypeOf b -> Ordering
+compareTypeOf (TypeOf t1) (TypeOf t2) = compare t1 t2
+
+data EqT a b where
+    EqT :: EqT a a -- evidence that two types are equal
+    NeqT :: EqT a b -- evidence that two types are not equal
+
+proxyOf :: a -> Proxy a
+proxyOf _ = Proxy
+
+typeOfProxy :: Typeable a => Proxy a -> TypeOf a
+typeOfProxy p = TypeOf (typeOf p)
+
+eqTypeOf :: TypeOf a -> TypeOf b -> EqT a b
+eqTypeOf (TypeOf t1) (TypeOf t2) = if t1 == t2 then unsafeCoerce EqT else NeqT
+
+

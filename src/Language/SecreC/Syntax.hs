@@ -1,10 +1,12 @@
-{-# LANGUAGE TypeFamilies, DeriveFoldable, DeriveTraversable, DeriveFunctor, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE TemplateHaskell, TypeFamilies, DeriveFoldable, DeriveTraversable, DeriveFunctor, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, FlexibleInstances #-}
 
 module Language.SecreC.Syntax where
 
 import Data.Traversable
 import Data.Foldable
 import Data.Generics hiding (empty)
+import Data.Bifunctor.TH
+
 import Text.PrettyPrint
 
 import Language.SecreC.Pretty
@@ -14,108 +16,123 @@ import Language.SecreC.Utils
 
 -- Program and variable declarations:                                          
 
-data Module loc = Module loc (Maybe (ModuleName loc)) (Program loc)
+data Module iden loc = Module loc (Maybe (ModuleName iden loc)) (Program iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-moduleFile :: Location loc => Module loc -> String
+moduleFile :: Location loc => Module iden loc -> String
 moduleFile (Module l _ _) = posFileName $ locpos l
 
-moduleId :: Module loc -> Identifier
-moduleId (Module _ Nothing _) = "main"
-moduleId (Module _ (Just (ModuleName _ n)) _) = n
+moduleId :: Module iden loc -> Maybe iden
+moduleId (Module _ Nothing _) = Nothing
+moduleId (Module _ (Just (ModuleName _ n)) _) = Just n
 
-moduleImports :: Module loc -> [ImportDeclaration loc]
+modulePosId :: Module Identifier Position -> Identifier
+modulePosId = maybe "main" id . moduleId
+
+moduleImports :: Module iden loc -> [ImportDeclaration iden loc]
 moduleImports (Module _ _ p) = programImports p
 
-instance Location loc => Located (Module loc) where
-    type LocOf (Module loc) = loc
+instance Location loc => Located (Module iden loc) where
+    type LocOf (Module iden loc) = loc
     loc (Module l _ _) = l
+    updLoc (Module _ x y) l = Module l x y
 
-instance PP (Module loc) where
+instance PP iden => PP (Module iden loc) where
     pp (Module _ (Just modulename) prog) = text "module" <+> pp modulename <+> text "where" $$ pp prog
     pp (Module _ Nothing prog) = pp prog
 
-data AttributeName loc = AttributeName loc Identifier
+data AttributeName iden loc = AttributeName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-attributeNameId :: AttributeName loc -> Identifier
+attributeNameId :: AttributeName iden loc -> iden
 attributeNameId (AttributeName _ i) = i
   
-instance Location loc => Located (AttributeName loc) where
-    type LocOf (AttributeName loc) = loc
+instance Location loc => Located (AttributeName iden loc) where
+    type LocOf (AttributeName iden loc) = loc
     loc (AttributeName l _) = l
+    updLoc (AttributeName _ x) l = AttributeName l x
   
-instance PP (AttributeName loc) where
-    pp (AttributeName _ iden) = text iden
+instance PP iden => PP (AttributeName iden loc) where
+    pp (AttributeName _ iden) = pp iden
 
-data ModuleName loc = ModuleName loc Identifier
+data ModuleName iden loc = ModuleName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (ModuleName loc) where
-    type LocOf (ModuleName loc) = loc
+instance Location loc => Located (ModuleName iden loc) where
+    type LocOf (ModuleName iden loc) = loc
     loc (ModuleName l _) = l
+    updLoc (ModuleName _ x) l = ModuleName l x
   
-instance PP (ModuleName loc) where
-    pp (ModuleName _ iden) = text iden
+instance PP iden => PP (ModuleName iden loc) where
+    pp (ModuleName _ iden) = pp iden
 
-data TemplateArgName loc = TemplateArgName loc Identifier
+data TemplateArgName iden loc = TemplateArgName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (TemplateArgName loc) where
-    type LocOf (TemplateArgName loc) = loc
+instance Location loc => Located (TemplateArgName iden loc) where
+    type LocOf (TemplateArgName iden loc) = loc
     loc (TemplateArgName l _) = l
+    updLoc (TemplateArgName _ x) l = TemplateArgName l x
   
-instance PP (TemplateArgName loc) where
-    pp (TemplateArgName _ iden) = text iden
+instance PP iden => PP (TemplateArgName iden loc) where
+    pp (TemplateArgName _ iden) = pp iden
 
-data Program loc = Program loc [ImportDeclaration loc] [GlobalDeclaration loc]
+data Program iden loc = Program loc [ImportDeclaration iden loc] [GlobalDeclaration iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-programImports :: Program loc -> [ImportDeclaration loc]
+programImports :: Program iden loc -> [ImportDeclaration iden loc]
 programImports (Program _ is _) = is
   
-instance Location loc => Located (Program loc) where
-    type LocOf (Program loc) = loc
+instance Location loc => Located (Program iden loc) where
+    type LocOf (Program iden loc) = loc
     loc (Program l _ _) = l
+    updLoc (Program _ x y) l = Program l x y
   
-instance PP (Program loc) where
+instance PP iden => PP (Program iden loc) where
     pp (Program _ is gs) = pp is $$ pp gs
 
-instance PP [ImportDeclaration loc] where
+instance PP iden => PP [ImportDeclaration iden loc] where
     pp is = vcat $ map pp is
 
-instance PP [GlobalDeclaration loc] where
+instance PP iden => PP [GlobalDeclaration iden loc] where
     pp gs = vcat $ map pp gs
 
-data ImportDeclaration loc = Import loc (ModuleName loc)
+data ImportDeclaration iden loc = Import loc (ModuleName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (ImportDeclaration loc) where
-    type LocOf (ImportDeclaration loc) = loc
+instance Location loc => Located (ImportDeclaration iden loc) where
+    type LocOf (ImportDeclaration iden loc) = loc
     loc (Import l _) = l
+    updLoc (Import _ x) l = Import l x
  
-instance PP (ImportDeclaration loc) where
+instance PP iden => PP (ImportDeclaration iden loc) where
     pp (Import _ modulename) = text "import" <+> pp modulename
 
-data GlobalDeclaration loc
-    = GlobalVariable loc (VariableDeclaration loc)
-    | GlobalDomain loc (DomainDeclaration loc)
-    | GlobalKind loc (KindDeclaration loc)
-    | GlobalProcedure loc (ProcedureDeclaration loc)
-    | GlobalStructure loc (StructureDeclaration loc)
-    | GlobalTemplate loc (TemplateDeclaration loc)
+data GlobalDeclaration iden loc
+    = GlobalVariable loc (VariableDeclaration iden loc)
+    | GlobalDomain loc (DomainDeclaration iden loc)
+    | GlobalKind loc (KindDeclaration iden loc)
+    | GlobalProcedure loc (ProcedureDeclaration iden loc)
+    | GlobalStructure loc (StructureDeclaration iden loc)
+    | GlobalTemplate loc (TemplateDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (GlobalDeclaration loc) where
-    type LocOf (GlobalDeclaration loc) = loc
+instance Location loc => Located (GlobalDeclaration iden loc) where
+    type LocOf (GlobalDeclaration iden loc) = loc
     loc (GlobalVariable l vd) = l
     loc (GlobalDomain l dd) = l
     loc (GlobalKind l kd) = l
     loc (GlobalProcedure l pd) = l
     loc (GlobalStructure l sd) = l
     loc (GlobalTemplate l td) = l
+    updLoc (GlobalVariable _ vd) l = GlobalVariable l vd
+    updLoc (GlobalDomain _ dd) l = GlobalDomain l dd
+    updLoc (GlobalKind _ kd) l = GlobalKind l kd
+    updLoc (GlobalProcedure _ pd) l = GlobalProcedure l pd
+    updLoc (GlobalStructure _ sd) l = GlobalStructure l sd
+    updLoc (GlobalTemplate _ td) l = GlobalTemplate l td
 
-instance PP (GlobalDeclaration loc) where
+instance PP iden => PP (GlobalDeclaration iden loc) where
     pp (GlobalVariable _ vd) = pp vd
     pp (GlobalDomain _ dd) = pp dd
     pp (GlobalKind _ kd) = pp kd
@@ -123,95 +140,106 @@ instance PP (GlobalDeclaration loc) where
     pp (GlobalStructure _ sd) = pp sd
     pp (GlobalTemplate _ td) = pp td
 
-data KindDeclaration loc = Kind loc (KindName loc)
+data KindDeclaration iden loc = Kind loc (KindName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
  
-instance Location loc => Located (KindDeclaration loc) where
-    type LocOf (KindDeclaration loc) = loc
+instance Location loc => Located (KindDeclaration iden loc) where
+    type LocOf (KindDeclaration iden loc) = loc
     loc (Kind l _) = l
+    updLoc (Kind _ x) l = Kind l x
  
-instance PP (KindDeclaration loc) where
+instance PP iden => PP (KindDeclaration iden loc) where
     pp (Kind _ kname) = text "kind" <+> pp kname
   
-data KindName loc = KindName loc Identifier
+data KindName iden loc = KindName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-kindId :: KindName loc -> Identifier
+kindId :: KindName iden loc -> iden
 kindId (KindName _ n) = n
 
-instance Location loc => Located (KindName loc) where
-    type LocOf (KindName loc) = loc
+instance Location loc => Located (KindName iden loc) where
+    type LocOf (KindName iden loc) = loc
     loc (KindName l _) = l
+    updLoc (KindName _ x) l = KindName l x
 
-instance PP (KindName loc) where
-    pp (KindName _ iden) = text iden
+instance PP iden => PP (KindName iden loc) where
+    pp (KindName _ iden) = pp iden
 
-data DomainDeclaration loc = Domain loc (DomainName loc) (KindName loc)
+data DomainDeclaration iden loc = Domain loc (DomainName iden loc) (KindName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (DomainDeclaration loc) where
-    type LocOf (DomainDeclaration loc) = loc
+instance Location loc => Located (DomainDeclaration iden loc) where
+    type LocOf (DomainDeclaration iden loc) = loc
     loc (Domain l _ _) = l
+    updLoc (Domain _ x y) l = Domain l x y
 
-instance PP (DomainDeclaration loc) where
+instance PP iden => PP (DomainDeclaration iden loc) where
     pp (Domain _ dom kind) = text "domain" <+> pp dom <+> pp kind
  
-data DomainName loc = DomainName loc Identifier
+data DomainName iden loc = DomainName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (DomainName loc) where
-    type LocOf (DomainName loc) = loc
+instance Location loc => Located (DomainName iden loc) where
+    type LocOf (DomainName iden loc) = loc
     loc (DomainName l _) = l
+    updLoc (DomainName _ x) l = DomainName l x
 
-instance PP (DomainName loc) where
+instance PP iden => PP (DomainName iden loc) where
     pp (DomainName _ iden) = pp iden
 
-data ProcedureName loc = ProcedureName loc Identifier
+data ProcedureName iden loc = ProcedureName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (ProcedureName loc) where
-    type LocOf (ProcedureName loc) = loc
+instance Location loc => Located (ProcedureName iden loc) where
+    type LocOf (ProcedureName iden loc) = loc
     loc (ProcedureName l _) = l
+    updLoc (ProcedureName _ x) l = ProcedureName l x
  
-instance PP (ProcedureName loc) where
-    pp (ProcedureName _ iden) = text iden
+instance PP iden => PP (ProcedureName iden loc) where
+    pp (ProcedureName _ iden) = pp iden
 
-data VarName loc = VarName loc Identifier
+data VarName iden loc = VarName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+
+varNameId :: VarName iden loc -> iden
+varNameId (VarName _ i) = i
   
-instance Location loc => Located (VarName loc) where
-    type LocOf (VarName loc) = loc
+instance Location loc => Located (VarName iden loc) where
+    type LocOf (VarName iden loc) = loc
     loc (VarName l _) = l
+    updLoc (VarName _ x) l = VarName l x
  
-instance PP (VarName loc) where
+instance PP iden => PP (VarName iden loc) where
     pp (VarName _ iden) = pp iden
 
-data TypeName loc = TypeName loc Identifier
+data TypeName iden loc = TypeName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-typeId :: TypeName loc -> Identifier
+typeId :: TypeName iden loc -> iden
 typeId (TypeName _ i) = i
 
-instance Location loc => Located (TypeName loc) where
-    type LocOf (TypeName loc) = loc
+instance Location loc => Located (TypeName iden loc) where
+    type LocOf (TypeName iden loc) = loc
     loc (TypeName l _) = l
+    updLoc (TypeName _ x) l = TypeName l x
 
-instance PP (TypeName loc) where
-    pp (TypeName _ iden) = text iden
+instance PP iden => PP (TypeName iden loc) where
+    pp (TypeName _ iden) = pp iden
 
 type Identifier = String
 
 instance PP String where
     pp s = text s
 
-data VariableInitialization loc = VariableInitialization loc (VarName loc) (Maybe (Sizes loc)) (Maybe (Expression loc))
+data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (VariableInitialization loc) where
-    type LocOf (VariableInitialization loc) = loc
+instance Location loc => Located (VariableInitialization iden loc) where
+    type LocOf (VariableInitialization iden loc) = loc
     loc (VariableInitialization l _ _ _) = l
+    updLoc (VariableInitialization _ x y z) l = VariableInitialization l x y z
  
-instance PP (VariableInitialization loc) where
+instance PP iden => PP (VariableInitialization iden loc) where
     pp (VariableInitialization _ v dim ex) = pp v <+> ppDim dim <+> ppExp ex
         where
         ppDim Nothing = empty
@@ -219,84 +247,93 @@ instance PP (VariableInitialization loc) where
         ppExp Nothing = empty
         ppExp (Just e) = text "=" <+> pp e
 
-newtype Sizes loc = Sizes (NeList (Expression loc))
+newtype Sizes iden loc = Sizes (NeList (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
-instance Functor Sizes where
+instance Functor (Sizes iden) where
     fmap f (Sizes xs) = Sizes $ fmap (fmap f) xs
 
-instance Location loc => Located (Sizes loc) where
-    type LocOf (Sizes loc) = loc
+instance Location loc => Located (Sizes iden loc) where
+    type LocOf (Sizes iden loc) = loc
     loc (Sizes xs) = loc (headNe xs)
+    updLoc (Sizes xs) l = Sizes (updHeadNe (flip updLoc l) xs)
 
-instance PP (Sizes loc) where
+instance PP iden => PP (Sizes iden loc) where
     pp (Sizes es) = parens (sepBy comma $ fmap pp es)
 
-data VariableDeclaration loc = VariableDeclaration loc (TypeSpecifier loc) (NeList (VariableInitialization loc))
+data VariableDeclaration iden loc = VariableDeclaration loc (TypeSpecifier iden loc) (NeList (VariableInitialization iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (VariableDeclaration loc) where
-    type LocOf (VariableDeclaration loc) = loc
+instance Location loc => Located (VariableDeclaration iden loc) where
+    type LocOf (VariableDeclaration iden loc) = loc
     loc (VariableDeclaration l _ _) = l
+    updLoc (VariableDeclaration _ x y) l = VariableDeclaration l x y
 
-instance PP (VariableDeclaration loc) where
+instance PP iden => PP (VariableDeclaration iden loc) where
     pp (VariableDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
 
-data ProcedureParameter loc = ProcedureParameter loc (TypeSpecifier loc) (VarName loc)
+data ProcedureParameter iden loc = ProcedureParameter loc (TypeSpecifier iden loc) (VarName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-procedureParameterName :: ProcedureParameter loc -> VarName loc
+procedureParameterName :: ProcedureParameter iden loc -> VarName iden loc
 procedureParameterName (ProcedureParameter _ _ n) = n
 
-instance Location loc => Located (ProcedureParameter loc) where
-    type LocOf (ProcedureParameter loc) = loc
+instance Location loc => Located (ProcedureParameter iden loc) where
+    type LocOf (ProcedureParameter iden loc) = loc
     loc (ProcedureParameter l _ _) = l
+    updLoc (ProcedureParameter _ x y) l = ProcedureParameter l x y
 
-instance PP (ProcedureParameter loc) where
+instance PP iden => PP (ProcedureParameter iden loc) where
     pp (ProcedureParameter _ t v) = pp t <+> pp v
 
 -- Types:                                                                      
 
-data TypeSpecifier loc = TypeSpecifier loc (Maybe (SecTypeSpecifier loc)) (DatatypeSpecifier loc) (Maybe (DimtypeSpecifier loc))
+data TypeSpecifier iden loc = TypeSpecifier loc (Maybe (SecTypeSpecifier iden loc)) (DatatypeSpecifier iden loc) (Maybe (DimtypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-typeSpecifierLoc :: TypeSpecifier loc -> loc
+typeSpecifierLoc :: TypeSpecifier iden loc -> loc
 typeSpecifierLoc (TypeSpecifier l _ _ _) = l
 
-instance Location loc => Located (TypeSpecifier loc) where
-    type LocOf (TypeSpecifier loc) = loc
+instance Location loc => Located (TypeSpecifier iden loc) where
+    type LocOf (TypeSpecifier iden loc) = loc
     loc (TypeSpecifier l _ _ _) = l
+    updLoc (TypeSpecifier _ x y z) l = TypeSpecifier l x y z
   
-instance PP (TypeSpecifier loc) where
+instance PP iden => PP (TypeSpecifier iden loc) where
     pp (TypeSpecifier _ sec t dim) = ppMb sec <+> pp t <+> ppMb dim
 
-data SecTypeSpecifier loc
+data SecTypeSpecifier iden loc
     = PublicSpecifier loc
-    | PrivateSpecifier loc (DomainName loc)
+    | PrivateSpecifier loc (DomainName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (SecTypeSpecifier loc) where
-    type LocOf (SecTypeSpecifier loc) = loc
+instance Location loc => Located (SecTypeSpecifier iden loc) where
+    type LocOf (SecTypeSpecifier iden loc) = loc
     loc (PublicSpecifier l) = l
     loc (PrivateSpecifier l _) = l
+    updLoc (PublicSpecifier _) l = PublicSpecifier l
+    updLoc (PrivateSpecifier _ x) l = PrivateSpecifier l x
 
-instance PP (SecTypeSpecifier loc) where
+instance PP iden => PP (SecTypeSpecifier iden loc) where
     pp (PublicSpecifier _) = text "public"
     pp (PrivateSpecifier _ n) = pp n
 
-data DatatypeSpecifier loc
+data DatatypeSpecifier iden loc
     = PrimitiveSpecifier loc (PrimitiveDatatype loc)
-    | TemplateSpecifier loc (TypeName loc) [TemplateTypeArgument loc]
-    | VariableSpecifier loc (TypeName loc)
+    | TemplateSpecifier loc (TypeName iden loc) [TemplateTypeArgument iden loc]
+    | VariableSpecifier loc (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (DatatypeSpecifier loc) where
-    type LocOf (DatatypeSpecifier loc) = loc
+instance Location loc => Located (DatatypeSpecifier iden loc) where
+    type LocOf (DatatypeSpecifier iden loc) = loc
     loc (PrimitiveSpecifier l _) = l
     loc (TemplateSpecifier l _ _) = l
     loc (VariableSpecifier l _) = l
+    updLoc (PrimitiveSpecifier _ x) l = PrimitiveSpecifier l x
+    updLoc (TemplateSpecifier _ x y) l = TemplateSpecifier l x y
+    updLoc (VariableSpecifier _ x) l = VariableSpecifier l x
 
-instance PP (DatatypeSpecifier loc) where
+instance PP iden => PP (DatatypeSpecifier iden loc) where
     pp (PrimitiveSpecifier _ prim) = pp prim
     pp (TemplateSpecifier _ t args) = pp t <> abrackets (sepBy comma $ map pp args)
     pp (VariableSpecifier _ tn) = pp tn
@@ -324,6 +361,33 @@ data PrimitiveDatatype loc
     | DatatypeFloat64    loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
+isPrimInt :: PrimitiveDatatype loc -> Bool
+isPrimInt (DatatypeInt        loc) = True
+isPrimInt (DatatypeInt8       loc) = True
+isPrimInt (DatatypeInt16      loc) = True
+isPrimInt (DatatypeInt32      loc) = True
+isPrimInt (DatatypeInt64      loc) = True
+isPrimInt _ = False
+
+isPrimUint :: PrimitiveDatatype loc -> Bool
+isPrimUint (DatatypeUint       loc) = True
+isPrimUint (DatatypeUint8      loc) = True
+isPrimUint (DatatypeUint16     loc) = True
+isPrimUint (DatatypeUint32     loc) = True
+isPrimUint (DatatypeUint64     loc) = True
+isPrimUint (DatatypeXorUint8   loc) = True
+isPrimUint (DatatypeXorUint16  loc) = True
+isPrimUint (DatatypeXorUint32  loc) = True
+isPrimUint (DatatypeXorUint64  loc) = True
+isPrimUint (DatatypeXorUint    loc) = True
+isPrimUint _ = False
+
+isPrimFloat :: PrimitiveDatatype loc -> Bool
+isPrimFloat (DatatypeFloat      loc) = True
+isPrimFloat (DatatypeFloat32    loc) = True
+isPrimFloat (DatatypeFloat64    loc) = True
+isPrimFloat _ = False
+
 instance Location loc => Located (PrimitiveDatatype loc) where
     type LocOf (PrimitiveDatatype loc) = loc
     loc (DatatypeBool       l) = l
@@ -346,6 +410,26 @@ instance Location loc => Located (PrimitiveDatatype loc) where
     loc (DatatypeFloat      l) = l
     loc (DatatypeFloat32    l) = l
     loc (DatatypeFloat64    l) = l
+    updLoc (DatatypeBool       _) l = DatatypeBool      l
+    updLoc (DatatypeInt        _) l = DatatypeInt       l
+    updLoc (DatatypeUint       _) l = DatatypeUint      l
+    updLoc (DatatypeInt8       _) l = DatatypeInt8      l
+    updLoc (DatatypeUint8      _) l = DatatypeUint8     l
+    updLoc (DatatypeInt16      _) l = DatatypeInt16     l
+    updLoc (DatatypeUint16     _) l = DatatypeUint16    l
+    updLoc (DatatypeInt32      _) l = DatatypeInt32     l
+    updLoc (DatatypeUint32     _) l = DatatypeUint32    l
+    updLoc (DatatypeInt64      _) l = DatatypeInt64     l
+    updLoc (DatatypeUint64     _) l = DatatypeUint64    l
+    updLoc (DatatypeString     _) l = DatatypeString    l
+    updLoc (DatatypeXorUint8   _) l = DatatypeXorUint8  l
+    updLoc (DatatypeXorUint16  _) l = DatatypeXorUint16 l
+    updLoc (DatatypeXorUint32  _) l = DatatypeXorUint32 l
+    updLoc (DatatypeXorUint64  _) l = DatatypeXorUint64 l
+    updLoc (DatatypeXorUint    _) l = DatatypeXorUint   l
+    updLoc (DatatypeFloat      _) l = DatatypeFloat     l
+    updLoc (DatatypeFloat32    _) l = DatatypeFloat32   l
+    updLoc (DatatypeFloat64    _) l = DatatypeFloat64   l
 
 instance PP (PrimitiveDatatype loc) where
     pp (DatatypeBool       _) = text "bool"
@@ -369,72 +453,84 @@ instance PP (PrimitiveDatatype loc) where
     pp (DatatypeFloat32    _) = text "float32"
     pp (DatatypeFloat64    _) = text "float64"
   
-data TemplateTypeArgument loc
-    = GenericTemplateTypeArgument loc (TemplateArgName loc)
-    | TemplateTemplateTypeArgument loc (TypeName loc) [TemplateTypeArgument loc]
+data TemplateTypeArgument iden loc
+    = GenericTemplateTypeArgument loc (TemplateArgName iden loc)
+    | TemplateTemplateTypeArgument loc (TypeName iden loc) [TemplateTypeArgument iden loc]
     | PrimitiveTemplateTypeArgument loc (PrimitiveDatatype loc)
     | IntTemplateTypeArgument loc Integer
     | PublicTemplateTypeArgument loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (TemplateTypeArgument loc) where
-    type LocOf (TemplateTypeArgument loc) = loc
+instance Location loc => Located (TemplateTypeArgument iden loc) where
+    type LocOf (TemplateTypeArgument iden loc) = loc
     loc (GenericTemplateTypeArgument l _) = l
     loc (TemplateTemplateTypeArgument l _ _) = l
     loc (PrimitiveTemplateTypeArgument l _) = l
     loc (IntTemplateTypeArgument l _) = l
     loc (PublicTemplateTypeArgument l) = l
+    updLoc (GenericTemplateTypeArgument _ x) l = GenericTemplateTypeArgument l x
+    updLoc (TemplateTemplateTypeArgument _ x y) l = TemplateTemplateTypeArgument l x y
+    updLoc (PrimitiveTemplateTypeArgument _ x) l = PrimitiveTemplateTypeArgument l x
+    updLoc (IntTemplateTypeArgument _ x) l = IntTemplateTypeArgument l x
+    updLoc (PublicTemplateTypeArgument _) l = PublicTemplateTypeArgument l
 
-instance PP (TemplateTypeArgument loc) where
+instance PP iden => PP (TemplateTypeArgument iden loc) where
     pp (GenericTemplateTypeArgument _ targ) = pp targ
     pp (TemplateTemplateTypeArgument _ t args) = pp t <> abrackets (sepBy comma $ map pp args)
     pp (PrimitiveTemplateTypeArgument _ prim) = pp prim
     pp (IntTemplateTypeArgument _ i) = integer i
     pp (PublicTemplateTypeArgument _) = text "public"
   
-data DimtypeSpecifier loc
-    = DimSpecifier loc (Expression loc)
+data DimtypeSpecifier iden loc
+    = DimSpecifier loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (DimtypeSpecifier loc) where
-    type LocOf (DimtypeSpecifier loc) = loc
+instance Location loc => Located (DimtypeSpecifier iden loc) where
+    type LocOf (DimtypeSpecifier iden loc) = loc
     loc (DimSpecifier l _) = l
+    updLoc (DimSpecifier _ x) l = DimSpecifier l x
   
-instance PP (DimtypeSpecifier loc) where
+instance PP iden => PP (DimtypeSpecifier iden loc) where
     pp (DimSpecifier _ n) = brackets $ brackets $ pp n
   
 -- Templates:                                                                  
 
-data TemplateDeclaration loc
-    = TemplateStructureDeclaration loc [TemplateQuantifier loc] (StructureDeclaration loc)
-    | TemplateStructureSpecialization loc [TemplateQuantifier loc] [TemplateTypeArgument loc] (StructureDeclaration loc)
-    | TemplateProcedureDeclaration loc [TemplateQuantifier loc] (ProcedureDeclaration loc)
+data TemplateDeclaration iden loc
+    = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
+    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [TemplateTypeArgument iden loc] (StructureDeclaration iden loc)
+    | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (TemplateDeclaration loc) where
-    type LocOf (TemplateDeclaration loc) = loc
+instance Location loc => Located (TemplateDeclaration iden loc) where
+    type LocOf (TemplateDeclaration iden loc) = loc
     loc (TemplateStructureDeclaration l _ _) = l
     loc (TemplateStructureSpecialization l _ _ _) = l
     loc (TemplateProcedureDeclaration l _ _) = l
+    updLoc (TemplateStructureDeclaration _ x y) l = TemplateStructureDeclaration l x y
+    updLoc (TemplateStructureSpecialization _ x y z) l = TemplateStructureSpecialization l x y z
+    updLoc (TemplateProcedureDeclaration _ x y) l = TemplateProcedureDeclaration l x y
   
-instance PP (TemplateDeclaration loc) where
+instance PP iden => PP (TemplateDeclaration iden loc) where
     pp (TemplateStructureDeclaration _ qs struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct Nothing struct
     pp (TemplateStructureSpecialization _ qs specials struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct (Just specials) struct
     pp (TemplateProcedureDeclaration _ qs proc) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> pp proc
   
-data TemplateQuantifier loc
-    = DomainQuantifier loc (DomainName loc) (Maybe (KindName loc))
-    | DimensionQuantifier loc (VarName loc)
-    | DataQuantifier loc (TypeName loc)
+data TemplateQuantifier iden loc
+    = DomainQuantifier loc (DomainName iden loc) (Maybe (KindName iden loc))
+    | DimensionQuantifier loc (VarName iden loc)
+    | DataQuantifier loc (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
-instance Location loc => Located (TemplateQuantifier loc) where
-    type LocOf (TemplateQuantifier loc) = loc
+instance Location loc => Located (TemplateQuantifier iden loc) where
+    type LocOf (TemplateQuantifier iden loc) = loc
     loc (DomainQuantifier l _ _) = l
     loc (DimensionQuantifier l _) = l
     loc (DataQuantifier l _) = l
+    updLoc (DomainQuantifier _ x y) l = DomainQuantifier l x y
+    updLoc (DimensionQuantifier _ x) l = DimensionQuantifier l x
+    updLoc (DataQuantifier _ x) l = DataQuantifier l x
 
-instance PP (TemplateQuantifier loc) where
+instance PP iden => PP (TemplateQuantifier iden loc) where
     pp (DomainQuantifier _ d (Just k)) = text "domain" <+> pp d <+> char ':' <+> pp k
     pp (DomainQuantifier _ d Nothing) = text "domain" <+> pp d
     pp (DimensionQuantifier _ dim) = text "dimensionality" <+> pp dim
@@ -442,57 +538,62 @@ instance PP (TemplateQuantifier loc) where
   
  -- Structures:                                                                
 
-data StructureDeclaration loc = StructureDeclaration loc (TypeName loc) [Attribute loc]
+data StructureDeclaration iden loc = StructureDeclaration loc (TypeName iden loc) [Attribute iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
- 
-structureDeclarationId :: StructureDeclaration loc -> Identifier
+
+structureDeclarationId :: StructureDeclaration iden loc -> iden
 structureDeclarationId (StructureDeclaration _ tn _) = typeId tn
  
-instance Location loc => Located (StructureDeclaration loc) where
-    type LocOf (StructureDeclaration loc) = loc
+instance Location loc => Located (StructureDeclaration iden loc) where
+    type LocOf (StructureDeclaration iden loc) = loc
     loc (StructureDeclaration l _ _) = l
+    updLoc (StructureDeclaration _ x y) l = StructureDeclaration l x y
   
-instance PP (StructureDeclaration loc) where
+instance PP iden => PP (StructureDeclaration iden loc) where
     pp s = ppStruct Nothing s
   
-ppStruct :: Maybe [TemplateTypeArgument loc] -> StructureDeclaration loc -> Doc
+ppStruct :: PP iden => Maybe [TemplateTypeArgument iden loc] -> StructureDeclaration iden loc -> Doc
 ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
-ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> (sepBy comma (fmap pp specials)) <+> braces (vcat $ map pp as)
+ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap pp specials)) <+> braces (vcat $ map pp as)
   
-data Attribute loc = Attribute loc (TypeSpecifier loc) (AttributeName loc)
+data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (Attribute loc) where
-    type LocOf (Attribute loc) = loc
+ 
+instance Location loc => Located (Attribute iden loc) where
+    type LocOf (Attribute iden loc) = loc
     loc (Attribute l _ _) = l
+    updLoc (Attribute _ x y) l = Attribute l x y
   
-instance PP (Attribute loc) where
+instance PP iden => PP (Attribute iden loc) where
     pp (Attribute _ t v) = pp t <+> pp v <> char ';'
 
 -- Procedures:
 
-data ReturnTypeSpecifier loc = ReturnType loc (Maybe (TypeSpecifier loc))
+data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (TypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
- 
-instance Location loc => Located (ReturnTypeSpecifier loc) where
-    type LocOf (ReturnTypeSpecifier loc) = loc
+
+instance Location loc => Located (ReturnTypeSpecifier iden loc) where
+    type LocOf (ReturnTypeSpecifier iden loc) = loc
     loc (ReturnType l _) = l
+    updLoc (ReturnType _ x) l = ReturnType l x
  
-instance PP (ReturnTypeSpecifier loc) where
+instance PP iden => PP (ReturnTypeSpecifier iden loc) where
     pp (ReturnType loc Nothing) = text "void"
     pp (ReturnType loc (Just t)) = pp t
   
-data ProcedureDeclaration loc
-    = OperatorDeclaration loc (ReturnTypeSpecifier loc) (Op loc) [ProcedureParameter loc] [Statement loc]
-    | ProcedureDeclaration loc (ReturnTypeSpecifier loc) (ProcedureName loc) [ProcedureParameter loc] [Statement loc]
+data ProcedureDeclaration iden loc
+    = OperatorDeclaration loc (ReturnTypeSpecifier iden loc) (Op loc) [ProcedureParameter iden loc] [Statement iden loc]
+    | ProcedureDeclaration loc (ReturnTypeSpecifier iden loc) (ProcedureName iden loc) [ProcedureParameter iden loc] [Statement iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (ProcedureDeclaration loc) where
-    type LocOf (ProcedureDeclaration loc) = loc
+
+instance Location loc => Located (ProcedureDeclaration iden loc) where
+    type LocOf (ProcedureDeclaration iden loc) = loc
     loc (OperatorDeclaration l _ _ _ _) = l
     loc (ProcedureDeclaration l _ _ _ _) = l
+    updLoc (OperatorDeclaration _ x y z w) l = OperatorDeclaration l x y z w
+    updLoc (ProcedureDeclaration _ x y z w) l = ProcedureDeclaration l x y z w
   
-instance PP (ProcedureDeclaration loc) where
+instance PP iden => PP (ProcedureDeclaration iden loc) where
     pp (OperatorDeclaration _ ret op params stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
     pp (ProcedureDeclaration _ ret proc params stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
   
@@ -517,6 +618,7 @@ data Op loc
     | OpShr      loc
     | OpNot      loc
     | OpCast     loc
+    | OpInv      loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
 
 instance PP (Op loc) where
@@ -540,6 +642,7 @@ instance PP (Op loc) where
     pp (OpShr  l) = text ">>" 
     pp (OpNot l) = text "!"
     pp (OpCast l) = text ""
+    pp (OpInv l) = text "~"
   
 instance Location loc => Located (Op loc) where
     type LocOf (Op loc) = loc
@@ -561,38 +664,60 @@ instance Location loc => Located (Op loc) where
     loc (OpNe   l) = l 
     loc (OpShl  l) = l 
     loc (OpShr  l) = l 
-    loc (OpNot l) = l
+    loc (OpNot l)  = l
     loc (OpCast l) = l
+    loc (OpInv l)  = l
+    updLoc (OpAdd  _) l = OpAdd  l
+    updLoc (OpBand _) l = OpBand l
+    updLoc (OpBor  _) l = OpBor  l
+    updLoc (OpDiv  _) l = OpDiv  l
+    updLoc (OpGt   _) l = OpGt   l
+    updLoc (OpLt   _) l = OpLt   l
+    updLoc (OpMod  _) l = OpMod  l
+    updLoc (OpMul  _) l = OpMul  l
+    updLoc (OpSub  _) l = OpSub  l
+    updLoc (OpXor  _) l = OpXor  l
+    updLoc (OpEq   _) l = OpEq   l
+    updLoc (OpGe   _) l = OpGe   l
+    updLoc (OpLand _) l = OpLand l
+    updLoc (OpLe   _) l = OpLe   l
+    updLoc (OpLor  _) l = OpLor  l
+    updLoc (OpNe   _) l = OpNe   l
+    updLoc (OpShl  _) l = OpShl  l
+    updLoc (OpShr  _) l = OpShr  l
+    updLoc (OpNot  _) l = OpNot  l
+    updLoc (OpCast _) l = OpCast l
+    updLoc (OpInv  _) l = OpInv  l
   
 -- Statements: 
 
-data ForInitializer loc
-    = InitializerExpression (Maybe (Expression loc))
-    | InitializerVariable (VariableDeclaration loc)
+data ForInitializer iden loc
+    = InitializerExpression (Maybe (Expression iden loc))
+    | InitializerVariable (VariableDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-
-instance PP (ForInitializer loc) where
+ 
+instance PP iden => PP (ForInitializer iden loc) where
     pp (InitializerExpression e) = ppMb e
     pp (InitializerVariable v) = pp v
 
-data Statement loc
-    = CompoundStatement loc [Statement loc]
-    | IfStatement loc (Expression loc) (Statement loc) (Maybe (Statement loc))
-    | ForStatement loc (ForInitializer loc) (Maybe (Expression loc)) (Maybe (Expression loc)) (Statement loc)
-    | WhileStatement loc (Expression loc) (Statement loc)
-    | PrintStatement loc (NeList (Expression loc))
-    | DowhileStatement loc (Statement loc) (Expression loc)
-    | AssertStatement loc (Expression loc)
-    | SyscallStatement loc String [SyscallParameter loc]
-    | VarStatement loc (VariableDeclaration loc)
-    | ReturnStatement loc (Maybe (Expression loc))
+data Statement iden loc
+    = CompoundStatement loc [Statement iden loc]
+    | IfStatement loc (Expression iden loc) (Statement iden loc) (Maybe (Statement iden loc))
+    | ForStatement loc (ForInitializer iden loc) (Maybe (Expression iden loc)) (Maybe (Expression iden loc)) (Statement iden loc)
+    | WhileStatement loc (Expression iden loc) (Statement iden loc)
+    | PrintStatement loc (NeList (Expression iden loc))
+    | DowhileStatement loc (Statement iden loc) (Expression iden loc)
+    | AssertStatement loc (Expression iden loc)
+    | SyscallStatement loc String [SyscallParameter iden loc]
+    | VarStatement loc (VariableDeclaration iden loc)
+    | ReturnStatement loc (Maybe (Expression iden loc))
     | ContinueStatement loc
     | BreakStatement loc
-    | ExpressionStatement loc (Expression loc)
+    | ExpressionStatement loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
- 
-instance Location loc => Located (Statement loc) where
-    type (LocOf (Statement loc)) = loc
+
+instance Location loc => Located (Statement iden loc) where
+    type (LocOf (Statement iden loc)) = loc
     loc (CompoundStatement l _) = l
     loc (IfStatement l _ _ _) = l
     loc (ForStatement l _ _ _ _) = l
@@ -606,12 +731,25 @@ instance Location loc => Located (Statement loc) where
     loc (ContinueStatement l) = l
     loc (BreakStatement l) = l
     loc (ExpressionStatement l _) = l
+    updLoc (CompoundStatement _ x) l = CompoundStatement l x
+    updLoc (IfStatement _ x y z) l = IfStatement l x y z
+    updLoc (ForStatement _ x y z w) l = ForStatement l x y z w
+    updLoc (WhileStatement _ x y) l = WhileStatement l x y
+    updLoc (PrintStatement _ x) l = PrintStatement l x
+    updLoc (DowhileStatement _ x y) l = DowhileStatement l x y
+    updLoc (AssertStatement _ x) l = AssertStatement l x
+    updLoc (SyscallStatement _ x y) l = SyscallStatement l x y
+    updLoc (VarStatement _ x) l = VarStatement l x
+    updLoc (ReturnStatement _ x) l = ReturnStatement l x
+    updLoc (ContinueStatement _) l = ContinueStatement l
+    updLoc (BreakStatement _) l = BreakStatement l
+    updLoc (ExpressionStatement _ x) l = ExpressionStatement l x
  
-instance PP [Statement loc] where
+instance PP iden => PP [Statement iden loc] where
     pp [] = semi
     pp ss = vcat (lbrace : map pp ss ++ [rbrace])
  
-instance PP (Statement loc) where
+instance PP iden => PP (Statement iden loc) where
     pp (CompoundStatement _ ss) = pp ss
     pp (IfStatement _ e thenS elseS) = text "if" <+> parens (pp e) <+> pp thenS <+> ppElse elseS
         where
@@ -630,24 +768,28 @@ instance PP (Statement loc) where
     pp (BreakStatement _) = text "break" <> semi
     pp (ExpressionStatement _ e) = pp e <> semi
     
-instance PP [SyscallParameter loc] where
+instance PP iden => PP [SyscallParameter iden loc] where
     pp ps = sepBy comma $ map pp ps
  
-data SyscallParameter loc
-    = SyscallPush loc (Expression loc)
-    | SyscallReturn loc (VarName loc)
-    | SyscallPushRef loc (VarName loc)
-    | SyscallPushCRef loc (Expression loc)
+data SyscallParameter iden loc
+    = SyscallPush loc (Expression iden loc)
+    | SyscallReturn loc (VarName iden loc)
+    | SyscallPushRef loc (VarName iden loc)
+    | SyscallPushCRef loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (SyscallParameter loc) where
-    type LocOf (SyscallParameter loc) = loc
-    loc (SyscallPush l _) = l
-    loc (SyscallReturn l _) = l
-    loc (SyscallPushRef l _) = l
+    
+instance Location loc => Located (SyscallParameter iden loc) where
+    type LocOf (SyscallParameter iden loc) = loc
+    loc (SyscallPush l _)     = l
+    loc (SyscallReturn l _)   = l
+    loc (SyscallPushRef l _)  = l
     loc (SyscallPushCRef l _) = l
+    updLoc (SyscallPush _ x)     l = (SyscallPush l x)    
+    updLoc (SyscallReturn _ x)   l = (SyscallReturn l x)  
+    updLoc (SyscallPushRef _ x)  l = (SyscallPushRef l x) 
+    updLoc (SyscallPushCRef _ x) l = (SyscallPushCRef l x)
   
-instance PP (SyscallParameter loc) where
+instance PP iden => PP (SyscallParameter iden loc) where
     pp (SyscallPush _ e) = pp e
     pp (SyscallReturn _ v) = text "__return" <+> pp v
     pp (SyscallPushRef _ v) = text "__ref" <+> pp v
@@ -655,200 +797,166 @@ instance PP (SyscallParameter loc) where
   
 -- Indices: not strictly expressions as they only appear in specific context
 
-type Subscript loc = NeList (Index loc)
+type Subscript iden loc = NeList (Index iden loc)
 
-instance PP (Subscript loc) where
+instance PP iden => PP (Subscript iden loc) where
     pp is = brackets (sepBy comma $ fmap pp is)
 
-data Index loc
-    = IndexSlice loc (Maybe (Expression loc)) (Maybe (Expression loc))
-    | IndexInt loc (Expression loc)
+data Index iden loc
+    = IndexSlice loc (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
+    | IndexInt loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (Index loc) where
-    type LocOf (Index loc) = loc
+
+instance Location loc => Located (Index iden loc) where
+    type LocOf (Index iden loc) = loc
     loc (IndexSlice l _ _) = l
     loc (IndexInt l _) = l
+    updLoc (IndexSlice _ x y) l = IndexSlice l x y
+    updLoc (IndexInt _ x) l = IndexInt l x
   
-instance PP (Index loc) where
+instance PP iden => PP (Index iden loc) where
     pp (IndexSlice _ e1 e2) = ppMb e1 <+> char ':' <+> ppMb e2
     pp (IndexInt _ e) = pp e
   
 -- Expressions:  
 
-data Expression loc
-    = BinaryAssign loc (PostfixExpression loc) BinaryAssignOp (Expression loc)
-    | QualExpr loc (Expression loc) (NeList (QualifiedType loc))
-    | CondExpr loc (Expression loc) (Expression loc) (Expression loc)
-    | BinaryExpr loc (Expression loc) (Op loc) (Expression loc)
-    | PrimCastExpr loc (PrimitiveDatatype loc) (Expression loc)
-    | VarCastExpr loc (TypeName loc) (Expression loc)
-    | PrefixInc loc (PostfixExpression loc)
-    | PrefixDec loc (PostfixExpression loc)
-    | PostfixInc loc (PostfixExpression loc)
-    | PostfixDec loc (PostfixExpression loc)
-    | UminusExpr loc (Expression loc)
-    | UnegExpr loc (Expression loc)
-    | UinvExpr loc (Expression loc)
-    | Upost loc (PostfixExpression loc)
+data Expression iden loc
+    = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
+    | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
+    | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
+    | BinaryExpr loc (Expression iden loc) (Op loc) (Expression iden loc)
+    | CastExpr loc (CastType iden loc) (Expression iden loc)
+    | UnaryExpr loc (Op loc) (Expression iden loc)
+    | PreOp loc (Op loc) (Expression iden loc)
+    | PostOp loc (Op loc) (Expression iden loc)
+    | DomainIdExpr loc (SecTypeSpecifier iden loc)
+    | BytesFromStringExpr loc (Expression iden loc)
+    | StringFromBytesExpr loc (Expression iden loc)
+    | ProcCallExpr loc (ProcedureName iden loc) [Expression iden loc]
+    | PostIndexExpr loc (Expression iden loc) (Subscript iden loc)
+    | SelectionExpr loc (Expression iden loc) (AttributeName iden loc)
+    | ArrayConstructorPExpr loc (NeList (Expression iden loc))
+    | RVariablePExpr loc (VarName iden loc)
+    | LitPExpr loc (Literal loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
-instance Location loc => Located (Expression loc) where
-    type LocOf (Expression loc) = loc
+instance Location loc => Located (Expression iden loc) where
+    type LocOf (Expression iden loc) = loc
     loc (BinaryAssign l _ _ _) = l
     loc (QualExpr l _ _) = l
     loc (CondExpr l _ _ _) = l
     loc (BinaryExpr l _ _ _) = l
-    loc (PrimCastExpr l _ _) = l
-    loc (VarCastExpr l _ _) = l
-    loc (PrefixInc l _) = l
-    loc (PrefixDec l _) = l
-    loc (PostfixInc l _) = l
-    loc (PostfixDec l _) = l
-    loc (UminusExpr l _) = l
-    loc (UnegExpr l _) = l
-    loc (UinvExpr l _) = l
-    loc (Upost l _) = l
-  
-instance PP (Expression loc) where
-    pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
-    pp (QualExpr _ e ts) = pp e <+> text "::" <+> sepBy space (fmap pp ts)
-    pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
-    pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
-    pp (PrimCastExpr _ t e) = parens (pp t) <+> pp e
-    pp (VarCastExpr _ t e) = parens (pp t) <+> pp e
-    pp (PrefixInc _ e) = text "++" <+> pp e
-    pp (PrefixDec _ e) = text "--" <+> pp e
-    pp (PostfixInc _ e) = pp e <+> text "++"
-    pp (PostfixDec _ e) = pp e <+> text "--"
-    pp (UminusExpr _ e) = char '-' <+> pp e
-    pp (UnegExpr _ e) = char '!' <+> pp e
-    pp (UinvExpr _ e) = char '~' <+> pp e
-    pp (Upost _ e) = pp e
-  
-data BinaryAssignOp
-    = BinaryAssignEqual
-    | BinaryAssignMul
-    | BinaryAssignDiv
-    | BinaryAssignMod 
-    | BinaryAssignAdd
-    | BinaryAssignSub
-    | BinaryAssignAnd
-    | BinaryAssignOr
-    | BinaryAssignXor
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
-  
-instance PP BinaryAssignOp where
-    pp BinaryAssignEqual = text "="
-    pp BinaryAssignMul   = text "*="
-    pp BinaryAssignDiv   = text "/="
-    pp BinaryAssignMod   = text "%="
-    pp BinaryAssignAdd   = text "+="
-    pp BinaryAssignSub   = text "-="
-    pp BinaryAssignAnd   = text "&="
-    pp BinaryAssignOr    = text "|="
-    pp BinaryAssignXor   = text "^="
-  
-data QualifiedType loc
-    = PublicQualifiedType loc
-    | PrimitiveQualifiedType loc (PrimitiveDatatype loc)
-    | DimQualifiedType loc (DimtypeSpecifier loc)
-    | GenericQualifiedType loc Identifier
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (QualifiedType loc) where
-    type LocOf (QualifiedType loc) = loc
-    loc (PublicQualifiedType l) = l
-    loc (PrimitiveQualifiedType l _) = l
-    loc (DimQualifiedType l _) = l
-    loc (GenericQualifiedType l _) = l
-  
-instance PP (QualifiedType loc) where
-    pp (PublicQualifiedType _) = text "public"
-    pp (PrimitiveQualifiedType _ p) = pp p
-    pp (DimQualifiedType _ dim) = pp dim
-    pp (GenericQualifiedType _ iden) = pp iden
-  
-data CatExpression loc = CatExpr loc (Expression loc) (Expression loc) (Maybe Integer)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (CatExpression loc) where
-    type (LocOf (CatExpression loc)) = loc
-    loc (CatExpr l _ _ _) = l
-  
-instance PP (CatExpression loc) where
-    pp (CatExpr _ e1 e2 (Just i)) = text "cat" <> parens (pp e1 <> comma <> pp e2 <> comma <> integer i)
-    pp (CatExpr _ e1 e2 Nothing) = text "cat" <> parens (pp e1 <> comma <> pp e2)
-  
-data PostfixExpression loc
-    = DeclassifyExpr loc (Expression loc)
-    | SizeExpr loc (Expression loc)
-    | ShapeExpr loc (Expression loc)
-    | PostCatExpr loc (CatExpression loc)
-    | DomainIdExpr loc (SecTypeSpecifier loc)
-    | ReshapeExpr loc (NeList (Expression loc))
-    | ToStringExpr loc (Expression loc)
-    | StrlenExpr loc (Expression loc)
-    | StringFromBytesExpr loc (Expression loc)
-    | BytesFromStringExpr loc (Expression loc)
-    | ProcCallExpr loc (ProcedureName loc) [Expression loc]
-    | PostIndexExpr loc (PostfixExpression loc) (Subscript loc)
-    | SelectionExpr loc (PostfixExpression loc) (AttributeName loc)
-    | PostPrimExpr loc (PrimaryExpression loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (PostfixExpression loc) where
-    type (LocOf (PostfixExpression loc)) = loc
-    loc (DeclassifyExpr l _) = l
-    loc (SizeExpr l _) = l
-    loc (ShapeExpr l _) = l
-    loc (PostCatExpr l _) = l
+    loc (CastExpr l _ _) = l
+    loc (PreOp l _ _) = l
+    loc (PostOp l _ _) = l
+    loc (UnaryExpr l _ _) = l
     loc (DomainIdExpr l _) = l
-    loc (ReshapeExpr l _) = l
-    loc (ToStringExpr l _) = l
-    loc (StrlenExpr l _) = l
-    loc (StringFromBytesExpr l _) = l
     loc (BytesFromStringExpr l _) = l
+    loc (StringFromBytesExpr l _) = l
     loc (ProcCallExpr l _ _) = l
     loc (PostIndexExpr l _ _) = l
     loc (SelectionExpr l _ _) = l
-    loc (PostPrimExpr l _) = l
-  
-instance PP (PostfixExpression loc) where
-    pp (DeclassifyExpr _ e) = text "declassify" <> parens (pp e)
-    pp (SizeExpr _ e) = text "size" <> parens (pp e)
-    pp (ShapeExpr _ e) = text "shape" <> parens (pp e)
-    pp (PostCatExpr _ e) = pp e
-    pp (DomainIdExpr _ t) = text "__domainid" <> parens (pp t)
-    pp (ReshapeExpr _ es) = text "reshape" <> parens (sepBy comma $ fmap pp es)
-    pp (ToStringExpr _ e) = text "tostring" <> parens (pp e)
-    pp (StrlenExpr _ e) = text "strlen" <> parens (pp e)
-    pp (StringFromBytesExpr _ e) = text "__string_from_bytes" <> parens (pp e)
-    pp (BytesFromStringExpr _ e) = text "__bytes_from_string" <> parens (pp e)
-    pp (ProcCallExpr _ n es) = pp n <> parens (sepBy comma $ map pp es)
-    pp (PostIndexExpr _ e s) = pp e <> pp s
-    pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v
-    pp (PostPrimExpr _ e) = pp e
-  
-data PrimaryExpression loc
-    = PExpr loc (Expression loc)
-    | ArrayConstructorPExpr loc (NeList (Expression loc))
-    | RVariablePExpr loc (VarName loc)
-    | LitPExpr loc (Literal loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
-instance Location loc => Located (PrimaryExpression loc) where
-    type (LocOf (PrimaryExpression loc)) = loc
-    loc (PExpr l _) = l
     loc (ArrayConstructorPExpr l _) = l
     loc (RVariablePExpr l _) = l
     loc (LitPExpr l _) = l
+    updLoc (BinaryAssign _ x y z) l = BinaryAssign l x y z
+    updLoc (QualExpr _ x y) l = QualExpr l x y
+    updLoc (CondExpr _ x y z) l = CondExpr l x y z
+    updLoc (BinaryExpr _ x y z) l = BinaryExpr l x y z
+    updLoc (CastExpr _ x y) l = CastExpr l x y
+    updLoc (PreOp _ x y) l = PreOp l x y
+    updLoc (PostOp _ x y) l = PostOp l x y
+    updLoc (UnaryExpr _ x y) l = UnaryExpr l x y
+    updLoc (DomainIdExpr _ x) l = DomainIdExpr l x
+    updLoc (BytesFromStringExpr _ x) l = BytesFromStringExpr l x
+    updLoc (StringFromBytesExpr _ x) l = StringFromBytesExpr l x
+    updLoc (ProcCallExpr _ x y) l = ProcCallExpr l x y
+    updLoc (PostIndexExpr _ x y) l = PostIndexExpr l x y
+    updLoc (SelectionExpr _ x y) l = SelectionExpr l x y
+    updLoc (ArrayConstructorPExpr _ x) l = ArrayConstructorPExpr l x
+    updLoc (RVariablePExpr _ x) l = RVariablePExpr l x
+    updLoc (LitPExpr _ x) l = LitPExpr l x
   
-instance PP (PrimaryExpression loc) where
-    pp (PExpr _ e) = parens (pp e)
+instance PP iden => PP (Expression iden loc) where
+    pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
+    pp (QualExpr _ e t) = pp e <+> text "::" <+> (pp t)
+    pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
+    pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
+    pp (CastExpr _ t e) = parens (pp t) <+> pp e
+    pp (PreOp _ (OpAdd _) e) = text "++" <> pp e
+    pp (PreOp _ (OpSub _) e) = text "--" <> pp e
+    pp (PostOp _ (OpAdd _) e) = pp e <> text "++"
+    pp (PostOp _ (OpSub _) e) = pp e <> text "--"
+    pp (UnaryExpr _ o e) = pp o <> pp e
+    pp (DomainIdExpr _ t) = text "__domainid" <> parens (pp t)
+    pp (BytesFromStringExpr _ t) = text "__bytes_from_string" <> parens (pp t)
+    pp (StringFromBytesExpr _ t) = text "__string_from_bytes" <> parens (pp t)
+    pp (ProcCallExpr _ n es) = pp n <> parens (sepBy comma $ map pp es)
+    pp (PostIndexExpr _ e s) = pp e <> pp s
+    pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v
     pp (ArrayConstructorPExpr _ es) = braces (sepBy comma $ fmap pp es)
     pp (RVariablePExpr _ v) = pp v
     pp (LitPExpr _ l) = pp l
+  
+data CastType iden loc
+    = CastPrim loc (PrimitiveDatatype loc)
+    | CastTy loc (TypeName iden loc)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+
+instance Location loc => Located (CastType iden loc) where
+    type LocOf (CastType iden loc) = loc
+    loc (CastPrim l _) = l
+    loc (CastTy l _) = l
+    updLoc (CastPrim _ x) l = CastPrim l x
+    updLoc (CastTy _ x) l = CastTy l x
+
+instance PP iden => PP (CastType iden loc) where
+    pp (CastPrim _ p) = pp p
+    pp (CastTy _ v) = pp v
+  
+data BinaryAssignOp loc
+    = BinaryAssignEqual loc
+    | BinaryAssignMul   loc
+    | BinaryAssignDiv   loc
+    | BinaryAssignMod   loc
+    | BinaryAssignAdd   loc
+    | BinaryAssignSub   loc
+    | BinaryAssignAnd   loc
+    | BinaryAssignOr    loc
+    | BinaryAssignXor   loc
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
+  
+instance Location loc => Located (BinaryAssignOp loc) where
+    type LocOf (BinaryAssignOp loc) = loc
+    loc (BinaryAssignEqual l) = l
+    loc (BinaryAssignMul   l) = l
+    loc (BinaryAssignDiv   l) = l
+    loc (BinaryAssignMod   l) = l
+    loc (BinaryAssignAdd   l) = l
+    loc (BinaryAssignSub   l) = l
+    loc (BinaryAssignAnd   l) = l
+    loc (BinaryAssignOr    l) = l
+    loc (BinaryAssignXor   l) = l
+    updLoc (BinaryAssignEqual _) l = BinaryAssignEqual l
+    updLoc (BinaryAssignMul   _) l = BinaryAssignMul   l
+    updLoc (BinaryAssignDiv   _) l = BinaryAssignDiv   l
+    updLoc (BinaryAssignMod   _) l = BinaryAssignMod   l
+    updLoc (BinaryAssignAdd   _) l = BinaryAssignAdd   l
+    updLoc (BinaryAssignSub   _) l = BinaryAssignSub   l
+    updLoc (BinaryAssignAnd   _) l = BinaryAssignAnd   l
+    updLoc (BinaryAssignOr    _) l = BinaryAssignOr    l
+    updLoc (BinaryAssignXor   _) l = BinaryAssignXor   l
+  
+instance PP (BinaryAssignOp loc) where
+    pp (BinaryAssignEqual _) = text "="
+    pp (BinaryAssignMul   _) = text "*="
+    pp (BinaryAssignDiv   _) = text "/="
+    pp (BinaryAssignMod   _) = text "%="
+    pp (BinaryAssignAdd   _) = text "+="
+    pp (BinaryAssignSub   _) = text "-="
+    pp (BinaryAssignAnd   _) = text "&="
+    pp (BinaryAssignOr    _) = text "|="
+    pp (BinaryAssignXor   _) = text "^="
   
 data Literal loc
     = IntLit loc Integer
@@ -859,10 +967,14 @@ data Literal loc
   
 instance Location loc => Located (Literal loc) where
     type LocOf (Literal loc) = loc
-    loc (IntLit l _) = l
+    loc (IntLit l _)    = l
     loc (StringLit l _) = l
-    loc (BoolLit l _) = l
-    loc (FloatLit l _) = l
+    loc (BoolLit l _)   = l
+    loc (FloatLit l _)  = l
+    updLoc (IntLit _ x)    l = (IntLit l x)   
+    updLoc (StringLit _ x) l = (StringLit l x)
+    updLoc (BoolLit _ x)   l = (BoolLit l x)  
+    updLoc (FloatLit _ x)  l = (FloatLit l x) 
   
 instance PP (Literal loc) where
     pp (IntLit _ i) = integer i
@@ -870,4 +982,44 @@ instance PP (Literal loc) where
     pp (BoolLit _ b) = text (show b)
     pp (FloatLit _ f) = text (show f)
 
+$(deriveBifunctor ''Module)
+$(deriveBifunctor ''CastType)
+$(deriveBifunctor ''AttributeName)
+$(deriveBifunctor ''ModuleName)
+$(deriveBifunctor ''TemplateArgName)
+$(deriveBifunctor ''Program)
+$(deriveBifunctor ''ImportDeclaration)
+$(deriveBifunctor ''GlobalDeclaration)
+$(deriveBifunctor ''KindDeclaration)
+$(deriveBifunctor ''KindName)
+$(deriveBifunctor ''DomainDeclaration)
+$(deriveBifunctor ''DomainName)
+$(deriveBifunctor ''ProcedureName)
+$(deriveBifunctor ''VarName)
+$(deriveBifunctor ''TypeName)
+$(deriveBifunctor ''VariableInitialization)
+$(deriveBifunctor ''Sizes)
+$(deriveBifunctor ''VariableDeclaration)
+$(deriveBifunctor ''ProcedureParameter)
+$(deriveBifunctor ''TypeSpecifier)
+$(deriveBifunctor ''SecTypeSpecifier)
+$(deriveBifunctor ''DatatypeSpecifier)
+$(deriveBifunctor ''TemplateTypeArgument)
+$(deriveBifunctor ''DimtypeSpecifier)
+$(deriveBifunctor ''TemplateDeclaration)
+$(deriveBifunctor ''TemplateQuantifier)
+$(deriveBifunctor ''StructureDeclaration)
+$(deriveBifunctor ''Attribute)
+$(deriveBifunctor ''ReturnTypeSpecifier)
+$(deriveBifunctor ''ProcedureDeclaration)
+$(deriveBifunctor ''ForInitializer)
+$(deriveBifunctor ''Statement)
+$(deriveBifunctor ''SyscallParameter)
+$(deriveBifunctor ''Index)
+$(deriveBifunctor ''Expression) 
+
+unaryLitExpr :: Expression iden loc -> Expression iden loc
+unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)
+unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (FloatLit l1 f))) = LitPExpr l $ FloatLit l1 (-f)
+unaryLitExpr e = e
 

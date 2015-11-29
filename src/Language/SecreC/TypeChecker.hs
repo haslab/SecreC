@@ -15,9 +15,11 @@ import Language.SecreC.TypeChecker.Expression
 import Language.SecreC.TypeChecker.Type
 import Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.Utils
+import Language.SecreC.Vars
 
 import Prelude hiding (mapM)
 
+import Data.Bifunctor
 import Data.Generics
 import Data.Traversable
 import Data.Foldable
@@ -28,18 +30,18 @@ import Control.Monad.IO.Class
 import Control.Monad.State (State(..),StateT(..))
 import qualified Control.Monad.State as State
 
-tcModule :: Location loc => Module loc -> TcM loc (Module (Typed loc))
+tcModule :: (Vars loc,Location loc) => Module Identifier loc -> TcM loc (Module VarIdentifier (Typed loc))
 tcModule (Module l name prog) = do
     prog' <- tcProgram prog
-    return $ Module (notTyped l) (fmap (fmap notTyped) name) prog'
+    return $ Module (notTyped l) (fmap (bimap mkVarId notTyped) name) prog'
 
-tcProgram :: Location loc => Program loc -> TcM loc (Program (Typed loc))
+tcProgram :: (Vars loc,Location loc) => Program Identifier loc -> TcM loc (Program VarIdentifier (Typed loc))
 tcProgram (Program loc imports globals) = do
-    let imports' = map (fmap notTyped) imports
-    globals' <- mapM (tcGlobal . tcGlobalDeclaration) globals
+    let imports' = map (bimap mkVarId notTyped) imports
+    globals' <- mapM (tcGlobal loc . tcGlobalDeclaration) globals
     return $ Program (notTyped loc) imports' globals'
 
-tcGlobalDeclaration :: Location loc => GlobalDeclaration loc -> TcM loc (GlobalDeclaration (Typed loc))
+tcGlobalDeclaration :: (Vars loc,Location loc) => GlobalDeclaration Identifier loc -> TcM loc (GlobalDeclaration VarIdentifier (Typed loc))
 tcGlobalDeclaration (GlobalVariable l vd) = do
     vd' <- tcVarDecl GlobalScope vd
     return $ GlobalVariable (notTyped l) vd'
@@ -59,116 +61,128 @@ tcGlobalDeclaration (GlobalTemplate l td) = do
     td' <- tcTemplateDecl td
     return $ GlobalTemplate (notTyped l) td'
 
-tcDomainDecl :: Location loc => DomainDeclaration loc -> TcM loc (DomainDeclaration (Typed loc))
+tcDomainDecl :: Location loc => DomainDeclaration Identifier loc -> TcM loc (DomainDeclaration VarIdentifier (Typed loc))
 tcDomainDecl (Domain l d@(DomainName dl dn) k) = do
-    let t = DType $ Just $ kindId k
-    let d' = DomainName (Typed dl t) dn
+    let vk = bimap mkVarId id k
+    let t = DType $ Just $ fmap (const ()) vk
+    let d' = DomainName (Typed dl t) $ mkVarId dn
     newDomain d'
-    tcReaderM $ checkKind k
-    return $ Domain (notTyped l) d' (fmap notTyped k)
+    checkKind vk
+    return $ Domain (notTyped l) d' (bimap mkVarId notTyped k)
 
-tcKindDecl :: Location loc => KindDeclaration loc -> TcM loc (KindDeclaration (Typed loc))
+tcKindDecl :: Location loc => KindDeclaration Identifier loc -> TcM loc (KindDeclaration VarIdentifier (Typed loc))
 tcKindDecl (Kind l k) = do
     k' <- tcKindName k
     newKind k'
     return $ Kind (Typed l KType) k'
     
-tcKindName :: Location loc => KindName loc -> TcM loc (KindName (Typed loc))
-tcKindName (KindName kl kn) = return $ KindName (Typed kl KType) kn
+tcKindName :: Location loc => KindName Identifier loc -> TcM loc (KindName VarIdentifier (Typed loc))
+tcKindName (KindName kl kn) = return $ KindName (Typed kl KType) $ mkVarId kn
 
-tcProcedureDecl :: Location loc => (Op (Typed loc) -> TcM loc ()) -> (ProcedureName (Typed loc) -> TcM loc ())
-                -> ProcedureDeclaration loc -> TcM loc (ProcedureDeclaration (Typed loc))
-tcProcedureDecl addOp addProc (OperatorDeclaration l ret op ps s) = do
+tcProcedureDecl :: (Vars loc,Location loc) => (Op (Typed loc) -> TcM loc ()) -> (ProcedureName VarIdentifier (Typed loc) -> TcM loc ())
+                -> ProcedureDeclaration Identifier loc -> TcM loc (ProcedureDeclaration VarIdentifier (Typed loc))
+tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
     ret' <- tcRetTypeSpec ret
     let tret = typed $ loc ret'
     ps' <- mapM tcProcedureParam ps
-    (s',st) <- tcStmts tret s
-    when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Left $ fmap locpos op)
+    (s',StmtType st) <- tcStmts tret s
+    tcCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     i <- newTyVarId
-    let tproc = ProcType i (locpos l) (map (fmap typed . procedureParameterName) ps') tret
+    let tproc = ProcType i (locpos l) (map (fmap typed . procedureParameterName) ps') tret $ map (fmap (fmap locpos)) s'
     let op' = fmap (\l -> Typed l tproc) op
     addOp op'
     return $ OperatorDeclaration (notTyped l) ret' op' ps' s'
-tcProcedureDecl addOp addProc (ProcedureDeclaration l ret proc@(ProcedureName pl pn) ps s) = do
+tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureName pl pn) ps s) = do
     ret' <- tcRetTypeSpec ret
     let tret = typed $ loc ret'
     ps' <- mapM tcProcedureParam ps
-    (s',st) <- tcStmts tret s
-    when (not $ isReturnStmtType st) $ tcError (locpos l) $ NoReturnStatement (Right $ fmap locpos proc)
+    (s',StmtType st) <- tcStmts tret s
+    tcCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     let vars = map (fmap typed . procedureParameterName) ps'
     i <- newTyVarId
-    let tproc = ProcType i (locpos l) vars tret
-    let proc' = ProcedureName (Typed pl tproc) pn
+    let tproc = ProcType i (locpos l) vars tret $ map (fmap (fmap locpos)) s'
+    let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     addProc proc'
     return $ ProcedureDeclaration (notTyped l) ret' proc' ps' s'
 
-tcProcedureParam :: Location loc => ProcedureParameter loc -> TcM loc (ProcedureParameter (Typed loc))
+tcProcedureParam :: (Vars loc,Location loc) => ProcedureParameter Identifier loc -> TcM loc (ProcedureParameter VarIdentifier (Typed loc))
 tcProcedureParam (ProcedureParameter l s v) = do
     s' <- tcTypeSpec s
     let t = typed $ loc s'
-    let v' = fmap (flip Typed t) v
-    newVariable LocalScope v'
+    let vv = bimap mkVarId id v
+    let v' = fmap (flip Typed t) vv
+    newVariable LocalScope v' NoValue
     return $ ProcedureParameter (notTyped l) s' v'
 
-tcStructureDecl :: Location loc => (TypeName (Typed loc) -> TcM loc ())
-                -> StructureDeclaration loc -> TcM loc (StructureDeclaration (Typed loc))
+tcStructureDecl :: (Vars loc,Location loc) => (TypeName VarIdentifier (Typed loc) -> TcM loc ())
+                -> StructureDeclaration Identifier loc -> TcM loc (StructureDeclaration VarIdentifier (Typed loc))
 tcStructureDecl addStruct (StructureDeclaration l ty@(TypeName tl tn) atts) = do
     atts' <- mapM tcAttribute atts
     i <- newTyVarId
     let t = StructType i (locpos l) $ map (fmap typed) atts'
-    let ty' = TypeName (Typed tl t) tn
+    let ty' = TypeName (Typed tl t) $ mkVarId tn
     addStruct ty'
     return $ StructureDeclaration (notTyped l) ty' atts'
 
-tcAttribute :: Location loc => Attribute loc -> TcM loc (Attribute (Typed loc))
+tcAttribute :: (Vars loc,Location loc) => Attribute Identifier loc -> TcM loc (Attribute VarIdentifier (Typed loc))
 tcAttribute (Attribute l ty v@(AttributeName vl vn)) = do
     ty' <- tcTypeSpec ty
     let t = typed $ loc ty'
-    let v' = AttributeName (Typed vl t) vn
+    let v' = AttributeName (Typed vl t) $ mkVarId vn
     return $ Attribute (notTyped l) ty' v'
 
-tcTemplateDecl :: Location loc => TemplateDeclaration loc -> TcM loc (TemplateDeclaration (Typed loc))
+tcTemplateDecl :: (Vars loc,Location loc) => TemplateDeclaration Identifier loc -> TcM loc (TemplateDeclaration VarIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplateBlock $ do
     (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = map (fmap Left) $ toList tvars
+    let tvars' = toList tvars
     s' <- tcStructureDecl (addTemplateStruct tvars') s
     return $ TemplateStructureDeclaration (notTyped l) targs' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplateBlock $ do
     (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = map (fmap Left) $ toList tvars
+    let tvars' = toList tvars
     tspecials' <- mapM tcTemplateTypeArgument tspecials
     let tspecs = map (typed . loc) tspecials'
     s' <- tcStructureDecl (addTemplateStructSpecialization tvars' tspecs) s
     return $ TemplateStructureSpecialization (notTyped l) targs' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplateBlock $ do
     (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = map (fmap Left) $ toList tvars
+    let tvars' = toList tvars
     p' <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedure tvars') p
     return $ TemplateProcedureDeclaration (notTyped l) targs' p'
     
-tcTemplateQuantifier :: Location loc => TemplateQuantifier loc -> TcM loc (TemplateQuantifier (Typed loc),Typed Identifier)
+tcTemplateQuantifier :: Location loc => TemplateQuantifier Identifier loc -> TcM loc (TemplateQuantifier VarIdentifier (Typed loc),VarName VarIdentifier Type)
 tcTemplateQuantifier (DomainQuantifier l v@(DomainName dl dn) mbk) = do
     (mbk,dk) <- case mbk of
         Just k -> do -- domain variable of kind @k@
             k' <- tcKindName k
-            tcReaderM $ checkKind k
-            return (Just k',Just $ kindId k)
+            let vk = bimap mkVarId id k
+            checkKind vk
+            return (Just k',Just vk)
         Nothing -> do -- domain variable of any kind
             return (Nothing,Nothing)
-    let t = DType dk
-    let v' = DomainName (Typed dl t) dn
+    let t = DType $ fmap (fmap (const ())) dk
+    let vdn = mkVarId dn
+    let v' = DomainName (Typed dl t) vdn
     newDomainVariable LocalScope v'
-    return (DomainQuantifier (notTyped l) v' mbk,Typed dn t)
+    return (DomainQuantifier (notTyped l) v' mbk,VarName t vdn)
 tcTemplateQuantifier (DimensionQuantifier l v@(VarName dl dn)) = do
-    let t = indexType -- variable is a dimension
-    let v' = VarName (Typed dl t) dn
-    newVariable LocalScope v'
-    return (DimensionQuantifier (notTyped l) v',Typed dn t)
+    let t = index -- variable is a dimension
+    let vdn = mkVarId dn
+    let v' = VarName (Typed dl t) vdn
+    newVariable LocalScope v' NoValue
+    return (DimensionQuantifier (notTyped l) v',VarName t vdn)
 tcTemplateQuantifier (DataQuantifier l v@(TypeName tl tn)) = do
     let t = TType -- variable of any type
-    let v' = TypeName (Typed tl t) tn
+    let vtn = mkVarId tn
+    let v' = TypeName (Typed tl t) vtn
     newTypeVariable LocalScope v'
-    return (DataQuantifier (notTyped l) v',Typed tn t)
+    return (DataQuantifier (notTyped l) v',VarName t vtn)
 
-
+-- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
+tcGlobal :: (Vars loc,Location loc) => loc -> TcM loc a -> TcM loc a
+tcGlobal l m = do
+    x <- m
+    solve
+    State.modify $ \e -> e { localVars = Map.empty, tDict = mempty }
+    return x
 

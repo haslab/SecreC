@@ -6,17 +6,20 @@ import Language.SecreC.Syntax
 import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.TypeChecker.Base
+import Language.SecreC.Vars
+import Language.SecreC.Error
 
-tcExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
+import Data.Int
+import Data.Word
 
-tcGuard :: Location loc => Expression loc -> TcM loc (Expression (Typed loc))
+tcExpr :: (Vars loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 
-uintLitExpr :: Location loc => Expression loc -> TcM loc (Expression (Typed loc),Maybe Integer)
+tcGuard :: (Vars loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 
-tcExprTy :: Location loc => Type -> Expression loc -> TcM loc (Expression (Typed loc))
+tcIndexExpr :: (Vars loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc),Either SecrecError Word64)
 
-tcDimSizeExpr :: Location loc => Maybe (VarName loc) -> Expression loc -> TcM loc (Expression (Typed loc))
+tcExprTy :: (Vars loc,Location loc) => Type -> Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 
-isStaticUintExpr :: Location loc => Expression () -> TcM loc (Maybe Integer)
+tcSizeExpr :: (Vars loc,Location loc) => Type -> Word64 -> Maybe (VarName Identifier loc) -> Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 
-tcVarName :: Location loc => VarName loc -> TcM loc (VarName (Typed loc))
+tcVarName :: Location loc => VarName Identifier loc -> TcM loc (VarName VarIdentifier (Typed loc))

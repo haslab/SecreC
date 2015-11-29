@@ -29,7 +29,8 @@ data Position
     deriving (Read, Eq, Ord, Data, Typeable)
 
 instance PP Position where
-    pp (Pos file line col off) = text file <> char ':' <> int line <> char ':' <> int col <> char ':' <> int off
+    pp (Pos file line col off) = text file <> char ':' <> int line <> char ':' <> int col
+    pp (UnhelpfulPos msg) = text msg
 
 instance Show Position where
     show (Pos file line col off) = "file " ++ show file ++ " line " ++ show line ++ " column " ++ show col ++ " offset " ++ show off
@@ -40,6 +41,9 @@ instance Show Position where
 {-# INLINE pos #-}
 pos :: String -> Int -> Int -> Int -> Position
 pos = Pos
+
+sourcePosToPosition :: SourcePos -> Position
+sourcePosToPosition s = Pos (sourceName s) (sourceLine s) (sourceColumn s) (-1)
 
 positionToSourcePos :: Position -> SourcePos
 positionToSourcePos (Pos f l c o) = newPos f l c
