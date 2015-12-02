@@ -48,7 +48,7 @@ tcStmts ret (s:ss) = do
         [] -> return ()
         ss -> unless (hasStmtFallthru c) $ tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat $ map pp ss)
     -- issue warning for unused variable declarations
-    forSetM_ (bvs s `Set.difference` fvs ss) $ \(ScVar v) -> tcWarn (locpos $ loc s) $ UnusedVariable (pp v)
+    forSetM_ (bvs s `Set.difference` fvs ss) $ \(ScVar v) -> tcWarnM (locpos $ loc s) $ UnusedVariable (pp v)
     (ss',StmtType cs) <- tcStmts ret ss
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
@@ -56,7 +56,7 @@ tcStmts ret (s:ss) = do
 tcNonEmptyStmt :: (Vars loc,Location loc) => Type -> Statement Identifier loc -> TcM loc (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcStmt ret s
-    when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
+    when (Set.null cs) $ tcWarnM (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
@@ -64,7 +64,7 @@ tcLoopBodyStmt :: (Vars loc,Location loc) => Type -> loc -> Statement Identifier
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcStmt ret s
     -- check that the body can perform more than iteration
-    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop (pp s)
+    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarnM (locpos l) $ SingleIterationLoop (pp s)
     -- return the @StmtClass@ for the whole loop
     let t' = StmtType $ Set.insert (StmtFallthru) (Set.filter (not . isLoopStmtClass) cs)
     return (s',t')
@@ -101,7 +101,7 @@ tcStmt ret (WhileStatement l condE bodyS) = do
 tcStmt ret (PrintStatement l argsE) = do
     argsE' <- mapM tcExpr argsE
     let targs = map (typed . loc) $ Foldable.toList argsE'
-    tcCstrM l (SupportedPrint targs)
+    tcTopCstrM l (SupportedPrint targs)
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (PrintStatement (Typed l t) argsE',t)
 tcStmt ret (DowhileStatement l bodyS condE) = tcBlock $ do
@@ -122,13 +122,13 @@ tcStmt ret (VarStatement l decl) = do
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (VarStatement (notTyped l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
-    tcCstrM l $ Unifies Void ret
+    tcTopCstrM l $ Unifies Void ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
-    tcCstrM l $ Unifies et' ret
+    tcTopCstrM l $ Coerces et' ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) (Just e'),t)
 tcStmt ret (ContinueStatement l) = do

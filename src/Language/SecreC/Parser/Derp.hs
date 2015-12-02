@@ -279,16 +279,15 @@ scReturnTypeSpecifier = scTok VOID ==> (\x1 -> ReturnType (loc x1) Nothing)
                     <|> scTypeSpecifier ==> (\x1 -> ReturnType (loc x1) (Just x1))
 
 scProcedureDeclaration :: ScParser (ProcedureDeclaration Identifier Position)
-scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOpOrCast) <+> scProcedureId) <~> scBraces scProcedureParameterList <~> scCompoundStatement ==> f
+scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOp) <+> scProcedureId) <~> scBraces scProcedureParameterList <~> scCompoundStatement ==> f
     where
-    scOpOrCast = optionMaybe scOp ==> (maybe (OpCast (UnhelpfulPos "cast")) id)
     f (x1,(Left x2,(x3,x4))) = OperatorDeclaration (loc x1) x1 x2 x3 (unLoc x4)
     f (x1,(Right x2,(x3,x4))) = ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)
 
 scProcedureParameterList :: ScParser [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',')
 
-scOp :: ScParser (Op Position)
+scOp :: ScParser (Op Identifier Position)
 scOp = scChar '+' ==> (OpAdd . loc)
    <|> scChar '&' ==> (OpBand . loc)
    <|> scChar '|' ==> (OpBor . loc)
@@ -308,6 +307,7 @@ scOp = scChar '+' ==> (OpAdd . loc)
    <|> scTok NE_OP ==> (OpNe . loc)
    <|> scTok SHL_OP ==> (OpShl . loc)
    <|> scTok SHR_OP ==> (OpShr . loc)
+   <|> scChar '('  <~> scCastType <~ scChar ')' ==> (\(x1,x2) -> OpCast (loc x1) x2)
 
 -- * Statements                                                           
 
@@ -504,9 +504,12 @@ scMultiplicativeExpression = scFoldl
       <|> scChar '%' ==> (OpMod . loc)
 
 scCastExpression :: ScParser (Expression Identifier Position)
-scCastExpression = scChar '(' <~> scPrimitiveDatatype <~ scChar ')' <~> scCastExpression ==> (\(x1,(x2,x3)) -> CastExpr (loc x1) (CastPrim (loc x2) x2) x3)
-               <|> scChar '(' <~> scTypeId <~ scChar ')' <~> scCastExpression ==> (\(x1,(x2,x3)) -> CastExpr (loc x1) (CastTy (loc x2) x2) x3)
+scCastExpression = scCastType <~> scCastExpression ==> (\(x1,x2) -> CastExpr (loc x1) x1 x2)
                <|> scPrefixOp
+    
+scCastType :: ScParser (CastType Identifier Position)
+scCastType = scChar '(' <~> scPrimitiveDatatype <~ scChar ')' ==> (\(x1,x2) -> CastPrim (loc x1) x2)
+         <|> scChar '(' <~> scTypeId <~ scChar ')' ==> (\(x1,x2) -> CastTy (loc x1) x2)
     
 scPrefixOp :: ScParser (Expression Identifier Position)
 scPrefixOp = scTok INC_OP <~> scLvalue ==> (\(x1,x2) -> PreOp (loc x1) (OpAdd $ loc x1) x2)

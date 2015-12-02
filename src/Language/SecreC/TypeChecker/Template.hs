@@ -42,6 +42,12 @@ matchTemplate l n args ret check = do
             -- return the instantiated body of the most specific declaration
             resolveTemplateEntry l n args ret e subst
 
+templateCstrs :: Location loc => loc -> TDict loc -> TDict loc
+templateCstrs p d = d { tCstrs = Map.mapKeys (\(Loc l k) -> Loc l $ DelayedCstr k (TypecheckerError (locpos p) . TemplateSolvingError)) (tCstrs d) }
+
+--inheritedTDict :: Location loc => loc -> TDict loc -> TDict loc
+--inheritedTDict l d = d { tCstrs = Map.mapKeys (\(Loc l1 c) -> Loc l $ InheritedCstr (locpos l1) c) (tCstrs d) }
+
 resolveTemplateEntry :: (Vars loc,Location loc) => loc -> TIdentifier -> [Type] -> Maybe Type -> EntryEnv loc -> TDict loc -> TcM loc (Type,Type)
 resolveTemplateEntry p n args ret (e :: EntryEnv loc) dict = do
     let l = entryLoc e
@@ -51,7 +57,7 @@ resolveTemplateEntry p n args ret (e :: EntryEnv loc) dict = do
     addDict dict'
     case entryType e of
         TpltType _ _ cstrs _ body -> do
-            let cstrs' = fmap (updpos l) $ sub $ inheritedTDict (locpos p) cstrs
+            let cstrs' = fmap (updpos l) $ sub $ templateCstrs (locpos p) cstrs
             let body' = sub body
             -- add the constraints first because of possibly recursive invocations
             case n of
@@ -61,7 +67,7 @@ resolveTemplateEntry p n args ret (e :: EntryEnv loc) dict = do
                 Right i -> do
                     addTemplateConstraint l (PDec i args $ fromJust ret) (Just $ entryType e)
             --liftIO $ putStrLn $ "FROM TEMPLATE " ++ show (vcat $ map pp $ tUnsolved cstrs')
-            solveWith cstrs' -- compute a dictionary from the constraints
+            addDict cstrs' -- add the constraints to the environment
             let body'' = case body' of
                             ProcType _ _ _ ret stmts -> ret
                             ret -> ret
@@ -82,7 +88,8 @@ compareTemplateDecls def l n (e1,s1) (e2,d2) = tcBlock $ do
     targs1 <- templateArgs n e1'
     targs2 <- templateArgs n e2'
     let defs = map (\e -> (locpos $ entryLoc e,ppTpltType n (entryType e))) [e1,e2]
-    ord <- comparesList l targs1 targs2 `catchError` (tcError (locpos l) . ConflictingTemplateInstances def defs)
+    let err = TypecheckerError (locpos l) . ConflictingTemplateInstances def defs
+    ord <- addErrorM err $ comparesList l targs1 targs2
     when (ord == EQ) $ do
         ss <- liftM ppSubstsGeneric getSubstsGeneric
         tcError (locpos l) $ DuplicateTemplateInstances def defs ss
@@ -96,15 +103,18 @@ instantiateTemplateEntries n args ret es = mapM (instantiateTemplateEntry n args
 
 instantiateTemplateEntry :: (Vars loc,Location loc) => TIdentifier -> [Type] -> Maybe Type -> EntryEnv loc -> TcM loc (Either (EntryEnv loc,SecrecError) (EntryEnv loc,TDict loc))
 instantiateTemplateEntry n args ret e = do
+    let l = entryLoc e
     e' <- localTemplate e
     targs <- templateArgs n e'
-    let args' = args ++ maybeToList ret
-    ok <- prove (unifiesList (entryLoc e') args' targs)
+    let proof = case ret of
+                Nothing -> coercesList l args targs
+                Just r -> coercesList l args (init targs) >> unifies l r (last targs)
+    ok <- prove proof
     case ok of
         Left err -> return $ Left (e',err)
         Right ((),subst) -> do
-            ss <- liftM ppSubstsGeneric getSubstsGeneric
-            liftIO $ putStrLn $ "instantiated " ++ ppr n ++ " " ++ ppr args ++ " " ++ ppr ret ++ " " ++ ppr (entryType e') ++ "\n" ++ show ss ++  "INST\n" ++ ppr (tSubsts subst) ++ ppr (tValues subst)
+            --ss <- liftM ppSubstsGeneric getSubstsGeneric
+            --liftIO $ putStrLn $ "instantiated " ++ ppr n ++ " " ++ ppr args ++ " " ++ ppr ret ++ " " ++ ppr (entryType e') ++ "\n" ++ show ss ++  "INST\n" ++ ppr (tSubsts subst) ++ ppr (tValues subst)
             return $ Right (e',subst)
         
 -- | Extracts a head signature from a template type declaration

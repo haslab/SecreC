@@ -582,7 +582,7 @@ instance PP iden => PP (ReturnTypeSpecifier iden loc) where
     pp (ReturnType loc (Just t)) = pp t
   
 data ProcedureDeclaration iden loc
-    = OperatorDeclaration loc (ReturnTypeSpecifier iden loc) (Op loc) [ProcedureParameter iden loc] [Statement iden loc]
+    = OperatorDeclaration loc (ReturnTypeSpecifier iden loc) (Op iden loc) [ProcedureParameter iden loc] [Statement iden loc]
     | ProcedureDeclaration loc (ReturnTypeSpecifier iden loc) (ProcedureName iden loc) [ProcedureParameter iden loc] [Statement iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
@@ -597,7 +597,7 @@ instance PP iden => PP (ProcedureDeclaration iden loc) where
     pp (OperatorDeclaration _ ret op params stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
     pp (ProcedureDeclaration _ ret proc params stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
   
-data Op loc
+data Op iden loc
     = OpAdd      loc
     | OpBand     loc
     | OpBor      loc
@@ -617,11 +617,11 @@ data Op loc
     | OpShl      loc
     | OpShr      loc
     | OpNot      loc
-    | OpCast     loc
+    | OpCast     loc (CastType iden loc)
     | OpInv      loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
 
-instance PP (Op loc) where
+instance PP iden => PP (Op iden loc) where
     pp (OpAdd  l) = text "+"
     pp (OpBand l) = text "&" 
     pp (OpBor  l) = text "|" 
@@ -641,11 +641,11 @@ instance PP (Op loc) where
     pp (OpShl  l) = text "<<" 
     pp (OpShr  l) = text ">>" 
     pp (OpNot l) = text "!"
-    pp (OpCast l) = text ""
+    pp (OpCast l t) = parens (pp t)
     pp (OpInv l) = text "~"
   
-instance Location loc => Located (Op loc) where
-    type LocOf (Op loc) = loc
+instance Location loc => Located (Op iden loc) where
+    type LocOf (Op iden loc) = loc
     loc (OpAdd  l) = l
     loc (OpBand l) = l
     loc (OpBor  l) = l
@@ -665,7 +665,7 @@ instance Location loc => Located (Op loc) where
     loc (OpShl  l) = l 
     loc (OpShr  l) = l 
     loc (OpNot l)  = l
-    loc (OpCast l) = l
+    loc (OpCast l t) = l
     loc (OpInv l)  = l
     updLoc (OpAdd  _) l = OpAdd  l
     updLoc (OpBand _) l = OpBand l
@@ -686,7 +686,7 @@ instance Location loc => Located (Op loc) where
     updLoc (OpShl  _) l = OpShl  l
     updLoc (OpShr  _) l = OpShr  l
     updLoc (OpNot  _) l = OpNot  l
-    updLoc (OpCast _) l = OpCast l
+    updLoc (OpCast _ t) l = OpCast l t
     updLoc (OpInv  _) l = OpInv  l
   
 -- Statements: 
@@ -824,11 +824,11 @@ data Expression iden loc
     = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
     | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
     | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
-    | BinaryExpr loc (Expression iden loc) (Op loc) (Expression iden loc)
+    | BinaryExpr loc (Expression iden loc) (Op iden loc) (Expression iden loc)
     | CastExpr loc (CastType iden loc) (Expression iden loc)
-    | UnaryExpr loc (Op loc) (Expression iden loc)
-    | PreOp loc (Op loc) (Expression iden loc)
-    | PostOp loc (Op loc) (Expression iden loc)
+    | UnaryExpr loc (Op iden loc) (Expression iden loc)
+    | PreOp loc (Op iden loc) (Expression iden loc)
+    | PostOp loc (Op iden loc) (Expression iden loc)
     | DomainIdExpr loc (SecTypeSpecifier iden loc)
     | BytesFromStringExpr loc (Expression iden loc)
     | StringFromBytesExpr loc (Expression iden loc)
@@ -1017,6 +1017,7 @@ $(deriveBifunctor ''Statement)
 $(deriveBifunctor ''SyscallParameter)
 $(deriveBifunctor ''Index)
 $(deriveBifunctor ''Expression) 
+$(deriveBifunctor ''Op) 
 
 unaryLitExpr :: Expression iden loc -> Expression iden loc
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)

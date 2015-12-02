@@ -79,17 +79,17 @@ tcKindDecl (Kind l k) = do
 tcKindName :: Location loc => KindName Identifier loc -> TcM loc (KindName VarIdentifier (Typed loc))
 tcKindName (KindName kl kn) = return $ KindName (Typed kl KType) $ mkVarId kn
 
-tcProcedureDecl :: (Vars loc,Location loc) => (Op (Typed loc) -> TcM loc ()) -> (ProcedureName VarIdentifier (Typed loc) -> TcM loc ())
+tcProcedureDecl :: (Vars loc,Location loc) => (Op VarIdentifier (Typed loc) -> TcM loc ()) -> (ProcedureName VarIdentifier (Typed loc) -> TcM loc ())
                 -> ProcedureDeclaration Identifier loc -> TcM loc (ProcedureDeclaration VarIdentifier (Typed loc))
 tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
     ret' <- tcRetTypeSpec ret
     let tret = typed $ loc ret'
     ps' <- mapM tcProcedureParam ps
     (s',StmtType st) <- tcStmts tret s
-    tcCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
+    tcTopCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     i <- newTyVarId
     let tproc = ProcType i (locpos l) (map (fmap typed . procedureParameterName) ps') tret $ map (fmap (fmap locpos)) s'
-    let op' = fmap (\l -> Typed l tproc) op
+    let op' = bimap mkVarId (\l -> Typed l tproc) op
     addOp op'
     return $ OperatorDeclaration (notTyped l) ret' op' ps' s'
 tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureName pl pn) ps s) = do
@@ -97,7 +97,7 @@ tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureNam
     let tret = typed $ loc ret'
     ps' <- mapM tcProcedureParam ps
     (s',StmtType st) <- tcStmts tret s
-    tcCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
+    tcTopCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     let vars = map (fmap typed . procedureParameterName) ps'
     i <- newTyVarId
     let tproc = ProcType i (locpos l) vars tret $ map (fmap (fmap locpos)) s'

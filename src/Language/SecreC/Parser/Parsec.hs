@@ -357,14 +357,13 @@ scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Noth
                           <?> "return type specifier"
 
 scProcedureDeclaration :: Monad m => ScParserT u m (ProcedureDeclaration Identifier Position)
-scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOpOrCast (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
+scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOp (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
                     <||> (scReturnTypeSpecifier $ \x1 -> apA3 scProcedureId (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 -> ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)))) <?> "procedure definition"
-  where scOpOrCast = apA (optionMaybe scOp) (maybe (OpCast (UnhelpfulPos "cast")) id)
     
 scProcedureParameterList :: Monad m => ScParserT u m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"
 
-scOp :: Monad m => ScParserT u m (Op Position)
+scOp :: Monad m => ScParserT u m (Op Identifier Position)
 scOp = (apA (scChar '+') (OpAdd . loc)
    <|> apA (scChar '&') (OpBand . loc)
    <|> apA (scChar '|') (OpBor  . loc)
@@ -383,7 +382,8 @@ scOp = (apA (scChar '+') (OpAdd . loc)
    <|> apA (scTok LOR_OP) (OpLor . loc)
    <|> apA (scTok NE_OP) (OpNe . loc)
    <|> apA (scTok SHL_OP) (OpShl . loc)
-   <|> apA (scTok SHR_OP) (OpShr . loc)) <?> "op"
+   <|> apA (scTok SHR_OP) (OpShr . loc)
+   <|> apA scCastType (\x1 -> OpCast (loc x1) x1) ) <?> "op"
 
 -- * Statements                                                           
 
@@ -598,11 +598,14 @@ scMultiplicativeExpression = scFoldl
       <|> apA (scChar '%') (OpMod . loc)
 
 scCastExpression :: Monad m => ScParserT u m (Expression Identifier Position)
-scCastExpression = (apA2 (scBraces' types) scCastExpression ($)
+scCastExpression = (apA2 scCastType scCastExpression (\x1 x2 -> CastExpr (loc x1) x1 x2)
             <||> scPrefixOp) <?> "cast expression"
   where
-    types x1 = apA scPrimitiveDatatype (\x2 -> CastExpr (loc x1) $ CastPrim (loc x2) x2)
-           <|> apA scTypeId (\x2 -> CastExpr (loc x1) $ CastTy (loc x2) x2)
+
+scCastType :: Monad m => ScParserT u m (CastType Identifier Position)
+scCastType = scBraces' $ \x1 ->
+    apA scPrimitiveDatatype (CastPrim (loc x1))
+    <|> apA scTypeId (CastTy (loc x1))
 
 scPrefixOp :: Monad m => ScParserT u m (Expression Identifier Position)
 scPrefixOp = (apA2 (scTok INC_OP) scLvalue (\x1 x2 -> PreOp (loc x1) (OpAdd $ loc x1) x2)

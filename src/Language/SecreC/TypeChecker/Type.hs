@@ -75,8 +75,8 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM tcTemplateTypeArgument args
     let ts = map (typed . loc) args'
     let vn = bimap mkVarId id n
-    ret <- tcCstrM l $ TApp (fmap (const ()) vn) ts
-    dec <- tcCstrM l $ TDec (fmap (const ()) vn) ts
+    ret <- tcTopCstrM l $ TApp (fmap (const ()) vn) ts
+    dec <- tcTopCstrM l $ TDec (fmap (const ()) vn) ts
     let n' = fmap (flip Typed dec) vn
     return $ TemplateSpecifier (Typed l ret) n' args'
 tcDatatypeSpec (VariableSpecifier l v) = do
@@ -138,14 +138,15 @@ typeDim l ct@(CType _ _ e _) = do
     mb <- tryEvalIndexExpr le
     case mb of
         Left err -> do
-            tcWarn (locpos l) $ NoStaticDimension (pp ct) err
+            tcWarnM (locpos l) $ NoStaticDimension (pp ct) err
             return Nothing
         Right w -> return (Just w)
 typeDim l t = genericError (locpos l) $ "no dimension for " ++ ppr t
 
 projectMatrixType :: (Vars loc,Location loc) => loc -> Type -> [ArrayProj] -> TcM loc Type
-projectMatrixType l ct rngs = (projectMatrixType' l ct rngs)
-    `catchError` matrixProjectionError l ct rngs
+projectMatrixType l ct rngs = do
+    let err = TypecheckerError (locpos l) . UnresolvedMatrixProjection (pp ct) (brackets $ ppArrayRanges rngs)
+    addErrorM err (projectMatrixType' l ct rngs)
   where
     projectMatrixType' :: (Vars loc,Location loc) => loc -> Type -> [ArrayProj] -> TcM loc Type
     projectMatrixType' l ct@(CType sec t dim szs) rngs = do
@@ -163,8 +164,6 @@ projectMatrixType l ct rngs = (projectMatrixType' l ct rngs)
         t <- resolveTVar l v
         projectMatrixType' l t rngs
     projectMatrixType' l t rngs = genericError (locpos l) "Unknown"
-    
-matrixProjectionError l t rngs err = tcError (locpos l) $ UnresolvedMatrixProjection (pp t) (brackets $ ppArrayRanges rngs) err
 
 projectSizes :: (Vars loc,Location loc) => loc -> Type -> Word64 -> [Expression VarIdentifier Type] -> [ArrayProj] -> TcM loc [Expression VarIdentifier Type]
 projectSizes p ct i xs [] = return xs
@@ -197,7 +196,7 @@ projectSize p ct i x y1 y2 = do
                 then return $ indexExpr (u - l)
                 else tcError (locpos p) $ ArrayAccessOutOfBounds (pp ct) i (pp l <> char ':' <> pp u)
         otherwise -> do
-            tcWarn (locpos p) $ DependentSizeSelection (pp ct) i (Just $ pp elow <> char ':' <> pp eupp) arrerr
+            tcWarnM (locpos p) $ DependentSizeSelection (pp ct) i (Just $ pp elow <> char ':' <> pp eupp) arrerr
             subtractIndexExprs p eupp elow          
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
@@ -224,38 +223,6 @@ resolveSizes l d [] = do
     i <- evalIndexExpr $ fmap (Typed l) d
     replicateM (fromEnum i) newSizeVar
 resolveSizes l d xs = return xs
-    
--- accept trailing zeroes on the left side
---coercesSizes :: (Vars loc,Location loc) => loc -> TcM loc () -> [Expression VarIdentifier Type] -> [Expression VarIdentifier Type] -> TcM loc ()
---coercesSizes l err [] [] = return ()
---coercesSizes l err xs [] = mapM_ (unifiesExpr l (indexExpr 0)) xs
---               `mplus` err
---coercesSizes l err [] ys = err
---coercesSizes l err (x:xs) (y:ys) = do
---    unifiesExpr l x y
---    coercesSizes l err xs ys
-
----- | Eliminates trailing dimensions with zero size.
---simplifyCType :: (Vars loc,Location loc) => loc -> Type -> TcM loc Type
---simplifyCType l (CType s t dim szs) = do
---    (szs',zeroes) <- trailingM (isZeroTypeExpr l) szs
---    -- since we only use this in constraint solving functions
---    dim2 <- subtractIndexExprs l dim (LitPExpr index $ IntLit index $ toEnum $ length zeroes)
---    dim' <- liftM (fmap typed) $ simplifyIndexExpr $ fmap (Typed l) dim2
---    return $ CType s t dim' szs'
---simplifyCType l (TVar v) = do
---    mb <- tryResolveTVar l v
---    case mb of
---       Just t -> simplifyCType l t
---       Nothing -> do
---           d <- newDomainTyVar Nothing
---           t <- newTyVar
---           dim <- newDimVar 
---           let ct = CType d t dim []
---           addSubstM l v ct
---           return ct
---simplifyCType l (TK c) = resolveTK l c >>= simplifyCType l
---simplifyCType l t = genericError (locpos l) $ show $ text "Cannot simplify compound type" <+> pp t
 
 subtractIndexExprs :: (Vars loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc (Expression VarIdentifier Type)
 subtractIndexExprs l e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1

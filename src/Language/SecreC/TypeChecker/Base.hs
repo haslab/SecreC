@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
 
 module Language.SecreC.TypeChecker.Base where
 
@@ -23,9 +23,12 @@ import Data.Set (Set(..))
 import qualified Data.Set as Set
 import Data.Map (Map(..))
 import qualified Data.Map as Map
+import Data.Bifunctor
 
+import Control.Applicative
 import Control.Monad.State as State
-import Control.Monad.Reader
+import Control.Monad.Reader as Reader
+import Control.Monad.Writer as Writer hiding ((<>))
 import Control.Monad.Trans.RWS (RWS(..),RWST(..))
 import qualified Control.Monad.Trans.RWS as RWS
 import Control.Monad.Except
@@ -48,7 +51,7 @@ data TcEnv loc = TcEnv {
     , domains :: Map VarIdentifier (EntryEnv loc) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , operators :: Map (Op ()) (Map TyVarId (EntryEnv loc)) -- ^ defined operators: name |-> procedure decl
+    , operators :: Map (Op VarIdentifier ()) (Map TyVarId (EntryEnv loc)) -- ^ defined operators: name |-> procedure decl
     -- a list of overloaded procedures; akin to Haskell type class operations
     -- we don't allow specialization of function templates
     , procedures :: Map VarIdentifier (Map TyVarId (EntryEnv loc)) -- ^ defined procedures: name |-> procedure decl
@@ -128,7 +131,7 @@ newVariable :: Location loc => Scope -> VarName VarIdentifier (Typed loc) -> Ent
 newVariable scope (VarName (Typed l t) n) val = do
     vars <- getVars scope TypeC
     case Map.lookup n vars of
-        Just e -> tcWarn (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
+        Just e -> tcWarnM (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
         Nothing -> return ()
     addVar scope n (EntryEnv l t val)
 
@@ -141,7 +144,7 @@ newDomainVariable scope (DomainName (Typed l t) n) = do
         Nothing -> do
             vars <- getVars scope KindC
             case Map.lookup n vars of
-                Just e -> tcWarn (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
+                Just e -> tcWarnM (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
                 Nothing -> addVar scope n (EntryEnv l t UnknownValue)
 
 -- | Adds a new type variable to the environment
@@ -153,7 +156,7 @@ newTypeVariable scope (TypeName (Typed l t) n) = do
         Nothing -> do
             vars <- getVars scope TypeStarC
             case Map.lookup n vars of
-                Just e -> tcWarn (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
+                Just e -> tcWarnM (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
                 Nothing -> addVar scope n (EntryEnv l t UnknownValue)
 
 -- | Adds a new domain to the environment
@@ -208,7 +211,8 @@ checkTemplateType :: Location loc => TypeName VarIdentifier loc -> TcM loc [Entr
 checkTemplateType ty@(TypeName _ n) = do
     es <- checkType ty
     let check e = case entryType e of
-                    TType {} -> return ()
+                    TType -> return ()
+                    BType -> return ()
                     otherwise -> tcError (locpos $ loc ty) $ NoTemplateType (ppVarId n) (locpos $ entryLoc e)
     mapM_ check es
     return es
@@ -251,7 +255,7 @@ newKind (KindName (Typed l t) n) = do
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
-addTemplateOperator :: Location loc => [VarName VarIdentifier Type] -> Op (Typed loc) -> TcM loc ()
+addTemplateOperator :: Location loc => [VarName VarIdentifier Type] -> Op VarIdentifier (Typed loc) -> TcM loc ()
 addTemplateOperator vars op = do
     let Typed l t = loc op
     let o = fmap (const ()) op
@@ -261,7 +265,7 @@ addTemplateOperator vars op = do
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
 
 -- | Adds a new (possibly overloaded) operator to the environment.
-newOperator :: Location loc => Op (Typed loc) -> TcM loc ()
+newOperator :: Location loc => Op VarIdentifier (Typed loc) -> TcM loc ()
 newOperator op = do
     let Typed l t = loc op
     let o = fmap (const ()) op
@@ -269,16 +273,13 @@ newOperator op = do
     modify $ \env -> env { operators = Map.alter (Just . Map.insert (typeTyVarId t) e . maybe Map.empty id) o (operators env) }
   
  -- | Checks that an oeprator exists.
-checkOperator :: Location loc => Op loc -> TcM loc [EntryEnv loc]
+checkOperator :: Location loc => Op VarIdentifier loc -> TcM loc [EntryEnv loc]
 checkOperator op = do
     ps <- liftM operators State.get
     let cop = fmap (const ()) op
     case Map.lookup cop ps of
-        Nothing -> tcError (locpos $ loc op) $ NotDefinedOperator cop
+        Nothing -> tcError (locpos $ loc op) $ NotDefinedOperator $ pp cop
         Just es -> return $ Map.elems es
-  
-inheritedTDict :: Location loc => loc -> TDict loc -> TDict loc
-inheritedTDict l d = d { tCstrs = Map.mapKeys (\(Loc l1 c) -> Loc l $ InheritedCstr (locpos l1) c) (tCstrs d) }
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
@@ -335,14 +336,42 @@ newStruct (TypeName (Typed l t) n) = do
             let e = EntryEnv l t UnknownValue
             modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
 
-type TcM loc = StateT (TcEnv loc) SecrecM
+type SecrecErrArr = SecrecError -> SecrecError
+
+newtype TcM loc a = TcM { unTcM :: RWST SecrecErrArr () (TcEnv loc) SecrecM a }
+    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv loc),MonadReader SecrecErrArr,MonadWriter ())
+
+tcWarnM l w = TcM $ lift $ tcWarn l w
+
+instance MonadError SecrecError (TcM loc) where
+    throwError err = TcM $ do
+        f <- Reader.ask
+        throwError $ f err
+    catchError (TcM m) f = TcM $ catchError m (unTcM . f)
+instance MonadPlus (TcM loc) where
+    mzero = genericError noloc "mzero"
+    mplus x y = x `catchError` (const y)
+instance Alternative (TcM loc) where
+    empty = mzero
+    (<|>) = mplus
+
+askErrorM :: TcM loc SecrecErrArr
+askErrorM = Reader.ask
+
+newErrorM :: TcM loc a -> TcM loc a
+newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> (id,s)) m
+
+addErrorM :: SecrecErrArr -> TcM loc a -> TcM loc a
+addErrorM err (TcM m) = TcM $ RWS.withRWST (\f s -> (f . err,s)) m
 
 -- | Map different locations over @TcM@ monad.
 tcLocM :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 a -> TcM loc2 a
 tcLocM f g m = do
     s2 <- get
-    (x,s1) <- lift $ runStateT m (fmap f s2)
+    r2 <- ask
+    (x,s1,w1) <- TcM $ lift $ runRWST (unTcM m) r2 (fmap f s2)
     put (fmap g s1)
+    tell w1
     return x
 
 -- | Enters a template declaration
@@ -356,59 +385,104 @@ tcTemplateBlock m = do
 -- | Typechecks a code block, with local declarations only within its scope
 tcBlock :: TcM loc a -> TcM loc a
 tcBlock m = do
+    r <- ask
     s <- get
-    (x,s') <- lift $ runStateT m s
+    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
     modify $ \env -> env { tyVarId = tyVarId s' }
+    Writer.tell w'
     return x
 
-tcBlockWith :: TcM loc a -> TcM loc (a,TDict loc)
-tcBlockWith m = do
-    s <- get
-    (x,env') <- lift $ runStateT m s
-    State.modify $ \env -> env' { tDict = tDict env }
-    return (x,tDict env')
-
 runTcM :: Location loc => TcM loc a -> SecrecM a
-runTcM m = evalStateT m emptyTcEnv
+runTcM m = liftM fst $ RWS.evalRWST (unTcM m) id emptyTcEnv
 
-type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op ())
+type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op VarIdentifier ())
 
 -- | A template constraint with a result type
 data TCstr
     = TApp (TypeName VarIdentifier ()) [Type] -- ^ type template application
     | TDec (TypeName VarIdentifier ()) [Type] -- ^ type template declaration
-    | PDec PIdentifier [Type] Type -- ^ procedure declaration, incl. return type
+    | PDec -- ^ procedure declaration
+        PIdentifier -- procedure name
+        [Type] -- procedure arguments
+        Type -- return type
     | Coerces Type Type -- ^ types coercible
-    | Unifies Type Type -- ^ unification
+    | CoercesSec
+        Type -- security type
+        Type -- security type
+        Type -- base type
+    | Coerces2 Type Type -- ^ bidirectional coercion
+    | Unifies Type Type -- ^ type unification
+    | UnifiesExpr (Expression VarIdentifier Type) (Expression VarIdentifier Type) -- ^ expression unification
     | SupportedPrint [Type] -- ^ can call tostring on the argument type
     | ProjectStruct Type (AttributeName VarIdentifier ()) -- ^ struct type projection
     | ProjectMatrix Type [ArrayProj] -- ^ matrix type projection
     | IsReturnStmt (Set StmtClass) Type (ProcedureDeclaration VarIdentifier Position) -- ^ is return statement
-    | Cast -- ^ type cast
-        Type -- ^ from
-        Type -- ^ to
-    | InheritedCstr Position TCstr
-    | GetCBase -- ^ get the base of a complex type
-        Type
-    | SetCBase -- ^ set the base of a complex type
-        Type -- ^ compelx type
-        Type -- ^ new base
-  deriving (Data,Typeable,Show,Eq,Ord)
+--    | Cast -- ^ type cast
+--        Type -- ^ from
+--        Type -- ^ to
+--    | InheritedCstr Position TCstr
+    | DelayedCstr
+        TCstr -- a constraint
+        (SecrecError -> SecrecError) -- an error message with updated context
+--    | GetCBase -- ^ get the base of a complex type
+--        Type
+--    | SetCBase -- ^ set the base of a complex type
+--        Type -- ^ compelx type
+--        Type -- ^ new base
+  deriving (Data,Typeable,Show)
+  
+instance Eq TCstr where
+    (TApp n1 ts1) == (TApp n2 ts2) = n1 == n2 && ts1 == ts2
+    (TDec n1 ts1) == (TDec n2 ts2) = n1 == n2 && ts1 == ts2
+    (PDec n1 ts1 r1) == (PDec n2 ts2 r2) = n1 == n2 && ts1 == ts2 && r1 == r2
+    (Coerces x1 y1) == (Coerces x2 y2) = x1 == x2 && y1 == y2
+    (CoercesSec x1 y1 c1) == (CoercesSec x2 y2 c2) = x1 == x2 && y1 == y2 && c1 == c2
+    (Coerces2 x1 y1) == (Coerces2 x2 y2) = x1 == x2 && y1 == y2
+    (Unifies x1 y1) == (Unifies x2 y2) = x1 == x2 && y1 == y2
+    (UnifiesExpr x1 y1) == (UnifiesExpr x2 y2) = x1 == x2 && y1 == y2
+    (SupportedPrint x1) == (SupportedPrint x2) = x1 == x2
+    (ProjectStruct x1 y1) == (ProjectStruct x2 y2) = x1 == x2 && y1 == y2
+    (ProjectMatrix x1 y1) == (ProjectMatrix x2 y2) = x1 == x2 && y1 == y2
+    (IsReturnStmt s1 x1 y1) == (IsReturnStmt s2 x2 y2) = x1 == x2 && y1 == y2
+--    (InheritedCstr _ c1) == (InheritedCstr _ c2) = c1 == c2
+    (DelayedCstr c1 _) == (DelayedCstr c2 _) = c1 == c2
+    x == y = False
     
+instance Ord TCstr where
+    compare (TApp n1 ts1) (TApp n2 ts2) = mconcat [n1 `compare` n2,ts1 `compare` ts2]
+    compare (TDec n1 ts1) (TDec n2 ts2) = mconcat [n1 `compare` n2,ts1 `compare` ts2]
+    compare (PDec n1 ts1 r1) (PDec n2 ts2 r2) = mconcat [n1 `compare` n2,ts1 `compare` ts2,r1 `compare` r2]
+    compare (Coerces x1 y1) (Coerces x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (CoercesSec x1 y1 c1) (CoercesSec x2 y2 c2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2]
+    compare (Coerces2 x1 y1) (Coerces2 x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (Unifies x1 y1) (Unifies x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (UnifiesExpr x1 y1) (UnifiesExpr x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (SupportedPrint x1) (SupportedPrint x2) = x1 `compare` x2
+    compare (ProjectStruct x1 y1) (ProjectStruct x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (ProjectMatrix x1 y1) (ProjectMatrix x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (IsReturnStmt s1 x1 y1) (IsReturnStmt s2 x2 y2) = mconcat [s1 `compare` s2,x1 `compare` x2,y1 `compare` y2]
+--    compare (InheritedCstr _ c1) (InheritedCstr _ c2) = c1 `compare` c2
+    compare (DelayedCstr c1 _) (DelayedCstr c2 _) = c1 `compare` c2
+    compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
+
 instance PP TCstr where
     pp (TApp n ts) = text "tapp" <+> pp n <+> sepBy space (map pp ts)
     pp (TDec n ts) = text "tdec" <+> pp n <+> sepBy space (map pp ts)
     pp (PDec n ts r) = text "pdec" <+> pp n <+> parens (sepBy comma (map pp ts)) <+> pp r
     pp (Coerces t1 t2) = text "coerces" <+> pp t1 <+> pp t2
+    pp (CoercesSec t1 t2 b) = text "coercessec" <+> pp t1 <+> pp t2 <+> pp b
+    pp (Coerces2 t1 t2) = text "coerces2" <+> pp t1 <+> pp t2
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
+    pp (UnifiesExpr t1 t2) = text "unifiesexpr" <+> pp t1 <+> pp t2
     pp (SupportedPrint ts) = text "print" <+> sepBy space (map pp ts)
     pp (ProjectStruct t a) = pp t <> char '.' <> pp a
     pp (ProjectMatrix t as) = pp t <> brackets (sepBy comma $ map pp as) 
     pp (IsReturnStmt cs t dec) = text "return" <+> (hcat $ map pp $ Set.toList cs) <+> pp t <+> pp dec
-    pp (Cast from to) = text "cast" <+> pp from <+> pp to
-    pp (InheritedCstr p c) = text "inherited from" <+> pp p <+> pp c
-    pp (GetCBase t) = text "getcbase" <+> pp t
-    pp (SetCBase t p) = text "setcbase" <+> pp t <+> pp p
+--    pp (Cast from to) = text "cast" <+> pp from <+> pp to
+--    pp (InheritedCstr p c) = text "inherited from" <+> pp p <+> pp c
+    pp (DelayedCstr c f) = text "delayed" <+> pp c
+--    pp (GetCBase t) = text "getcbase" <+> pp t
+--    pp (SetCBase t p) = text "setcbase" <+> pp t <+> pp p
     
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
@@ -494,10 +568,23 @@ instance Vars TCstr where
         t1' <- f t1
         t2' <- f t2
         return $ Coerces t1' t2'
+    traverseVars f (CoercesSec t1 t2 b) = do
+        t1' <- f t1
+        t2' <- f t2
+        b' <- f b
+        return $ CoercesSec t1' t2' b'
+    traverseVars f (Coerces2 t1 t2) = do
+        t1' <- f t1
+        t2' <- f t2
+        return $ Coerces2 t1' t2'
     traverseVars f (Unifies t1 t2) = do
         t1' <- f t1
         t2' <- f t2
         return $ Unifies t1' t2'
+    traverseVars f (UnifiesExpr t1 t2) = do
+        t1' <- f t1
+        t2' <- f t2
+        return $ UnifiesExpr t1' t2'
     traverseVars f (SupportedPrint ts) = do
         ts' <- mapM f ts
         return $ SupportedPrint ts'
@@ -514,21 +601,24 @@ instance Vars TCstr where
         t' <- f t
         p' <- f p
         return $ IsReturnStmt cs' t' p'
-    traverseVars f (Cast from to) = do
-        from' <- f from
-        to' <- f to
-        return $ Cast from' to'
-    traverseVars f (InheritedCstr p k) = do
-        p' <- f p
-        k' <- f k
-        return $ InheritedCstr p' k'
-    traverseVars f (GetCBase t) = do
-        t' <- f t
-        return $ GetCBase t'
-    traverseVars f (SetCBase t p) = do
-        t' <- f t
-        p' <- f p
-        return $ SetCBase t' p'
+--    traverseVars f (Cast from to) = do
+--        from' <- f from
+--        to' <- f to
+--        return $ Cast from' to'
+--    traverseVars f (InheritedCstr p k) = do
+--        p' <- f p
+--        k' <- f k
+--        return $ InheritedCstr p' k'
+    traverseVars f (DelayedCstr c err) = do
+        c' <- f c
+        return $ DelayedCstr c' err
+--    traverseVars f (GetCBase t) = do
+--        t' <- f t
+--        return $ GetCBase t'
+--    traverseVars f (SetCBase t p) = do
+--        t' <- f t
+--        p' <- f p
+--        return $ SetCBase t' p'
 
 -- | Template constraint dictionary: Mappings from keys @TCstr t@ to values @t@, and type variable substitutions
 type SubstsType = Map (VarName VarIdentifier ()) Type
@@ -547,10 +637,13 @@ tSolved :: TDict loc -> Map (Loc loc TCstr) Type
 tSolved = Map.foldrWithKey (\k v m -> maybe m (\x -> Map.insert k x m) v) Map.empty . tCstrs
 
 extractUnsolved :: TcM loc [Loc loc TCstr]
-extractUnsolved = liftM (tUnsolved . tDict) State.get
+extractUnsolved = do
+    us <- liftM (tUnsolved . tDict) State.get
+    State.modify $ \env -> env { tDict = (tDict env) { tCstrs = Map.filter isJust (tCstrs $ tDict env) } }
+    return us
 
 addUnsolved :: [Loc loc TCstr] -> TcM loc ()
-addUnsolved us = State.modify $ \env -> env { tDict = (tDict env) { tCstrs = tCstrs (tDict env) `Map.union` Map.fromList (zip us (repeat Nothing)) } }
+addUnsolved us = State.modify $ \env -> env { tDict = (tDict env) { tCstrs = Map.unionWith (\mb1 mb2 -> maybe mb2 Just mb1) (tCstrs (tDict env)) (Map.fromList (zip us (repeat Nothing))) } }
 
 tUnsolved :: TDict loc -> [Loc loc TCstr]
 tUnsolved = Map.keys . Map.filter isNothing . tCstrs
@@ -560,7 +653,7 @@ instance Functor TDict where
                        , tValues = Map.map (fmap (fmap f)) (tValues dict) }
 
 insertTDictCstr :: loc -> TCstr -> Maybe Type -> TDict loc -> TDict loc
-insertTDictCstr l c res dict = dict { tCstrs = Map.insert (Loc l c) res (tCstrs dict) }
+insertTDictCstr l c res dict = dict { tCstrs = Map.insertWith (\mb1 mb2 -> maybe mb2 Just mb1) (Loc l c) res (tCstrs dict) }
 
 addDict :: Location loc => TDict loc -> TcM loc ()
 addDict d = modify $ \env -> env { tDict = mappend (tDict env) d }
@@ -576,7 +669,7 @@ addSubstM l v t | TVar v == t = return ()
 
 instance Monoid (TDict loc) where
     mempty = TDict Map.empty Map.empty Map.empty
-    mappend (TDict u1 ss1 ess1) (TDict u2 ss2 ess2) = TDict (u1 `Map.union` u2) (ss1 `Map.union` ss2) (ess1 `Map.union` ess2)
+    mappend (TDict u1 ss1 ess1) (TDict u2 ss2 ess2) = TDict (Map.unionWith (\mb1 mb2 -> maybe mb2 Just mb1) u1 u2) (ss1 `Map.union` ss2) (ess1 `Map.union` ess2)
 
 instance (Location loc,Vars loc) => Vars (TDict loc) where
     traverseVars f dict = varsBlock $ do
@@ -651,6 +744,11 @@ newTyVar = do
     n <- uniqVarId "t"
     return $ TVar (VarName TType n)
     
+newBaseTyVar :: TcM loc Type
+newBaseTyVar = do
+    n <- uniqVarId "b"
+    return $ TVar (VarName BType n)
+    
 newSizeVar :: TcM loc (Expression VarIdentifier Type)
 newSizeVar = do
     n <- uniqVarId "sz"
@@ -666,6 +764,7 @@ hasTypeVars = everything (&&) (mkQ False q)
 
 data Type
     = NoType -- ^ For locations with no associated type information
+    | TOrd Ordering -- for results of comparisons
     | ProcType -- ^ procedure type
         TyVarId -- ^ unique procedure declaration id
         Position
@@ -689,6 +788,7 @@ data Type
     | TyLit -- ^ the most concrete type for a literal
         (Literal ()) -- ^ the literal itself
     | TType -- ^ Type of types
+    | BType -- ^ Type of base types
     | KType -- ^ Type of kinds
     | DType -- ^ Type of domains
         (Maybe (KindName VarIdentifier ())) -- ^ optional kind of the domain
@@ -712,6 +812,7 @@ data Type
 
 instance PP Type where
     pp t@NoType = text (show t)
+    pp (TOrd o) = text (show o)
     pp t@(ProcType _ _ vars ret stmts) =
         ptext "procedure"
         <+> parens (sepBy comma $ map ppProcArg vars)
@@ -729,6 +830,7 @@ instance PP Type where
     pp (TVar (VarName _ v)) = ppVarId v
     pp (TyLit lit) = pp lit
     pp t@TType = text (show t)
+    pp t@BType = text (show t)
     pp t@KType = text (show t)
     pp t@(DType {}) = text (show t)
     pp Void = text "void"
@@ -758,6 +860,7 @@ data TypeClass
 
 typeClass :: Type -> TypeClass
 typeClass TType = TypeStarC
+typeClass BType = TypeStarC
 typeClass KType = KindStarC
 typeClass (DType _) = KindC
 typeClass Public = DomainC
@@ -825,6 +928,7 @@ instance Vars [Type] where
   
 instance Vars Type where
   traverseVars f NoType = return NoType
+  traverseVars f (TOrd o) = return (TOrd o)
   traverseVars f (ProcType pid p vs t stmts) = varsBlock $ do
       vs' <- inLHS $ mapM f vs
       t' <- f t
@@ -1050,6 +1154,8 @@ exprTypes = everything (++) (mkQ [] aux)
     aux :: Type -> [Type]
     aux = (:[])
 
+setBase b (CType s t d sz) = CType s b d sz
+
 -- Left = type template
 -- Right = procedure overload
 type TIdentifier = Either (TypeName VarIdentifier ()) PIdentifier
@@ -1255,8 +1361,5 @@ instance Ord HsVal where
     compare (HsSysRef v1) (HsSysRef v2) = v1 `compare` v2
     compare (HsSysCRef v1) (HsSysCRef v2) = v1 `compare` v2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
-
-
-
 
     

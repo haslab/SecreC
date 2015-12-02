@@ -10,9 +10,9 @@ import Text.PrettyPrint
 
 import Data.Data
 
-prove :: TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
+tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc Type
 
-coercesError :: Location loc => loc -> Type -> Type -> TcM loc a
+prove :: (Vars loc,Location loc) => TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
 
 compares :: (Vars loc,Location loc) => loc -> Type -> Type -> TcM loc Ordering
 
@@ -36,12 +36,12 @@ tryResolveTVar :: Location loc => loc -> VarName VarIdentifier Type -> TcM loc (
 
 resolveTK :: (Vars loc,Location loc) => loc -> TCstr -> TcM loc Type
 
-solveWith :: (Vars loc,Location loc) =>  TDict loc -> TcM loc ()
-
 solve :: (Vars loc,Location loc) => TcM loc ()
 
 provesTVar :: Location loc => TcM loc b -> (loc -> Type -> Type -> TcM loc b) -> loc -> VarName VarIdentifier Type -> Type -> TcM loc b
 
+coercesList :: (Vars loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
+
 unifiesExpr :: (Vars loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
 
-constraintError :: Location loc => (Doc -> Doc -> Doc -> TypecheckerErr) -> loc -> Doc -> Doc -> TcM loc a
+constraintError :: Location loc => (Doc -> Doc -> Either Doc SecrecError -> TypecheckerErr) -> loc -> Doc -> Doc -> Maybe SecrecError -> TcM loc a

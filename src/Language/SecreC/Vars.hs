@@ -381,7 +381,11 @@ instance (Location loc,Vars loc,IsScVar iden) => Vars (Statement iden loc) where
         e' <- f e
         return $ ExpressionStatement l' e'
     
-instance (Location loc,Vars loc) => Vars (Op loc) where
+instance (Location loc,IsScVar iden,Vars loc) => Vars (Op iden loc) where
+    traverseVars f (OpCast l t) = do
+        l' <- f l
+        t' <- f t
+        return $ OpCast l' t'
     traverseVars f o = do
         l' <- f (loc o)
         return $ updLoc o l'

@@ -85,7 +85,7 @@ data TypecheckerErr
     | NotDefinedProcedure -- ^ procedure not found
         Doc -- ^ procedure name
     | NotDefinedOperator -- ^ operator not found
-        (Op ()) -- ^ operator name
+        Doc -- ^ operator name
     | NoNonTemplateType -- ^ found a template type instead of a regular type
         Doc -- ^ type name
     | MultipleDefinedDomain -- ^ a newly-declared domain already exists
@@ -102,16 +102,16 @@ data TypecheckerErr
         Position -- ^ position of the already defined struct
     | EqualityException -- ^ @equals@ fails to prove equality
         Doc Doc -- types
-        Doc -- environment
+        (Either Doc SecrecError) -- environment or sub-error
     | CoercionException -- ^ @coerces@ fails to prove equality
         Doc Doc -- types
-        Doc -- environment
+        (Either Doc SecrecError) -- environment or sub-error
     | UnificationException -- ^ @unifies@ fails to unify two types
         Doc Doc -- types
-        Doc -- environment
+        (Either Doc SecrecError) -- environment or sub-error
     | ComparisonException -- ^ @compares@ fails to compare two types
         Doc Doc -- types
-        Doc -- environment
+        (Either Doc SecrecError) -- environment or sub-error
     | MultipleDefinedStruct -- ^ a struct is multiply defined
         Doc -- ^struct name
         Position -- ^existing definition
@@ -142,6 +142,7 @@ data TypecheckerErr
         Doc -- expression
     | UnresolvedVariable
         Doc -- variable name
+        Doc -- environment
     | UnresolvedMatrixProjection
         Doc -- ^ type
         Doc -- ^ ranges
@@ -172,7 +173,7 @@ instance PP TypecheckerErr where
     pp e@(MultipleDefinedKind {}) = text (show e)
     pp e@(NotDefinedType n) = text "Could not find definition for type" <+> quotes n
     pp e@(NotDefinedProcedure n) = text "Could not find definition for procedure" <+> quotes n
-    pp e@(NotDefinedOperator o) = text "Could not find definition for operator" <+> quotes (pp o)
+    pp e@(NotDefinedOperator o) = text "Could not find definition for operator" <+> quotes (o)
     pp e@(NoNonTemplateType {}) = text (show e)
     pp e@(MultipleDefinedDomain {}) = text (show e)
     pp e@(MultipleDefinedField {}) = text (show e)
@@ -183,19 +184,19 @@ instance PP TypecheckerErr where
     pp e@(EqualityException t1 t2 env) = text "Failed to prove equality:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
-        $+$ text "With binginds:" $+$ nest 4 env)
+        $+$ ppConstraintEnv env)
     pp e@(CoercionException t1 t2 env) = text "Failed to apply implicit coercion:" $+$ nest 4
            (text "From:" <+> t1
         $+$ text "To:" <+> t2
-        $+$ text "With binginds:" $+$ nest 4 env)
+        $+$ ppConstraintEnv env)
     pp e@(UnificationException t1 t2 env) = text "Failed to unify:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
-        $+$ text "With binginds:" $+$ nest 4 env)
+        $+$ ppConstraintEnv env)
     pp e@(ComparisonException t1 t2 env) = text "Failed to compare:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
-        $+$ text "With binginds:" $+$ nest 4 env)
+        $+$ ppConstraintEnv env)
     pp e@(MultipleDefinedStruct {}) = text (show e)
     pp e@(NonDeclassifiableExpression {}) = text (show e)
     pp e@(FieldNotFound {}) = text (show e)
@@ -215,9 +216,13 @@ instance PP TypecheckerErr where
     pp (TemplateSolvingError err) = text "Failed to solve template instantiation:" $+$ nest 4
         (text "Because of:" $+$ nest 4 (pp err))
     pp (StaticEvalError e) = text "Unable to statically evaluate expression:" $+$ nest 4 e
-    pp (UnresolvedVariable v) = text "Unable to resolve variable: " <+> v
+    pp (UnresolvedVariable v env) = text "Unable to resolve variable: " <+> quotes v $+$ nest 4
+        (text "With bindings: " $+$ nest 4 env)
     pp (UnresolvedMatrixProjection t rngs err) = text "Unable to resolve matrix projection:" $+$ nest 4
         ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
+
+ppConstraintEnv (Left env) = text "With binginds:" $+$ nest 4 env
+ppConstraintEnv (Right suberr) = text "Because of:" $+$ nest 4 (pp suberr)
 
 data ModuleErr
     = DuplicateModuleName Identifier FilePath FilePath

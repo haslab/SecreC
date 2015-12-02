@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, DeriveDataTypeable, TupleSections, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, DeriveDataTypeable, TupleSections, MultiParamTypeClasses #-}
 
 module Language.SecreC.Monad where
     
@@ -120,3 +120,7 @@ instance Monad SecrecM where
 instance Applicative SecrecM where
     pure = return
     (<*>) = ap
+
+mapError :: MonadError SecrecError m => (SecrecError -> SecrecError) -> m a -> m a
+mapError f m = m `catchError` (throwError . f)
+

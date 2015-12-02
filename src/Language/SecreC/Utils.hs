@@ -254,4 +254,5 @@ typeOfProxy p = TypeOf (typeOf p)
 eqTypeOf :: TypeOf a -> TypeOf b -> EqT a b
 eqTypeOf (TypeOf t1) (TypeOf t2) = if t1 == t2 then unsafeCoerce EqT else NeqT
 
-
+instance Show (a -> b) where
+    show _ = "<function>"
