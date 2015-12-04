@@ -6,6 +6,8 @@ import Language.SecreC.Position
 import Language.SecreC.Syntax
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Pretty
+import Language.SecreC.Utils
+import Language.SecreC.Vars
 
 import Data.Generics hiding (empty)
 import Data.Int
@@ -41,14 +43,14 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | ModuleError Position ModuleErr
                  | GenericError
                      Position -- ^ position
-                     String -- ^message
+                     Doc -- ^message
   deriving (Show,Typeable,Data)
 
 instance PP SecrecError where
     pp (TypecheckerError p err) = pp p <> char ':' $+$ nest 4 (pp err)
     pp (ParserError err) = pp err
     pp (ModuleError p err) = pp p <> char ':' $+$ nest 4 (pp err)
-    pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 (text msg)
+    pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 msg
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -147,6 +149,8 @@ data TypecheckerErr
         Doc -- ^ type
         Doc -- ^ ranges
         SecrecError -- ^ sub-error
+    | MultipleTypeSubstitutions -- a variable can be resolved in multiple ways
+        [PPDyn] -- list of different substitution options
   deriving (Show,Typeable,Data)
 
 instance PP TypecheckerErr where
@@ -220,6 +224,8 @@ instance PP TypecheckerErr where
         (text "With bindings: " $+$ nest 4 env)
     pp (UnresolvedMatrixProjection t rngs err) = text "Unable to resolve matrix projection:" $+$ nest 4
         ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
+    pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
+        where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
 
 ppConstraintEnv (Left env) = text "With binginds:" $+$ nest 4 env
 ppConstraintEnv (Right suberr) = text "Because of:" $+$ nest 4 (pp suberr)
@@ -242,17 +248,11 @@ moduleError = ModuleError
 modError :: MonadError SecrecError m => Position -> ModuleErr -> m a
 modError pos msg = throwError $ moduleError pos msg
 
-genericError :: MonadError SecrecError m => Position -> String -> m a
+genericError :: MonadError SecrecError m => Position -> Doc -> m a
 genericError pos msg = throwError $ GenericError pos msg
 
 typecheckerError :: Position -> TypecheckerErr -> SecrecError
 typecheckerError = TypecheckerError
-
-tcError :: MonadError SecrecError m => Position -> TypecheckerErr -> m a
-tcError pos msg = throwError $ typecheckerError pos msg
-
-tcWarn :: MonadWriter [SecrecWarning] m => Position -> TypecheckerWarn -> m ()
-tcWarn pos msg = tell [TypecheckerWarning pos msg]
 
 data SecrecWarning = TypecheckerWarning Position TypecheckerWarn
   deriving (Show,Typeable)

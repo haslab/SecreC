@@ -457,7 +457,7 @@ data TemplateTypeArgument iden loc
     = GenericTemplateTypeArgument loc (TemplateArgName iden loc)
     | TemplateTemplateTypeArgument loc (TypeName iden loc) [TemplateTypeArgument iden loc]
     | PrimitiveTemplateTypeArgument loc (PrimitiveDatatype loc)
-    | IntTemplateTypeArgument loc Integer
+    | ExprTemplateTypeArgument loc (Expression iden loc)
     | PublicTemplateTypeArgument loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
@@ -466,19 +466,19 @@ instance Location loc => Located (TemplateTypeArgument iden loc) where
     loc (GenericTemplateTypeArgument l _) = l
     loc (TemplateTemplateTypeArgument l _ _) = l
     loc (PrimitiveTemplateTypeArgument l _) = l
-    loc (IntTemplateTypeArgument l _) = l
+    loc (ExprTemplateTypeArgument l _) = l
     loc (PublicTemplateTypeArgument l) = l
     updLoc (GenericTemplateTypeArgument _ x) l = GenericTemplateTypeArgument l x
     updLoc (TemplateTemplateTypeArgument _ x y) l = TemplateTemplateTypeArgument l x y
     updLoc (PrimitiveTemplateTypeArgument _ x) l = PrimitiveTemplateTypeArgument l x
-    updLoc (IntTemplateTypeArgument _ x) l = IntTemplateTypeArgument l x
+    updLoc (ExprTemplateTypeArgument _ x) l = ExprTemplateTypeArgument l x
     updLoc (PublicTemplateTypeArgument _) l = PublicTemplateTypeArgument l
 
 instance PP iden => PP (TemplateTypeArgument iden loc) where
     pp (GenericTemplateTypeArgument _ targ) = pp targ
     pp (TemplateTemplateTypeArgument _ t args) = pp t <> abrackets (sepBy comma $ map pp args)
     pp (PrimitiveTemplateTypeArgument _ prim) = pp prim
-    pp (IntTemplateTypeArgument _ i) = integer i
+    pp (ExprTemplateTypeArgument _ e) = pp e
     pp (PublicTemplateTypeArgument _) = text "public"
   
 data DimtypeSpecifier iden loc

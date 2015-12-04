@@ -49,3 +49,5 @@ instance Data Doc where
 instance Ord Doc where
     compare x y = compare (show x) (show y)
 
+instance PP Bool where
+    pp b = text (show b)

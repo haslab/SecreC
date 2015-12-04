@@ -233,7 +233,7 @@ scTemplateTypeArgument :: ScParser (TemplateTypeArgument Identifier Position)
 scTemplateTypeArgument = scTok PUBLIC ==> (PublicTemplateTypeArgument . loc)
                      <|> scTypeId <~> scABrackets scTemplateTypeArguments ==> (\(x1,x2) -> TemplateTemplateTypeArgument (loc x1) x1 x2)
                      <|> scTemplateArgId ==> (\x1 -> GenericTemplateTypeArgument (loc x1) x1) -- type, domain or variable identifier
-                     <|> scIntLiteral ==> (\x1 -> IntTemplateTypeArgument (loc x1) (unLoc x1))
+                     <|> scExpression ==> (\x1 -> ExprTemplateTypeArgument (loc x1) x1)
                      <|> scPrimitiveDatatype ==> (\x1 -> PrimitiveTemplateTypeArgument (loc x1) x1)
 
 scDimtypeSpecifier :: ScParser (DimtypeSpecifier Identifier Position)

@@ -18,6 +18,8 @@ import qualified Control.Monad.Reader as Reader
 
 import Data.Generics
 
+import Text.PrettyPrint
+
 import System.IO
 
 -- | SecreC options
@@ -81,7 +83,7 @@ instance MonadCatch SecrecM where
     catch = liftCatch catch
 
 instance MonadPlus SecrecM where
-    mzero = genericError noloc "mzero"
+    mzero = genericError noloc (text "mzero")
     mplus x y = catchError x (const y)
     
 instance Alternative SecrecM where

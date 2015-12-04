@@ -1,6 +1,8 @@
 {-# LANGUAGE GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
+    
+import Language.SecreC.Pretty
 
 import Data.Generics hiding (GT)
 import Data.Traversable as Traversable
@@ -227,6 +229,33 @@ toShowOrdDyn v = ShowOrdDyn v
 
 fromShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => ShowOrdDyn -> Maybe a
 fromShowOrdDyn (ShowOrdDyn v) = case unsafeCoerce v of 
+    r | typeOf v == typeOf r -> Just r
+      | otherwise     -> Nothing
+
+data PPDyn where
+    PPDyn :: (Data a,Typeable a,Show a,PP a) => a -> PPDyn
+  deriving Typeable
+  
+instance Data PPDyn where
+    gfoldl k z (PPDyn x) = z PPDyn `k` x
+    gunfold = error "gunfold unsupported"
+    toConstr (PPDyn _) = conPPDyn
+    dataTypeOf _ = tyPPDyn
+
+conPPDyn = mkConstr tyPPDyn "PPDyn" [] Prefix
+tyPPDyn = mkDataType "Language.SecreC.Utils.PPDyn" [conPPDyn]
+  
+instance Show PPDyn where
+    show (PPDyn d) = show d
+
+instance PP PPDyn where
+    pp (PPDyn d) = pp d
+
+toPPDyn :: (Data a,Typeable a,Show a,PP a) => a -> PPDyn
+toPPDyn v = PPDyn v
+
+fromPPDyn :: (Data a,Typeable a,Show a,PP a) => PPDyn -> Maybe a
+fromPPDyn (PPDyn v) = case unsafeCoerce v of 
     r | typeOf v == typeOf r -> Just r
       | otherwise     -> Nothing
 

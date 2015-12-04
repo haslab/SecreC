@@ -10,6 +10,7 @@ import Language.SecreC.Error
 import Language.SecreC.Utils
 import Language.SecreC.Pretty
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.TypeChecker.Environment
 
 import Data.Typeable
 import Data.Either
@@ -56,13 +57,13 @@ resolveTemplateEntry p n args ret (e :: EntryEnv loc) dict = do
     let dict' = (sub dict) -- specialize the dictionary with its own substitutions
     addDict dict'
     case entryType e of
-        TpltType _ _ cstrs _ body -> do
+        DecT (TpltType _ _ cstrs _ body) -> do
             let cstrs' = fmap (updpos l) $ sub $ templateCstrs (locpos p) cstrs
             let body' = sub body
             -- add the constraints first because of possibly recursive invocations
             case n of
                 Left i -> do
-                    addTemplateConstraint l (TApp i args) (Just body')
+                    addTemplateConstraint l (TApp i args) (Just $ DecT $ body')
                     addTemplateConstraint l (TDec i args) (Just $ entryType e)
                 Right i -> do
                     addTemplateConstraint l (PDec i args $ fromJust ret) (Just $ entryType e)
@@ -70,9 +71,9 @@ resolveTemplateEntry p n args ret (e :: EntryEnv loc) dict = do
             addDict cstrs' -- add the constraints to the environment
             let body'' = case body' of
                             ProcType _ _ _ ret stmts -> ret
-                            ret -> ret
+                            t@(StructType {}) -> DecT t 
             return (body'',entryType e)
-        ProcType _ _ _ body stmts -> do
+        DecT (ProcType _ _ _ body stmts) -> do
             let body' = sub body
             case n of
                 Right i -> do
@@ -80,7 +81,14 @@ resolveTemplateEntry p n args ret (e :: EntryEnv loc) dict = do
             return (body',entryType e)
         t -> error $ "resolveTemplateEntry: " ++ show t
 
--- | Tells if one declaration is strictly more specific than another, and if not it fails
+-- | Tells if one declaration is strictly more specific than another, and if not it fails.
+-- Since we are unifying base types during instantiaton, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
+-- An example is if we tried to match the template over a type variable T:
+-- y = f ((T) x)
+-- bool f (int x) { ... }     (1)
+-- bool f (T x) { ... }       (2)
+-- bool f (T [[N]] x) { ... } (3)
+-- We would be choosing choosing (1), even though the best match is in principle (2), that does not instantiate T.
 compareTemplateDecls :: (Vars loc,Location loc) => Doc -> loc -> TIdentifier -> (EntryEnv loc,TDict loc) -> (EntryEnv loc,TDict loc) -> TcM loc Ordering
 compareTemplateDecls def l n (e1,s1) (e2,d2) = tcBlock $ do
     e1' <- localTemplate e1
@@ -109,7 +117,7 @@ instantiateTemplateEntry n args ret e = do
     let proof = case ret of
                 Nothing -> coercesList l args targs
                 Just r -> coercesList l args (init targs) >> unifies l r (last targs)
-    ok <- prove proof
+    ok <- proveWith proof
     case ok of
         Left err -> return $ Left (e',err)
         Right ((),subst) -> do
@@ -120,22 +128,24 @@ instantiateTemplateEntry n args ret e = do
 -- | Extracts a head signature from a template type declaration
 templateArgs :: Location loc => TIdentifier -> EntryEnv loc -> TcM loc [Type]
 templateArgs (Left name) e = case entryType e of
-    TpltType _ args cstrs [] body -> return $ map TVar args -- a base template uses the base arguments
-    TpltType _ args cstrs specials body -> return specials -- a specialization uses the specialized arguments
+    DecT (TpltType _ args cstrs [] body) -> return $ map varNameToType args -- a base template uses the base arguments
+    DecT (TpltType _ args cstrs specials body) -> return specials -- a specialization uses the specialized arguments
 templateArgs (Right name) e = case entryType e of
-    TpltType _ args cstrs [] (ProcType _ _ vars ret stmts) -> do -- include the return type
+    DecT (TpltType _ args cstrs [] (ProcType _ _ vars ret stmts)) -> do -- include the return type
         return $ map (\(VarName t n) -> t) vars ++ [ret]
-    ProcType _ _ vars ret stmts -> do -- include the return type
+    DecT (ProcType _ _ vars ret stmts) -> do -- include the return type
         return $ map (\(VarName t n) -> t) vars ++ [ret]
-    otherwise -> genericError (locpos $ entryLoc e) "Invalid type for procedure template"
+    otherwise -> genericError (locpos $ entryLoc e) $ text "Invalid type for procedure template"
 
 -- | renames the variables in a template to local names
 localTemplate :: (Vars loc,Location loc) => EntryEnv loc -> TcM loc (EntryEnv loc)
 localTemplate (e::EntryEnv loc) = case entryType e of
-    TpltType tpltid args cstrs specials body -> do
+    DecT (TpltType tpltid args cstrs specials body) -> do
         uniqs <- mapM uniqueVar args
-        -- VarName VarIdentifier () --> Type
-        let subt1 = substsFromList $ map (\(x,y) -> (x,TVar y)) uniqs
+        -- VarName VarIdentifier () --> SecType
+        let subt11 = substsFromList $ secs uniqs
+        -- VarName VarIdentifier () --> BaseType
+        let subt12 = substsFromList $ types uniqs
         -- VarName VarIdentifier () --> Expression VarIdentifier Type
         let subt2 = substsFromList $ map (\(x,y) -> (x,RVariablePExpr (loc y) y)) uniqs
         -- VarName VarIdentifier () --> Expression VarIdentifier (Typed loc)
@@ -143,16 +153,33 @@ localTemplate (e::EntryEnv loc) = case entryType e of
         -- VarName VarIdentifier () --> VarName VarIdentifier Type
         let subt4 = substsFromList uniqs
         let sub :: Vars a => a -> a
-            sub = subst subt1 . subst subt2 . subst subt3 . subst subt4
+            sub = subst subt11 . subst subt12 . subst subt2 . subst subt3 . subst subt4
         let body' = sub body
         let cstrs' = sub cstrs
         let specials' = sub specials
-        let t' = TpltType tpltid (map snd uniqs) cstrs' specials' body'
+        let t' = DecT $ TpltType tpltid (map snd uniqs) cstrs' specials' body'
         let v' = sub (entryValue e)
         return $ EntryEnv l t' v'
-    t -> return e
+    DecT t -> return e
   where
     uniqueVar :: VarName VarIdentifier Type -> TcM loc (VarName VarIdentifier (),VarName VarIdentifier Type)
     uniqueVar i@(VarName t v) = newTyVarId >>= \j -> return (VarName () v,VarName t (VarIdentifier (varIdBase v) $ Just j))
     l = entryLoc e
+    secs :: [(a,VarName VarIdentifier Type)] -> [(a,SecType)]
+    secs [] = []
+    secs ((x,VarName (SType k) n):xs) = (x,SVar (VarName () n) k) : secs xs
+    secs ((x,_):xs) = secs xs
+    types :: [(a,VarName VarIdentifier Type)] -> [(a,BaseType)]
+    types [] = []
+    types ((x,VarName BType n):xs) = (x,BVar (VarName () n)) : types xs
+    types ((x,_):xs) = types xs
+    
+
+
+
+
+
+
+
+
 

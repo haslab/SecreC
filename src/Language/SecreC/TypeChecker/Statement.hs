@@ -15,6 +15,7 @@ import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.Semantics
+import Language.SecreC.TypeChecker.Environment
 
 import Data.Traversable
 import qualified Data.Foldable as Foldable
@@ -48,7 +49,7 @@ tcStmts ret (s:ss) = do
         [] -> return ()
         ss -> unless (hasStmtFallthru c) $ tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat $ map pp ss)
     -- issue warning for unused variable declarations
-    forSetM_ (bvs s `Set.difference` fvs ss) $ \(ScVar v) -> tcWarnM (locpos $ loc s) $ UnusedVariable (pp v)
+    forSetM_ (bvs s `Set.difference` fvs ss) $ \(ScVar v) -> tcWarn (locpos $ loc s) $ UnusedVariable (pp v)
     (ss',StmtType cs) <- tcStmts ret ss
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
@@ -56,7 +57,7 @@ tcStmts ret (s:ss) = do
 tcNonEmptyStmt :: (Vars loc,Location loc) => Type -> Statement Identifier loc -> TcM loc (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcStmt ret s
-    when (Set.null cs) $ tcWarnM (locpos $ loc s) $ EmptyBranch (pp s)
+    when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
@@ -64,7 +65,7 @@ tcLoopBodyStmt :: (Vars loc,Location loc) => Type -> loc -> Statement Identifier
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcStmt ret s
     -- check that the body can perform more than iteration
-    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarnM (locpos l) $ SingleIterationLoop (pp s)
+    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop (pp s)
     -- return the @StmtClass@ for the whole loop
     let t' = StmtType $ Set.insert (StmtFallthru) (Set.filter (not . isLoopStmtClass) cs)
     return (s',t')
@@ -122,7 +123,7 @@ tcStmt ret (VarStatement l decl) = do
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (VarStatement (notTyped l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
-    tcTopCstrM l $ Unifies Void ret
+    tcTopCstrM l $ Unifies (ComplexT Void) ret
     let t = StmtType (Set.singleton StmtReturn)
     return (ReturnStatement (Typed l t) Nothing,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
@@ -149,19 +150,19 @@ isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 tcSyscallParam :: (Vars loc,Location loc) => SyscallParameter Identifier loc -> TcM loc (SyscallParameter VarIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
     e' <- tcExpr e
-    let t = SysPush $ typed $ loc e'
+    let t = SysT $ SysPush $ typed $ loc e'
     return $ SyscallPush (Typed l t) e'
 tcSyscallParam (SyscallReturn l v) = do
     v' <- tcVarName v
-    let t = SysRet $ typed $ loc v'
+    let t = SysT $ SysRet $ typed $ loc v'
     return $ SyscallReturn (Typed l t) v'
 tcSyscallParam (SyscallPushRef l v) = do
     v' <- tcVarName v
-    let t = SysRef $ typed $ loc v'
+    let t = SysT $ SysRef $ typed $ loc v'
     return $ SyscallPushRef (Typed l t) v'
 tcSyscallParam (SyscallPushCRef l e) = do
     e' <- tcExpr e
-    let t = SysCRef $ typed $ loc e'
+    let t = SysT $ SysCRef $ typed $ loc e'
     return $ SyscallPushCRef (Typed l t) e'
 
 tcForInitializer :: (Vars loc,Location loc) => ForInitializer Identifier loc -> TcM loc (ForInitializer VarIdentifier (Typed loc))
@@ -177,24 +178,25 @@ tcVarDecl :: (Vars loc,Location loc) => Scope -> VariableDeclaration Identifier 
 tcVarDecl scope (VariableDeclaration l tyspec vars) = do
     tyspec' <- tcTypeSpec tyspec
     let ty = typed $ loc tyspec'
-    vars' <- mapM (tcVarInit scope ty) vars
+    cty <- typeToComplexType l ty
+    vars' <- mapM (tcVarInit scope cty) vars
     return $ VariableDeclaration (notTyped l) tyspec' vars'
 
-tcVarInit :: (Vars loc,Location loc) => Scope -> Type -> VariableInitialization Identifier loc -> TcM loc (VariableInitialization VarIdentifier (Typed loc))
+tcVarInit :: (Vars loc,Location loc) => Scope -> ComplexType -> VariableInitialization Identifier loc -> TcM loc (VariableInitialization VarIdentifier (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     d <- typeDim l ty
     szs' <- mapM (tcSizes ty v d) szs
     let tszs' = fmap (fmap typed) szs'
     ty' <- refineTypeSizes l ty tszs'
-    e' <- mapM (tcExprTy ty') e
+    e' <- mapM (tcExprTy $ ComplexT ty') e
     -- add the array size to the type
-    let v' = VarName (Typed vl ty') $ mkVarId vn
+    let v' = VarName (Typed vl $ ComplexT ty') $ mkVarId vn
     -- add variable to the environment
     let val = maybe NoValue KnownExpression e'
     newVariable scope v' val
     return $ VariableInitialization (notTyped l) v' szs' e'
 
-tcSizes :: (Vars loc,Location loc) => Type -> VarName Identifier loc -> Maybe Word64 -> Sizes Identifier loc -> TcM loc (Sizes VarIdentifier (Typed loc))
+tcSizes :: (Vars loc,Location loc) => ComplexType -> VarName Identifier loc -> Maybe Word64 -> Sizes Identifier loc -> TcM loc (Sizes VarIdentifier (Typed loc))
 tcSizes ty v Nothing (Sizes szs) = tcError (locpos $ loc v) $ NoDimensionForMatrixInitialization (varNameId v)
 tcSizes ty v (Just d) x@(Sizes szs) = do
     -- check array's dimension

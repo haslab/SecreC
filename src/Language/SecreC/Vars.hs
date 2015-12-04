@@ -28,7 +28,7 @@ import Data.Word
 import Control.Monad
 import Control.Monad.State (State(..),execState,evalState)
 import qualified Control.Monad.State as State
-    
+
 class IsScVar a => Vars a where
     
     traverseVars :: (forall b . Vars b => b -> VarsM b) -> a -> VarsM a
@@ -555,9 +555,9 @@ instance (Location loc,Vars loc,IsScVar iden) => Vars (TemplateTypeArgument iden
         l' <- f l
         p' <- f p
         return $ PrimitiveTemplateTypeArgument l' p'
-    traverseVars f (IntTemplateTypeArgument l i) = do
+    traverseVars f (ExprTemplateTypeArgument l i) = do
         l' <- f l
-        return $ IntTemplateTypeArgument l' i
+        return $ ExprTemplateTypeArgument l' i
     traverseVars f (PublicTemplateTypeArgument l) = do
         l' <- f l
         return $ PublicTemplateTypeArgument l'
@@ -725,3 +725,6 @@ instance (Vars loc,IsScVar iden) => Vars (ImportDeclaration iden loc) where
 
 instance Vars Position where
     traverseVars f p = return p
+
+instance Vars Bool where
+    traverseVars f b = return b

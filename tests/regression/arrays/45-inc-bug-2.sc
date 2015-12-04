@@ -16,7 +16,7 @@ private int operator + (private int x, private int y) {
 void main () {
     private int [[1]] x (1);
     ++ x[0];
-//    ++ x;
-//    x[0] ++;
-//    x ++;
+    ++ x;
+    x[0] ++;
+    x ++;
 }

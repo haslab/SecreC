@@ -1,0 +1,27 @@
+. what does variable (dimensions) serve for?
+. list of qualified types in qualified expressions?
+
+leakage analysis:
+. a não aplicação de nenhuma função não esconde: warning
+. especificação de leakage que aceita tudo menos a identidade, derivada automaticamente
+. probabilistic leakage: e.g., randomizar os elementos de uma lista esconde as comparações
+
+no implicit public -> private conversion for tmeplates
+public domain by default, dimensionality is 0
+in SecreC templates are not typechecked unless instantiated
+
+research contributions:
+leakage analysis
+probabilistic knowledge inference?
+
+
+o que acontece se uma operação leakar, por exemplo, uma comparação implicitamente mas essa comparação não surgir como uma variável?? Talvez um passo de simplificação prévio resolva isto...
+
+
+applications for random ; sort: RSA exponentiation?
+
+most possibly controversial typechecker decisions:
+. promote sizes to the type-level
+. types of array projections
+. literal coercions
+. template resolution algorithm

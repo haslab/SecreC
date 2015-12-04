@@ -14,8 +14,10 @@ import Language.SecreC.TypeChecker.Statement
 import Language.SecreC.TypeChecker.Expression
 import Language.SecreC.TypeChecker.Type
 import Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.TypeChecker.Environment
 import Language.SecreC.Utils
 import Language.SecreC.Vars
+import Language.SecreC.Pretty
 
 import Prelude hiding (mapM)
 
@@ -29,6 +31,8 @@ import Control.Monad hiding (mapM,mapAndUnzipM)
 import Control.Monad.IO.Class
 import Control.Monad.State (State(..),StateT(..))
 import qualified Control.Monad.State as State
+
+import Text.PrettyPrint
 
 tcModule :: (Vars loc,Location loc) => Module Identifier loc -> TcM loc (Module VarIdentifier (Typed loc))
 tcModule (Module l name prog) = do
@@ -64,7 +68,7 @@ tcGlobalDeclaration (GlobalTemplate l td) = do
 tcDomainDecl :: Location loc => DomainDeclaration Identifier loc -> TcM loc (DomainDeclaration VarIdentifier (Typed loc))
 tcDomainDecl (Domain l d@(DomainName dl dn) k) = do
     let vk = bimap mkVarId id k
-    let t = DType $ Just $ fmap (const ()) vk
+    let t = SType $ PrivateKind $ Just $ fmap (const ()) vk
     let d' = DomainName (Typed dl t) $ mkVarId dn
     newDomain d'
     checkKind vk
@@ -88,7 +92,7 @@ tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
     (s',StmtType st) <- tcStmts tret s
     tcTopCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     i <- newTyVarId
-    let tproc = ProcType i (locpos l) (map (fmap typed . procedureParameterName) ps') tret $ map (fmap (fmap locpos)) s'
+    let tproc = DecT $ ProcType i (locpos l) (map (fmap typed . procedureParameterName) ps') tret $ map (fmap (fmap locpos)) s'
     let op' = bimap mkVarId (\l -> Typed l tproc) op
     addOp op'
     return $ OperatorDeclaration (notTyped l) ret' op' ps' s'
@@ -100,7 +104,7 @@ tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureNam
     tcTopCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     let vars = map (fmap typed . procedureParameterName) ps'
     i <- newTyVarId
-    let tproc = ProcType i (locpos l) vars tret $ map (fmap (fmap locpos)) s'
+    let tproc = DecT $ ProcType i (locpos l) vars tret $ map (fmap (fmap locpos)) s'
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     addProc proc'
     return $ ProcedureDeclaration (notTyped l) ret' proc' ps' s'
@@ -119,7 +123,7 @@ tcStructureDecl :: (Vars loc,Location loc) => (TypeName VarIdentifier (Typed loc
 tcStructureDecl addStruct (StructureDeclaration l ty@(TypeName tl tn) atts) = do
     atts' <- mapM tcAttribute atts
     i <- newTyVarId
-    let t = StructType i (locpos l) $ map (fmap typed) atts'
+    let t = DecT $ StructType i (locpos l) $ map (fmap typed) atts'
     let ty' = TypeName (Typed tl t) $ mkVarId tn
     addStruct ty'
     return $ StructureDeclaration (notTyped l) ty' atts'
@@ -157,22 +161,22 @@ tcTemplateQuantifier (DomainQuantifier l v@(DomainName dl dn) mbk) = do
             k' <- tcKindName k
             let vk = bimap mkVarId id k
             checkKind vk
-            return (Just k',Just vk)
+            return (Just k',PrivateKind $ Just $ fmap (const ()) vk)
         Nothing -> do -- domain variable of any kind
-            return (Nothing,Nothing)
-    let t = DType $ fmap (fmap (const ())) dk
+            return (Nothing,AnyKind)
+    let t = SType dk
     let vdn = mkVarId dn
     let v' = DomainName (Typed dl t) vdn
     newDomainVariable LocalScope v'
     return (DomainQuantifier (notTyped l) v' mbk,VarName t vdn)
 tcTemplateQuantifier (DimensionQuantifier l v@(VarName dl dn)) = do
-    let t = index -- variable is a dimension
+    let t = BaseT index -- variable is a dimension
     let vdn = mkVarId dn
     let v' = VarName (Typed dl t) vdn
     newVariable LocalScope v' NoValue
     return (DimensionQuantifier (notTyped l) v',VarName t vdn)
 tcTemplateQuantifier (DataQuantifier l v@(TypeName tl tn)) = do
-    let t = TType -- variable of any type
+    let t = BType -- variable of any base type
     let vtn = mkVarId tn
     let v' = TypeName (Typed tl t) vtn
     newTypeVariable LocalScope v'

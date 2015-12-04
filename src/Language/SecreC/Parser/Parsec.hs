@@ -307,8 +307,8 @@ scTemplateTypeArgument :: Monad m => ScParserT u m (TemplateTypeArgument Identif
 scTemplateTypeArgument = (apA (scTok PUBLIC) (PublicTemplateTypeArgument . loc) <?> "public template type argument")
                      <|> (apA2 scTypeId (scABrackets scTemplateTypeArguments) (\x1 x2 -> TemplateTemplateTypeArgument (loc x1) x1 x2) <?> "template template type argument")
                     <||> (apA scTemplateArgId (\x1 -> GenericTemplateTypeArgument (loc x1) x1) <?> "named template type argument") -- type, domain or variable identifier
-                     <|> (apA scIntLiteral (\x1 -> IntTemplateTypeArgument (loc x1) (unLoc x1)) <?> "literal template type argument")
-                     <|> (apA scPrimitiveDatatype (\x1 -> PrimitiveTemplateTypeArgument (loc x1) x1) <?> "primitive template type argument")
+                     <|> (apA scExpression (\x1 -> ExprTemplateTypeArgument (loc x1) x1) <?> "expression template type argument")
+                     <||> (apA scPrimitiveDatatype (\x1 -> PrimitiveTemplateTypeArgument (loc x1) x1) <?> "primitive template type argument")
 
 scDimtypeSpecifier :: Monad m => ScParserT u m (DimtypeSpecifier Identifier Position)
 scDimtypeSpecifier = (scBrackets' $ \x1 -> scBrackets' $ \x2 ->

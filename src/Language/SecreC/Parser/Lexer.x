@@ -12,6 +12,8 @@ import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.Error
 
+import Text.PrettyPrint
+
 }
 
 %wrapper "monadUserState"
@@ -249,7 +251,7 @@ instance MonadError SecrecError Alex where
     throwError e = Alex $ \ s -> Left (show e)
     catchError (Alex un) f = Alex $ \ s -> either (catchMe s) Right (un s)
         where 
-        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError (UnhelpfulPos "lexer")
+        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError (UnhelpfulPos "lexer") . text
 
 {-# INLINE split #-}
 split :: (a -> b) -> (a -> c) -> a -> (b, c)
@@ -274,7 +276,7 @@ runLexer :: String -> String -> Either String [TokenInfo]
 runLexer fn str = runLexerWith fn str return
 
 injectResult :: Either String a -> Alex a
-injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") err)
+injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") $ text err)
 injectResult (Right a) = return a
 
 -- | Alex lexer

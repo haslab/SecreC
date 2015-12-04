@@ -63,14 +63,6 @@ data TcEnv loc = TcEnv {
     }
   deriving Functor
 
-addValueM :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> Expression VarIdentifier (Typed loc) -> TcM loc ()
-addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
-addValueM l (VarName t n) e | typeClass (typed t) == typeClass (typed $ loc e) =
-    modify $ \env -> env { tDict = (tDict env) { tValues = Map.insert (VarName () n) e (tValues $ tDict env) } } 
-addValueM l v e = genericError (locpos l) $ "unification: mismatching expression types"
-
-vars env = Map.union (localVars env) (globalVars env)
-
 insideTemplate :: TcM loc Bool
 insideTemplate = liftM inTemplate State.get
 
@@ -105,255 +97,25 @@ instance PP (EntryValue loc) where
     pp UnknownValue = text "unknown"
     pp NoValue = text "novalue"
     pp (KnownExpression e) = pp e
-
--- | Gets the variables of a given type class
-getVars :: Location loc => Scope -> TypeClass -> TcM loc (Map VarIdentifier (EntryEnv loc))
-getVars GlobalScope c = do
-    vs <- liftM globalVars State.get
-    return $ Map.filter (\e -> typeClass (entryType e) == c) vs
-getVars LocalScope c = do
-    vs <- liftM vars State.get
-    return $ Map.filter (\e -> typeClass (entryType e) == c) vs
-
-addVar :: Location loc => Scope -> VarIdentifier -> EntryEnv loc -> TcM loc ()
-addVar GlobalScope n e = modify $ \env -> env { globalVars = Map.insert n e (globalVars env) }
-addVar LocalScope n e = modify $ \env -> env { localVars = Map.insert n e (localVars env) }
-
-checkVariable :: Location loc => Scope -> VarName VarIdentifier loc -> TcM loc Type
-checkVariable scope (VarName l n) = do
-    vs <- getVars scope TypeC
-    case Map.lookup n vs of
-        Just e -> return $ entryType e
-        Nothing -> tcError (locpos l) $ VariableNotFound (ppVarId n)
-
--- | Adds a new variable to the environment
-newVariable :: Location loc => Scope -> VarName VarIdentifier (Typed loc) -> EntryValue loc -> TcM loc ()
-newVariable scope (VarName (Typed l t) n) val = do
-    vars <- getVars scope TypeC
-    case Map.lookup n vars of
-        Just e -> tcWarnM (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
-        Nothing -> return ()
-    addVar scope n (EntryEnv l t val)
-
--- | Adds a new domain variable to the environment
-newDomainVariable :: Location loc => Scope -> DomainName VarIdentifier (Typed loc) -> TcM loc ()
-newDomainVariable scope (DomainName (Typed l t) n) = do
-    ds <- liftM domains get
-    case Map.lookup n ds of
-        Just e -> tcError (locpos l) $ InvalidDomainVariableName (ppVarId n) (locpos $ entryLoc e)
-        Nothing -> do
-            vars <- getVars scope KindC
-            case Map.lookup n vars of
-                Just e -> tcWarnM (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
-                Nothing -> addVar scope n (EntryEnv l t UnknownValue)
-
--- | Adds a new type variable to the environment
-newTypeVariable :: Location loc => Scope -> TypeName VarIdentifier (Typed loc) -> TcM loc ()
-newTypeVariable scope (TypeName (Typed l t) n) = do
-    ss <- liftM structs get
-    case Map.lookup n ss of
-        Just (b,es) -> tcError (locpos l) $ InvalidTypeVariableName (ppVarId n) (map (locpos . entryLoc) (b:Map.elems es))
-        Nothing -> do
-            vars <- getVars scope TypeStarC
-            case Map.lookup n vars of
-                Just e -> tcWarnM (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
-                Nothing -> addVar scope n (EntryEnv l t UnknownValue)
-
--- | Adds a new domain to the environment
-newDomain :: Location loc => DomainName VarIdentifier (Typed loc) -> TcM loc ()
-newDomain (DomainName (Typed l t) n) = do
-    ds <- liftM domains get
-    case Map.lookup n ds of
-        Just e -> tcError (locpos l) $ MultipleDefinedDomain (ppVarId n) (locpos $ entryLoc e)
-        Nothing -> do
-            let e = EntryEnv l t UnknownValue
-            modify $ \env -> env { domains = Map.insert n e (domains env) }
-
--- | Checks if a domain exists in scope, and returns its type
--- Searches for both user-defined private domains and domain variables
-checkDomain :: Location loc => DomainName VarIdentifier loc -> TcM loc Type
-checkDomain (DomainName l n) = do
-    ds <- liftM domains State.get
-    case Map.lookup n ds of
-        Just e -> case entryType e of
-            DType (Just k) -> return $ Private (DomainName () n) k
-        Nothing -> do
-            dvars <- getVars LocalScope KindC
-            case Map.lookup n dvars of
-                Just e -> return $ TVar $ VarName (entryType e) n
-                Nothing -> tcError (locpos l) $ NotDefinedDomain (ppVarId n)
-    
--- | Checks if a type exists in scope
--- Searches for both user-defined types and type variables
-checkType :: Location loc => TypeName VarIdentifier loc -> TcM loc [EntryEnv loc]
-checkType (TypeName l n) = do
-    ss <- liftM structs State.get
-    case Map.lookup n ss of
-        Just (base,es) -> return (base : Map.elems es)
-        Nothing -> do
-            vars <- getVars LocalScope TypeStarC
-            case Map.lookup n vars of
-                Just e -> return [ e { entryType = TVar (VarName (entryType e) n) } ] -- return the type variable
-                Nothing -> tcError (locpos l) $ NotDefinedType (ppVarId n)
-
--- | Checks if a non-template type exists in scope
--- Returns a single match
-checkNonTemplateType :: Location loc => TypeName VarIdentifier loc -> TcM loc Type
-checkNonTemplateType tn@(TypeName l n) = do
-    es <- checkType tn
-    case es of
-        [e] -> return $ entryType e 
-        es -> tcError (locpos l) $ NoNonTemplateType (ppVarId n)
-
--- | Checks if a template type exists in scope
--- Returns all template type declarations in scope, base template first
-checkTemplateType :: Location loc => TypeName VarIdentifier loc -> TcM loc [EntryEnv loc]
-checkTemplateType ty@(TypeName _ n) = do
-    es <- checkType ty
-    let check e = case entryType e of
-                    TType -> return ()
-                    BType -> return ()
-                    otherwise -> tcError (locpos $ loc ty) $ NoTemplateType (ppVarId n) (locpos $ entryLoc e)
-    mapM_ check es
-    return es
-
--- | Checks if a variable argument of a template exists in scope
--- The argument can be a (user-defined or variable) type, a (user-defined or variable) domain or a dimension variable
-checkTemplateArg :: Location loc => TemplateArgName VarIdentifier loc -> TcM loc Type
-checkTemplateArg (TemplateArgName l vn) = do
-    env <- State.get
-    let ss = structs env
-    let ds = domains env
-    let vs = vars env
-    case (Map.lookup vn ss,Map.lookup vn ds,Map.lookup vn vs) of
-        (Just (base,es),Nothing,Nothing) -> case (base:Map.elems es) of
-            [e] -> case entryType e of
-                TpltType {} -> tcError (locpos l) $ NoNonTemplateType (ppVarId vn)
-                t -> return t
-            es -> tcError (locpos l) $ NoNonTemplateType (ppVarId vn)
-        (Nothing,Just e,Nothing) -> return $ entryType e
-        (Nothing,Nothing,Just e) -> return $ entryType e
-        (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (ppVarId vn) $ map (locpos . entryLoc) $ maybe [] (\(b,es) -> b:Map.elems es) mb1 ++ maybeToList mb2 ++ maybeToList mb3
-
--- | Checks that a kind exists in scope
-checkKind :: Location loc => KindName VarIdentifier loc -> TcM loc ()
-checkKind (KindName l n) = do
-    ks <- liftM kinds State.get
-    case Map.lookup n ks of
-        Just e -> return ()
-        Nothing -> tcError (locpos l) $ NotDefinedKind (ppVarId n)
-
--- | Adds a new kind to the environment
-newKind :: Location loc => KindName VarIdentifier (Typed loc) -> TcM loc ()
-newKind (KindName (Typed l t) n) = do
-    ks <- liftM kinds get
-    case Map.lookup n ks of
-        Just e -> tcError (locpos l) $ MultipleDefinedKind (ppVarId n) (locpos $ entryLoc e)
-        Nothing -> do
-            let e = EntryEnv l t UnknownValue
-            modify $ \env -> env { kinds = Map.insert n e (kinds env) } 
-
--- | Adds a new (possibly overloaded) template operator to the environment
--- adds the template constraints
-addTemplateOperator :: Location loc => [VarName VarIdentifier Type] -> Op VarIdentifier (Typed loc) -> TcM loc ()
-addTemplateOperator vars op = do
-    let Typed l t = loc op
-    let o = fmap (const ()) op
-    cstrs <- liftM (tDict) get
-    i <- newTyVarId
-    let e = EntryEnv l (TpltType i vars (fmap locpos cstrs) [] t) UnknownValue
-    modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
-
--- | Adds a new (possibly overloaded) operator to the environment.
-newOperator :: Location loc => Op VarIdentifier (Typed loc) -> TcM loc ()
-newOperator op = do
-    let Typed l t = loc op
-    let o = fmap (const ()) op
-    let e = EntryEnv l t UnknownValue
-    modify $ \env -> env { operators = Map.alter (Just . Map.insert (typeTyVarId t) e . maybe Map.empty id) o (operators env) }
-  
- -- | Checks that an oeprator exists.
-checkOperator :: Location loc => Op VarIdentifier loc -> TcM loc [EntryEnv loc]
-checkOperator op = do
-    ps <- liftM operators State.get
-    let cop = fmap (const ()) op
-    case Map.lookup cop ps of
-        Nothing -> tcError (locpos $ loc op) $ NotDefinedOperator $ pp cop
-        Just es -> return $ Map.elems es
-  
--- | Adds a new (possibly overloaded) template procedure to the environment
--- adds the template constraints
-addTemplateProcedure :: Location loc => [VarName VarIdentifier Type] -> ProcedureName VarIdentifier (Typed loc) -> TcM loc ()
-addTemplateProcedure vars (ProcedureName (Typed l t) n) = do
-    cstrs <- liftM (tDict) get
-    i <- newTyVarId
-    let e = EntryEnv l (TpltType i vars (fmap locpos cstrs) [] t) UnknownValue
-    modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
-
--- | Adds a new (possibly overloaded) procedure to the environment.
-newProcedure :: Location loc => ProcedureName VarIdentifier (Typed loc) -> TcM loc ()
-newProcedure (ProcedureName (Typed l t) n) = do
-    let e = EntryEnv l t UnknownValue
-    modify $ \env -> env { procedures = Map.alter (Just . Map.insert (typeTyVarId t) e . maybe Map.empty id) n (procedures env) }
-  
- -- | Checks that a procedure exists.
-checkProcedure :: Location loc => ProcedureName VarIdentifier loc -> TcM loc [EntryEnv loc]
-checkProcedure (ProcedureName l n) = do
-    ps <- liftM procedures State.get
-    case Map.lookup n ps of
-        Nothing -> tcError (locpos l) $ NotDefinedProcedure (ppVarId n)
-        Just es -> return $ Map.elems es
-    
--- Adds a new (non-overloaded) template structure to the environment.
--- Adds the template constraints from the environment
-addTemplateStruct :: Location loc => [VarName VarIdentifier Type] -> TypeName VarIdentifier (Typed loc) -> TcM loc ()
-addTemplateStruct vars (TypeName (Typed l struct) n) = do
-    cstrs <- liftM (tDict) get
-    i <- newTyVarId
-    let e = EntryEnv l (TpltType i vars (fmap locpos cstrs) [] struct) UnknownValue
-    ss <- liftM structs get
-    case Map.lookup n ss of
-        Just (base,es) -> tcError (locpos l) $ MultipleDefinedStructTemplate (ppVarId n) (locpos $ loc base)
-        Nothing -> modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
-    
--- Adds a new (possibly overloaded) template structure to the environment.
--- Adds the template constraints from the environment
-addTemplateStructSpecialization :: Location loc => [VarName VarIdentifier Type] -> [Type] -> TypeName VarIdentifier (Typed loc) -> TcM loc ()
-addTemplateStructSpecialization vars specials (TypeName (Typed l struct) n) = do
-    cstrs <- liftM (tDict) get
-    i <- newTyVarId
-    let e = EntryEnv l (TpltType i vars (fmap locpos cstrs) specials struct) UnknownValue
-    let mergeStructs (b1,s1) (b2,s2) = (b2,s1 `Map.union` s2)
-    modify $ \env -> env { structs = Map.update (\(b,s) -> Just (b,Map.insert i e s)) n (structs env) }
-
--- | Defines a new struct type
-newStruct :: Location loc => TypeName VarIdentifier (Typed loc) -> TcM loc ()
-newStruct (TypeName (Typed l t) n) = do
-    ss <- liftM structs get
-    case Map.lookup n ss of
-        Just (base,es) -> tcError (locpos l) $ MultipleDefinedStruct (ppVarId n) (locpos $ entryLoc base)
-        Nothing -> do
-            let e = EntryEnv l t UnknownValue
-            modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
+   
+varNameToType :: VarName VarIdentifier Type -> Type
+varNameToType (VarName (SType k) n) = SecT $ SVar (VarName () n) k
+varNameToType (VarName TType n) = ComplexT $ CVar $ VarName () n
+varNameToType (VarName BType n) = BaseT $ BVar $ VarName () n
+varNameToType (VarName t n) | isIntType t = IdxT $ RVariablePExpr t $ VarName t n 
 
 type SecrecErrArr = SecrecError -> SecrecError
 
 newtype TcM loc a = TcM { unTcM :: RWST SecrecErrArr () (TcEnv loc) SecrecM a }
-    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv loc),MonadReader SecrecErrArr,MonadWriter ())
+    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv loc),MonadReader SecrecErrArr,MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
 
-tcWarnM l w = TcM $ lift $ tcWarn l w
+tcError :: Position -> TypecheckerErr -> TcM loc a
+tcError pos msg = do
+    f <- Reader.ask
+    throwError $ f $ typecheckerError pos msg
 
-instance MonadError SecrecError (TcM loc) where
-    throwError err = TcM $ do
-        f <- Reader.ask
-        throwError $ f err
-    catchError (TcM m) f = TcM $ catchError m (unTcM . f)
-instance MonadPlus (TcM loc) where
-    mzero = genericError noloc "mzero"
-    mplus x y = x `catchError` (const y)
-instance Alternative (TcM loc) where
-    empty = mzero
-    (<|>) = mplus
+tcWarn :: Position -> TypecheckerWarn -> TcM loc ()
+tcWarn pos msg = TcM $ lift $ tell [TypecheckerWarning pos msg]
 
 askErrorM :: TcM loc SecrecErrArr
 askErrorM = Reader.ask
@@ -405,22 +167,18 @@ data TCstr
         PIdentifier -- procedure name
         [Type] -- procedure arguments
         Type -- return type
+    | Equals Type Type -- ^ types equal
     | Coerces Type Type -- ^ types coercible
     | CoercesSec
-        Type -- security type
-        Type -- security type
-        Type -- base type
+        SecType -- security type
+        SecType -- security type
+        ComplexType -- complex type over which to perform classify
     | Coerces2 Type Type -- ^ bidirectional coercion
     | Unifies Type Type -- ^ type unification
-    | UnifiesExpr (Expression VarIdentifier Type) (Expression VarIdentifier Type) -- ^ expression unification
     | SupportedPrint [Type] -- ^ can call tostring on the argument type
-    | ProjectStruct Type (AttributeName VarIdentifier ()) -- ^ struct type projection
-    | ProjectMatrix Type [ArrayProj] -- ^ matrix type projection
+    | ProjectStruct DecType (AttributeName VarIdentifier ()) -- ^ struct type projection
+    | ProjectMatrix ComplexType [ArrayProj] -- ^ matrix type projection
     | IsReturnStmt (Set StmtClass) Type (ProcedureDeclaration VarIdentifier Position) -- ^ is return statement
---    | Cast -- ^ type cast
---        Type -- ^ from
---        Type -- ^ to
---    | InheritedCstr Position TCstr
     | DelayedCstr
         TCstr -- a constraint
         (SecrecError -> SecrecError) -- an error message with updated context
@@ -429,22 +187,25 @@ data TCstr
 --    | SetCBase -- ^ set the base of a complex type
 --        Type -- ^ compelx type
 --        Type -- ^ new base
+--    | Cast -- ^ type cast
+--        Type -- ^ from
+--        Type -- ^ to
+--    | InheritedCstr Position TCstr
   deriving (Data,Typeable,Show)
   
 instance Eq TCstr where
     (TApp n1 ts1) == (TApp n2 ts2) = n1 == n2 && ts1 == ts2
     (TDec n1 ts1) == (TDec n2 ts2) = n1 == n2 && ts1 == ts2
     (PDec n1 ts1 r1) == (PDec n2 ts2 r2) = n1 == n2 && ts1 == ts2 && r1 == r2
+    (Equals x1 y1) == (Equals x2 y2) = x1 == x2 && y1 == y2
     (Coerces x1 y1) == (Coerces x2 y2) = x1 == x2 && y1 == y2
     (CoercesSec x1 y1 c1) == (CoercesSec x2 y2 c2) = x1 == x2 && y1 == y2 && c1 == c2
     (Coerces2 x1 y1) == (Coerces2 x2 y2) = x1 == x2 && y1 == y2
     (Unifies x1 y1) == (Unifies x2 y2) = x1 == x2 && y1 == y2
-    (UnifiesExpr x1 y1) == (UnifiesExpr x2 y2) = x1 == x2 && y1 == y2
     (SupportedPrint x1) == (SupportedPrint x2) = x1 == x2
     (ProjectStruct x1 y1) == (ProjectStruct x2 y2) = x1 == x2 && y1 == y2
     (ProjectMatrix x1 y1) == (ProjectMatrix x2 y2) = x1 == x2 && y1 == y2
     (IsReturnStmt s1 x1 y1) == (IsReturnStmt s2 x2 y2) = x1 == x2 && y1 == y2
---    (InheritedCstr _ c1) == (InheritedCstr _ c2) = c1 == c2
     (DelayedCstr c1 _) == (DelayedCstr c2 _) = c1 == c2
     x == y = False
     
@@ -452,16 +213,15 @@ instance Ord TCstr where
     compare (TApp n1 ts1) (TApp n2 ts2) = mconcat [n1 `compare` n2,ts1 `compare` ts2]
     compare (TDec n1 ts1) (TDec n2 ts2) = mconcat [n1 `compare` n2,ts1 `compare` ts2]
     compare (PDec n1 ts1 r1) (PDec n2 ts2 r2) = mconcat [n1 `compare` n2,ts1 `compare` ts2,r1 `compare` r2]
+    compare (Equals x1 y1) (Equals x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (Coerces x1 y1) (Coerces x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (CoercesSec x1 y1 c1) (CoercesSec x2 y2 c2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2]
     compare (Coerces2 x1 y1) (Coerces2 x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (Unifies x1 y1) (Unifies x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
-    compare (UnifiesExpr x1 y1) (UnifiesExpr x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (SupportedPrint x1) (SupportedPrint x2) = x1 `compare` x2
     compare (ProjectStruct x1 y1) (ProjectStruct x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (ProjectMatrix x1 y1) (ProjectMatrix x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (IsReturnStmt s1 x1 y1) (IsReturnStmt s2 x2 y2) = mconcat [s1 `compare` s2,x1 `compare` x2,y1 `compare` y2]
---    compare (InheritedCstr _ c1) (InheritedCstr _ c2) = c1 `compare` c2
     compare (DelayedCstr c1 _) (DelayedCstr c2 _) = c1 `compare` c2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
@@ -469,18 +229,18 @@ instance PP TCstr where
     pp (TApp n ts) = text "tapp" <+> pp n <+> sepBy space (map pp ts)
     pp (TDec n ts) = text "tdec" <+> pp n <+> sepBy space (map pp ts)
     pp (PDec n ts r) = text "pdec" <+> pp n <+> parens (sepBy comma (map pp ts)) <+> pp r
+    pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces t1 t2) = text "coerces" <+> pp t1 <+> pp t2
     pp (CoercesSec t1 t2 b) = text "coercessec" <+> pp t1 <+> pp t2 <+> pp b
     pp (Coerces2 t1 t2) = text "coerces2" <+> pp t1 <+> pp t2
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
-    pp (UnifiesExpr t1 t2) = text "unifiesexpr" <+> pp t1 <+> pp t2
     pp (SupportedPrint ts) = text "print" <+> sepBy space (map pp ts)
     pp (ProjectStruct t a) = pp t <> char '.' <> pp a
     pp (ProjectMatrix t as) = pp t <> brackets (sepBy comma $ map pp as) 
     pp (IsReturnStmt cs t dec) = text "return" <+> (hcat $ map pp $ Set.toList cs) <+> pp t <+> pp dec
+    pp (DelayedCstr c f) = text "delayed" <+> pp c
 --    pp (Cast from to) = text "cast" <+> pp from <+> pp to
 --    pp (InheritedCstr p c) = text "inherited from" <+> pp p <+> pp c
-    pp (DelayedCstr c f) = text "delayed" <+> pp c
 --    pp (GetCBase t) = text "getcbase" <+> pp t
 --    pp (SetCBase t p) = text "setcbase" <+> pp t <+> pp p
     
@@ -541,6 +301,9 @@ instance Vars ArrayIndex where
     traverseVars f (DynArrayIndex e err) = do
         e' <- f e
         return $ DynArrayIndex e' err
+
+indexExpr :: Word64 -> Expression iden Type
+indexExpr i = LitPExpr (BaseT index) $ IntLit (BaseT index) $ toInteger i
     
 arrayIndexExpr :: ArrayIndex -> Expression VarIdentifier Type
 arrayIndexExpr (StaticArrayIndex w) = indexExpr w
@@ -564,6 +327,10 @@ instance Vars TCstr where
         args' <- mapM f args
         ret' <- f ret
         return $ PDec n' args' ret'
+    traverseVars f (Equals t1 t2) = do
+        t1' <- f t1
+        t2' <- f t2
+        return $ Equals t1' t2'
     traverseVars f (Coerces t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -581,10 +348,6 @@ instance Vars TCstr where
         t1' <- f t1
         t2' <- f t2
         return $ Unifies t1' t2'
-    traverseVars f (UnifiesExpr t1 t2) = do
-        t1' <- f t1
-        t2' <- f t2
-        return $ UnifiesExpr t1' t2'
     traverseVars f (SupportedPrint ts) = do
         ts' <- mapM f ts
         return $ SupportedPrint ts'
@@ -601,6 +364,9 @@ instance Vars TCstr where
         t' <- f t
         p' <- f p
         return $ IsReturnStmt cs' t' p'
+    traverseVars f (DelayedCstr c err) = do
+        c' <- f c
+        return $ DelayedCstr c' err
 --    traverseVars f (Cast from to) = do
 --        from' <- f from
 --        to' <- f to
@@ -609,9 +375,6 @@ instance Vars TCstr where
 --        p' <- f p
 --        k' <- f k
 --        return $ InheritedCstr p' k'
-    traverseVars f (DelayedCstr c err) = do
-        c' <- f c
-        return $ DelayedCstr c' err
 --    traverseVars f (GetCBase t) = do
 --        t' <- f t
 --        return $ GetCBase t'
@@ -633,39 +396,9 @@ data TDict loc = TDict
     }
   deriving (Typeable,Eq,Ord,Show,Data)
 
-tSolved :: TDict loc -> Map (Loc loc TCstr) Type
-tSolved = Map.foldrWithKey (\k v m -> maybe m (\x -> Map.insert k x m) v) Map.empty . tCstrs
-
-extractUnsolved :: TcM loc [Loc loc TCstr]
-extractUnsolved = do
-    us <- liftM (tUnsolved . tDict) State.get
-    State.modify $ \env -> env { tDict = (tDict env) { tCstrs = Map.filter isJust (tCstrs $ tDict env) } }
-    return us
-
-addUnsolved :: [Loc loc TCstr] -> TcM loc ()
-addUnsolved us = State.modify $ \env -> env { tDict = (tDict env) { tCstrs = Map.unionWith (\mb1 mb2 -> maybe mb2 Just mb1) (tCstrs (tDict env)) (Map.fromList (zip us (repeat Nothing))) } }
-
-tUnsolved :: TDict loc -> [Loc loc TCstr]
-tUnsolved = Map.keys . Map.filter isNothing . tCstrs
-
 instance Functor TDict where
     fmap f dict = dict { tCstrs = Map.mapKeys (mapLoc f) (tCstrs dict)
                        , tValues = Map.map (fmap (fmap f)) (tValues dict) }
-
-insertTDictCstr :: loc -> TCstr -> Maybe Type -> TDict loc -> TDict loc
-insertTDictCstr l c res dict = dict { tCstrs = Map.insertWith (\mb1 mb2 -> maybe mb2 Just mb1) (Loc l c) res (tCstrs dict) }
-
-addDict :: Location loc => TDict loc -> TcM loc ()
-addDict d = modify $ \env -> env { tDict = mappend (tDict env) d }
-
----- | Adds a new template constraint to the environment
-addTemplateConstraint :: loc -> TCstr -> Maybe Type -> TcM loc ()
-addTemplateConstraint l c res = modify $ \env -> env { tDict = insertTDictCstr l c res (tDict env) }
-
-addSubstM :: Location loc => loc -> VarName VarIdentifier Type -> Type -> TcM loc ()
-addSubstM l v t | TVar v == t = return ()
-              | typeClass (TVar v) == typeClass t = modify $ \env -> env { tDict = (tDict env) { tSubsts = Map.insert (fmap (const ()) v) t (tSubsts $ tDict env) } }
-              | otherwise = genericError (locpos l) $ "unification: mismatching variable types"
 
 instance Monoid (TDict loc) where
     mempty = TDict Map.empty Map.empty Map.empty
@@ -696,6 +429,15 @@ substFromSubstsVal xs = substFromMap xs . substFromMap ys
     where
     ys = Map.map (fmap typed) xs
 
+tSolved :: TDict loc -> Map (Loc loc TCstr) Type
+tSolved = Map.foldrWithKey (\k v m -> maybe m (\x -> Map.insert k x m) v) Map.empty . tCstrs
+
+tUnsolved :: TDict loc -> [Loc loc TCstr]
+tUnsolved = Map.keys . Map.filter isNothing . tCstrs
+
+insertTDictCstr :: loc -> TCstr -> Maybe Type -> TDict loc -> TDict loc
+insertTDictCstr l c res dict = dict { tCstrs = Map.insertWith (\mb1 mb2 -> maybe mb2 Just mb1) (Loc l c) res (tCstrs dict) }
+
 instance PP (TDict loc) where
     pp dict = text "Unsolved constraints:" $+$ nest 4 (vcat $ map pp $ tUnsolved dict)
           $+$ text "Type substitutions:" $+$ nest 4 (ppSubstsType (tSubsts dict))
@@ -712,60 +454,27 @@ data VarIdentifier = VarIdentifier
 
 mkVarId :: Identifier -> VarIdentifier
 mkVarId s = VarIdentifier s Nothing
-    
-uniqVarId :: Identifier -> TcM loc VarIdentifier
-uniqVarId n = do
-    i <- newTyVarId
-    return $ VarIdentifier n (Just i)
 
 instance PP VarIdentifier where
     pp = ppVarId
 
 type TyVarId = Int
 
-newTyVarId :: TcM loc TyVarId
-newTyVarId = do
-    i <- liftM tyVarId get
-    modify $ \env -> env { tyVarId = succ (tyVarId env) }
-    return i
+data SecType
+    = Public -- ^ public domain
+    | Private -- ^ private domain
+        (DomainName VarIdentifier ()) -- ^ domain
+        (KindName VarIdentifier ()) -- ^ kind
+    | SVar (VarName VarIdentifier ()) SVarKind
+  deriving (Typeable,Show,Data,Eq,Ord)
 
-newDomainTyVar :: Maybe (KindName VarIdentifier ()) -> TcM loc Type
-newDomainTyVar k = do
-    n <- uniqVarId "d"
-    return $ TVar $ VarName (DType k) n
+data SVarKind
+    = AnyKind
+    | PrivateKind (Maybe (KindName VarIdentifier ()))
+  deriving (Typeable,Show,Data,Eq,Ord)
 
-newDimVar :: TcM loc (Expression VarIdentifier Type)
-newDimVar = do
-    n <- uniqVarId "dim"
-    return $ RVariablePExpr index $ VarName index n
-
-newTyVar :: TcM loc Type
-newTyVar = do
-    n <- uniqVarId "t"
-    return $ TVar (VarName TType n)
-    
-newBaseTyVar :: TcM loc Type
-newBaseTyVar = do
-    n <- uniqVarId "b"
-    return $ TVar (VarName BType n)
-    
-newSizeVar :: TcM loc (Expression VarIdentifier Type)
-newSizeVar = do
-    n <- uniqVarId "sz"
-    return $ RVariablePExpr index $ VarName index n
-
--- | Checks if a type contains any type variables
-hasTypeVars :: Type -> Bool
-hasTypeVars = everything (&&) (mkQ False q)
-    where
-    q :: Type -> Bool
-    q (TVar _) = True
-    q t = False
-
-data Type
-    = NoType -- ^ For locations with no associated type information
-    | TOrd Ordering -- for results of comparisons
-    | ProcType -- ^ procedure type
+data DecType
+    = ProcType -- ^ procedure type
         TyVarId -- ^ unique procedure declaration id
         Position
         [VarName VarIdentifier Type] -- typed procedure arguments
@@ -775,44 +484,63 @@ data Type
             TyVarId -- ^ unique structure declaration id
             Position -- ^ location of the procedure declaration
             [Attribute VarIdentifier Type] -- ^ typed arguments
-    | TK -- ^ the result of resolving a constraint
-        TCstr -- ^ a constraint returning a type
     | TpltType -- ^ Template type
             TyVarId -- ^ unique template declaration id
             [VarName VarIdentifier Type] -- ^ template variables
             (TDict Position) -- ^ template constraints depending on the variables
             [Type] -- ^ template specializations
-            Type -- ^ template's type
-    | TVar -- ^ type variable
-        (VarName VarIdentifier Type) -- ^ typed variable name
-    | TyLit -- ^ the most concrete type for a literal
-        (Literal ()) -- ^ the literal itself
-    | TType -- ^ Type of types
-    | BType -- ^ Type of base types
-    | KType -- ^ Type of kinds
-    | DType -- ^ Type of domains
-        (Maybe (KindName VarIdentifier ())) -- ^ optional kind of the domain
-    | Void -- ^ Empty type
-    | StmtType (Set StmtClass) -- ^ Type of a @Statement@
-    | CType -- ^ Compound SecreC type
-        Type -- ^ security type
-        Type -- ^ data type
+            DecType -- ^ template's type
+  deriving (Typeable,Show,Data,Eq,Ord)
+
+data BaseType
+    = TyPrim (PrimitiveDatatype ())
+    | TyDec DecType
+    | BVar (VarName VarIdentifier ())
+  deriving (Typeable,Show,Data,Eq,Ord)
+
+data ComplexType
+    = CType -- ^ Compound SecreC type
+        SecType -- ^ security type
+        BaseType -- ^ data type
         (Expression VarIdentifier Type) -- ^ dimension (default = 0, i.e., scalars)
         [Expression VarIdentifier Type] -- ^ sizes for each dimension (dependent types?) -- NOTE: check bounds if size is statically known?
-    | PrimType (PrimitiveDatatype ())
-    | Public -- ^ public domain
-    | Private -- ^ private domain
-        (DomainName VarIdentifier ()) -- ^ domain
-        (KindName VarIdentifier ()) -- ^ kind
-    | SysPush Type
+    | CVar (VarName VarIdentifier ())
+    | Void -- ^ Empty type
+    | TyLit -- ^ the most concrete type for a literal. a complex type because we may cast literals into arrays
+           (Literal ()) -- ^ the literal itself
+  deriving (Typeable,Show,Data,Eq,Ord)
+
+data SysType
+    = SysPush Type
     | SysRet Type
     | SysRef Type
     | SysCRef Type
-  deriving (Typeable)
+  deriving (Typeable,Show,Data,Eq,Ord)
 
-instance PP Type where
-    pp t@NoType = text (show t)
-    pp (TOrd o) = text (show o)
+data Type
+    = NoType -- ^ For locations with no associated type information
+    | TK -- ^ the result of resolving a constraint
+        TCstr -- ^ a constraint returning a type
+    | TType -- ^ Type of complex types
+    | DType -- ^ Type of declarations
+    | BType -- ^ Type of base types
+    | KType -- ^ Type of kinds
+    | SType -- ^ Type of domains
+        SVarKind -- ^ optional kind of the domain Left isPrivate
+    | StmtType (Set StmtClass) -- ^ Type of a @Statement@
+    | ComplexT ComplexType
+    | BaseT BaseType
+    | SecT SecType
+    | DecT DecType
+    | SysT SysType
+    | IdxT (Expression VarIdentifier Type) -- for index expressions
+  deriving (Typeable,Show,Data,Eq,Ord)
+
+instance PP SecType where
+    pp Public = text "public"
+    pp (Private d k) = pp d
+    pp (SVar (VarName _ v) _) = ppVarId v
+instance PP DecType where
     pp t@(ProcType _ _ vars ret stmts) =
         ptext "procedure"
         <+> parens (sepBy comma $ map ppProcArg vars)
@@ -820,67 +548,83 @@ instance PP Type where
         <+> pp stmts
       where ppProcArg (VarName t n) = pp t <+> pp n
     pp t@(StructType _ _ atts) = text "struct" <+> braces (sepBy (char ';') $ map ppStructAtt atts)
-    pp t@(TK c) = abrackets (text "cstr" <+> pp c)
     pp t@(TpltType _ vars dict specs body) =
         text "template"
         <+> abrackets (sepBy comma $ map ppTpltArg vars)
         <+> abrackets (sepBy comma $ map pp specs)
         <+> pp body
         <+> text "environment:" $+$ nest 4 (pp dict)
-    pp (TVar (VarName _ v)) = ppVarId v
+instance PP BaseType where
+    pp (TyPrim p) = pp p
+    pp (TyDec d) = pp d
+    pp (BVar (VarName _ v)) = ppVarId v
+instance PP ComplexType where
     pp (TyLit lit) = pp lit
-    pp t@TType = text (show t)
-    pp t@BType = text (show t)
-    pp t@KType = text (show t)
-    pp t@(DType {}) = text (show t)
     pp Void = text "void"
-    pp t@(StmtType {}) = text (show t)
     pp (CType s t d szs) = pp s <+> pp t <> brackets (brackets (pp d)) <> parens (sepBy comma $ map pp szs)
-    pp (PrimType p) = pp p
-    pp Public = text "public"
-    pp (Private d k) = pp d
+    pp (CVar (VarName _ v)) = ppVarId v
+instance PP SysType where
     pp t@(SysPush {}) = text (show t)
     pp t@(SysRet {}) = text (show t)
     pp t@(SysRef {}) = text (show t)
     pp t@(SysCRef {}) = text (show t)
 
-deriving instance Show Type
-deriving instance Data Type
-deriving instance Eq Type  
-deriving instance Ord Type
+instance PP Type where
+    pp t@NoType = text (show t)
+    pp t@(TK c) = abrackets (text "cstr" <+> pp c)
+    pp t@TType = text (show t)
+    pp t@BType = text (show t)
+    pp t@DType = text (show t)
+    pp t@(SType {}) = text (show t)
+    pp t@KType = text (show t)
+    pp t@(StmtType {}) = text (show t)
+    pp (BaseT b) = pp b
+    pp (ComplexT c) = pp c
+    pp (SecT s) = pp s
+    pp (DecT d) = pp d
+    pp (SysT s) = pp s
+    pp (IdxT e) = pp e
 
 data TypeClass
     = KindStarC -- type of kinds
     | KindC -- kinds
     | DomainC -- for typed domains
     | TypeStarC -- type of types
-    | TypeC -- regular type (dimensions included)
+    | ExprC -- type of regular expressions (also for index expressions)
+    | TypeC -- regular type
     | SysC -- system call parameters
+    | DecC -- type of declarations
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
 typeClass :: Type -> TypeClass
 typeClass TType = TypeStarC
 typeClass BType = TypeStarC
 typeClass KType = KindStarC
-typeClass (DType _) = KindC
-typeClass Public = DomainC
-typeClass (Private _ _) = DomainC
-typeClass (TVar (VarName t v)) | typeClass t == KindC = DomainC -- domain variables
-                               | typeClass t == TypeStarC = TypeC -- type variables
-typeClass (SysPush _) = SysC
-typeClass (SysRet _) = SysC
-typeClass (SysRef _) = SysC
-typeClass (SysCRef _) = SysC
-typeClass _ = TypeC
+typeClass (SType _) = KindC
+typeClass (SecT _) = DomainC
+typeClass (DecT _) = DecC
+typeClass (SysT _) = SysC
+typeClass (IdxT _) = ExprC
+typeClass (ComplexT _) = TypeC
+typeClass (BaseT _) = TypeC
+typeClass t = error $ "no typeclass for " ++ show t
 
 isBoolType :: Type -> Bool
-isBoolType (PrimType (DatatypeBool _)) = True
+isBoolType (BaseT b) = isBoolBaseType b
 isBoolType _ = False
 
+isBoolBaseType :: BaseType -> Bool
+isBoolBaseType (TyPrim (DatatypeBool _)) = True
+isBoolBaseType _ = False
+
 isIntType :: Type -> Bool
-isIntType (TyLit (IntLit _ i)) = True
-isIntType (PrimType p) = isIntPrimType p
-isIntType t = False
+isIntType (ComplexT (TyLit (IntLit _ i))) = True
+isIntType (BaseT b) = isIntBaseType b
+isIntType _ = False
+
+isIntBaseType :: BaseType -> Bool
+isIntBaseType (TyPrim p) = isIntPrimType p
+isIntBaseType t = False
 
 isIntPrimType :: PrimitiveDatatype () -> Bool
 isIntPrimType (DatatypeInt _) = True
@@ -901,9 +645,13 @@ isIntPrimType (DatatypeXorUint    _) = True
 isIntPrimType t = False
 
 isFloatType :: Type -> Bool
-isFloatType (TyLit (FloatLit _ f)) = True
-isFloatType (PrimType p) = isFloatPrimType p
-isFloatType t = False
+isFloatType (BaseT b) = isFloatBaseType b
+isFloatType (ComplexT (TyLit (FloatLit _ f))) = True
+isFloatType _ = False
+
+isFloatBaseType :: BaseType -> Bool
+isFloatBaseType (TyPrim p) = isFloatPrimType p
+isFloatBaseType t = False
 
 isFloatPrimType :: PrimitiveDatatype () -> Bool
 isFloatPrimType (DatatypeFloat _) = True
@@ -913,6 +661,9 @@ isFloatPrimType t = False
 
 isNumericType :: Type -> Bool
 isNumericType t = isIntType t || isFloatType t
+
+isNumericBaseType :: BaseType -> Bool
+isNumericBaseType t = isIntBaseType t || isFloatBaseType t
 
 instance PP StmtClass where
     pp = text . show
@@ -926,78 +677,168 @@ instance PP [Type] where
 instance Vars [Type] where
     traverseVars f xs = mapM f xs
   
+instance Vars SecType where
+    traverseVars f Public = return Public
+    traverseVars f (Private d k) = do
+        d' <- f d
+        k' <- f k
+        return $ Private d' k'
+    traverseVars f (SVar v k) = do
+        v' <- f v
+        k' <- f k
+        return $ SVar v' k'
+    substL pl (SVar v _) = let n = v in
+        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
+            EqT -> Just n
+            NeqT -> Nothing
+    substL pl e = Nothing
+    substR pa r =
+        case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy pa) of
+            EqT -> Just r
+            NeqT -> Nothing
+
+instance Vars DecType where
+    traverseVars f (ProcType pid p vs t stmts) = varsBlock $ do
+        vs' <- inLHS $ mapM f vs
+        t' <- f t
+        stmts' <- f stmts
+        return $ ProcType pid p vs' t' stmts'
+    traverseVars f (StructType tid p as) = varsBlock $ do
+        as' <- inLHS $ mapM f as
+        return $ StructType tid p as'
+    traverseVars f (TpltType tid vs d spes t) = varsBlock $ do
+        vs' <- inLHS $ mapM f vs
+        d' <- f d
+        spes' <- mapM f spes
+        t' <- f t
+        return $ TpltType tid vs' d' spes' t'
+    
+instance Vars BaseType where
+    traverseVars f (TyPrim p) = do
+        p' <- f p
+        return $ TyPrim p'
+    traverseVars f (TyDec d) = do
+        d' <- f d
+        return $ TyDec d'
+    traverseVars f (BVar v) = do
+        v' <- f v
+        return $ BVar v'
+    substL pl (BVar v) = let n = v in
+        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
+            EqT -> Just n
+            NeqT -> Nothing
+    substL pl e = Nothing
+    substR pa r =
+        case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy pa) of
+            EqT -> Just r
+            NeqT -> Nothing
+
+instance Vars ComplexType where
+    traverseVars f (TyLit l) = do
+        l' <- f l
+        return $ TyLit l'
+    traverseVars f (CType s t d z) = do
+        s' <- f s
+        t' <- f t
+        d' <- f d
+        z' <- mapM f z
+        return $ CType s' t' d' z'
+    traverseVars f (CVar v) = do
+        v' <- f v
+        return $ CVar v'
+    traverseVars f Void = return Void
+    substL pl (CVar v) = let n = v in
+        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
+            EqT -> Just n
+            NeqT -> Nothing
+    substL pl e = Nothing
+    substR pa r =
+        case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy pa) of
+            EqT -> Just r
+            NeqT -> Nothing
+
+instance Vars SysType where
+    traverseVars f (SysPush t) = do
+        t' <- f t
+        return $ SysPush t'
+    traverseVars f (SysRet t) = do
+        t' <- f t
+        return $ SysRet t'
+    traverseVars f (SysRef t) = do
+        t' <- f t
+        return $ SysRef t'
+    traverseVars f (SysCRef t) = do
+        t' <- f t
+        return $ SysCRef t'
+
+instance Vars SVarKind where
+    traverseVars f AnyKind = return AnyKind
+    traverseVars f (PrivateKind k) = do
+        k' <- f k
+        return $ PrivateKind k'
+
+secTypeKind :: SecType -> SVarKind
+secTypeKind Public = AnyKind
+secTypeKind (Private _ k) = PrivateKind $ Just k
+secTypeKind (SVar v k) = k
+
+instance PP SVarKind where
+    pp AnyKind = text "any"
+    pp (PrivateKind Nothing) = text "private"
+    pp (PrivateKind (Just k)) = text "private" <+> pp k
+    
 instance Vars Type where
-  traverseVars f NoType = return NoType
-  traverseVars f (TOrd o) = return (TOrd o)
-  traverseVars f (ProcType pid p vs t stmts) = varsBlock $ do
-      vs' <- inLHS $ mapM f vs
-      t' <- f t
-      stmts' <- f stmts
-      return $ ProcType pid p vs' t' stmts'
-  traverseVars f (StructType tid p as) = varsBlock $ do
-      as' <- inLHS $ mapM f as
-      return $ StructType tid p as'
-  traverseVars f (TK c) = do
-      c' <- f c
-      return $ TK c'
-  traverseVars f (TpltType tid vs d spes t) = varsBlock $ do
-      vs' <- inLHS $ mapM f vs
-      d' <- f d
-      spes' <- mapM f spes
-      t' <- f t
-      return $ TpltType tid vs' d' spes' t'
-  traverseVars f (TVar v) = do
-      v' <- f v
-      return $ TVar v'
-  traverseVars f (TyLit l) = do
-      l' <- f l
-      return $ TyLit l'
-  traverseVars f TType = return TType
-  traverseVars f KType = return KType
-  traverseVars f (DType d) = do
-      d' <- mapM f d
-      return $ DType d'
-  traverseVars f Void = return Void
-  traverseVars f (StmtType s) = do
-      s' <- mapSetM f s
-      return (StmtType s')
-  traverseVars f (CType s t d z) = do
-      s' <- f s
-      t' <- f t
-      d' <- f d
-      z' <- mapM f z
-      return $ CType s' t' d' z'
-  traverseVars f (PrimType p) = do
-      p' <- f p
-      return $ PrimType p'
-  traverseVars f Public = return Public
-  traverseVars f (Private d k) = do
-      d' <- f d
-      k' <- f k
-      return $ Private d' k'
-  traverseVars f (SysPush t) = do
-      t' <- f t
-      return $ SysPush t'
-  traverseVars f (SysRet t) = do
-      t' <- f t
-      return $ SysRet t'
-  traverseVars f (SysRef t) = do
-      t' <- f t
-      return $ SysRef t'
-  traverseVars f (SysCRef t) = do
-      t' <- f t
-      return $ SysCRef t'
-  substL pl (TVar v) = let n = fmap (const ()) v in
-      case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
-          EqT -> Just n
-          NeqT -> Nothing
-  substL pl e = Nothing
-  substR pa r =
-      case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy (Proxy::Proxy (VarName VarIdentifier Type))) of
-          EqT -> Just (TVar r)
-          NeqT -> case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy pa) of
-              EqT -> Just r
-              NeqT -> Nothing
+    traverseVars f NoType = return NoType
+    traverseVars f (TK c) = do
+        c' <- f c
+        return $ TK c'
+    traverseVars f TType = return TType
+    traverseVars f DType = return DType
+    traverseVars f BType = return BType
+    traverseVars f KType = return KType
+    traverseVars f (SType s) = do
+        s' <- f s
+        return $ SType s'
+    traverseVars f (StmtType s) = do
+        s' <- mapSetM f s
+        return (StmtType s')
+    traverseVars f (ComplexT c) = do
+        c' <- f c
+        return $ ComplexT c'
+    traverseVars f (BaseT c) = do
+        c' <- f c
+        return $ BaseT c'
+    traverseVars f (SecT c) = do
+        c' <- f c
+        return $ SecT c'
+    traverseVars f (DecT c) = do
+        c' <- f c
+        return $ DecT c'
+    traverseVars f (SysT c) = do
+        c' <- f c
+        return $ SysT c'
+    traverseVars f (IdxT c) = do
+        c' <- f c
+        return $ IdxT c'
+    substL pl (BaseT (BVar v)) = let n = v in
+        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
+            EqT -> Just n
+            NeqT -> Nothing
+    substL pl (SecT (SVar v _)) = let n = v in
+        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
+            EqT -> Just n
+            NeqT -> Nothing
+    substL pl (ComplexT (CVar v)) = let n = v in
+        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
+            EqT -> Just n
+            NeqT -> Nothing
+    substL pl e = Nothing
+    substR pa r =
+        case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy (Proxy::Proxy (VarName VarIdentifier Type))) of
+            EqT -> Just $ varNameToType r
+            NeqT -> case eqTypeOf (typeOfProxy $ proxyOf r) (typeOfProxy pa) of
+                EqT -> Just r
+                NeqT -> Nothing
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement
@@ -1074,71 +915,15 @@ typeLoc t l = Typed l t
 noTypeLoc :: Loc loc a -> Loc (Typed loc) a
 noTypeLoc = mapLoc (flip Typed NoType)
 
-defCType :: Type -> Type
-defCType t = CType Public t (indexExpr 0) []
-
--- integer types
-primIntBounds :: PrimitiveDatatype () -> (Integer,Integer)
-primIntBounds (DatatypeInt8 _)      = (toInteger (minBound :: Int8)  ,toInteger (maxBound :: Int8))
-primIntBounds (DatatypeInt16 _)     = (toInteger (minBound :: Int16) ,toInteger (maxBound :: Int16))
-primIntBounds (DatatypeInt32 _)     = (toInteger (minBound :: Int32) ,toInteger (maxBound :: Int32))
-primIntBounds (DatatypeInt64 _)     = (toInteger (minBound :: Int64) ,toInteger (maxBound :: Int64))
-primIntBounds (DatatypeInt _)       = (toInteger (minBound :: Int64) ,toInteger (maxBound :: Int64))
-primIntBounds (DatatypeUint8 _)     = (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
-primIntBounds (DatatypeUint16 _)    = (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
-primIntBounds (DatatypeUint32 _)    = (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
-primIntBounds (DatatypeUint64 _)    = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
-primIntBounds (DatatypeUint _)      = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
-primIntBounds (DatatypeXorUint8 _)  = (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
-primIntBounds (DatatypeXorUint16 _) = (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
-primIntBounds (DatatypeXorUint32 _) = (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
-primIntBounds (DatatypeXorUint64 _) = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
-primIntBounds (DatatypeXorUint _)   = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
-primIntBounds _ = (0,-1) -- nonsensical bounds
-
-primFloatBounds :: PrimitiveDatatype () -> (Double,Double)
-primFloatBounds (DatatypeFloat _) = (-2.802597 * 10 ^^(-45),3.402823 * (10 ^^38))
-primFloatBounds (DatatypeFloat32 _) = (-2.802597 * 10 ^^(-45),3.402823 * (10 ^^38))
-primFloatBounds (DatatypeFloat64 _) = (-4.940656 * 10 ^^ (-324),1.797693 * (10 ^^308))
-primFloatBounds _ = (0,-1) -- nonsensical bounds
-
-indexExpr :: Word64 -> Expression iden Type
-indexExpr i = LitPExpr index $ IntLit index $ toInteger i
-
-bytes :: Type
-bytes = CType Public (PrimType $ DatatypeUint8 ()) (indexExpr 1) []
-index = PrimType $ DatatypeUint64 ()
-int = PrimType $ DatatypeInt ()
-uint = PrimType $ DatatypeUint ()
-int8 = PrimType $ DatatypeInt8 ()
-uint8 = PrimType $ DatatypeUint8 ()
-int16 = PrimType $ DatatypeInt16 ()
-uint16 = PrimType $ DatatypeUint16 ()
-int32 = PrimType $ DatatypeInt32 ()
-uint32 = PrimType $ DatatypeUint32 ()
-int64 = PrimType $ DatatypeInt64 ()
-uint64 = PrimType $ DatatypeUint64 ()
-string = PrimType $ DatatypeString ()
-bool = PrimType $ DatatypeBool ()
-xoruint8 = PrimType $ DatatypeXorUint8 ()
-xoruint16 = PrimType $ DatatypeXorUint16 ()
-xoruint32 = PrimType $ DatatypeXorUint32 ()
-xoruint64 = PrimType $ DatatypeXorUint64 ()
-xoruint = PrimType $ DatatypeXorUint ()
-float = PrimType $ DatatypeFloat ()
-float32 = PrimType $ DatatypeFloat32 ()
-float64 = PrimType $ DatatypeFloat64 ()
-
-prims = [int,uint,int8,uint8,int16,uint16,int32,uint32,int64,uint64,string,bool,xoruint8,xoruint16,xoruint32,xoruint64,xoruint,float,float32,float64]
-
-numerics = filter isNumericType prims
-
-
 isPublicType :: Type -> Bool
-isPublicType Public = True
+isPublicType (SecT s) = isPublicSecType s
 isPublicType _ = False
 
-typeTyVarId :: Type -> TyVarId
+isPublicSecType :: SecType -> Bool
+isPublicSecType Public = True
+isPublicSecType _ = False
+
+typeTyVarId :: DecType -> TyVarId
 typeTyVarId (StructType i _ _) = i
 typeTyVarId (ProcType i _ _ _ _) = i
 typeTyVarId (TpltType i _ _ _ _) = i
@@ -1164,24 +949,29 @@ ppStructAtt :: Attribute VarIdentifier Type -> Doc
 ppStructAtt (Attribute _ t n) = pp t <+> pp n
 
 ppTpltType :: TIdentifier -> Type -> Doc
-ppTpltType (Left n) (TpltType _ vars _ specs body@(StructType {})) =
+ppTpltType n (DecT t) = ppTpltDecType n t
+
+ppTpltDecType :: TIdentifier -> DecType -> Doc
+ppTpltDecType (Left n) (TpltType _ vars _ specs body@(StructType {})) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
     $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
-ppTpltType (Right (Left n)) (TpltType _ vars _ [] body@(ProcType _ _ args ret stmts)) =
+ppTpltDecType (Right (Left n)) (TpltType _ vars _ [] body@(ProcType _ _ args ret stmts)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
     $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
-ppTpltType (Right (Right n)) (TpltType _ vars _ [] body@(ProcType _ _ args ret stmts)) =
+ppTpltDecType (Right (Right n)) (TpltType _ vars _ [] body@(ProcType _ _ args ret stmts)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
     $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
-ppTpltType (Right (Left n)) (ProcType _ _ args ret stmts) =
+ppTpltDecType (Right (Left n)) (ProcType _ _ args ret stmts) =
         pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
-ppTpltType (Right (Right n)) (ProcType _ _ args ret stmts) =
+ppTpltDecType (Right (Right n)) (ProcType _ _ args ret stmts) =
         pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
 
 ppTpltArg :: VarName VarIdentifier Type -> Doc
+ppTpltArg (VarName BType v) = text "type" <+> ppVarId v
 ppTpltArg (VarName TType v) = text "type" <+> ppVarId v
-ppTpltArg (VarName (DType Nothing) v) = text "domain" <+> ppVarId v
-ppTpltArg (VarName (DType (Just k)) v) = text "domain" <+> ppVarId v <+> char ':' <+> pp k
+ppTpltArg (VarName (SType AnyKind) v) = text "domain" <+> ppVarId v
+ppTpltArg (VarName (SType (PrivateKind Nothing)) v) = text "domain" <+> ppVarId v
+ppTpltArg (VarName (SType (PrivateKind (Just k))) v) = text "domain" <+> ppVarId v <+> char ':' <+> pp k
 ppTpltArg (VarName t v) | isIntType t = text "dim" <+> ppVarId v
 
 ppVarId :: VarIdentifier -> Doc
@@ -1192,14 +982,6 @@ ppTpltApp :: TIdentifier -> [Type] -> Maybe Type -> Doc
 ppTpltApp (Left n) args Nothing = text "struct" <+> pp n <> abrackets (sepBy comma $ map pp args)
 ppTpltApp (Right (Left n)) args (Just ret) = pp ret <+> pp n <> parens (sepBy comma $ map pp args)
 ppTpltApp (Right (Right n)) args (Just ret) = pp ret <+> pp n <> parens (sepBy comma $ map pp args)
-    
-getSubstsGeneric :: Location loc => TcM loc (SubstsGeneric loc)
-getSubstsGeneric = do
-    env <- State.get
-    let es = Map.foldrWithKey (\k e m -> case entryValue e of { KnownExpression ex -> Map.insert (VarName () k) (Right ex) m; otherwise -> m}) Map.empty $ vars env
-    let sst = Map.foldrWithKey (\k t m -> Map.insert k (Left t) m) Map.empty $ tSubsts $ tDict env
-    let sse = Map.foldrWithKey (\k e m -> Map.insert k (Right e) m) Map.empty $ tValues $ tDict env
-    return $ Map.unions [es,sst,sse]
     
 ppSubstsGeneric :: SubstsGeneric loc -> Doc
 ppSubstsGeneric xs = vcat $ map ppSub $ Map.toList xs
@@ -1219,18 +1001,6 @@ ppSubstsVal xs = vcat $ map ppSub $ Map.toList xs
 
 ppArrayRanges :: [ArrayProj] -> Doc
 ppArrayRanges = sepBy comma . map pp
-
-hsValToExpr :: Location loc => loc -> HsVal -> Expression VarIdentifier (Typed loc)
-hsValToExpr l (HsInt8 i) = LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l int8)
-hsValToExpr l (HsInt16 i) = LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l int16)
-hsValToExpr l (HsInt32 i) = LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l int32)
-hsValToExpr l (HsInt64 i) = LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l int64)
-hsValToExpr l (HsLit lit) = LitPExpr t $ fmap (const t) lit
-    where t = (Typed l $ TyLit lit)
 
 data HsVal where
     HsInt8 :: Int8 -> HsVal
@@ -1362,4 +1132,58 @@ instance Ord HsVal where
     compare (HsSysCRef v1) (HsSysCRef v2) = v1 `compare` v2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
-    
+-- integer types
+primIntBounds :: PrimitiveDatatype () -> (Integer,Integer)
+primIntBounds (DatatypeInt8 _)      = (toInteger (minBound :: Int8)  ,toInteger (maxBound :: Int8))
+primIntBounds (DatatypeInt16 _)     = (toInteger (minBound :: Int16) ,toInteger (maxBound :: Int16))
+primIntBounds (DatatypeInt32 _)     = (toInteger (minBound :: Int32) ,toInteger (maxBound :: Int32))
+primIntBounds (DatatypeInt64 _)     = (toInteger (minBound :: Int64) ,toInteger (maxBound :: Int64))
+primIntBounds (DatatypeInt _)       = (toInteger (minBound :: Int64) ,toInteger (maxBound :: Int64))
+primIntBounds (DatatypeUint8 _)     = (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
+primIntBounds (DatatypeUint16 _)    = (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
+primIntBounds (DatatypeUint32 _)    = (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
+primIntBounds (DatatypeUint64 _)    = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
+primIntBounds (DatatypeUint _)      = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
+primIntBounds (DatatypeXorUint8 _)  = (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
+primIntBounds (DatatypeXorUint16 _) = (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
+primIntBounds (DatatypeXorUint32 _) = (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
+primIntBounds (DatatypeXorUint64 _) = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
+primIntBounds (DatatypeXorUint _)   = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
+primIntBounds _ = (0,-1) -- nonsensical bounds
+
+primFloatBounds :: PrimitiveDatatype () -> (Double,Double)
+primFloatBounds (DatatypeFloat _) = (-2.802597 * 10 ^^(-45),3.402823 * (10 ^^38))
+primFloatBounds (DatatypeFloat32 _) = (-2.802597 * 10 ^^(-45),3.402823 * (10 ^^38))
+primFloatBounds (DatatypeFloat64 _) = (-4.940656 * 10 ^^ (-324),1.797693 * (10 ^^308))
+primFloatBounds _ = (0,-1) -- nonsensical bounds
+
+bytes :: ComplexType
+bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexExpr 1) []
+index = TyPrim $ DatatypeUint64 ()
+int = TyPrim $ DatatypeInt ()
+uint = TyPrim $ DatatypeUint ()
+int8 = TyPrim $ DatatypeInt8 ()
+uint8 = TyPrim $ DatatypeUint8 ()
+int16 = TyPrim $ DatatypeInt16 ()
+uint16 = TyPrim $ DatatypeUint16 ()
+int32 = TyPrim $ DatatypeInt32 ()
+uint32 = TyPrim $ DatatypeUint32 ()
+int64 = TyPrim $ DatatypeInt64 ()
+uint64 = TyPrim $ DatatypeUint64 ()
+string = TyPrim $ DatatypeString ()
+bool = TyPrim $ DatatypeBool ()
+xoruint8 = TyPrim $ DatatypeXorUint8 ()
+xoruint16 = TyPrim $ DatatypeXorUint16 ()
+xoruint32 = TyPrim $ DatatypeXorUint32 ()
+xoruint64 = TyPrim $ DatatypeXorUint64 ()
+xoruint = TyPrim $ DatatypeXorUint ()
+float = TyPrim $ DatatypeFloat ()
+float32 = TyPrim $ DatatypeFloat32 ()
+float64 = TyPrim $ DatatypeFloat64 ()
+
+prims = [int,uint,int8,uint8,int16,uint16,int32,uint32,int64,uint64,string,bool,xoruint8,xoruint16,xoruint32,xoruint64,xoruint,float,float32,float64]
+
+numerics = filter isNumericBaseType prims
+
+defCType :: BaseType -> ComplexType
+defCType t = CType Public t (indexExpr 0) []
