@@ -44,6 +44,7 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | GenericError
                      Position -- ^ position
                      Doc -- ^message
+                 | MultipleErrors [SecrecError] -- a list of errors
   deriving (Show,Typeable,Data)
 
 instance PP SecrecError where
@@ -51,6 +52,7 @@ instance PP SecrecError where
     pp (ParserError err) = pp err
     pp (ModuleError p err) = pp p <> char ':' $+$ nest 4 (pp err)
     pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 msg
+    pp (MultipleErrors errs) = vcat $ map pp errs
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -108,6 +110,9 @@ data TypecheckerErr
     | CoercionException -- ^ @coerces@ fails to prove equality
         Doc Doc -- types
         (Either Doc SecrecError) -- environment or sub-error
+    | BiCoercionException -- ^ @coerces@ fails to prove equality
+        Doc Doc -- types
+        (Either Doc SecrecError) -- environment or sub-error
     | UnificationException -- ^ @unifies@ fails to unify two types
         Doc Doc -- types
         (Either Doc SecrecError) -- environment or sub-error
@@ -139,6 +144,7 @@ data TypecheckerErr
         [(Position,Doc)] -- duplicate declarations
         SecrecError -- sub-error
     | TemplateSolvingError -- error solving a template constraint
+        Doc -- template application
         SecrecError -- sub-error
     | StaticEvalError
         Doc -- expression
@@ -151,6 +157,7 @@ data TypecheckerErr
         SecrecError -- ^ sub-error
     | MultipleTypeSubstitutions -- a variable can be resolved in multiple ways
         [PPDyn] -- list of different substitution options
+    | ConstraintStackSizeExceeded Int
   deriving (Show,Typeable,Data)
 
 instance PP TypecheckerErr where
@@ -193,6 +200,10 @@ instance PP TypecheckerErr where
            (text "From:" <+> t1
         $+$ text "To:" <+> t2
         $+$ ppConstraintEnv env)
+    pp e@(BiCoercionException t1 t2 env) = text "Failed to apply bidirectional coercion:" $+$ nest 4
+           (text "Left:" <+> t1
+        $+$ text "Right:" <+> t2
+        $+$ ppConstraintEnv env)
     pp e@(UnificationException t1 t2 env) = text "Failed to unify:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
@@ -217,8 +228,8 @@ instance PP TypecheckerErr where
            (text "Expected match:" <+> ex
         $+$ text "Conflicting declarations: " $+$ nest 4 (vcat (map (\(p,d) -> pp p <> char ':' $+$ nest 4 d) defs))
         $+$ text "Conflict: " $+$ nest 4 (pp err))
-    pp (TemplateSolvingError err) = text "Failed to solve template instantiation:" $+$ nest 4
-        (text "Because of:" $+$ nest 4 (pp err))
+    pp (TemplateSolvingError app err) = text "Failed to solve template instantiation:" <+> quotes app
+        $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
     pp (StaticEvalError e) = text "Unable to statically evaluate expression:" $+$ nest 4 e
     pp (UnresolvedVariable v env) = text "Unable to resolve variable: " <+> quotes v $+$ nest 4
         (text "With bindings: " $+$ nest 4 env)
@@ -226,6 +237,7 @@ instance PP TypecheckerErr where
         ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
     pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
         where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
+    pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes (pp i)
 
 ppConstraintEnv (Left env) = text "With binginds:" $+$ nest 4 env
 ppConstraintEnv (Right suberr) = text "Because of:" $+$ nest 4 (pp suberr)

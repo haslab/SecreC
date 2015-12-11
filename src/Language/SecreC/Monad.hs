@@ -33,6 +33,7 @@ data Options
         , typeCheck             :: Bool
         , debugLexer            :: Bool
         , debugParser           :: Bool
+        , constraintStackSize   :: Int
         }
     | Help
     deriving (Show, Data, Typeable)
@@ -41,7 +42,7 @@ data ParserOpt = Parsec | Derp
   deriving (Data,Typeable,Read,Show)
 
 defaultOptions :: Options
-defaultOptions = Opts [] [] [] Parsec False True False False
+defaultOptions = Opts [] [] [] Parsec False True False False 5
 
 -- | SecreC Monad
 data SecrecM a = SecrecM { runSecrecM :: ReaderT Options IO (Either SecrecError (a,[SecrecWarning])) }

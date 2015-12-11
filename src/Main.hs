@@ -21,6 +21,7 @@ import System.FilePath
 
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Except
 
 import Text.PrettyPrint hiding (mode,Mode(..))
 
@@ -45,8 +46,9 @@ opts  = Opts {
     , parser                = Parsec &= typ "parsec OR derp" &= help "backend Parser type"
     , knowledgeInference    = def &= name "ki" &= help "Infer private data from public data" &= groupname "Optimization"
     , typeCheck             = True &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
+    , constraintStackSize   = 5 &= name "k-stack-size" &= explicit &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification"
     , debugLexer            = def &= name "debug-lexer" &= explicit &= help "Print lexer tokens to stderr" &= groupname "Debugging"
-    , debugParser            = def &= name "debug-parser" &= explicit &= help "Print parser result to stderr" &= groupname "Debugging"
+    , debugParser           = def &= name "debug-parser" &= explicit &= help "Print parser result to stderr" &= groupname "Debugging"
     }
     &= help "SecreC analyser"
 
@@ -85,6 +87,7 @@ processOpts opts = do
         (typeCheck opts || knowledgeInference opts)
         (debugLexer opts)
         (debugParser opts)
+        (constraintStackSize opts)
 
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")
@@ -113,7 +116,7 @@ secrec :: Options -> IO ()
 secrec opts = do
     let secrecFiles = inputs opts
     let secrecOuts = outputs opts
-    when (List.null secrecFiles) $ error "no SecreC input files"
+    when (List.null secrecFiles) $ throwError $ userError "no SecreC input files"
     ioSecrecM opts $ do
         modules <- parseModuleFiles secrecFiles
         let moduleso = resolveOutput secrecFiles secrecOuts modules

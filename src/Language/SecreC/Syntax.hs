@@ -340,8 +340,6 @@ instance PP iden => PP (DatatypeSpecifier iden loc) where
 
 data PrimitiveDatatype loc
     = DatatypeBool       loc
-    | DatatypeInt        loc
-    | DatatypeUint       loc
     | DatatypeInt8       loc
     | DatatypeUint8      loc
     | DatatypeInt16      loc
@@ -355,14 +353,11 @@ data PrimitiveDatatype loc
     | DatatypeXorUint16  loc
     | DatatypeXorUint32  loc
     | DatatypeXorUint64  loc
-    | DatatypeXorUint    loc
-    | DatatypeFloat      loc
     | DatatypeFloat32    loc
     | DatatypeFloat64    loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
 isPrimInt :: PrimitiveDatatype loc -> Bool
-isPrimInt (DatatypeInt        loc) = True
 isPrimInt (DatatypeInt8       loc) = True
 isPrimInt (DatatypeInt16      loc) = True
 isPrimInt (DatatypeInt32      loc) = True
@@ -370,7 +365,6 @@ isPrimInt (DatatypeInt64      loc) = True
 isPrimInt _ = False
 
 isPrimUint :: PrimitiveDatatype loc -> Bool
-isPrimUint (DatatypeUint       loc) = True
 isPrimUint (DatatypeUint8      loc) = True
 isPrimUint (DatatypeUint16     loc) = True
 isPrimUint (DatatypeUint32     loc) = True
@@ -379,11 +373,9 @@ isPrimUint (DatatypeXorUint8   loc) = True
 isPrimUint (DatatypeXorUint16  loc) = True
 isPrimUint (DatatypeXorUint32  loc) = True
 isPrimUint (DatatypeXorUint64  loc) = True
-isPrimUint (DatatypeXorUint    loc) = True
 isPrimUint _ = False
 
 isPrimFloat :: PrimitiveDatatype loc -> Bool
-isPrimFloat (DatatypeFloat      loc) = True
 isPrimFloat (DatatypeFloat32    loc) = True
 isPrimFloat (DatatypeFloat64    loc) = True
 isPrimFloat _ = False
@@ -391,8 +383,6 @@ isPrimFloat _ = False
 instance Location loc => Located (PrimitiveDatatype loc) where
     type LocOf (PrimitiveDatatype loc) = loc
     loc (DatatypeBool       l) = l
-    loc (DatatypeInt        l) = l
-    loc (DatatypeUint       l) = l
     loc (DatatypeInt8       l) = l
     loc (DatatypeUint8      l) = l
     loc (DatatypeInt16      l) = l
@@ -406,13 +396,9 @@ instance Location loc => Located (PrimitiveDatatype loc) where
     loc (DatatypeXorUint16  l) = l
     loc (DatatypeXorUint32  l) = l
     loc (DatatypeXorUint64  l) = l
-    loc (DatatypeXorUint    l) = l
-    loc (DatatypeFloat      l) = l
     loc (DatatypeFloat32    l) = l
     loc (DatatypeFloat64    l) = l
     updLoc (DatatypeBool       _) l = DatatypeBool      l
-    updLoc (DatatypeInt        _) l = DatatypeInt       l
-    updLoc (DatatypeUint       _) l = DatatypeUint      l
     updLoc (DatatypeInt8       _) l = DatatypeInt8      l
     updLoc (DatatypeUint8      _) l = DatatypeUint8     l
     updLoc (DatatypeInt16      _) l = DatatypeInt16     l
@@ -426,15 +412,11 @@ instance Location loc => Located (PrimitiveDatatype loc) where
     updLoc (DatatypeXorUint16  _) l = DatatypeXorUint16 l
     updLoc (DatatypeXorUint32  _) l = DatatypeXorUint32 l
     updLoc (DatatypeXorUint64  _) l = DatatypeXorUint64 l
-    updLoc (DatatypeXorUint    _) l = DatatypeXorUint   l
-    updLoc (DatatypeFloat      _) l = DatatypeFloat     l
     updLoc (DatatypeFloat32    _) l = DatatypeFloat32   l
     updLoc (DatatypeFloat64    _) l = DatatypeFloat64   l
 
 instance PP (PrimitiveDatatype loc) where
     pp (DatatypeBool       _) = text "bool"
-    pp (DatatypeInt        _) = text "int"
-    pp (DatatypeUint       _) = text "uint"
     pp (DatatypeInt8       _) = text "int8"
     pp (DatatypeUint8      _) = text "uint8"
     pp (DatatypeInt16      _) = text "int16"
@@ -448,8 +430,6 @@ instance PP (PrimitiveDatatype loc) where
     pp (DatatypeXorUint16  _) = text "xor_uint16"
     pp (DatatypeXorUint32  _) = text "xor_uint32"
     pp (DatatypeXorUint64  _) = text "xor_uint64"
-    pp (DatatypeXorUint    _) = text "xor_uint"
-    pp (DatatypeFloat      _) = text "float"
     pp (DatatypeFloat32    _) = text "float32"
     pp (DatatypeFloat64    _) = text "float64"
   
@@ -620,6 +600,10 @@ data Op iden loc
     | OpCast     loc (CastType iden loc)
     | OpInv      loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
+
+isOpCast :: Op iden loc -> Maybe (CastType iden loc)
+isOpCast (OpCast _ t) = Just t
+isOpCast _ = Nothing
 
 instance PP iden => PP (Op iden loc) where
     pp (OpAdd  l) = text "+"
@@ -825,7 +809,6 @@ data Expression iden loc
     | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
     | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
     | BinaryExpr loc (Expression iden loc) (Op iden loc) (Expression iden loc)
-    | CastExpr loc (CastType iden loc) (Expression iden loc)
     | UnaryExpr loc (Op iden loc) (Expression iden loc)
     | PreOp loc (Op iden loc) (Expression iden loc)
     | PostOp loc (Op iden loc) (Expression iden loc)
@@ -835,9 +818,9 @@ data Expression iden loc
     | ProcCallExpr loc (ProcedureName iden loc) [Expression iden loc]
     | PostIndexExpr loc (Expression iden loc) (Subscript iden loc)
     | SelectionExpr loc (Expression iden loc) (AttributeName iden loc)
-    | ArrayConstructorPExpr loc (NeList (Expression iden loc))
     | RVariablePExpr loc (VarName iden loc)
     | LitPExpr loc (Literal loc)
+    | ArrayConstructorPExpr loc (NeList (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (Expression iden loc) where
@@ -846,7 +829,6 @@ instance Location loc => Located (Expression iden loc) where
     loc (QualExpr l _ _) = l
     loc (CondExpr l _ _ _) = l
     loc (BinaryExpr l _ _ _) = l
-    loc (CastExpr l _ _) = l
     loc (PreOp l _ _) = l
     loc (PostOp l _ _) = l
     loc (UnaryExpr l _ _) = l
@@ -863,7 +845,6 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (QualExpr _ x y) l = QualExpr l x y
     updLoc (CondExpr _ x y z) l = CondExpr l x y z
     updLoc (BinaryExpr _ x y z) l = BinaryExpr l x y z
-    updLoc (CastExpr _ x y) l = CastExpr l x y
     updLoc (PreOp _ x y) l = PreOp l x y
     updLoc (PostOp _ x y) l = PostOp l x y
     updLoc (UnaryExpr _ x y) l = UnaryExpr l x y
@@ -882,7 +863,6 @@ instance PP iden => PP (Expression iden loc) where
     pp (QualExpr _ e t) = pp e <+> text "::" <+> (pp t)
     pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
     pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
-    pp (CastExpr _ t e) = parens (pp t) <+> pp e
     pp (PreOp _ (OpAdd _) e) = text "++" <> pp e
     pp (PreOp _ (OpSub _) e) = text "--" <> pp e
     pp (PostOp _ (OpAdd _) e) = pp e <> text "++"
@@ -899,20 +879,20 @@ instance PP iden => PP (Expression iden loc) where
     pp (LitPExpr _ l) = pp l
   
 data CastType iden loc
-    = CastPrim loc (PrimitiveDatatype loc)
-    | CastTy loc (TypeName iden loc)
+    = CastPrim (PrimitiveDatatype loc)
+    | CastTy (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
 instance Location loc => Located (CastType iden loc) where
     type LocOf (CastType iden loc) = loc
-    loc (CastPrim l _) = l
-    loc (CastTy l _) = l
-    updLoc (CastPrim _ x) l = CastPrim l x
-    updLoc (CastTy _ x) l = CastTy l x
+    loc (CastPrim t) = loc t
+    loc (CastTy t) = loc t
+    updLoc (CastPrim x) l = CastPrim $ updLoc x l
+    updLoc (CastTy x) l = CastTy $ updLoc x l
 
 instance PP iden => PP (CastType iden loc) where
-    pp (CastPrim _ p) = pp p
-    pp (CastTy _ v) = pp v
+    pp (CastPrim p) = pp p
+    pp (CastTy v) = pp v
   
 data BinaryAssignOp loc
     = BinaryAssignEqual loc

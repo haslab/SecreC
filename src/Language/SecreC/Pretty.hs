@@ -32,6 +32,9 @@ instance PP a => PP (Maybe a) where
 instance PP Integer where
     pp = integer
 
+instance PP Int where
+    pp = int
+
 instance PP Int64 where
     pp = text . show
 

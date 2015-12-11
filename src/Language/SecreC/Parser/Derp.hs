@@ -203,8 +203,8 @@ scDatatypeSpecifier = scPrimitiveDatatype ==> (\x1 -> PrimitiveSpecifier (loc x1
 
 scPrimitiveDatatype :: ScParser (PrimitiveDatatype Position)
 scPrimitiveDatatype = scTok BOOL ==> (DatatypeBool . loc)
-                  <|> scTok INT ==> (DatatypeInt . loc)
-                  <|> scTok UINT ==> (DatatypeUint . loc)
+                  <|> scTok INT ==> (DatatypeInt64 . loc)
+                  <|> scTok UINT ==> (DatatypeUint64 . loc)
                   <|> scTok INT8 ==> (DatatypeInt8 . loc)
                   <|> scTok UINT8 ==> (DatatypeUint8 . loc)
                   <|> scTok INT16 ==> (DatatypeInt16 . loc)
@@ -218,8 +218,8 @@ scPrimitiveDatatype = scTok BOOL ==> (DatatypeBool . loc)
                   <|> scTok XOR_UINT16 ==> (DatatypeXorUint16 . loc)
                   <|> scTok XOR_UINT32 ==> (DatatypeXorUint32 . loc)
                   <|> scTok XOR_UINT64 ==> (DatatypeXorUint64 . loc)
-                  <|> scTok XOR_UINT ==> (DatatypeXorUint . loc)
-                  <|> scTok FLOAT ==> (DatatypeFloat . loc)
+                  <|> scTok XOR_UINT ==> (DatatypeXorUint64 . loc)
+                  <|> scTok FLOAT ==> (DatatypeFloat32 . loc)
                   <|> scTok FLOAT32 ==> (DatatypeFloat32 . loc)
                   <|> scTok FLOAT64 ==> (DatatypeFloat64 . loc)
 
@@ -504,12 +504,12 @@ scMultiplicativeExpression = scFoldl
       <|> scChar '%' ==> (OpMod . loc)
 
 scCastExpression :: ScParser (Expression Identifier Position)
-scCastExpression = scCastType <~> scCastExpression ==> (\(x1,x2) -> CastExpr (loc x1) x1 x2)
+scCastExpression = scCastType <~> scCastExpression ==> (\(x1,x2) -> UnaryExpr (loc x1) (OpCast (loc x1) x1) x2)
                <|> scPrefixOp
     
 scCastType :: ScParser (CastType Identifier Position)
-scCastType = scChar '(' <~> scPrimitiveDatatype <~ scChar ')' ==> (\(x1,x2) -> CastPrim (loc x1) x2)
-         <|> scChar '(' <~> scTypeId <~ scChar ')' ==> (\(x1,x2) -> CastTy (loc x1) x2)
+scCastType = scChar '(' <~> scPrimitiveDatatype <~ scChar ')' ==> (\(x1,x2) -> CastPrim x2)
+         <|> scChar '(' <~> scTypeId <~ scChar ')' ==> (\(x1,x2) -> CastTy x2)
     
 scPrefixOp :: ScParser (Expression Identifier Position)
 scPrefixOp = scTok INC_OP <~> scLvalue ==> (\(x1,x2) -> PreOp (loc x1) (OpAdd $ loc x1) x2)

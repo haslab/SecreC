@@ -12,10 +12,17 @@ import qualified Data.Map as Map
 import Data.Set (Set(..))
 import qualified Data.Set as Set
 import Data.Maybe
+import Data.Unique
+import Data.IORef
+
+import Text.PrettyPrint
 
 import Control.Monad
 
 import Unsafe.Coerce
+
+mconcatNe :: Monoid a => NeList a -> a
+mconcatNe = mconcat . toList
 
 mapSetM :: (Monad m,Ord a) => (a -> m a) -> Set a -> m (Set a)
 mapSetM f xs = liftM Set.fromList $ mapM f $ Set.toList xs
@@ -71,6 +78,14 @@ headNe (ConsNe x _) = x
 updHeadNe :: (a -> a) -> NeList a -> NeList a
 updHeadNe f (WrapNe x) = WrapNe (f x)
 updHeadNe f (ConsNe x xs) = ConsNe (f x) xs
+
+updHeadNeM :: Monad m => (a -> m (x,a)) -> NeList a -> m (x,NeList a)
+updHeadNeM f (WrapNe x) = do
+    (r,x') <- f x
+    return (r,WrapNe x')
+updHeadNeM f (ConsNe x xs) = do
+    (r,x') <- f x
+    return (r,ConsNe x' xs)
 
 snocNe :: NeList a -> a -> NeList a
 snocNe (WrapNe x) y = ConsNe x (WrapNe y)
@@ -251,6 +266,9 @@ instance Show PPDyn where
 instance PP PPDyn where
     pp (PPDyn d) = pp d
 
+instance Show (IORef a) where
+    show _ = "<IORef>"
+
 toPPDyn :: (Data a,Typeable a,Show a,PP a) => a -> PPDyn
 toPPDyn v = PPDyn v
 
@@ -285,3 +303,40 @@ eqTypeOf (TypeOf t1) (TypeOf t2) = if t1 == t2 then unsafeCoerce EqT else NeqT
 
 instance Show (a -> b) where
     show _ = "<function>"
+
+instance Show Unique where
+    show = show . hashUnique
+
+data UniqRef a = UniqRef
+    { uniqId :: Unique
+    , uniqRef :: !(IORef a)
+    }
+  deriving (Data,Typeable)
+
+instance Eq (UniqRef a) where
+    i1 == i2 = uniqId i1 == uniqId i2
+instance Ord (UniqRef a) where
+    compare i1 i2 = compare (uniqId i1) (uniqId i2)
+    
+instance Show (UniqRef a) where
+    show r = "<UniqRef>"
+    
+instance PP (UniqRef a) where
+    pp r = text (show r)
+    
+newUniqRef :: a -> IO (UniqRef a)
+newUniqRef a = do
+    i <- newUnique
+    r <- newIORef a
+    return $ UniqRef i r
+
+readUniqRef :: UniqRef a -> IO a
+readUniqRef r = readIORef (uniqRef r)
+
+writeUniqRef :: UniqRef a -> a -> IO ()
+writeUniqRef r x = writeIORef (uniqRef r) x
+
+instance Data Unique where
+    gunfold = error "gunfold Unique"
+    toConstr = error "toConstr Unique"
+    dataTypeOf = error "dataTypeof Unique"

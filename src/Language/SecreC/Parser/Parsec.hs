@@ -277,8 +277,8 @@ scDatatypeSpecifier = (apA scPrimitiveDatatype (\x1 -> PrimitiveSpecifier (loc x
 
 scPrimitiveDatatype :: Monad m => ScParserT u m (PrimitiveDatatype Position)
 scPrimitiveDatatype = (apA (scTok BOOL) (DatatypeBool . loc)
-                  <|> apA (scTok INT) (DatatypeInt . loc)
-                  <|> apA (scTok UINT) (DatatypeUint . loc)
+                  <|> apA (scTok INT) (DatatypeInt64 . loc)
+                  <|> apA (scTok UINT) (DatatypeUint64 . loc)
                   <|> apA (scTok INT8) (DatatypeInt8 . loc)
                   <|> apA (scTok UINT8) (DatatypeUint8 . loc)
                   <|> apA (scTok INT16) (DatatypeInt16 . loc)
@@ -292,8 +292,8 @@ scPrimitiveDatatype = (apA (scTok BOOL) (DatatypeBool . loc)
                   <|> apA (scTok XOR_UINT16) (DatatypeXorUint16 . loc)
                   <|> apA (scTok XOR_UINT32) (DatatypeXorUint32 . loc)
                   <|> apA (scTok XOR_UINT64) (DatatypeXorUint64 . loc)
-                  <|> apA (scTok XOR_UINT) (DatatypeXorUint . loc)
-                  <|> apA (scTok FLOAT) (DatatypeFloat . loc)
+                  <|> apA (scTok XOR_UINT) (DatatypeXorUint64 . loc)
+                  <|> apA (scTok FLOAT) (DatatypeFloat32 . loc)
                   <|> apA (scTok FLOAT32) (DatatypeFloat32 . loc)
                   <|> apA (scTok FLOAT64) (DatatypeFloat64 . loc)) <?> "primitive type"
 
@@ -598,14 +598,12 @@ scMultiplicativeExpression = scFoldl
       <|> apA (scChar '%') (OpMod . loc)
 
 scCastExpression :: Monad m => ScParserT u m (Expression Identifier Position)
-scCastExpression = (apA2 scCastType scCastExpression (\x1 x2 -> CastExpr (loc x1) x1 x2)
+scCastExpression = (apA2 scCastType scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpCast (loc x1) x1) x2)
             <||> scPrefixOp) <?> "cast expression"
   where
 
 scCastType :: Monad m => ScParserT u m (CastType Identifier Position)
-scCastType = scBraces' $ \x1 ->
-    apA scPrimitiveDatatype (CastPrim (loc x1))
-    <|> apA scTypeId (CastTy (loc x1))
+scCastType = scBraces (apA scPrimitiveDatatype (CastPrim) <|> apA scTypeId (CastTy))
 
 scPrefixOp :: Monad m => ScParserT u m (Expression Identifier Position)
 scPrefixOp = (apA2 (scTok INC_OP) scLvalue (\x1 x2 -> PreOp (loc x1) (OpAdd $ loc x1) x2)

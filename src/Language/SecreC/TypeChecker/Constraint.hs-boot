@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module Language.SecreC.TypeChecker.Constraint where
 
 import Language.SecreC.TypeChecker.Base
@@ -12,38 +14,45 @@ import Data.Data
 
 tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc Type
 
-proveWith :: (Vars loc,Location loc) => TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
+proveWith :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
 
-prove :: (Vars loc,Location loc) => TcM loc a -> TcM loc a
+prove :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc a
 
-compares :: (Vars loc,Location loc) => loc -> Type -> Type -> TcM loc Ordering
+tcProve :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc (a,TDict loc)
 
-comparesList :: (Vars loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc Ordering
+compares :: (VarsTcM loc,Location loc) => loc -> Type -> Type -> TcM loc Ordering
 
-unifies :: (Vars loc,Location loc) => loc -> Type -> Type -> TcM loc ()
+comparesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc Ordering
 
-unifiesSizes :: (Vars loc,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc ()
+unifies :: (VarsTcM loc,Location loc) => loc -> Type -> Type -> TcM loc ()
 
-unifiesList :: (Vars loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
+unifiesSizes :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc ()
 
-equalsExpr :: (Vars loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
+unifiesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
+
+equalsExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
 
 tcCstrM :: Location loc => loc -> TCstr -> TcM loc Type
 
-resolveTCstr :: (Vars loc,Location loc) => loc -> TCstr -> TcM loc Type
+tcCstrM_ :: Location loc => loc -> TCstr -> TcM loc ()
+
+resolveTCstr :: (VarsTcM loc,Location loc) => loc -> TCstr -> TcM loc Type
 
 resolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc Type
 
 tryResolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc (Maybe Type)
 
-resolveTK :: (Vars loc,Location loc) => loc -> TCstr -> TcM loc Type
+resolveTK :: (VarsTcM loc,Location loc) => loc -> TCstr -> TcM loc Type
 
-solve :: (Vars loc,Location loc) => TcM loc ()
+solve :: (VarsTcM loc,Location loc) => TcM loc ()
 
-coercesList :: (Vars loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
+coercesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
 
-unifiesExpr :: (Vars loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
+unifiesExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
 
 constraintError :: Location loc => (Doc -> Doc -> Either Doc SecrecError -> TypecheckerErr) -> loc -> Doc -> Doc -> Maybe SecrecError -> TcM loc a
 
-resolveCVar :: (Vars loc,Location loc) => loc -> VarName VarIdentifier () -> TcM loc ComplexType
+resolveCVar :: (VarsTcM loc,Location loc) => loc -> VarName VarIdentifier () -> TcM loc ComplexType
+
+unifiesTIdentifier :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> TIdentifier -> TcM loc ()
+

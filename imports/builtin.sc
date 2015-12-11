@@ -1346,7 +1346,7 @@ bool operator == (bool x,bool y) {
     return ret;
 } 
 
-// array greater
+// array equal
 
 template <domain D, type T, dim N>
 D bool[[N]] operator == (D T[[N]] x,D T[[N]] y) {
@@ -1417,7 +1417,7 @@ bool operator != (bool x,bool y) {
     return ret;
 } 
 
-// array greater
+// array not equal
 
 template <domain D, type T, dim N>
 D bool[[N]] operator != (D T[[N]] x,D T[[N]] y) {
