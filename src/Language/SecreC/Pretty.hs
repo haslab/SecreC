@@ -6,7 +6,7 @@ import Text.Ordinal
 import Data.Foldable
 import Data.Int
 import Data.Word
-import Data.Generics hiding (empty)
+import Data.Generics hiding (empty,GT)
 
 class PP a where
     pp :: a -> Doc
@@ -24,6 +24,14 @@ sepBy sep ps = hsep (punctuate sep $ toList ps)
 
 ppOrdinal :: (Show a,Integral a) => a -> Doc
 ppOrdinal = text . show . showOrdinal
+
+instance PP Doc where
+    pp = id
+    
+instance PP Ordering where
+    pp EQ = text "="
+    pp LT = text "<"
+    pp GT = text ">"
 
 instance PP a => PP (Maybe a) where
     pp Nothing = empty

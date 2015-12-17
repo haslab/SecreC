@@ -44,6 +44,11 @@ import Unsafe.Coerce
 import Text.PrettyPrint as PP hiding (float,int)
 import qualified Text.PrettyPrint as Pretty
 
+import qualified Data.HashTable.Weak.IO as WeakHash
+import qualified System.Mem.Weak.Map as WeakMap
+
+import System.Mem.Weak.Exts as Weak
+
 -- | Gets the variables of a given type class
 getVars :: Location loc => Scope -> TypeClass -> TcM loc (Map VarIdentifier (EntryEnv loc))
 getVars GlobalScope c = do
@@ -192,6 +197,14 @@ newKind (KindName (Typed l t) n) = do
             let e = EntryEnv l t UnknownValue
             modify $ \env -> env { kinds = Map.insert n e (kinds env) } 
 
+-- solves all possible head constraints
+solveTemplate :: (VarsTcM loc,Location loc) => loc -> TcM loc ()
+solveTemplate l = do
+    opts <- TcM $ lift $ Reader.ask
+    if typecheckTemplates opts
+        then solve l False
+        else return ()
+
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
 addTemplateOperator :: (VarsTcM loc,Location loc) => [VarName VarIdentifier Type] -> Op VarIdentifier (Typed loc) -> TcM loc ()
@@ -199,6 +212,7 @@ addTemplateOperator vars op = do
     let Typed l t = loc op
     d <- typeToDecType l t
     let o = fmap (const ()) op
+    solveTemplate l
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) [] d) UnknownValue
@@ -209,9 +223,12 @@ newOperator :: (VarsTcM loc,Location loc) => Op VarIdentifier (Typed loc) -> TcM
 newOperator op = do
     let Typed l t = loc op
     d <- typeToDecType l t
+    i <- case decTypeTyVarId d of
+        Just i -> return i
+        otherwise -> genericError (locpos l) $ text "Unresolved declaration for operator" <+> pp op
     let o = fmap (const ()) op
     let e = EntryEnv l t UnknownValue
-    modify $ \env -> env { operators = Map.alter (Just . Map.insert (decTypeTyVarId d) e . maybe Map.empty id) o (operators env) }
+    modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
   
  -- | Checks that an oeprator exists.
 checkOperator :: (VarsTcM loc,Location loc) => Op VarIdentifier loc -> TcM loc [EntryEnv loc]
@@ -225,7 +242,7 @@ checkOperator op = do
     ps <- liftM operators State.get
     let cop = fmap (const ()) op
     case Map.lookup cop ps of
-        Nothing -> tcError (locpos $ loc op) $ NotDefinedOperator $ pp cop
+        Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
         Just es -> return $ Map.elems es
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
@@ -233,6 +250,7 @@ checkOperator op = do
 addTemplateProcedure :: (VarsTcM loc,Location loc) => [VarName VarIdentifier Type] -> ProcedureName VarIdentifier (Typed loc) -> TcM loc ()
 addTemplateProcedure vars (ProcedureName (Typed l t) n) = do
     dt <- typeToDecType l t
+    solveTemplate l
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) [] dt) UnknownValue
@@ -242,15 +260,18 @@ addTemplateProcedure vars (ProcedureName (Typed l t) n) = do
 newProcedure :: (VarsTcM loc,Location loc) => ProcedureName VarIdentifier (Typed loc) -> TcM loc ()
 newProcedure (ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
+    i <- case decTypeTyVarId d of
+        Just i -> return i
+        otherwise -> genericError (locpos l) $ text "Unresolved declaration for procedure" <+> quotes (pp n)
     let e = EntryEnv l t UnknownValue
-    modify $ \env -> env { procedures = Map.alter (Just . Map.insert (decTypeTyVarId d) e . maybe Map.empty id) n (procedures env) }
+    modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
   
  -- | Checks that a procedure exists.
 checkProcedure :: Location loc => ProcedureName VarIdentifier loc -> TcM loc [EntryEnv loc]
 checkProcedure (ProcedureName l n) = do
     ps <- liftM procedures State.get
     case Map.lookup n ps of
-        Nothing -> tcError (locpos l) $ NotDefinedProcedure (ppVarId n)
+        Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (ppVarId n)
         Just es -> return $ Map.elems es
     
 -- Adds a new (non-overloaded) template structure to the environment.
@@ -258,6 +279,7 @@ checkProcedure (ProcedureName l n) = do
 addTemplateStruct :: (VarsTcM loc,Location loc) => [VarName VarIdentifier Type] -> TypeName VarIdentifier (Typed loc) -> TcM loc ()
 addTemplateStruct vars (TypeName (Typed l t) n) = do
     struct <- typeToDecType l t
+    solveTemplate l
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) [] struct) UnknownValue
@@ -301,7 +323,7 @@ newStruct (TypeName (Typed l t) n) = do
 
 addSubstsM :: Location loc => TSubsts -> TcM loc ()
 addSubstsM ss = do
-    updateHeadTDict $ \d -> return ((),mappend d (TDict Map.empty ss))
+    updateHeadTDict $ \d -> return ((),mappend d (TDict Map.empty Set.empty ss))
     mapM_ (uncurry dirtyVarDependencies) $ Map.toList ss
 
 ---- | Adds a new template constraint to the environment
@@ -338,6 +360,12 @@ newTyVar = do
     n <- uniqVarId "t"
     let v = VarName () n
     return $ ComplexT $ CVar v
+
+newDecVar :: Location loc => TcM loc DecType
+newDecVar = do
+    n <- uniqVarId "dec"
+    let v = VarName () n
+    return $ DVar v
     
 uniqVarId :: Identifier -> TcM loc VarIdentifier
 uniqVarId n = do
@@ -363,18 +391,12 @@ addValueM l (VarName t n) e | typeClass "addValueL" (typed t) == typeClass "addV
     dirtyVarDependencies (VarName () n) (IdxT $ fmap typed e)
 addValueM l v e = genericError (locpos l) $ text "unification: mismatching expression types"
 
-resolveCstr :: Location loc => loc -> TCstr -> (loc -> TCstr -> TcM loc Type) -> TcM loc Type
-resolveCstr l k resolve = do
-    dict <- liftM (headNe . tDict) State.get
-    iok <- updateHeadTDict (insertTDictCstr l k Unevaluated)
-    resolveIOCstr l iok resolve
-
 openCstr l iok = do
     opts <- TcM $ lift ask
     size <- liftM (length . openedCstrs) State.get
     if size >= constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
-        else State.modify $ \e -> e { openedCstrs = iok : openedCstrs e }
+        else State.modify $ \e -> e { openedCstrs = Set.insert iok $ openedCstrs e }
 
 newDict l = do
     opts <- TcM $ lift ask
@@ -383,25 +405,39 @@ newDict l = do
         then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
         else State.modify $ \e -> e { tDict = ConsNe mempty (tDict e) }
 
-resolveIOCstr :: Location loc => loc -> IOCstr -> (loc -> TCstr -> TcM loc Type) -> TcM loc Type
+resolveIOCstr :: Location loc => loc -> IOCstr -> (loc -> TCstr -> TcM loc ()) -> TcM loc ()
 resolveIOCstr l iok resolve = do
     st <- liftIO $ readUniqRef (kStatus iok)
     case st of
-        Evaluated t -> return t
+        Evaluated -> remove
         Erroneous err -> throwError err
-        Unevaluated -> do
-            openCstr l iok
-            t <- resolve l $ kCstr iok
-            liftIO $ writeUniqRef (kStatus iok) (Evaluated t)
-            State.modify $ \e -> e { openedCstrs = List.delete iok (openedCstrs e) } 
-            updateHeadTDict $ \d -> return ((),d { tCstrs = Map.delete (uniqId $ kStatus iok) (tCstrs d) })
-            return t
+        Unevaluated -> trySolve
+  where
+    trySolve = do
+        openCstr l iok
+        t <- resolve l $ kCstr iok
+        liftIO $ writeUniqRef (kStatus iok) Evaluated
+        State.modify $ \e -> e { openedCstrs = Set.delete iok (openedCstrs e) } 
+        remove
+        return t
+    remove = updateHeadTDict $ \d -> return ((),d { tCstrs = Map.delete (uniqId $ kStatus iok) (tCstrs d) })
 
 -- | adds a dependency on the given variable for all the opened constraints
 addVarDependencies :: Location loc => VarName VarIdentifier () -> TcM loc ()
 addVarDependencies v = do
     cstrs <- liftM openedCstrs State.get
-    liftIO $ modifyIORef' globalEnv $ \g -> g { tDeps = Map.insertWith (++) v cstrs (tDeps g) }
+    addVarDependency v cstrs
+    
+addVarDependency :: Location loc => VarName VarIdentifier () -> Set IOCstr -> TcM loc ()
+addVarDependency v cstrs = do
+    deps <- liftM tDeps $ liftIO $ readIORef globalEnv
+    mb <- liftIO $ WeakHash.lookup deps (varNameId v)
+    m <- case mb of
+        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (varNameId v) m (MkWeak $ mkWeakKey m) >> return m
+        Just m -> return m
+    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) (kStatus k) (MkWeak $ mkWeakKey $ kStatus k)
+    
+--    liftIO $ modifyIORef' globalEnv $ \g -> g { tDeps = Map.insertWith (Set.union) v cstrs (tDeps g) }
 
 addHeadTDict :: Location loc => TDict loc -> TcM loc ()
 addHeadTDict d = updateHeadTDict $ \x -> return ((),mappend x d)
@@ -420,15 +456,21 @@ dirtyVarDependencies v t = do
     cstrs <- liftM openedCstrs State.get
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
 --    liftIO $ putStrLn $ "dirtyDependencies " ++ ppr v ++ " " ++ ppr t
-    case Map.lookup v deps of
+    mb <- liftIO $ WeakHash.lookup deps (varNameId v)
+    case mb of
         Nothing -> return ()
-        Just ios -> do
---            liftIO $ putStrLn $ "deps " ++ show (map (show . hashUnique . uniqId . kStatus) ios)
---            liftIO $ putStrLn $ "opens " ++ show (map (show . hashUnique . uniqId . kStatus) cstrs)
-            let dirty x = unless (elem x cstrs) $ do
---                liftIO $ putStrLn $ "dirty " ++ show (hashUnique $ uniqId $ kStatus x)
-                liftIO $ writeUniqRef (kStatus x) Unevaluated
-            mapM_ dirty ios
+        Just m -> do
+            liftIO $ WeakMap.forM_ m $ \(u,x) -> unless (elem x $ Set.map kStatus cstrs) $ writeUniqRef x Unevaluated
+
+--    case Map.lookup v deps of
+--        Nothing -> return ()
+--        Just ios -> do
+----            liftIO $ putStrLn $ "deps " ++ show (map (show . hashUnique . uniqId . kStatus) $ Set.toList ios)
+----            liftIO $ putStrLn $ "opens " ++ show (map (show . hashUnique . uniqId . kStatus) cstrs)
+--            let dirty x = unless (elem x cstrs) $ do
+----                liftIO $ putStrLn $ "dirty " ++ show (hashUnique $ uniqId $ kStatus x) ++ " " ++ ppr (kCstr x)
+--                liftIO $ writeUniqRef (kStatus x) Unevaluated
+--            mapM_ dirty ios
 
 vars env = Map.union (localVars env) (globalVars env)
 
@@ -439,5 +481,8 @@ getTSubsts = do
     let sst = tSubsts $ mconcatNe $ tDict env
     return $ Map.unions [es,sst]
 
+isChoice :: Location loc => Unique -> TcM loc Bool
+isChoice x = liftM (Set.member x . tChoices . mconcatNe . tDict) State.get
 
-
+addChoice :: Location loc => Unique -> TcM loc ()
+addChoice x = updateHeadTDict $ \d -> return ((),d { tChoices = Set.insert x $ tChoices d })

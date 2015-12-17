@@ -114,9 +114,11 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM tcTemplateTypeArgument args
     let ts = map (typed . loc) args'
     let vn = bimap mkVarId id n
-    dec <- tcTopCstrM l $ TDec (fmap (const ()) vn) ts
-    ret <- tcTopCstrM l $ TRet dec
-    let n' = fmap (flip Typed dec) vn
+    dec <- newDecVar
+    tcTopCstrM l $ TDec (fmap (const ()) vn) ts dec
+    ret <- newTyVar
+    tcTopCstrM l $ TRet dec ret
+    let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l ret) n' args'
 tcDatatypeSpec (VariableSpecifier l v) = do
     let vv = bimap mkVarId id v
@@ -175,7 +177,7 @@ tcRetTypeSpec (ReturnType l (Just s)) = do
 typeDim :: (VarsTcM loc,Location loc) => loc -> ComplexType -> TcM loc (Maybe Word64)
 typeDim l ct@(CType _ _ e _) = do
     let le = fmap (Typed l) e
-    mb <- tryEvalIndexExpr le
+    mb <- tryEvaluateIndexExpr le
     case mb of
         Left err -> do
             tcWarn (locpos l) $ NoStaticDimension (pp ct) err
@@ -184,16 +186,14 @@ typeDim l ct@(CType _ _ e _) = do
 typeDim l t = genericError (locpos l) $ text "No dimension for type" <+> pp t
 
 projectMatrixType :: (VarsTcM loc,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc ComplexType
-projectMatrixType l ct rngs = do
-    let err = TypecheckerError (locpos l) . UnresolvedMatrixProjection (pp ct) (brackets $ ppArrayRanges rngs)
-    addErrorM err (projectMatrixCType l ct rngs)
+projectMatrixType l ct rngs = projectMatrixCType l ct rngs
   where
     projectMatrixCType :: (VarsTcM loc,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc ComplexType
     projectMatrixCType l ct@(CType sec t dim szs) rngs = do
         szs' <- resolveSizes l dim szs
-        mb <- tryEvalIndexExpr (fmap (Typed l) dim)
+        mb <- tryEvaluateIndexExpr (fmap (Typed l) dim)
         case mb of
-            Left err -> tcError (locpos l) $ NonStaticDimension (pp ct) err
+            Left err -> tcError (locpos l) $ Halt $ NonStaticDimension (pp ct) err
             Right d -> do
                 szs'' <- projectSizes l ct 1 szs' rngs  
                 return $ CType sec t (indexExpr $ toEnum $ length szs'') szs''
@@ -214,7 +214,7 @@ projectSizes p ct i (x:xs) (ArraySlice y1 y2:ys) = do
 
 projectSize :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Word64 -> Expression VarIdentifier Type -> ArrayIndex -> ArrayIndex -> TcM loc (Expression VarIdentifier Type)
 projectSize p ct i x y1 y2 = do
-    mb <- tryEvalIndexExpr (fmap (Typed p) x)
+    mb <- tryEvaluateIndexExpr (fmap (Typed p) x)
     let low = case y1 of
                 NoArrayIndex -> StaticArrayIndex 0
                 i -> i
@@ -244,7 +244,7 @@ projectStructField l (StructType _ _ _ atts) (AttributeName _ a) = do -- project
 
 resolveSizes :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc [Expression VarIdentifier Type]
 resolveSizes l d [] = do
-    i <- evalIndexExpr $ fmap (Typed l) d
+    i <- evaluateIndexExpr $ fmap (Typed l) d
     replicateM (fromEnum i) newSizeVar
 resolveSizes l d xs = return xs
 
@@ -252,13 +252,14 @@ subtractIndexExprs :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentif
 subtractIndexExprs l e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
 subtractIndexExprs l e1@(LitPExpr l1 (IntLit l2 i1)) e2@(LitPExpr _ (IntLit _ i2)) = return $ LitPExpr l1 $ IntLit l2 (i1 - i2)
 subtractIndexExprs l e1 e2 = do
-    dec <- tcCstrM l $ PDec (Right $ OpSub $ NoType "subtractIndexExprs") [BaseT index,BaseT index] (BaseT index)
-    return $ BinaryExpr (BaseT index) e1 (OpSub dec) e2
+    dec <- newDecVar
+    tcCstrM l $ PDec (Right $ OpSub $ NoType "subtractIndexExprs") [BaseT index,BaseT index] (BaseT index) dec
+    return $ BinaryExpr (BaseT index) e1 (OpSub $ DecT dec) e2
 
 isZeroTypeExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> TcM loc Bool
 isZeroTypeExpr l e = do
     let e' = fmap (Typed l) e
-    mb <- tryEvalIndexExpr e'
+    mb <- tryEvaluateIndexExpr e'
     case mb of
         Right 0 -> return True
         otherwise -> return False     

@@ -26,6 +26,7 @@ import qualified Data.Set as Set
 import Data.Map (Map(..))
 import qualified Data.Map as Map
 import Data.Bifunctor
+import Data.Hashable
 
 import Control.Applicative
 import Control.Monad.State as State
@@ -41,6 +42,10 @@ import Unsafe.Coerce
 import Text.PrettyPrint as PP hiding (float,int)
 import qualified Text.PrettyPrint as Pretty
 
+import qualified Data.HashTable.Weak.IO as WeakHash
+import qualified System.Mem.Weak.Map as WeakMap
+import System.Mem.Weak.Exts as Weak
+
 -- warn for unused local variables
 
 data Scope = GlobalScope | LocalScope
@@ -48,10 +53,23 @@ data Scope = GlobalScope | LocalScope
 
 {-# NOINLINE globalEnv #-}
 globalEnv :: IORef GlobalEnv
-globalEnv = unsafePerformIO $ newIORef $ GlobalEnv Map.empty 0 
+globalEnv = unsafePerformIO (newGlobalEnv >>= newIORef)
+
+newGlobalEnv :: IO GlobalEnv
+newGlobalEnv = do
+    m <- WeakHash.newSized 1024
+    return $ GlobalEnv m 0
+
+resetGlobalEnv :: IO ()
+resetGlobalEnv = do
+--    g <- newGlobalEnv
+--    writeIORef globalEnv g
+    g <- readIORef globalEnv
+    deps <- WeakHash.newSized 1024
+    writeIORef globalEnv $ g { tDeps = deps }
 
 data GlobalEnv = GlobalEnv
-    { tDeps :: Map (VarName VarIdentifier ()) [IOCstr] -- variable dependencies
+    { tDeps :: WeakHash.BasicHashTable VarIdentifier (WeakMap.WeakMap Unique (UniqRef TCstrStatus)) -- variable dependencies
     , tyVarId :: TyVarId
     }
 
@@ -70,7 +88,7 @@ data TcEnv loc = TcEnv {
     , structs :: Map VarIdentifier (EntryEnv loc,Map TyVarId (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
 --    , inTemplate :: Bool -- ^ @True@ if we are type checking the body of a template declaration
     , tDict :: NeList (TDict loc) -- ^ A stack of dictionaries
-    , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
+    , openedCstrs :: Set IOCstr -- constraints being resolved, for dependency tracking
     }
   deriving Functor
 
@@ -80,7 +98,7 @@ type VarsTcM loc = Vars (TcM loc) loc
 --insideTemplate = liftM inTemplate State.get
 
 emptyTcEnv :: TcEnv loc
-emptyTcEnv = TcEnv Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty (WrapNe mempty) []
+emptyTcEnv = TcEnv Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty (WrapNe mempty) Set.empty
 
 data EntryEnv loc = EntryEnv {
       entryLoc :: loc -- ^ Location where the entry is defined
@@ -115,7 +133,16 @@ varNameToType :: VarName VarIdentifier Type -> Type
 varNameToType (VarName (SType k) n) = SecT $ SVar (VarName () n) k
 varNameToType (VarName TType n) = ComplexT $ CVar $ VarName () n
 varNameToType (VarName BType n) = BaseT $ BVar $ VarName () n
+varNameToType (VarName DType n) = DecT $ DVar $ VarName () n
 varNameToType (VarName t n) | isIntType t = IdxT $ RVariablePExpr t $ VarName t n 
+
+typeToVarName :: Type -> Maybe (VarName VarIdentifier Type)
+typeToVarName (SecT (SVar (VarName () n) k)) = Just (VarName (SType k) n)
+typeToVarName (ComplexT (CVar (VarName () n))) = Just (VarName TType n)
+typeToVarName (BaseT (BVar (VarName () n))) = Just (VarName BType n)
+typeToVarName (DecT (DVar (VarName () n))) = Just (VarName DType n)
+typeToVarName (IdxT (RVariablePExpr _ (VarName t n))) | isIntType t = Just (VarName t n)
+typeToVarName _ = Nothing
 
 type SecrecErrArr = SecrecError -> SecrecError
 
@@ -177,83 +204,99 @@ type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op VarIdentifier Typ
 
 -- | A template constraint with a result type
 data TCstr
-    = TDec (TypeName VarIdentifier ()) [Type] -- ^ type template declaration
+    = TDec -- ^ type template declaration
+        (TypeName VarIdentifier ()) -- template name
+        [Type] -- template arguments
+        DecType -- result
     | TRet -- ^ template return type
-        Type -- template declaration
+        DecType -- template declaration
+        Type -- result
     | PDec -- ^ procedure declaration
         PIdentifier -- procedure name
         [Type] -- procedure arguments
         Type -- return type
+        DecType -- result
     | Equals Type Type -- ^ types equal
     | Coerces Type Type -- ^ types coercible
     | CoercesSec
         SecType -- security type
         SecType -- security type
         ComplexType -- complex type over which to perform classify
-    | Coerces2 Type Type -- ^ bidirectional coercion
+    | Coerces2 -- ^ bidirectional coercion
+        Type Type 
+        Type -- result
     | Coerces2Sec
         SecType -- security type
         SecType -- security type
         ComplexType -- complex type over which to perform classify
+        SecType -- result
     | Unifies Type Type -- ^ type unification
     | SupportedPrint [Type] -- ^ can call tostring on the argument type
-    | ProjectStruct DecType (AttributeName VarIdentifier ()) -- ^ struct type projection
-    | ProjectMatrix ComplexType [ArrayProj] -- ^ matrix type projection
+    | ProjectStruct -- ^ struct type projection
+        DecType (AttributeName VarIdentifier ()) 
+        Type -- result
+    | ProjectMatrix -- ^ matrix type projection
+        ComplexType [ArrayProj]
+        ComplexType -- result
     | IsReturnStmt (Set StmtClass) Type (ProcedureDeclaration VarIdentifier Position) -- ^ is return statement
     | DelayedCstr
         TCstr -- a constraint
         (SecrecError -> SecrecError) -- an error message with updated context
+    | MultipleSubstitutions (VarName VarIdentifier ()) [(Type,[TCstr])]
   deriving (Data,Typeable,Show)
   
 instance Eq TCstr where
-    (TRet x1) == (TRet x2) = x1 == x2
-    (TDec n1 ts1) == (TDec n2 ts2) = n1 == n2 && ts1 == ts2
-    (PDec n1 ts1 r1) == (PDec n2 ts2 r2) = n1 == n2 && ts1 == ts2 && r1 == r2
+    (TRet x1 r1) == (TRet x2 r2) = x1 == x2 && r1 == r2
+    (TDec n1 ts1 r1) == (TDec n2 ts2 r2) = n1 == n2 && ts1 == ts2 && r1 == r2
+    (PDec n1 ts1 r1 x1) == (PDec n2 ts2 r2 x2) = n1 == n2 && ts1 == ts2 && r1 == r2 && x1 == x2
     (Equals x1 y1) == (Equals x2 y2) = x1 == x2 && y1 == y2
     (Coerces x1 y1) == (Coerces x2 y2) = x1 == x2 && y1 == y2
     (CoercesSec x1 y1 c1) == (CoercesSec x2 y2 c2) = x1 == x2 && y1 == y2 && c1 == c2
-    (Coerces2Sec x1 y1 c1) == (Coerces2Sec x2 y2 c2) = x1 == x2 && y1 == y2 && c1 == c2
-    (Coerces2 x1 y1) == (Coerces2 x2 y2) = x1 == x2 && y1 == y2
+    (Coerces2Sec x1 y1 c1 r1) == (Coerces2Sec x2 y2 c2 r2) = x1 == x2 && y1 == y2 && c1 == c2 && r1 == r2
+    (Coerces2 x1 y1 r1) == (Coerces2 x2 y2 r2) = x1 == x2 && y1 == y2 && r1 == r2
     (Unifies x1 y1) == (Unifies x2 y2) = x1 == x2 && y1 == y2
     (SupportedPrint x1) == (SupportedPrint x2) = x1 == x2
-    (ProjectStruct x1 y1) == (ProjectStruct x2 y2) = x1 == x2 && y1 == y2
-    (ProjectMatrix x1 y1) == (ProjectMatrix x2 y2) = x1 == x2 && y1 == y2
+    (ProjectStruct x1 y1 r1) == (ProjectStruct x2 y2 r2) = x1 == x2 && y1 == y2 && r1 == r2
+    (ProjectMatrix x1 y1 r1) == (ProjectMatrix x2 y2 r2) = x1 == x2 && y1 == y2 && r1 == r2
     (IsReturnStmt s1 x1 y1) == (IsReturnStmt s2 x2 y2) = x1 == x2 && y1 == y2
     (DelayedCstr c1 _) == (DelayedCstr c2 _) = c1 == c2
+    (MultipleSubstitutions v1 s1) == (MultipleSubstitutions v2 s2) = v1 == v2 && s1 == s2
     x == y = False
     
 instance Ord TCstr where
-    compare (TRet x1) (TRet x2) = compare x1 x2
-    compare (TDec n1 ts1) (TDec n2 ts2) = mconcat [n1 `compare` n2,ts1 `compare` ts2]
-    compare (PDec n1 ts1 r1) (PDec n2 ts2 r2) = mconcat [n1 `compare` n2,ts1 `compare` ts2,r1 `compare` r2]
+    compare (TRet x1 r1) (TRet x2 r2) = mconcat [compare x1 x2,compare r1 r2]
+    compare (TDec n1 ts1 r1) (TDec n2 ts2 r2) = mconcat [n1 `compare` n2,ts1 `compare` ts2,r1 `compare` r2]
+    compare (PDec n1 ts1 r1 res1) (PDec n2 ts2 r2 res2) = mconcat [n1 `compare` n2,ts1 `compare` ts2,r1 `compare` r2,res1 `compare` res2]
     compare (Equals x1 y1) (Equals x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (Coerces x1 y1) (Coerces x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (CoercesSec x1 y1 c1) (CoercesSec x2 y2 c2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2]
-    compare (Coerces2Sec x1 y1 c1) (Coerces2Sec x2 y2 c2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2]
-    compare (Coerces2 x1 y1) (Coerces2 x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (Coerces2Sec x1 y1 c1 r1) (Coerces2Sec x2 y2 c2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2,r1 `compare` r2]
+    compare (Coerces2 x1 y1 r1) (Coerces2 x2 y2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,r1 `compare` r2]
     compare (Unifies x1 y1) (Unifies x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
     compare (SupportedPrint x1) (SupportedPrint x2) = x1 `compare` x2
-    compare (ProjectStruct x1 y1) (ProjectStruct x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
-    compare (ProjectMatrix x1 y1) (ProjectMatrix x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
+    compare (ProjectStruct x1 y1 r1) (ProjectStruct x2 y2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,r1 `compare` r2]
+    compare (ProjectMatrix x1 y1 r1) (ProjectMatrix x2 y2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,r1 `compare` r2]
     compare (IsReturnStmt s1 x1 y1) (IsReturnStmt s2 x2 y2) = mconcat [s1 `compare` s2,x1 `compare` x2,y1 `compare` y2]
     compare (DelayedCstr c1 _) (DelayedCstr c2 _) = c1 `compare` c2
+    compare (MultipleSubstitutions v1 s1) (MultipleSubstitutions v2 s2) = mconcat [compare v1 v2,compare s1 s2]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 instance PP TCstr where
-    pp (TRet t) = text "tret" <+> pp t
-    pp (TDec n ts) = text "tdec" <+> pp n <+> sepBy space (map pp ts)
-    pp (PDec n ts r) = pp r <+> pp n <+> parens (sepBy comma (map pp ts))
+    pp (TRet t x) = text "tret" <+> pp t <+> char '=' <+> pp x
+    pp (TDec n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
+    pp (PDec n ts r x) = pp r <+> pp n <+> parens (sepBy comma (map pp ts)) <+> char '=' <+> pp x
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces t1 t2) = text "coerces" <+> pp t1 <+> pp t2
     pp (CoercesSec t1 t2 b) = text "coercessec" <+> pp t1 <+> pp t2 <+> pp b
-    pp (Coerces2Sec t1 t2 b) = text "coerces2sec" <+> pp t1 <+> pp t2 <+> pp b
-    pp (Coerces2 t1 t2) = text "coerces2" <+> pp t1 <+> pp t2
+    pp (Coerces2Sec t1 t2 b x) = text "coerces2sec" <+> pp t1 <+> pp t2 <+> pp b <+> char '=' <+> pp x
+    pp (Coerces2 t1 t2 x) = text "coerces2" <+> pp t1 <+> pp t2 <+> char '=' <+> pp x
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
     pp (SupportedPrint ts) = text "print" <+> sepBy space (map pp ts)
-    pp (ProjectStruct t a) = pp t <> char '.' <> pp a
-    pp (ProjectMatrix t as) = pp t <> brackets (sepBy comma $ map pp as) 
+    pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
+    pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
     pp (IsReturnStmt cs t dec) = text "return" <+> (hcat $ map pp $ Set.toList cs) <+> pp t <+> pp dec
     pp (DelayedCstr c f) = text "delayed" <+> pp c
+    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> pp (map fst s)
     
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
@@ -281,6 +324,12 @@ instance MonadIO m => Vars m ArrayProj where
     traverseVars f (ArrayIdx w) = do
         w' <- f w
         return $ ArrayIdx w'
+    
+instance PP [Type] where
+    pp xs = brackets $ sepBy comma $ map pp xs
+    
+instance MonadIO m => Vars m [Type] where
+    traverseVars f xs = mapM f xs
     
 data ArrayIndex
     = NoArrayIndex
@@ -325,18 +374,21 @@ arrayIndexErr (DynArrayIndex _ err) = Just err
 arrayIndexErr _ = Nothing
     
 instance MonadIO m => Vars m TCstr where
-    traverseVars f (TRet t) = do
+    traverseVars f (TRet t x) = do
         t' <- f t
-        return $ TRet t'
-    traverseVars f (TDec n args) = do
+        x' <- f x
+        return $ TRet t' x'
+    traverseVars f (TDec n args x) = do
         n' <- f n
         args' <- mapM f args
-        return $ TDec n' args'
-    traverseVars f (PDec n args ret) = do
+        x' <- f x
+        return $ TDec n' args' x'
+    traverseVars f (PDec n args ret x) = do
         n' <- f n
+        x' <- f x
         args' <- mapM f args
         ret' <- f ret
-        return $ PDec n' args' ret'
+        return $ PDec n' args' ret' x'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -350,10 +402,17 @@ instance MonadIO m => Vars m TCstr where
         t2' <- f t2
         b' <- f b
         return $ CoercesSec t1' t2' b'
-    traverseVars f (Coerces2 t1 t2) = do
+    traverseVars f (Coerces2 t1 t2 x) = do
         t1' <- f t1
         t2' <- f t2
-        return $ Coerces2 t1' t2'
+        x' <- f x
+        return $ Coerces2 t1' t2' x'
+    traverseVars f (Coerces2Sec t1 t2 b x) = do
+        t1' <- f t1
+        t2' <- f t2
+        b' <- f b
+        x' <- f x
+        return $ Coerces2Sec t1' t2' b' x'
     traverseVars f (Unifies t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -361,14 +420,16 @@ instance MonadIO m => Vars m TCstr where
     traverseVars f (SupportedPrint ts) = do
         ts' <- mapM f ts
         return $ SupportedPrint ts'
-    traverseVars f (ProjectStruct t a) = do
+    traverseVars f (ProjectStruct t a x) = do
         t' <- f t
         a' <- f a
-        return $ ProjectStruct t' a'
-    traverseVars f (ProjectMatrix t is) = do
+        x' <- f x
+        return $ ProjectStruct t' a' x'
+    traverseVars f (ProjectMatrix t is x) = do
         t' <- f t
         is' <- mapM f is
-        return $ ProjectMatrix t' is'
+        x' <- f x
+        return $ ProjectMatrix t' is' x'
     traverseVars f (IsReturnStmt cs t p) = do
         cs' <- mapSetM f cs
         t' <- f t
@@ -377,11 +438,16 @@ instance MonadIO m => Vars m TCstr where
     traverseVars f (DelayedCstr c err) = do
         c' <- f c
         return $ DelayedCstr c' err
+    traverseVars f (MultipleSubstitutions v s) = do
+        v' <- f v
+        s' <- mapM f s
+        return $ MultipleSubstitutions v' s'
 
 -- | Template constraint dictionary
 -- a dictionary with a set of inferred constraints and resolved constraints
 data TDict loc = TDict
     { tCstrs :: Map Unique (Loc loc IOCstr) -- a list of constraints
+    , tChoices :: Set Unique -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     }
   deriving (Typeable,Eq,Data,Ord,Show)
@@ -393,7 +459,12 @@ data IOCstr = IOCstr
     { kCstr :: TCstr
     , kStatus :: UniqRef TCstrStatus
     }
-  deriving (Data,Typeable,Show,Eq,Ord)
+  deriving (Data,Typeable,Show)
+  
+instance Eq IOCstr where
+    k1 == k2 = kStatus k1 == kStatus k2
+instance Ord IOCstr where
+    compare k1 k2 = compare (kStatus k1) (kStatus k2)
 
 instance PP IOCstr where
     pp = pp . kCstr
@@ -401,7 +472,6 @@ instance PP IOCstr where
 data TCstrStatus
     = Unevaluated -- has never been evaluated
     | Evaluated -- has been evaluated
-        Type -- the result of resolving the constraint
     | Erroneous -- has failed
         SecrecError -- failure error
   deriving (Data,Typeable,Show)
@@ -410,33 +480,39 @@ instance Functor TDict where
     fmap f dict = dict { tCstrs = Map.map (mapLoc f) (tCstrs dict) }
 
 instance Monoid (TDict loc) where
-    mempty = TDict Map.empty Map.empty
-    mappend (TDict u1 ss1) (TDict u2 ss2) = TDict (Map.union u1 u2) (ss1 `Map.union` ss2)
+    mempty = TDict Map.empty Set.empty Map.empty
+    mappend (TDict u1 c1 ss1) (TDict u2 c2 ss2) = TDict (Map.union u1 u2) (Set.union c1 c2) (ss1 `Map.union` ss2)
 
 addCstrDeps :: IOCstr -> IO ()
 addCstrDeps iok = do
     let vs = tCstrVars (kCstr iok)
-    modifyIORef' globalEnv $ \g -> g { tDeps = Map.unionWith (++) (tDeps g) (Map.fromList $ zip vs $ repeat [iok]) }
+    g <- liftM tDeps $ readIORef globalEnv
+    forM_ vs $ \v -> do
+        mb <- WeakHash.lookup g (varNameId v)
+        m <- maybe (WeakMap.new >>= \m -> WeakHash.insertWithMkWeak g (varNameId v) m (MkWeak $ mkWeakKey m) >> return m) return mb
+        WeakMap.insertWithMkWeak m (uniqId $ kStatus iok) (kStatus iok) (MkWeak $ mkWeakKey $ kStatus iok)
+--    modifyIORef' globalEnv $ \g -> g { tDeps = Map.unionWith Set.union (tDeps g) (Map.fromList $ zip vs $ repeat $ Set.singleton iok) }
 
 tCstrVars :: TCstr -> [VarName VarIdentifier ()]
 tCstrVars = everything (++) (mkQ [] aux1 `extQ` aux2 `extQ` aux3)
     where
-    aux1 :: ComplexType -> [VarName VarIdentifier ()]
-    aux1 (CVar v) = [v]
-    aux1 _ = []
-    aux2 :: BaseType -> [VarName VarIdentifier ()]
-    aux2 (BVar v) = [v]
-    aux2 _ = []
-    aux3 :: SecType -> [VarName VarIdentifier ()]
-    aux3 (SVar v _) = [v]
-    aux3 _ = []
+    aux1 :: VarName VarIdentifier () -> [VarName VarIdentifier ()]
+    aux1 v = [v]
+    aux2 :: VarName VarIdentifier Type -> [VarName VarIdentifier ()]
+    aux2 v = [fmap (const ()) v]
+    aux3 :: VarName VarIdentifier (Typed Position) -> [VarName VarIdentifier ()]
+    aux3 v = [fmap (const ()) v]
 
 instance (Location loc,MonadIO m,Vars m loc) => Vars m (TDict loc) where
-    traverseVars f (TDict cstrs substs) = varsBlock $ do
-        substs' <- f substs
-        cstrs' <- mapM f cstrs
-        liftIO $ mapM_ (addCstrDeps . unLoc) cstrs'
-        return $ TDict cstrs' substs'
+    traverseVars f (TDict cstrs choices substs) = varsBlock $ do
+        let cstrsLst = Map.toList cstrs
+        cstrs' <- mapM (f . snd) $ cstrsLst
+        let cstrs'' = map (\x -> (uniqId $ kStatus $ unLoc x,x)) cstrs'
+        let keys = zip (map fst cstrsLst) (map fst cstrs'')
+        let choices' = Set.map (\x -> maybe x id $ lookup x keys) choices
+        liftIO $ mapM_ (addCstrDeps . unLoc . snd) cstrs''
+        substs' <- liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
+        return $ TDict (Map.fromList cstrs'') choices' substs'
 
 instance (Vars m loc,Vars m a) => Vars m (Loc loc a) where
     traverseVars f (Loc l a) = do
@@ -450,17 +526,37 @@ instance MonadIO m => Vars m IOCstr where
         ref' <- liftIO $ readUniqRef ref >>= newUniqRef
         return $ IOCstr k' ref'
 
-substFromTDict :: (MonadIO m,Vars m loc,Location loc,Vars m a) => TDict loc -> a -> m a
-substFromTDict dict = substFromTSubsts (tSubsts dict)
+substFromTDict :: (VarsTcM loc,Location loc,Vars (TcM loc) a) => loc -> TDict loc -> a -> TcM loc a
+substFromTDict l dict = substFromTSubsts l (tSubsts dict)
 
-substFromTSubsts :: (MonadIO m,Vars m a) => TSubsts -> a -> m a
-substFromTSubsts tys =
-    substFromMap tys >=> substFromMap secs >=> substFromMap complexes >=> substFromMap bases >=> substFromMap exprs
+substFromTSubsts :: (VarsTcM loc,Location loc,Vars (TcM loc) a) => loc -> TSubsts -> a -> TcM loc a
+substFromTSubsts l tys =
+    substFromMap vars >=> substFromMap doms >=> substFromMap doms1 >=> substFromMap doms2 >=> substFromMap types >=> substFromMap types1 >=> substFromMap types2 >=> substFromMap tys >=> substFromMap secs >=> substFromMap complexes >=> substFromMap bases >=> substFromMap exprs >=> substFromMap exprsLoc
   where
+    -- VarName VarIdentifier () --> VarName VarIdentifier Type
+    vars = Map.foldrWithKey (\k t m -> case typeToVarName t of { Just v -> Map.insert k v m; otherwise -> m }) Map.empty tys
+    -- DomainName VarIdentifier () --> Domainname VarIdentifier Type
+    doms = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (DomainName kl kn) (DomainName vl vn) m; otherwise -> m }) Map.empty tys
+    -- DomainName VarIdentifier () --> DomainName VarIdentifier ()
+    doms1 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (DomainName kl kn) (DomainName () vn) m; otherwise -> m }) Map.empty tys
+    -- DomainName VarIdentifier () --> DomainName VarIdentifier (Typed loc)
+    doms2 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (DomainName kl kn) (DomainName (Typed l vl) vn) m; otherwise -> m }) Map.empty tys
+    -- TypeName VarIdentifier () --> TypeName VarIdentifier Type
+    types = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (TypeName kl kn) (TypeName vl vn) m; otherwise -> m }) Map.empty tys
+    -- TypeName VarIdentifier () --> TypeName VarIdentifier ()
+    types1 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (TypeName kl kn) (TypeName () vn) m; otherwise -> m }) Map.empty tys
+    -- TypeName VarIdentifier () --> TypeName VarIdentifier (Typed loc)
+    types2 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (TypeName kl kn) (TypeName (Typed l vl) vn) m; otherwise -> m }) Map.empty tys
+    -- VarName VarIdentifier () --> SecType
     secs = Map.foldrWithKey (\k t m -> case t of { SecT s -> Map.insert k s m; otherwise -> m }) Map.empty tys
+    -- VarName VarIdentifier () --> ComplexType
     complexes = Map.foldrWithKey (\k t m -> case t of { ComplexT s -> Map.insert k s m; otherwise -> m }) Map.empty tys
+    -- VarName VarIdentifier () --> BaseType
     bases = Map.foldrWithKey (\k t m -> case t of { BaseT s -> Map.insert k s m; otherwise -> m }) Map.empty tys
+    -- VarName VarIdentifier () --> Expression VarIdentifier Type
     exprs = Map.foldrWithKey (\k t m -> case t of { IdxT s -> Map.insert k s m; otherwise -> m }) Map.empty tys
+    -- VarName VarIdentifier () --> Expression VarIdentifier (Typed loc)
+    exprsLoc = Map.foldrWithKey (\k t m -> case t of { IdxT s -> Map.insert k (fmap (Typed l) s) m; otherwise -> m }) Map.empty tys
 
 --substFromSubstsType :: Vars a => SubstsType -> a -> a
 --substFromSubstsType xs = substFromMap xs
@@ -494,9 +590,9 @@ ppConstraints d = do
         s <- liftIO $ readUniqRef $ kStatus c
         let pre = pp (kCstr c) <+> text (show $ hashUnique $ uniqId $ kStatus c)
         case s of
-            Evaluated t -> return $ pre <> char '=' <+> pp t
-            Unevaluated -> return pre
-            Erroneous err -> return $ pre <> char '=' <+> pp err
+            Evaluated -> return $ pre <> char '=' <+> text "OK"
+            Unevaluated -> return $ pre
+            Erroneous err -> return $ pre <> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
     ss <- liftM vcat $ mapM ppK (Map.elems $ tCstrs d)
     return ss
 
@@ -546,11 +642,15 @@ data DecType
             (TDict Position) -- ^ template constraints depending on the variables
             [Type] -- ^ template specializations
             DecType -- ^ template's type
+    | DVar -- declaration variable
+        (VarName VarIdentifier ())
   deriving (Typeable,Show,Data)
 
 instance Eq DecType where
+    (DVar v1) == (DVar v2) = v1 == v2
     x == y = decTypeTyVarId x == decTypeTyVarId y
 instance Ord DecType where
+    compare (DVar v1) (DVar v2) = compare v1 v2
     compare x y = compare (decTypeTyVarId x) (decTypeTyVarId y)
 
 data BaseType
@@ -582,8 +682,6 @@ data SysType
 
 data Type
     = NoType String -- ^ For locations with no associated type information
-    | TK -- ^ the result of resolving a constraint
-        TCstr -- ^ a constraint returning a type
     | TType -- ^ Type of complex types
     | DType -- ^ Type of declarations
     | BType -- ^ Type of base types
@@ -602,7 +700,7 @@ data Type
 instance PP SecType where
     pp Public = text "public"
     pp (Private d k) = pp d
-    pp (SVar (VarName _ v) _) = ppVarId v
+    pp (SVar (VarName _ v) k) = parens (ppVarId v <+> text "::" <+> pp k)
 instance PP DecType where
     pp = ppTpltDecType
 instance PP BaseType where
@@ -623,7 +721,6 @@ instance PP SysType where
 
 instance PP Type where
     pp t@(NoType msg) = text (show t)
-    pp t@(TK c) = abrackets (text "cstr" <+> pp c)
     pp t@TType = text (show t)
     pp t@BType = text (show t)
     pp t@DType = text (show t)
@@ -728,12 +825,6 @@ instance PP StmtClass where
 instance Monad m => Vars m StmtClass where
     traverseVars f c = return c
   
-instance PP [Type] where
-    pp = hcat . map pp
-  
-instance MonadIO m => Vars m [Type] where
-    traverseVars f xs = mapM f xs
-  
 instance Monad m => Vars m SecType where
     traverseVars f Public = return Public
     traverseVars f (Private d k) = do
@@ -754,6 +845,12 @@ instance Monad m => Vars m SecType where
             EqT -> return $ Just r
             NeqT -> return $ Nothing
 
+instance MonadIO m => Vars m [TCstr] where
+    traverseVars f xs = mapM f xs
+
+instance PP [TCstr] where
+    pp xs = brackets (sepBy comma $ map pp xs)
+
 instance MonadIO m => Vars m DecType where
     traverseVars f (ProcType pid p n vs t stmts) = varsBlock $ do
         n' <- f n
@@ -771,6 +868,9 @@ instance MonadIO m => Vars m DecType where
         spes' <- mapM f spes
         t' <- f t
         return $ TpltType tid vs' d' spes' t'
+    traverseVars f (DVar v) = do
+        v' <- f v
+        return $ DVar v'
     
 instance MonadIO m => Vars m BaseType where
     traverseVars f (TyPrim p) = do
@@ -845,15 +945,12 @@ secTypeKind (Private _ k) = PrivateKind $ Just k
 secTypeKind (SVar v k) = k
 
 instance PP SVarKind where
-    pp AnyKind = text "any"
-    pp (PrivateKind Nothing) = text "private"
+    pp AnyKind = text "*"
+    pp (PrivateKind Nothing) = text "private *"
     pp (PrivateKind (Just k)) = text "private" <+> pp k
     
 instance MonadIO m => Vars m Type where
     traverseVars f (NoType x) = return (NoType x)
-    traverseVars f (TK c) = do
-        c' <- f c
-        return $ TK c'
     traverseVars f TType = return TType
     traverseVars f DType = return DType
     traverseVars f BType = return BType
@@ -985,10 +1082,11 @@ isPublicSecType :: SecType -> Bool
 isPublicSecType Public = True
 isPublicSecType _ = False
 
-decTypeTyVarId :: DecType -> TyVarId
-decTypeTyVarId (StructType i _ _ _) = i
-decTypeTyVarId (ProcType i _ _ _ _ _) = i
-decTypeTyVarId (TpltType i _ _ _ _) = i
+decTypeTyVarId :: DecType -> Maybe TyVarId
+decTypeTyVarId (StructType i _ _ _) = Just i
+decTypeTyVarId (ProcType i _ _ _ _ _) = Just i
+decTypeTyVarId (TpltType i _ _ _ _) = Just i
+decTypeTyVarId (DVar _) = Nothing
 
 instance Location Type where
     locpos = const noloc
@@ -1021,14 +1119,15 @@ ppTpltDecType (TpltType _ vars _ specs body@(StructType _ _ n _)) =
     $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
 ppTpltDecType (TpltType _ vars _ [] body@(ProcType _ _ (Left n) args ret stmts)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
-    $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
+    $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
 ppTpltDecType (TpltType _ vars _ [] body@(ProcType _ _ (Right n) args ret stmts)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
-    $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
+    $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
 ppTpltDecType (ProcType _ _ (Left n) args ret stmts) =
-        pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
+        pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
 ppTpltDecType (ProcType _ _ (Right n) args ret stmts) =
-        pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (pp stmts)
+        pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
+ppTpltDecType (DVar v) = pp v
 
 ppTpltArg :: VarName VarIdentifier Type -> Doc
 ppTpltArg (VarName BType v) = text "type" <+> ppVarId v
@@ -1198,25 +1297,25 @@ instance Ord HsVal where
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 -- integer types
-primIntBounds :: PrimitiveDatatype () -> (Integer,Integer)
-primIntBounds (DatatypeInt8 _)      = (toInteger (minBound :: Int8)  ,toInteger (maxBound :: Int8))
-primIntBounds (DatatypeInt16 _)     = (toInteger (minBound :: Int16) ,toInteger (maxBound :: Int16))
-primIntBounds (DatatypeInt32 _)     = (toInteger (minBound :: Int32) ,toInteger (maxBound :: Int32))
-primIntBounds (DatatypeInt64 _)     = (toInteger (minBound :: Int64) ,toInteger (maxBound :: Int64))
-primIntBounds (DatatypeUint8 _)     = (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
-primIntBounds (DatatypeUint16 _)    = (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
-primIntBounds (DatatypeUint32 _)    = (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
-primIntBounds (DatatypeUint64 _)    = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
-primIntBounds (DatatypeXorUint8 _)  = (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
-primIntBounds (DatatypeXorUint16 _) = (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
-primIntBounds (DatatypeXorUint32 _) = (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
-primIntBounds (DatatypeXorUint64 _) = (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
-primIntBounds _ = (0,-1) -- nonsensical bounds
+primIntBounds :: PrimitiveDatatype () -> Maybe (Integer,Integer)
+primIntBounds (DatatypeInt8 _)      = Just (toInteger (minBound :: Int8)  ,toInteger (maxBound :: Int8))
+primIntBounds (DatatypeInt16 _)     = Just (toInteger (minBound :: Int16) ,toInteger (maxBound :: Int16))
+primIntBounds (DatatypeInt32 _)     = Just (toInteger (minBound :: Int32) ,toInteger (maxBound :: Int32))
+primIntBounds (DatatypeInt64 _)     = Just (toInteger (minBound :: Int64) ,toInteger (maxBound :: Int64))
+primIntBounds (DatatypeUint8 _)     = Just (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
+primIntBounds (DatatypeUint16 _)    = Just (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
+primIntBounds (DatatypeUint32 _)    = Just (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
+primIntBounds (DatatypeUint64 _)    = Just (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
+primIntBounds (DatatypeXorUint8 _)  = Just (toInteger (minBound :: Word8) ,toInteger (maxBound :: Word8))
+primIntBounds (DatatypeXorUint16 _) = Just (toInteger (minBound :: Word16),toInteger (maxBound :: Word16))
+primIntBounds (DatatypeXorUint32 _) = Just (toInteger (minBound :: Word32),toInteger (maxBound :: Word32))
+primIntBounds (DatatypeXorUint64 _) = Just (toInteger (minBound :: Word64),toInteger (maxBound :: Word64))
+primIntBounds _ = Nothing
 
-primFloatBounds :: PrimitiveDatatype () -> (Double,Double)
-primFloatBounds (DatatypeFloat32 _) = (-2.802597 * 10 ^^(-45),3.402823 * (10 ^^38))
-primFloatBounds (DatatypeFloat64 _) = (-4.940656 * 10 ^^ (-324),1.797693 * (10 ^^308))
-primFloatBounds _ = (0,-1) -- nonsensical bounds
+primFloatBounds :: PrimitiveDatatype () -> Maybe (Double,Double)
+primFloatBounds (DatatypeFloat32 _) = Just (-2.802597 * 10 ^^(-45),3.402823 * (10 ^^38))
+primFloatBounds (DatatypeFloat64 _) = Just (-4.940656 * 10 ^^ (-324),1.797693 * (10 ^^308))
+primFloatBounds _ = Nothing
 
 bytes :: ComplexType
 bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexExpr 1) []
@@ -1244,3 +1343,6 @@ numerics = filter isNumericBaseType prims
 
 defCType :: BaseType -> ComplexType
 defCType t = CType Public t (indexExpr 0) []
+
+instance Hashable VarIdentifier where
+    hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)

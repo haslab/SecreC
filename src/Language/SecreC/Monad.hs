@@ -33,20 +33,38 @@ data Options
         , typeCheck             :: Bool
         , debugLexer            :: Bool
         , debugParser           :: Bool
+        , debugTypechecker      :: Bool
         , constraintStackSize   :: Int
+        , typecheckTemplates    :: Bool
+        , evalTimeOut           :: Int
         }
-    | Help
     deriving (Show, Data, Typeable)
 
 data ParserOpt = Parsec | Derp
   deriving (Data,Typeable,Read,Show)
 
 defaultOptions :: Options
-defaultOptions = Opts [] [] [] Parsec False True False False 5
+defaultOptions = Opts
+    { inputs = []
+    , outputs = []
+    , paths = []
+    , parser = Parsec
+    , knowledgeInference = False
+    , typeCheck = True
+    , debugLexer = False
+    , debugParser = False
+    , debugTypechecker = False
+    , constraintStackSize = 5
+    , typecheckTemplates = True
+    , evalTimeOut = 5
+    }
 
 -- | SecreC Monad
 data SecrecM a = SecrecM { runSecrecM :: ReaderT Options IO (Either SecrecError (a,[SecrecWarning])) }
   deriving (Typeable)
+
+ioSecrecMWith :: Options -> SecrecM a -> IO (Either SecrecError (a,[SecrecWarning]))
+ioSecrecMWith opts m = flip runReaderT opts $ runSecrecM m
 
 ioSecrecM :: Options -> SecrecM a -> IO a
 ioSecrecM opts m = flip runReaderT opts $ do

@@ -45,6 +45,7 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                      Position -- ^ position
                      Doc -- ^message
                  | MultipleErrors [SecrecError] -- a list of errors
+                 | TimedOut Int -- timed out after @x@ seconds
   deriving (Show,Typeable,Data)
 
 instance PP SecrecError where
@@ -53,6 +54,7 @@ instance PP SecrecError where
     pp (ModuleError p err) = pp p <> char ':' $+$ nest 4 (pp err)
     pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 msg
     pp (MultipleErrors errs) = vcat $ map pp errs
+    pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -111,7 +113,7 @@ data TypecheckerErr
         Doc Doc -- types
         (Either Doc SecrecError) -- environment or sub-error
     | BiCoercionException -- ^ @coerces@ fails to prove equality
-        Doc Doc -- types
+        (Maybe Doc) Doc Doc -- types
         (Either Doc SecrecError) -- environment or sub-error
     | UnificationException -- ^ @unifies@ fails to unify two types
         Doc Doc -- types
@@ -148,6 +150,7 @@ data TypecheckerErr
         SecrecError -- sub-error
     | StaticEvalError
         Doc -- expression
+        (Either Doc SecrecError) -- environment or sub-error
     | UnresolvedVariable
         Doc -- variable name
         Doc -- environment
@@ -155,9 +158,15 @@ data TypecheckerErr
         Doc -- ^ type
         Doc -- ^ ranges
         SecrecError -- ^ sub-error
+    | UnresolvedFieldProjection
+        Doc -- ^ type
+        Doc -- ^ attribute
+        SecrecError -- ^ sub-error
     | MultipleTypeSubstitutions -- a variable can be resolved in multiple ways
-        [PPDyn] -- list of different substitution options
+        [Doc] -- list of different substitution options
     | ConstraintStackSizeExceeded Int
+    | Halt -- ^ an error because of lacking information
+        TypecheckerErr
   deriving (Show,Typeable,Data)
 
 instance PP TypecheckerErr where
@@ -200,9 +209,14 @@ instance PP TypecheckerErr where
            (text "From:" <+> t1
         $+$ text "To:" <+> t2
         $+$ ppConstraintEnv env)
-    pp e@(BiCoercionException t1 t2 env) = text "Failed to apply bidirectional coercion:" $+$ nest 4
+    pp e@(BiCoercionException Nothing t1 t2 env) = text "Failed to apply bidirectional coercion:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
+        $+$ ppConstraintEnv env)
+    pp e@(BiCoercionException (Just t3) t1 t2 env) = text "Failed to apply bidirectional coercion:" $+$ nest 4
+           (text "Left:" <+> t1
+        $+$ text "Right:" <+> t2
+        $+$ text "Result:" <+> t3
         $+$ ppConstraintEnv env)
     pp e@(UnificationException t1 t2 env) = text "Failed to unify:" $+$ nest 4
            (text "Left:" <+> t1
@@ -228,19 +242,29 @@ instance PP TypecheckerErr where
            (text "Expected match:" <+> ex
         $+$ text "Conflicting declarations: " $+$ nest 4 (vcat (map (\(p,d) -> pp p <> char ':' $+$ nest 4 d) defs))
         $+$ text "Conflict: " $+$ nest 4 (pp err))
-    pp (TemplateSolvingError app err) = text "Failed to solve template instantiation:" <+> quotes app
+    pp (TemplateSolvingError app err) = text "Failed to solve template instantiation:" <+> app
         $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
-    pp (StaticEvalError e) = text "Unable to statically evaluate expression:" $+$ nest 4 e
+    pp (StaticEvalError e env) = text "Unable to statically evaluate expression" <+> quotes e <> char ':' $+$ nest 4 (ppConstraintEnv env)
     pp (UnresolvedVariable v env) = text "Unable to resolve variable: " <+> quotes v $+$ nest 4
         (text "With bindings: " $+$ nest 4 env)
     pp (UnresolvedMatrixProjection t rngs err) = text "Unable to resolve matrix projection:" $+$ nest 4
         ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
+    pp (UnresolvedFieldProjection t att err) = text "Unable to resolve struct field:" $+$ nest 4
+        ((text "Type:" <+> t <> char '.' <> att) $+$ (text "Error:" $+$ nest 4 (pp err)))
     pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
         where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
     pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes (pp i)
+    pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
 
 ppConstraintEnv (Left env) = text "With binginds:" $+$ nest 4 env
 ppConstraintEnv (Right suberr) = text "Because of:" $+$ nest 4 (pp suberr)
+
+isHaltError :: SecrecError -> Bool
+isHaltError = everything (||) (mkQ False aux)
+    where
+    aux :: TypecheckerErr -> Bool
+    aux (Halt _) = True
+    aux _ = False
 
 data ModuleErr
     = DuplicateModuleName Identifier FilePath FilePath

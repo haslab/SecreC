@@ -380,6 +380,9 @@ isPrimFloat (DatatypeFloat32    loc) = True
 isPrimFloat (DatatypeFloat64    loc) = True
 isPrimFloat _ = False
 
+isPrimNumeric :: PrimitiveDatatype loc -> Bool
+isPrimNumeric x = isPrimInt x || isPrimUint x || isPrimFloat x
+
 instance Location loc => Located (PrimitiveDatatype loc) where
     type LocOf (PrimitiveDatatype loc) = loc
     loc (DatatypeBool       l) = l
@@ -745,15 +748,14 @@ instance PP iden => PP (Statement iden loc) where
     pp (DowhileStatement _ s e) = text "do" <+> pp s <+> text "while" <+> parens (pp e) <> semi
     pp (AssertStatement _ e) = text "assert" <> parens (pp e) <> semi
     pp (SyscallStatement _ n []) = text "__syscall" <> parens (text (show n)) <> semi
-    pp (SyscallStatement _ n ps) = text "__syscall" <> parens (text (show n) <> comma <+> pp ps) <> semi
+    pp (SyscallStatement _ n ps) = text "__syscall" <> parens (text (show n) <> comma <+> ppSyscallParameters ps) <> semi
     pp (VarStatement _ vd) = pp vd <> semi
     pp (ReturnStatement _ e) = text "return" <+> ppMb e <> semi
     pp (ContinueStatement _) = text "continue" <> semi
     pp (BreakStatement _) = text "break" <> semi
     pp (ExpressionStatement _ e) = pp e <> semi
     
-instance PP iden => PP [SyscallParameter iden loc] where
-    pp ps = sepBy comma $ map pp ps
+ppSyscallParameters ps = sepBy comma $ map pp ps
  
 data SyscallParameter iden loc
     = SyscallPush loc (Expression iden loc)
@@ -1003,4 +1005,5 @@ unaryLitExpr :: Expression iden loc -> Expression iden loc
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (FloatLit l1 f))) = LitPExpr l $ FloatLit l1 (-f)
 unaryLitExpr e = e
+
 

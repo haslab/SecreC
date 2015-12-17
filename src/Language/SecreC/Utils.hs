@@ -14,12 +14,23 @@ import qualified Data.Set as Set
 import Data.Maybe
 import Data.Unique
 import Data.IORef
+import Data.Hashable
 
 import Text.PrettyPrint
 
 import Control.Monad
+import Control.Concurrent.Async
+import Control.Concurrent
 
 import Unsafe.Coerce
+
+import System.Mem.Weak.Exts as Weak
+
+timeout :: Int -> IO a -> IO (Either a ())
+timeout t io = race io (threadDelay $ t * 1000000)
+
+instance WeakKey (UniqRef a) where
+    mkWeakKey r = mkWeakKey (uniqRef r)
 
 mconcatNe :: Monoid a => NeList a -> a
 mconcatNe = mconcat . toList
@@ -125,8 +136,17 @@ spanM p (x:xs) = do
     ok <- p x
     if ok then do { (l,r) <- spanM p xs; return (x:l,r) } else return ([],x:xs)
 
+mapFst :: (Functor t) => (a -> b) -> t (a,c) -> t (b,c)
+mapFst f = fmap (\(a,c) -> (,c) $ f a)
+
+mapSnd :: (Functor t) => (b -> c) -> t (a,b) -> t (a,c)
+mapSnd f = fmap (\(a,c) -> (a,) $ f c)
+
 mapFstM :: (Traversable t,Monad m) => (a -> m b) -> t (a,c) -> m (t (b,c))
 mapFstM f = Traversable.mapM (\(a,c) -> liftM (,c) $ f a)
+
+mapSndM :: (Traversable t,Monad m) => (c -> m b) -> t (a,c) -> m (t (a,b))
+mapSndM f = Traversable.mapM (\(a,c) -> liftM (a,) $ f c)
 
 funzip :: Traversable t => t (a,b) -> (t a,t b)
 funzip xs = (fmap fst xs,fmap snd xs)
@@ -340,3 +360,12 @@ instance Data Unique where
     gunfold = error "gunfold Unique"
     toConstr = error "toConstr Unique"
     dataTypeOf = error "dataTypeof Unique"
+    
+fst3 (x,y,z) = x
+snd3 (x,y,z) = y
+thr3 (x,y,z) = z
+
+instance Hashable Unique where
+    hashWithSalt i a = hashWithSalt i (hashUnique a)
+    
+    

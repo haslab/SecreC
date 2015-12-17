@@ -12,13 +12,13 @@ import Text.PrettyPrint
 
 import Data.Data
 
-tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc Type
+tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc ()
 
-proveWith :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
+proveWith :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
 
-prove :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc a
+prove :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc a
 
-tcProve :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc (a,TDict loc)
+tcProve :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc (a,TDict loc)
 
 compares :: (VarsTcM loc,Location loc) => loc -> Type -> Type -> TcM loc Ordering
 
@@ -32,19 +32,13 @@ unifiesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc 
 
 equalsExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
 
-tcCstrM :: Location loc => loc -> TCstr -> TcM loc Type
-
-tcCstrM_ :: Location loc => loc -> TCstr -> TcM loc ()
-
-resolveTCstr :: (VarsTcM loc,Location loc) => loc -> TCstr -> TcM loc Type
+tcCstrM :: Location loc => loc -> TCstr -> TcM loc ()
 
 resolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc Type
 
 tryResolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc (Maybe Type)
 
-resolveTK :: (VarsTcM loc,Location loc) => loc -> TCstr -> TcM loc Type
-
-solve :: (VarsTcM loc,Location loc) => TcM loc ()
+solve :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc ()
 
 coercesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
 

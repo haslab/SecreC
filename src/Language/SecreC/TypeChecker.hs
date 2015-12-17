@@ -15,6 +15,8 @@ import Language.SecreC.TypeChecker.Expression
 import Language.SecreC.TypeChecker.Type
 import Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.Environment
+import Language.SecreC.TypeChecker.Template
+import Language.SecreC.TypeChecker.Semantics
 import Language.SecreC.Utils
 import Language.SecreC.Vars
 import Language.SecreC.Pretty
@@ -31,11 +33,18 @@ import Control.Monad hiding (mapM,mapAndUnzipM)
 import Control.Monad.IO.Class
 import Control.Monad.State (State(..),StateT(..))
 import qualified Control.Monad.State as State
+import Control.Monad.Reader (Reader(..),ReaderT(..))
+import qualified Control.Monad.Reader as Reader
 
 import Text.PrettyPrint
 
+import System.IO
+
 tcModule :: (VarsTcM loc,Location loc) => Module Identifier loc -> TcM loc (Module VarIdentifier (Typed loc))
 tcModule (Module l name prog) = do
+    opts <- TcM $ State.lift Reader.ask
+    when (debugTypechecker opts) $
+        liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr name ++ "...")
     prog' <- tcProgram prog
     return $ Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
 
@@ -194,8 +203,10 @@ tcGlobal :: (VarsTcM loc,Location loc) => loc -> TcM loc a -> TcM loc a
 tcGlobal l m = do
     newDict l
     x <- m
-    solve
+    solve l True
     State.modify $ \e -> e { localVars = Map.empty, tDict = updDict (tDict e) }
+    liftIO resetGlobalEnv
     return x
   where
-    updDict (ConsNe x xs) = updHeadNe (`mappend` x) xs
+      updDict (ConsNe x xs) = xs
+--    updDict (ConsNe x xs) = updHeadNe (`mappend` TDict (tCstrs x) (tChoices x) Map.empty) xs

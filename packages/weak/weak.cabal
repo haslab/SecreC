@@ -1,0 +1,28 @@
+Name:            weak
+Version:         1.0
+License:         BSD3
+License-file:    LICENSE
+Author:          Hugo Pacheco <hpacheco@cs.cornell.edu>
+Maintainer:      Hugo Pacheco <hpacheco@cs.cornell.edu>
+Synopsis:        Weak pointer extensions
+Description:
+	
+Homepage:        
+
+Category: Memory
+
+extra-source-files: 
+
+Build-type: Simple
+Cabal-Version:  >= 1.4
+
+Library
+  GHC-Options: 
+  Hs-Source-Dirs: .
+  Build-Depends: base >= 4.3 && < 5
+  exposed-modules:
+    System.Mem.Weak.Exts
+
+  Other-modules:
+
+  extensions: 

@@ -199,9 +199,6 @@ instance (Vars m a,Vars m b) => Vars m (Either a b) where
 instance Monad m => Vars m () where
     traverseVars f () = return ()
 
-instance (Location loc,Vars m loc,IsScVar iden) => Vars m [Statement iden loc] where
-    traverseVars f xs = mapM f xs
-
 instance (Location loc,IsScVar iden,Vars m loc) => Vars m (ProcedureDeclaration iden loc) where
     traverseVars f (OperatorDeclaration l t o args s) = do
         l' <- f l
@@ -333,6 +330,9 @@ instance (Location loc,Vars m loc) => Vars m (PrimitiveDatatype loc) where
     traverseVars f p = do
         l' <- f (loc p)
         return $ updLoc p l'
+
+instance (Location loc,Vars m loc,IsScVar iden) => Vars m [Statement iden loc] where
+    traverseVars f xs = mapM f xs
 
 instance (Location loc,Vars m loc,IsScVar iden) => Vars m (Statement iden loc) where
     traverseVars f (CompoundStatement l ss) = varsBlock $ do
@@ -721,6 +721,12 @@ instance (Vars m loc,IsScVar iden) => Vars m (DomainDeclaration iden loc) where
         d' <- inLHS $ f d
         k' <- f k
         return $ Domain l' d' k'
+
+instance (Location loc,Vars m loc,IsScVar iden) => Vars m [ImportDeclaration iden loc] where
+    traverseVars f xs = mapM f xs
+
+instance (Location loc,Vars m loc,IsScVar iden) => Vars m [GlobalDeclaration iden loc] where
+    traverseVars f xs = mapM f xs
 
 instance (Vars m loc,IsScVar iden) => Vars m (ImportDeclaration iden loc) where
     traverseVars f (Import l m) = do

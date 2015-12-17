@@ -5,12 +5,14 @@ module Main where
 
 import qualified Data.List as List
 import Data.List.Split
+import Data.Version (showVersion)
 
 import Language.SecreC.Pretty as Pretty
 import Language.SecreC.Syntax
 import Language.SecreC.Position
 import Language.SecreC.Modules
 import Language.SecreC.TypeChecker.Base
+import Language.SecreC.TypeChecker.Environment
 import Language.SecreC.TypeChecker
 import Language.SecreC.Monad
 import Language.SecreC.Utils
@@ -27,42 +29,52 @@ import Text.PrettyPrint hiding (mode,Mode(..))
 
 import Paths_SecreC
 
+
+--getDataFileName :: String -> IO String
+--getDataFileName p = return $ ".." </> p
+
 -- * main function
 
 main :: IO ()
 main = do
     opts <- getOpts
     case opts of
-        Help     -> printHelp
         Opts  {} -> secrec opts
 
 -- * front-end options
 
 opts  :: Options
 opts  = Opts { 
-      inputs                = def &= args &= typ "FILE.sc"
-    , outputs               = def &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
-    , paths                 = def &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
-    , parser                = Parsec &= typ "parsec OR derp" &= help "backend Parser type"
-    , knowledgeInference    = def &= name "ki" &= help "Infer private data from public data" &= groupname "Optimization"
-    , typeCheck             = True &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
-    , constraintStackSize   = 5 &= name "k-stack-size" &= explicit &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification"
-    , debugLexer            = def &= name "debug-lexer" &= explicit &= help "Print lexer tokens to stderr" &= groupname "Debugging"
-    , debugParser           = def &= name "debug-parser" &= explicit &= help "Print parser result to stderr" &= groupname "Debugging"
+      inputs                = inputs defaultOptions &= args &= typ "FILE.sc"
+    , outputs               = outputs defaultOptions &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
+    , paths                 = paths defaultOptions &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
+    , parser                = parser defaultOptions &= typ "parsec OR derp" &= help "backend Parser type"
+    
+    -- Optimization
+    , knowledgeInference    = knowledgeInference defaultOptions &= name "ki" &= help "Infer private data from public data" &= groupname "Optimization"
+    
+    -- Verification
+    , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
+
+    -- Debugging
+    , debugLexer            = debugLexer defaultOptions &= name "debug-lexer" &= explicit &= help "Print lexer tokens to stderr" &= groupname "Debugging"
+    , debugParser           = debugParser defaultOptions &= name "debug-parser" &= explicit &= help "Print parser result to stderr" &= groupname "Debugging"
+    , debugTypechecker           = debugTypechecker defaultOptions &= name "debug-typechecker" &= explicit &= help "Print typechecker result to stderr" &= groupname "Debugging"
+    
+    -- Typechecker
+    , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
+    , typecheckTemplates   = typecheckTemplates defaultOptions &= name "tc-tplts" &= help "Typechecks template declarations for early error detection (slower)" &= groupname "Verification:Typechecker"
+    , evalTimeOut           = evalTimeOut defaultOptions &= name "eval-timeout" &= explicit &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
     }
     &= help "SecreC analyser"
 
-chelp :: Options
-chelp = Help
-     &= help "Display help about SecreC modes"
-
 mode  :: Mode (CmdArgs Options)
 mode  = cmdArgsMode $
-           modes [opts &= auto, chelp]
+           modes [opts &= auto]
         &= help "SecreC analyser"
-        &= summary "secrec v0.1 \n\
+        &= summary ("secrec " ++ showVersion version ++ " \n\
                    \(C) PRACTICE TEAM 2015 - DI/HasLab - Univ. Minho,\
-                   \ Braga, Portugal"
+                   \ Braga, Portugal")
 
 printHelp :: IO ()
 printHelp = withArgs ["--help"] $ cmdArgsRun mode >> return ()
@@ -71,23 +83,18 @@ getOpts :: IO Options
 getOpts = getArgs >>= doGetOpts
     where 
     doGetOpts as
-        | null as   = withArgs ["help"] $ cmdArgsRun mode
+        | null as   = withArgs ["--help"] $ cmdArgsRun mode >>= processOpts
         | otherwise = cmdArgsRun mode >>= processOpts
 
 processOpts :: Options -> IO Options
 processOpts opts = do
     p1 <- getDataFileName "imports"
     p2 <- getDataFileName ("imports" </> "stdlib" </> "lib")
-    return $ Opts
-        (inputs opts)
-        (parsePaths $ outputs opts)
-        (parsePaths $ p1 : p2 : paths opts)
-        (parser opts)
-        (knowledgeInference opts)
-        (typeCheck opts || knowledgeInference opts)
-        (debugLexer opts)
-        (debugParser opts)
-        (constraintStackSize opts)
+    return $ opts
+        { outputs = parsePaths $ outputs opts
+        , paths = parsePaths $ p1 : p2 : paths opts
+        , typeCheck = typeCheck opts || knowledgeInference opts
+        }
 
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")

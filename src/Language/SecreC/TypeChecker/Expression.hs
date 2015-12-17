@@ -55,7 +55,8 @@ tcExpr (CondExpr l c e1 e2) = do
     let t1 = typed $ loc e1'
     e2' <- tcExpr e2
     let t2 = typed $ loc e2'
-    t3 <- tcTopCstrM l $ Coerces2 t1 t2
+    t3 <- newTyVar
+    tcTopCstrM l $ Coerces2 t1 t2 t3
     return $ CondExpr (Typed l t3) c' e1' e2'
 tcExpr (BinaryExpr l e1 op e2) = do
     e1' <- tcExpr e1
@@ -64,8 +65,9 @@ tcExpr (BinaryExpr l e1 op e2) = do
     let t2 = typed $ loc e2'
     top <- tcOp op
     v <- newTyVar
-    dec <- tcTopCstrM l $ PDec (Right $ fmap typed top) [t1,t2] v
-    return $ BinaryExpr (Typed l v) e1' (updLoc top (Typed l dec)) e2'
+    dec <- newDecVar
+    tcTopCstrM l $ PDec (Right $ fmap typed top) [t1,t2] v dec
+    return $ BinaryExpr (Typed l v) e1' (updLoc top (Typed l $ DecT dec)) e2'
 tcExpr (PreOp l op e) = do
     e' <- tcExpr e
     let t = typed $ loc e'
@@ -90,8 +92,9 @@ tcExpr (UnaryExpr l op e) = do
             return $ UnaryExpr (Typed l ct) top e'
         otherwise -> do
             v <- newTyVar
-            dec <- tcTopCstrM l $ PDec (Right $ fmap typed top) [t] v
-            return $ UnaryExpr (Typed l v) (updLoc top (Typed l dec)) e'
+            dec <- newDecVar
+            tcTopCstrM l $ PDec (Right $ fmap typed top) [t] v dec
+            return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) e'
 tcExpr (DomainIdExpr l s) = do
     s' <- tcSecTypeSpec s
     let t = typed $ loc s'
@@ -107,8 +110,9 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) es) = do
     es' <- mapM tcExpr es
     let ts = map (typed . loc) es'
     v <- newTyVar
-    dec <- tcTopCstrM l $ PDec (Left $ fmap (const ()) vn) ts v -- we don't know the return type on application
-    return $ ProcCallExpr (Typed l v) (fmap (flip Typed dec) vn) es'
+    dec <- newDecVar
+    tcTopCstrM l $ PDec (Left $ fmap (const ()) vn) ts v dec -- we don't know the return type on application
+    return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) es'
 tcExpr (PostIndexExpr l e s) = do
     e' <- tcExpr e
     let t = typed $ loc e'
@@ -120,8 +124,9 @@ tcExpr (SelectionExpr l pe a) = do
     pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToDecType l tpe'
-    t <- tcTopCstrM l $ ProjectStruct ctpe' (fmap (const ()) va)
-    return $ SelectionExpr (Typed l t) pe' (fmap (notTyped "tcExpr") va)
+    res <- newTyVar
+    tcTopCstrM l $ ProjectStruct ctpe' (fmap (const ()) va) res
+    return $ SelectionExpr (Typed l res) pe' (fmap (notTyped "tcExpr") va)
 tcExpr (ArrayConstructorPExpr l es) = do
     es' <- mapM tcExpr es
     let t = ComplexT $ ArrayLit $ fmap (fmap typed) es'
@@ -141,16 +146,21 @@ tcBinaryAssignOp l bop t1 t2 = do
     dec <- case mb_op of
         Just op -> do
             top <- tcOp $ fmap (const l) op
-            tcTopCstrM l $ PDec (Right $ fmap typed top) [t1,t2] t1
-        Nothing -> tcTopCstrM l $ Coerces t2 t1
+            dec <- newDecVar
+            tcTopCstrM l $ PDec (Right $ fmap typed top) [t1,t2] t1 dec
+            return $ DecT dec
+        Nothing -> do
+            tcTopCstrM l $ Coerces t2 t1
+            return $ NoType "tcBinaryAssignOp"
     return (fmap (flip Typed dec) bop)
     
 tcBinaryOp :: (VarsTcM loc,Location loc) => loc -> Op Identifier loc -> Type -> Type -> TcM loc (Type,Op VarIdentifier (Typed loc))
 tcBinaryOp l op t1 t2 = do 
     top <- tcOp op
     v <- newTyVar
-    dec <- tcTopCstrM l $ PDec (Right $ fmap typed top) [t1,t2] v
-    return (v,updLoc top (Typed l dec))
+    dec <- newDecVar
+    tcTopCstrM l $ PDec (Right $ fmap typed top) [t1,t2] v dec
+    return (v,updLoc top (Typed l $ DecT dec))
 
 tcOp :: (VarsTcM loc,Location loc) => Op Identifier loc -> TcM loc (Op VarIdentifier (Typed loc))
 tcOp (OpCast l t) = do
@@ -163,8 +173,9 @@ tcSubscript :: (VarsTcM loc,Location loc) => ComplexType -> Subscript Identifier
 tcSubscript t s = do
     let l = loc s
     (s',rngs) <- mapAndUnzipM tcIndex s
-    ret <- tcTopCstrM l $ ProjectMatrix t (Foldable.toList rngs)
-    return (s',ret)
+    ComplexT ret <- newTyVar
+    tcTopCstrM l $ ProjectMatrix t (Foldable.toList rngs) ret
+    return (s',ComplexT ret)
 
 tcIndex :: (VarsTcM loc,Location loc) => Index Identifier loc -> TcM loc (Index VarIdentifier (Typed loc),ArrayProj)
 tcIndex (IndexInt l e) = do
@@ -229,7 +240,7 @@ binAssignOpToOp (BinaryAssignXor _) = Just $ OpXor ()
 tcIndexExpr :: (VarsTcM loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc),Either SecrecError Word64)
 tcIndexExpr e = do
     e' <- tcExprTy (BaseT index) e
-    mb <- tryEvalIndexExpr e'
+    mb <- tryEvaluateIndexExpr e'
     return (e',mb)
 
 tcExprTy :: (VarsTcM loc,Location loc) => Type -> Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
