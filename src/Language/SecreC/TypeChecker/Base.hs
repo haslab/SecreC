@@ -111,7 +111,7 @@ data EntryValue loc
     = UnknownValue
     | NoValue
     | KnownExpression (Expression VarIdentifier (Typed loc))
- deriving (Show,Functor,Typeable,Eq,Ord)
+ deriving (Show,Functor,Typeable,Eq,Ord,Data)
 
 instance (MonadIO m,Location loc,Vars m loc) => Vars m (EntryValue loc) where
     traverseVars f (KnownExpression e) = do
@@ -135,6 +135,7 @@ varNameToType (VarName TType n) = ComplexT $ CVar $ VarName () n
 varNameToType (VarName BType n) = BaseT $ BVar $ VarName () n
 varNameToType (VarName DType n) = DecT $ DVar $ VarName () n
 varNameToType (VarName t n) | isIntType t = IdxT $ RVariablePExpr t $ VarName t n 
+varNameToType v = error $ "varNameToType " ++ show v
 
 typeToVarName :: Type -> Maybe (VarName VarIdentifier Type)
 typeToVarName (SecT (SVar (VarName () n) k)) = Just (VarName (SType k) n)
@@ -144,22 +145,20 @@ typeToVarName (DecT (DVar (VarName () n))) = Just (VarName DType n)
 typeToVarName (IdxT (RVariablePExpr _ (VarName t n))) | isIntType t = Just (VarName t n)
 typeToVarName _ = Nothing
 
+typeToTypeName :: Type -> Maybe (TypeName VarIdentifier Type)
+typeToTypeName t = case typeToVarName t of
+    Just (VarName _ n) -> Just $ TypeName t n
+    otherwise -> Nothing
+    
+typeToDomainName :: Type -> Maybe (DomainName VarIdentifier Type)
+typeToDomainName t = case typeToVarName t of
+    Just (VarName _ n) -> Just $ DomainName t n
+    otherwise -> Nothing
+
 type SecrecErrArr = SecrecError -> SecrecError
 
 newtype TcM loc a = TcM { unTcM :: RWST SecrecErrArr () (TcEnv loc) SecrecM a }
     deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv loc),MonadReader SecrecErrArr,MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
-
-tcError :: Position -> TypecheckerErr -> TcM loc a
-tcError pos msg = do
-    f <- Reader.ask
-    let err = f $ typecheckerError pos msg
-    ios <- liftM openedCstrs State.get
-    let add io = liftIO $ writeUniqRef (kStatus io) (Erroneous err)
-    mapM_ add ios
-    throwError err
-
-tcWarn :: Position -> TypecheckerWarn -> TcM loc ()
-tcWarn pos msg = TcM $ lift $ tell [TypecheckerWarning pos msg]
 
 askErrorM :: TcM loc SecrecErrArr
 askErrorM = Reader.ask
@@ -169,6 +168,9 @@ newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> (id,s)) m
 
 addErrorM :: SecrecErrArr -> TcM loc a -> TcM loc a
 addErrorM err (TcM m) = TcM $ RWS.withRWST (\f s -> (f . err,s)) m
+
+tcPos :: Location loc => TcM Position a -> TcM loc a
+tcPos = tcLocM (locpos) (updpos noloc)
 
 -- | Map different locations over @TcM@ monad.
 tcLocM :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 a -> TcM loc2 a
@@ -202,6 +204,15 @@ runTcM m = liftM fst $ RWS.evalRWST (unTcM m) id emptyTcEnv
 
 type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op VarIdentifier Type)
 
+-- | Does a constraint depend on global template, procedure or struct definitions?
+isGlobalCstr :: TCstr -> Bool
+isGlobalCstr = everything (||) (mkQ False isOverloadedK)
+    where
+    isOverloadedK (TDec {}) = True
+    isOverloadedK (PDec {}) = True
+    isOverloadedK (SupportedPrint {}) = True
+    isOverloadedK _ = False
+
 -- | A template constraint with a result type
 data TCstr
     = TDec -- ^ type template declaration
@@ -233,7 +244,7 @@ data TCstr
     | Unifies Type Type -- ^ type unification
     | SupportedPrint [Type] -- ^ can call tostring on the argument type
     | ProjectStruct -- ^ struct type projection
-        DecType (AttributeName VarIdentifier ()) 
+        BaseType (AttributeName VarIdentifier ()) 
         Type -- result
     | ProjectMatrix -- ^ matrix type projection
         ComplexType [ArrayProj]
@@ -535,18 +546,18 @@ substFromTSubsts l tys =
   where
     -- VarName VarIdentifier () --> VarName VarIdentifier Type
     vars = Map.foldrWithKey (\k t m -> case typeToVarName t of { Just v -> Map.insert k v m; otherwise -> m }) Map.empty tys
-    -- DomainName VarIdentifier () --> Domainname VarIdentifier Type
-    doms = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (DomainName kl kn) (DomainName vl vn) m; otherwise -> m }) Map.empty tys
+    -- DomainName VarIdentifier () --> DomainName VarIdentifier Type
+    doms = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToDomainName t of { Just (DomainName vl vn) -> Map.insert (DomainName kl kn) (DomainName vl vn) m; otherwise -> m }) Map.empty tys
     -- DomainName VarIdentifier () --> DomainName VarIdentifier ()
-    doms1 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (DomainName kl kn) (DomainName () vn) m; otherwise -> m }) Map.empty tys
+    doms1 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToDomainName t of { Just (DomainName vl vn) -> Map.insert (DomainName kl kn) (DomainName () vn) m; otherwise -> m }) Map.empty tys
     -- DomainName VarIdentifier () --> DomainName VarIdentifier (Typed loc)
-    doms2 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (DomainName kl kn) (DomainName (Typed l vl) vn) m; otherwise -> m }) Map.empty tys
+    doms2 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToDomainName t of { Just (DomainName vl vn) -> Map.insert (DomainName kl kn) (DomainName (Typed l vl) vn) m; otherwise -> m }) Map.empty tys
     -- TypeName VarIdentifier () --> TypeName VarIdentifier Type
-    types = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (TypeName kl kn) (TypeName vl vn) m; otherwise -> m }) Map.empty tys
+    types = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToTypeName t of { Just (TypeName vl vn) -> Map.insert (TypeName kl kn) (TypeName vl vn) m; otherwise -> m }) Map.empty tys
     -- TypeName VarIdentifier () --> TypeName VarIdentifier ()
-    types1 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (TypeName kl kn) (TypeName () vn) m; otherwise -> m }) Map.empty tys
+    types1 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToTypeName t of { Just (TypeName vl vn) -> Map.insert (TypeName kl kn) (TypeName () vn) m; otherwise -> m }) Map.empty tys
     -- TypeName VarIdentifier () --> TypeName VarIdentifier (Typed loc)
-    types2 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToVarName t of { Just (VarName vl vn) -> Map.insert (TypeName kl kn) (TypeName (Typed l vl) vn) m; otherwise -> m }) Map.empty tys
+    types2 = Map.foldrWithKey (\(VarName kl kn) t m -> case typeToTypeName t of { Just (TypeName vl vn) -> Map.insert (TypeName kl kn) (TypeName (Typed l vl) vn) m; otherwise -> m }) Map.empty tys
     -- VarName VarIdentifier () --> SecType
     secs = Map.foldrWithKey (\k t m -> case t of { SecT s -> Map.insert k s m; otherwise -> m }) Map.empty tys
     -- VarName VarIdentifier () --> ComplexType
@@ -599,11 +610,20 @@ ppConstraints d = do
 data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
         , varIdUniq :: Maybe TyVarId
+        , varIdTok :: Bool -- if the variable is a token (not to be resolved) (only used for comparisons)
         }
-    deriving (Typeable,Data,Show,Ord,Eq)
+    deriving (Typeable,Data,Show)
+
+instance Eq VarIdentifier where
+    v1 == v2 = varIdBase v1 == varIdBase v2 && varIdUniq v1 == varIdUniq v2
+instance Ord VarIdentifier where
+    compare v1 v2 = mappend (varIdBase v1 `compare` varIdBase v2) (varIdUniq v1 `compare` varIdUniq v2)
+
+varTok :: VarName VarIdentifier loc -> Bool
+varTok (VarName _ n) = varIdTok n
 
 mkVarId :: Identifier -> VarIdentifier
-mkVarId s = VarIdentifier s Nothing
+mkVarId s = VarIdentifier s Nothing False
 
 instance PP VarIdentifier where
     pp = ppVarId
@@ -702,7 +722,7 @@ instance PP SecType where
     pp (Private d k) = pp d
     pp (SVar (VarName _ v) k) = parens (ppVarId v <+> text "::" <+> pp k)
 instance PP DecType where
-    pp = ppTpltDecType
+    pp = ppDecType
 instance PP BaseType where
     pp (TyPrim p) = pp p
     pp (TyDec d) = pp d
@@ -720,12 +740,12 @@ instance PP SysType where
     pp t@(SysCRef {}) = text (show t)
 
 instance PP Type where
-    pp t@(NoType msg) = text (show t)
-    pp t@TType = text (show t)
-    pp t@BType = text (show t)
-    pp t@DType = text (show t)
-    pp t@(SType {}) = text (show t)
-    pp t@KType = text (show t)
+    pp t@(NoType msg) = text "no type"
+    pp t@TType = text "complex type"
+    pp t@BType = text "base type"
+    pp t@DType = text "declaration type"
+    pp t@(SType k) = text "domain of kind" <+> pp k
+    pp t@KType = text "kind type"
     pp t@(StmtType {}) = text (show t)
     pp (BaseT b) = pp b
     pp (ComplexT c) = pp c
@@ -745,6 +765,17 @@ data TypeClass
     | DecC -- type of declarations
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
+instance PP TypeClass where
+    pp KindStarC = text "kind star"
+    pp KindC = text "kind"
+    pp DomainC = text "domain"
+    pp TypeStarC = text "type star"
+    pp ExprC = text "index expression"
+    pp TypeC = text "complex type"
+    pp SysC = text "system call parameter"
+    pp DecC = text "declaration"
+    
+
 typeClass :: String -> Type -> TypeClass
 typeClass msg TType = TypeStarC
 typeClass msg BType = TypeStarC
@@ -757,6 +788,19 @@ typeClass msg (IdxT _) = ExprC
 typeClass msg (ComplexT _) = TypeC
 typeClass msg (BaseT _) = TypeC
 typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
+
+isStruct :: DecType -> Bool
+isStruct (TpltType _ _ _ _ (StructType {})) = True
+isStruct (StructType {}) = True
+isStruct _ = False
+
+isStructTemplate :: Type -> Bool
+isStructTemplate (DecT (TpltType _ _ _ _ (StructType {}))) = True
+isStructTemplate _ = False
+
+isVoid :: ComplexType -> Bool
+isVoid Void = True
+isVoid _ = False
 
 isLitType :: Type -> Bool
 isLitType (ComplexT c) = isLitCType c
@@ -1110,24 +1154,23 @@ type SIdentifier = TypeName VarIdentifier ()
 ppStructAtt :: Attribute VarIdentifier Type -> Doc
 ppStructAtt (Attribute _ t n) = pp t <+> pp n
 
-ppTpltType :: Type -> Doc
-ppTpltType (DecT t) = ppTpltDecType t
-
-ppTpltDecType :: DecType -> Doc
-ppTpltDecType (TpltType _ vars _ specs body@(StructType _ _ n _)) =
+ppDecType :: DecType -> Doc
+ppDecType (TpltType _ vars _ specs body@(StructType _ _ n _)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
     $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
-ppTpltDecType (TpltType _ vars _ [] body@(ProcType _ _ (Left n) args ret stmts)) =
+ppDecType (TpltType _ vars _ [] body@(ProcType _ _ (Left n) args ret stmts)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
     $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
-ppTpltDecType (TpltType _ vars _ [] body@(ProcType _ _ (Right n) args ret stmts)) =
+ppDecType (TpltType _ vars _ [] body@(ProcType _ _ (Right n) args ret stmts)) =
         text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
     $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
-ppTpltDecType (ProcType _ _ (Left n) args ret stmts) =
+ppDecType (ProcType _ _ (Left n) args ret stmts) =
         pp ret <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
-ppTpltDecType (ProcType _ _ (Right n) args ret stmts) =
+ppDecType (ProcType _ _ (Right n) args ret stmts) =
         pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(VarName t n) -> pp t <+> pp n) args) <+> braces (text "...")
-ppTpltDecType (DVar v) = pp v
+ppDecType (DVar v) = pp v
+ppDecType (StructType _ _ n _) = text "struct" <+> pp n <+> braces (text "...")
+ppDecType d = error $ "ppDecType: " ++ show d
 
 ppTpltArg :: VarName VarIdentifier Type -> Doc
 ppTpltArg (VarName BType v) = text "type" <+> ppVarId v
@@ -1138,8 +1181,8 @@ ppTpltArg (VarName (SType (PrivateKind (Just k))) v) = text "domain" <+> ppVarId
 ppTpltArg (VarName t v) | isIntType t = text "dim" <+> ppVarId v
 
 ppVarId :: VarIdentifier -> Doc
-ppVarId (VarIdentifier n Nothing) =  text n
-ppVarId (VarIdentifier n (Just i)) = text n <> Pretty.int i
+ppVarId (VarIdentifier n Nothing _) =  text n
+ppVarId (VarIdentifier n (Just i) _) = text n <> char '_' <> Pretty.int i
 
 ppTpltApp :: TIdentifier -> [Type] -> Maybe Type -> Doc
 ppTpltApp (Left n) args Nothing = text "struct" <+> pp n <> abrackets (sepBy comma $ map pp args)
@@ -1346,3 +1389,4 @@ defCType t = CType Public t (indexExpr 0) []
 
 instance Hashable VarIdentifier where
     hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)
+

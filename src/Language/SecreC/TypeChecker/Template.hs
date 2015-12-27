@@ -15,6 +15,7 @@ import Language.SecreC.TypeChecker.Environment
 import Data.Typeable
 import Data.Either
 import Data.Maybe
+import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import Control.Monad
@@ -30,27 +31,37 @@ matchTemplate l n args ret check = do
     entries <- check
     instances <- instantiateTemplateEntries n args ret entries
     let def = ppTpltApp n args ret
+    vs <- do
+        x <- fvIds n
+        y <- fvIds args
+        z <- fvIds ret
+        return $ Set.unions [x,y,z]
     let oks = rights instances
     let errs = lefts instances
     case oks of
         [] -> do
-            let defs = map (\(e,err) -> (locpos $ entryLoc e,ppTpltType (entryType e),err)) errs
-            ss <- liftM ppTSubsts getTSubsts
+            let defs = map (\(e,err) -> (locpos $ entryLoc e,pp (entryType e),err)) errs
+            ss <- liftM ppTSubsts (filterTSubsts vs =<< getTSubsts)
             tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure def defs ss
-        es -> do
+        [(e,subst)] -> resolveTemplateEntry l n args ret e subst
+        otherwise -> do
             -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
-            ((e,subst):_) <- sortByM (compareTemplateDecls def l n) es
+            ((e,subst):_) <- sortByM (compareTemplateDecls def l n) oks
+            -- guarantee that the most specific template can be fully instantiated
+            addErrorM
+                (TypecheckerError (locpos l) . Halt . TemplateSolvingError def)
+                (prove l True (addHeadTDict subst))
             -- return the instantiated body of the most specific declaration
             resolveTemplateEntry l n args ret e subst
 
 templateCstrs :: Location loc => Doc -> loc -> TDict loc -> TDict loc
 templateCstrs doc p d = d { tCstrs = Map.map upd (tCstrs d) }
     where
-    upd (Loc l k) = Loc l $ k { kCstr = DelayedCstr (kCstr k) (TypecheckerError (locpos p) . TemplateSolvingError doc) }
+    upd (Loc l k) = Loc p $ k { kCstr = DelayedCstr (kCstr k) (TypecheckerError (locpos p) . TemplateSolvingError doc) }
 
 resolveTemplateEntry :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> [Type] -> Maybe Type -> EntryEnv loc -> TDict loc -> TcM loc DecType
 resolveTemplateEntry p n args ret e dict = do
---    liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr args
+--    liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr args ++ " " ++ ppr (entryType e)
     let l = entryLoc e
     addHeadTDict dict
     case entryType e of
@@ -61,7 +72,7 @@ resolveTemplateEntry p n args ret e dict = do
 --            liftIO $ putStrLn $ "constraints " ++ show doc
 --            body' <- sub body
 --            specs' <- sub specs
-            cstrs'' <- newErrorM $ liftM snd $ tcProve l False $ addHeadTDict cstrs'
+            cstrs'' <- liftM snd $ tcProve l False $ addHeadTDict cstrs'
             return $ TpltType a b (fmap locpos cstrs'') specs body
         DecT (ProcType a b n args body stmts) -> do
 --            n' <- sub n
@@ -74,11 +85,13 @@ resolveTemplateEntry p n args ret e dict = do
 templateDecReturn :: (VarsTcM loc,Location loc) => loc -> DecType -> TcM loc Type
 templateDecReturn l (TpltType _ _ _ _ b) = templateDecReturn l b
 templateDecReturn l (ProcType _ _ _ _ r _) = return r
-templateDecReturn l s@(StructType {}) = return $ DecT s
-templateDecReturn l t = genericError (locpos l) $ text "Unknown template return type for" <+> quotes (pp t)
+templateDecReturn l s@(StructType {}) = return $ BaseT $ TyDec s
+templateDecReturn l (DVar v) = do
+    d <- resolveDVar l v
+    templateDecReturn l d
 
 -- | Tells if one declaration is strictly more specific than another, and if not it fails.
--- Since we are unifying base types during instantiaton, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
+-- Since we are unifying base types during instantiation, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
 -- An example is if we tried to match the template over a type variable T:
 -- y = f ((T) x)
 -- bool f (int x) { ... }     (1)
@@ -91,7 +104,7 @@ compareTemplateDecls def l n (e1,s1) (e2,d2) = tcBlock $ do
     e2' <- localTemplate e2
     targs1 <- templateArgs n e1'
     targs2 <- templateArgs n e2'
-    let defs = map (\e -> (locpos $ entryLoc e,ppTpltType (entryType e))) [e1,e2]
+    let defs = map (\e -> (locpos $ entryLoc e,pp (entryType e))) [e1,e2]
     let err = TypecheckerError (locpos l) . Halt . ConflictingTemplateInstances def defs
     ord <- addErrorM err $ comparesList l targs1 targs2
     when (ord == EQ) $ do
@@ -110,18 +123,17 @@ instantiateTemplateEntry n args ret e = do
     let l = entryLoc e
     e' <- localTemplate e
     targs <- templateArgs n e'
-    let matchName = unifiesTIdentifier l n (templateIdentifier $ entryType e')
+    let matchName = unifiesTIdentifier l (templateIdentifier $ entryType e') n -- reverse unification
     let proof = case ret of
                 Nothing -> coercesList l args targs
                 Just r -> do
                     coercesList l args (init targs)
-                    tcCstrM l $ Unifies r (last targs)
+                    tcCstrM l $ Unifies (last targs) r -- reverse unification
     ok <- newErrorM $ proveWith l False (matchName >> proof)
     case ok of
         Left err -> return $ Left (e',err)
         Right ((),subst) -> do
-            ss <- liftM ppTSubsts getTSubsts
---            liftIO $ putStrLn $ "entry " ++ ppr (entryType e)
+            liftIO $ putStrLn $ "entry " ++ ppr (entryType e) ++ "\n" ++ ppr subst
 --            liftIO $ putStrLn $ "instantiated " ++ ppr n ++ " " ++ ppr args ++ " " ++ ppr ret ++ " " ++ ppr (entryType e') ++ "\n" ++ show ss ++  "INST\n" ++ ppr (tSubsts subst) 
             return $ Right (e',subst)
 
@@ -162,7 +174,7 @@ localTemplate (e::EntryEnv loc) = case entryType e of
     DecT t -> return e
   where
     uniqueVar :: VarName VarIdentifier Type -> TcM loc (VarName VarIdentifier (),VarName VarIdentifier Type)
-    uniqueVar i@(VarName t v) = newTyVarId >>= \j -> return (VarName () v,VarName t (VarIdentifier (varIdBase v) $ Just j))
+    uniqueVar i@(VarName t v) = newTyVarId >>= \j -> return (VarName () v,VarName t (VarIdentifier (varIdBase v) (Just j) False))
     l = entryLoc e
 
 

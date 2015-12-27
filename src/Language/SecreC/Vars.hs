@@ -119,7 +119,7 @@ instance Ord ScVar where
         EqT -> compare x y
         NeqT -> compare (typeOf x) (typeOf y)
 
-type IsScVar a = (Show a,PP a,Eq a,Ord a,Typeable a)
+type IsScVar a = (Data a,Show a,PP a,Eq a,Ord a,Typeable a)
 
 getLHS :: Monad m => VarsM m Bool
 getLHS = liftM (\(x,y,z) -> x) State.get
@@ -745,3 +745,7 @@ instance (Vars m a,MonadIO m) => Vars m (UniqRef a) where
         x <- liftIO $ readUniqRef ref
         x' <- f x
         liftIO $ newUniqRef x'
+
+instance Monad m => Vars m Ordering where
+    traverseVars f x = return x
+    

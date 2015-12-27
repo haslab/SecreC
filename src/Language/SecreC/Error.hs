@@ -70,7 +70,10 @@ data TypecheckerErr
     | MultipleDefinedVariable Identifier
     | NoReturnStatement
         Doc -- declaration
-    | NoTemplateType Doc Position
+    | NoTemplateType
+        Doc -- template name
+        Position -- entry location
+        Doc -- entry type
     | NoMatchingTemplateOrProcedure -- ^ suitable template instantiation not found
         Doc -- ^ expected match
         [(Position,Doc,SecrecError)] -- ^ declared instantiations in scope
@@ -126,6 +129,7 @@ data TypecheckerErr
         Position -- ^existing definition
     | NonDeclassifiableExpression -- ^ an expression cannot be declassified
     | FieldNotFound -- ^ field not found in structure definition
+        Doc -- ^ type 
         Doc -- ^ field name
     | NoDimensionForMatrixInitialization -- ^ no static dimension known for matrix initialization
         Identifier -- variable name
@@ -165,11 +169,15 @@ data TypecheckerErr
     | MultipleTypeSubstitutions -- a variable can be resolved in multiple ways
         [Doc] -- list of different substitution options
     | ConstraintStackSizeExceeded Int
+    | TypeConversionError
+        Doc -- conversion kind
+        Doc -- type to convert
     | Halt -- ^ an error because of lacking information
         TypecheckerErr
   deriving (Show,Typeable,Data)
 
 instance PP TypecheckerErr where
+    pp (TypeConversionError k t) = text "Expected a" <+> k <+> text "but found" <+> quotes t
     pp e@(UnreachableDeadCode {}) = text (show e)
     pp e@(NonStaticDimension t err) = text "Array dimension must be statically known for type" <+> quotes t $+$ nest 4
         (text "Static evaluation error:" $+$ nest 4 (pp err))
@@ -181,7 +189,7 @@ instance PP TypecheckerErr where
         $+$ text "Actual:" <+> pp d)
     pp e@(MultipleDefinedVariable {}) = text (show e)
     pp e@(NoReturnStatement dec) = text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
-    pp e@(NoTemplateType {}) = text (show e)
+    pp e@(NoTemplateType n p t) = text "Declaration" <+> quotes t <+> text "at" <+> pp p <+> text "is not a template type with name" <+> quotes n
     pp e@(NoMatchingTemplateOrProcedure ex defs ss) = text "Could not find matching template or procedure:" $+$ nest 4
            (text "Expected match:" <+> ex
         $+$ text "Actual declarations: " $+$ nest 4 (vcat (map (\(p,d,err) -> pp p <> char ':' $+$ nest 4 ((text "Declaration:" $+$ nest 4 d) $+$ (text "Instantiation error:" $+$ nest 4 (pp err)))) defs))
@@ -228,10 +236,10 @@ instance PP TypecheckerErr where
         $+$ ppConstraintEnv env)
     pp e@(MultipleDefinedStruct {}) = text (show e)
     pp e@(NonDeclassifiableExpression {}) = text (show e)
-    pp e@(FieldNotFound {}) = text (show e)
+    pp e@(FieldNotFound t a) = text "Type" <+> quotes t <+> text "does not possess a field" <+> quotes a
     pp e@(NoDimensionForMatrixInitialization {}) = text (show e)
     pp e@(ArrayAccessOutOfBounds t i rng) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension of type" <+> quotes t <+> text "out of bounds"
-    pp e@(VariableNotFound {}) = text (show e)
+    pp e@(VariableNotFound v) = text "Variable" <+> quotes v <+> text "not found"
     pp e@(InvalidToStringArgument {}) = text (show e)
     pp e@(InvalidSizeArgument {}) = text (show e)
     pp e@(DuplicateTemplateInstances ex defs ss) = text "Duplicate matching instances for template or procedure application:" $+$ nest 4

@@ -42,25 +42,34 @@ import Text.PrettyPrint as PP
 
 import Prelude hiding (mapM)
 
+castTypeToType :: CastType VarIdentifier Type -> Type
+castTypeToType (CastPrim p) = BaseT $ TyPrim $ fmap (const ()) p
+castTypeToType (CastTy (TypeName t n)) = t
+
 typeToSecType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc SecType
 typeToSecType l (SecT s) = return s
-typeToSecType l t = genericError (locpos l) $ text "Expected a security type but found" <+> quotes (pp t)
+typeToSecType l t = tcError (locpos l) $ TypeConversionError (pp $ SType AnyKind) (pp t)
 
 typeToDecType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc DecType
 typeToDecType l (DecT s) = return s
-typeToDecType l t = genericError (locpos l) $ text "Expected a declaration type but found" <+> quotes (pp t)
+--typeToDecType l (BaseT (TyDec d)) = return d
+typeToDecType l t = tcError (locpos l) $ TypeConversionError (pp DType) (pp t)
 
 typeToBaseType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc BaseType
 typeToBaseType l (BaseT s) = return s
-typeToBaseType l t@(ComplexT ct@(CType s b d sz)) = do
-    tcCstrM l $ Equals t (ComplexT $ CType Public b (indexExpr 0) [])
-    return b
-typeToBaseType l t = genericError (locpos l) $ text "Expected a base type but found" <+> quotes (text $ show t)
+--typeToBaseType l (DecT d) | isStruct d = return $ TyDec d
+typeToBaseType l t@(ComplexT ct) = case ct of
+    (CType s b d sz) -> do
+        tcCstrM l $ Equals t (ComplexT $ CType Public b (indexExpr 0) [])
+        return b
+    CVar _ -> tcError (locpos l) $ Halt $ TypeConversionError (pp BType) (pp t)
+    otherwise -> tcError (locpos l) $ TypeConversionError (pp BType) (pp t)
+typeToBaseType l t = tcError (locpos l) $ TypeConversionError (pp BType) (pp t)
 
 typeToComplexType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc ComplexType
 typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
-typeToComplexType l t = genericError (locpos l) $ text "Expected a complex type but found" <+> quotes (pp t)
+typeToComplexType l t = tcError (locpos l) $ TypeConversionError (pp TType) (pp t)
 
 tcCastType :: Location loc => CastType Identifier loc -> TcM loc (CastType VarIdentifier (Typed loc))
 tcCastType (CastPrim p) = do
@@ -116,10 +125,10 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     let vn = bimap mkVarId id n
     dec <- newDecVar
     tcTopCstrM l $ TDec (fmap (const ()) vn) ts dec
-    ret <- newTyVar
-    tcTopCstrM l $ TRet dec ret
+    ret <- newBaseTyVar
+    tcTopCstrM l $ TRet dec (BaseT ret)
     let n' = fmap (flip Typed (DecT dec)) vn
-    return $ TemplateSpecifier (Typed l ret) n' args'
+    return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
 tcDatatypeSpec (VariableSpecifier l v) = do
     let vv = bimap mkVarId id v
     t <- checkNonTemplateType vv
@@ -236,10 +245,15 @@ projectSize p ct i x y1 y2 = do
             subtractIndexExprs p eupp elow          
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
-projectStructField :: (VarsTcM loc,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc Type
-projectStructField l (StructType _ _ _ atts) (AttributeName _ a) = do -- project the field
+projectStructField :: (VarsTcM loc,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc Type
+projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
+projectStructField l t@(BVar _) a = tcError (locpos l) $ Halt $ FieldNotFound (pp t) (pp a)
+projectStructField l (TyDec d) a = projectStructFieldDec l d a
+    
+projectStructFieldDec :: (VarsTcM loc,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc Type
+projectStructFieldDec l t@(StructType _ _ _ atts) (AttributeName _ a) = do -- project the field
     case List.find (\(Attribute _ t f) -> attributeNameId f == a) atts of
-        Nothing -> tcError (locpos l) $ FieldNotFound (pp a)
+        Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
         Just (Attribute _ t f) -> return $ typeSpecifierLoc t
 
 resolveSizes :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc [Expression VarIdentifier Type]

@@ -15,7 +15,7 @@ import Test.HUnit.Base
 buildTestTree :: IO Test
 buildTestTree = do
 --    tests1 <- buildTestDirectoryTree "imports/stdlib"
-    tests2 <- buildTestDirectoryTree "tests/regression/arrays"
+    tests2 <- buildTestDirectoryTree "tests/regression/templates"
     return $ TestList [tests2]
 
 buildTestDirectoryTree :: FilePath -> IO Test
@@ -44,9 +44,10 @@ hasLabel s t = False
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
     code <- system $ "secrec " ++ f
+    let neg = if isInfixOf "fail" (takeFileName f) then not else id
     return $ case code of
-        ExitSuccess -> True
-        ExitFailure i -> False
+        ExitSuccess -> neg True
+        ExitFailure i -> neg False
 
 main = buildTestTree >>= runTestTT 
 

@@ -1,12 +1,11 @@
-. what does variable (dimensions) serve for?
-. list of qualified types in qualified expressions?
+
 
 leakage analysis:
 . a não aplicação de nenhuma função não esconde: warning
 . especificação de leakage que aceita tudo menos a identidade, derivada automaticamente
 . probabilistic leakage: e.g., randomizar os elementos de uma lista esconde as comparações
 
-no implicit public -> private conversion for tmeplates
+no implicit public -> private conversion for templates
 public domain by default, dimensionality is 0
 in SecreC templates are not typechecked unless instantiated
 
@@ -22,6 +21,35 @@ applications for random ; sort: RSA exponentiation?
 
 most possibly controversial typechecker decisions:
 . promote sizes to the type-level
-. types of array projections
 . literal coercions
 . template resolution algorithm
+
+TODO:
+. procedure template parameters
+. size-dependent types
+
+template <domain D, type T, dim N>
+D T[[1]](n) reshape (D T[[N]] arr ,uint n) {
+    // stub
+    assert (size(arr) == n);
+    D T[[1]] ret (n);
+    return ret;
+}
+
+. add template constraints, e.g., D T [[N]], N > 0
+
+template <domain D, dim N, N > 0>
+D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y) {
+    //stub
+    D bool[[N]] ret;
+    D bool z;
+    // simply to enforce the T operator + (T,T) constraint
+    z = z && z;
+    return ret;
+}
+
+
+
+
+
+

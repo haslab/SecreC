@@ -28,7 +28,7 @@ typeDim :: (VarsTcM loc,Location loc) => loc -> ComplexType -> TcM loc (Maybe Wo
 
 projectMatrixType :: (VarsTcM loc,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc ComplexType
 
-projectStructField :: (VarsTcM loc,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc Type
+projectStructField :: (VarsTcM loc,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc Type
 
 refineTypeSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (Sizes VarIdentifier Type) -> TcM loc ComplexType
 

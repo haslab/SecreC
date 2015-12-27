@@ -62,6 +62,7 @@ opts  = Opts {
     , debugTypechecker           = debugTypechecker defaultOptions &= name "debug-typechecker" &= explicit &= help "Print typechecker result to stderr" &= groupname "Debugging"
     
     -- Typechecker
+    , implicitClassify   = implicitClassify defaultOptions &= name "implicit" &= help "Enables implicit classification of public data" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , typecheckTemplates   = typecheckTemplates defaultOptions &= name "tc-tplts" &= help "Typechecks template declarations for early error detection (slower)" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= name "eval-timeout" &= explicit &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"

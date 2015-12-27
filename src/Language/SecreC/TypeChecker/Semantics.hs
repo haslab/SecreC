@@ -69,7 +69,7 @@ evalIndexExpr e = do
     case v of
         HsUint64 x -> return x
         HsLit (IntLit _ x) -> return $ fromInteger x
-        otherwise -> genericError (locpos $ loc e) (text (show v) <+> text "not an index")
+        otherwise -> genericError (locpos $ loc e) (pp v <+> text "not an index")
 
 simplIndexExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Expression VarIdentifier (Typed loc))
 simplIndexExpr e = do

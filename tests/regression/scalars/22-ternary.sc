@@ -11,8 +11,8 @@ void main () {
   bool t = true;
   bool f = false;
 
-  assert ( (t ? 11 : 12) == 11 );
-  assert ( (f ? 13 : 14) == 14 );
+  assert ( (t ? (int)11 : 12) == 11 );
+  assert ( (f ? (int)13 : 14) == 14 );
 
   sharemind_test_pd int one = 1;
   sharemind_test_pd int two = 2;

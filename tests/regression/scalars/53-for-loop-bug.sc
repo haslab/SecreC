@@ -1,4 +1,4 @@
 
 void main () {
-    for (uint i = 0; false; ++ index);
+    for (uint i = 0; false; ++ i);
 }

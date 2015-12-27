@@ -1,5 +1,14 @@
 kind a3p;
 
+private int classify (public int x) {
+    private int y;
+    return y;
+}
+protected int classify (public int x) {
+    protected int y;
+    return y;
+}
+
 template <domain d1 : a3p, domain d2 : a3p >
 d2 int reclassify (d1 int x) { return 0; }
 

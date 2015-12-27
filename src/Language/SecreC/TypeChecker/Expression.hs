@@ -97,7 +97,7 @@ tcExpr (UnaryExpr l op e) = do
             return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) e'
 tcExpr (DomainIdExpr l s) = do
     s' <- tcSecTypeSpec s
-    let t = typed $ loc s'
+    let t = BaseT index
     return $ DomainIdExpr (Typed l t) s'
 tcExpr (StringFromBytesExpr l e) = do
     e' <- tcExprTy (ComplexT bytes) e
@@ -123,7 +123,7 @@ tcExpr (SelectionExpr l pe a) = do
     let va = bimap mkVarId id a
     pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
-    ctpe' <- typeToDecType l tpe'
+    ctpe' <- typeToBaseType l tpe'
     res <- newTyVar
     tcTopCstrM l $ ProjectStruct ctpe' (fmap (const ()) va) res
     return $ SelectionExpr (Typed l res) pe' (fmap (notTyped "tcExpr") va)

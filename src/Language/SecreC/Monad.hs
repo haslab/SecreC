@@ -37,6 +37,7 @@ data Options
         , constraintStackSize   :: Int
         , typecheckTemplates    :: Bool
         , evalTimeOut           :: Int
+        , implicitClassify      :: Bool
         }
     deriving (Show, Data, Typeable)
 
@@ -57,6 +58,7 @@ defaultOptions = Opts
     , constraintStackSize = 5
     , typecheckTemplates = True
     , evalTimeOut = 5
+    , implicitClassify = True
     }
 
 -- | SecreC Monad

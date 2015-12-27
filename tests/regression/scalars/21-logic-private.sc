@@ -1,5 +1,27 @@
 kind additive3pp;
 domain sharemind_test_pd additive3pp;
+
+sharemind_test_pd bool operator && (sharemind_test_pd bool x,sharemind_test_pd bool y) {
+    // stub
+    sharemind_test_pd bool ret;
+    return ret;
+}
+sharemind_test_pd bool operator || (sharemind_test_pd bool x,sharemind_test_pd bool y) {
+    // stub
+    sharemind_test_pd bool ret;
+    return ret;
+}
+sharemind_test_pd bool operator == (sharemind_test_pd bool x,sharemind_test_pd bool y) {
+    // stub
+    sharemind_test_pd bool ret;
+    return ret;
+}
+sharemind_test_pd bool operator != (sharemind_test_pd bool x,sharemind_test_pd bool y) {
+    // stub
+    sharemind_test_pd bool ret;
+    return ret;
+}
+
 void main () {
   sharemind_test_pd bool t = true;
   sharemind_test_pd bool f = false;

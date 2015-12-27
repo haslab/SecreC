@@ -30,6 +30,11 @@ import Data.Map (Map(..))
 import qualified Data.Map as Map
 import Data.Bifunctor
 
+import Data.Graph.Inductive              as Graph
+import Data.Graph.Inductive.Graph        as Graph
+import Data.Graph.Inductive.PatriciaTree as Graph
+import Data.Graph.Inductive.Query.DFS    as Graph
+
 import Control.Applicative
 import Control.Monad.State as State
 import Control.Monad.Reader as Reader
@@ -146,7 +151,9 @@ checkNonTemplateType :: Location loc => TypeName VarIdentifier loc -> TcM loc Ty
 checkNonTemplateType tn@(TypeName l n) = do
     es <- checkType tn
     case es of
-        [e] -> return $ entryType e 
+        [e] -> case entryType e of
+            DecT d -> return $ BaseT $ TyDec d
+            t -> return t
         es -> tcError (locpos l) $ NoNonTemplateType (ppVarId n)
 
 -- | Checks if a template type exists in scope
@@ -154,10 +161,7 @@ checkNonTemplateType tn@(TypeName l n) = do
 checkTemplateType :: Location loc => TypeName VarIdentifier loc -> TcM loc [EntryEnv loc]
 checkTemplateType ty@(TypeName _ n) = do
     es <- checkType ty
-    let check e = case entryType e of
-                    TType -> return ()
-                    BType -> return ()
-                    otherwise -> tcError (locpos $ loc ty) $ NoTemplateType (ppVarId n) (locpos $ entryLoc e)
+    let check e = unless (isStructTemplate $ entryType e) $ tcError (locpos $ loc ty) $ NoTemplateType (ppVarId n) (locpos $ entryLoc e) (pp $ entryType e)
     mapM_ check es
     return es
 
@@ -171,12 +175,14 @@ checkTemplateArg (TemplateArgName l vn) = do
     let vs = vars env
     case (Map.lookup vn ss,Map.lookup vn ds,Map.lookup vn vs) of
         (Just (base,es),Nothing,Nothing) -> case (base:Map.elems es) of
-            [e] -> case entryType e of
-                DecT (TpltType {}) -> tcError (locpos l) $ NoNonTemplateType (ppVarId vn)
-                t -> return t
+            [e] -> if (isStructTemplate $ entryType e)
+                then tcError (locpos l) $ NoNonTemplateType (ppVarId vn)
+                else return $ entryType e
             es -> tcError (locpos l) $ NoNonTemplateType (ppVarId vn)
-        (Nothing,Just e,Nothing) -> return $ entryType e
-        (Nothing,Nothing,Just e) -> return $ entryType e
+        (Nothing,Just e,Nothing) -> case entryType e of
+            SType (PrivateKind (Just k)) -> return $ SecT $ Private (DomainName () vn) k
+            otherwise -> genericError (locpos l) $ text "Unexpected domain" <+> quotes (pp vn) <+> text "without kind."
+        (Nothing,Nothing,Just e) -> return $ varNameToType $ VarName (entryType e) vn
         (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (ppVarId vn) $ map (locpos . entryLoc) $ maybe [] (\(b,es) -> b:Map.elems es) mb1 ++ maybeToList mb2 ++ maybeToList mb3
 
 -- | Checks that a kind exists in scope
@@ -230,7 +236,7 @@ newOperator op = do
     let e = EntryEnv l t UnknownValue
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
   
- -- | Checks that an oeprator exists.
+ -- | Checks that an operator exists.
 checkOperator :: (VarsTcM loc,Location loc) => Op VarIdentifier loc -> TcM loc [EntryEnv loc]
 checkOperator op@(OpCast l t) = do
     ps <- liftM operators State.get
@@ -331,10 +337,13 @@ newTemplateConstraint :: Location loc => loc -> TCstr -> TcM loc IOCstr
 newTemplateConstraint l c = do
     updateHeadTDict (insertTDictCstr l c Unevaluated)
 
+addSubst :: Location loc => loc -> VarName VarIdentifier () -> Type -> TcM loc ()
+addSubst l v t = updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert v t (tSubsts d) })
+
 addSubstM :: Location loc => loc -> VarName VarIdentifier Type -> Type -> TcM loc ()
 addSubstM l v t | varNameToType v == t = return ()
                 | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
-                    updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (fmap (const ()) v) t (tSubsts d) })
+                    addSubst l (fmap (const ()) v) t
                     dirtyVarDependencies ov t
                 | otherwise = genericError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
   where ov = fmap (const ()) v
@@ -370,7 +379,7 @@ newDecVar = do
 uniqVarId :: Identifier -> TcM loc VarIdentifier
 uniqVarId n = do
     i <- newTyVarId
-    return $ VarIdentifier n (Just i)
+    return $ VarIdentifier n (Just i) False
     
 newBaseTyVar :: Location loc => TcM loc BaseType
 newBaseTyVar = do
@@ -384,10 +393,13 @@ newSizeVar = do
     let v = VarName (BaseT index) n
     return $ RVariablePExpr (BaseT index) v
     
+addValue :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> Expression VarIdentifier (Typed loc) -> TcM loc ()
+addValue l v e = updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (fmap (const ()) v) (IdxT $ fmap typed e) (tSubsts d) })
+    
 addValueM :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> Expression VarIdentifier (Typed loc) -> TcM loc ()
 addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
-addValueM l (VarName t n) e | typeClass "addValueL" (typed t) == typeClass "addValueR" (typed $ loc e) = do
-    updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (VarName () n) (IdxT $ fmap typed e) (tSubsts d) })
+addValueM l v@(VarName t n) e | typeClass "addValueL" (typed t) == typeClass "addValueR" (typed $ loc e) = do
+    addValue l v e
     dirtyVarDependencies (VarName () n) (IdxT $ fmap typed e)
 addValueM l v e = genericError (locpos l) $ text "unification: mismatching expression types"
 
@@ -472,7 +484,49 @@ dirtyVarDependencies v t = do
 --                liftIO $ writeUniqRef (kStatus x) Unevaluated
 --            mapM_ dirty ios
 
+fvIds :: Vars m a => a -> m (Set VarIdentifier)
+fvIds = liftM scVarsIds . fvs
+
+scVarsIds :: Set ScVar -> Set VarIdentifier
+scVarsIds = Set.unions . map scVarIds . Set.toList
+
+scVarIds :: ScVar -> Set VarIdentifier
+scVarIds (ScVar a) = everything (Set.union) (mkQ Set.empty f) a
+    where
+    f :: VarIdentifier -> Set VarIdentifier
+    f = Set.singleton
+
 vars env = Map.union (localVars env) (globalVars env)
+
+filterTSubsts :: Location loc => Set VarIdentifier -> TSubsts -> TcM loc TSubsts
+filterTSubsts vs ss = 
+    return $ Map.filterWithKey (\k v -> varNameId k `Set.member` vs) ss
+--    (g,(_,nodes)) <- graphTSubsts ss
+--    let g' = trc g
+--    let is = Map.elems $ Map.filterWithKey (\k v -> k `Set.member` vs) nodes
+--    let os = concatMap (map snd3 . out g') is
+--    let xs = Set.fromList $ map (\o -> fromJust $ lab g' o) os
+--    let ios = Set.union vs xs
+--    return $ Map.filterWithKey (\k v -> varNameId k `Set.member` ios) ss
+--
+--graphTSubsts :: TSubsts -> TcM loc (Gr VarIdentifier (),(Node,Map VarIdentifier Node))
+--graphTSubsts ss = runStateT (graphTSubsts' ss) (0,Map.empty)
+--    where
+--    graphTSubsts' :: TSubsts -> StateT (Node,Map VarIdentifier Node) (TcM loc) (Gr VarIdentifier ())    
+--    graphTSubsts' ss = Map.foldrWithKey addG (return Graph.empty) ss
+--        where
+--        addG v t mg = do
+--            g <- mg
+--            i <- newNode $ varNameId v
+--            os <- mapM newNode =<< liftM Set.toList (fvIds t)
+--            return $ ([],i,varNameId v,map ((),) os) & g
+--        newNode v = do
+--            (i,xs) <- State.get
+--            case Map.lookup v xs of
+--                Just j -> return j
+--                Nothing -> do
+--                    State.put (succ i,Map.insert v i xs)
+--                    return i
 
 getTSubsts :: Location loc => TcM loc TSubsts
 getTSubsts = do
@@ -480,6 +534,18 @@ getTSubsts = do
     let es = Map.foldrWithKey (\k e m -> case entryValue e of { KnownExpression ex -> Map.insert (VarName () k) (IdxT $ fmap typed ex) m; otherwise -> m}) Map.empty $ vars env
     let sst = tSubsts $ mconcatNe $ tDict env
     return $ Map.unions [es,sst]
+    
+tcError :: Location loc => Position -> TypecheckerErr -> TcM loc a
+tcError pos msg = do
+    f <- Reader.ask
+    let err = f $ typecheckerError pos msg
+    ios <- liftM openedCstrs State.get
+    let add io = liftIO $ writeUniqRef (kStatus io) (Erroneous err)
+    mapM_ add ios
+    throwError err
+
+tcWarn :: Location loc => Position -> TypecheckerWarn -> TcM loc ()
+tcWarn pos msg = TcM $ lift $ tell [TypecheckerWarning pos msg]
 
 isChoice :: Location loc => Unique -> TcM loc Bool
 isChoice x = liftM (Set.member x . tChoices . mconcatNe . tDict) State.get
