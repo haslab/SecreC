@@ -38,6 +38,7 @@ data Options
         , typecheckTemplates    :: Bool
         , evalTimeOut           :: Int
         , implicitClassify      :: Bool
+        , externalSMT           :: Bool
         }
     deriving (Show, Data, Typeable)
 
@@ -59,6 +60,7 @@ defaultOptions = Opts
     , typecheckTemplates = True
     , evalTimeOut = 5
     , implicitClassify = True
+    , externalSMT = True
     }
 
 -- | SecreC Monad
@@ -146,4 +148,5 @@ instance Applicative SecrecM where
 
 mapError :: MonadError SecrecError m => (SecrecError -> SecrecError) -> m a -> m a
 mapError f m = m `catchError` (throwError . f)
+
 

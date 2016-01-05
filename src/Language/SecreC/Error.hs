@@ -7,7 +7,6 @@ import Language.SecreC.Syntax
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Pretty
 import Language.SecreC.Utils
-import Language.SecreC.Vars
 
 import Data.Generics hiding (empty)
 import Data.Int
@@ -21,18 +20,13 @@ import Text.PrettyPrint
 
 data ParserException 
     = LexicalException String
-    | ParsecException ParseError 
+    | ParsecException String 
     | DerpException String
-    deriving (Show,Typeable,Data)
-
-instance Data ParseError where
-    gunfold = error "gunfold ParseError"
-    toConstr = error "toConstr ParseError"
-    dataTypeOf = error "dataTypeof ParseError"
+    deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP ParserException where
     pp (LexicalException s) = text "Lexical error:" <+> text s
-    pp (ParsecException err) = text "Parser error:" <+> text (show err)
+    pp (ParsecException err) = text "Parser error:" <+> text err
     pp (DerpException msg) = text "Parser error:" <+> text msg
 
 parserError :: ParserException -> SecrecError
@@ -46,7 +40,9 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                      Doc -- ^message
                  | MultipleErrors [SecrecError] -- a list of errors
                  | TimedOut Int -- timed out after @x@ seconds
-  deriving (Show,Typeable,Data)
+                 | OrWarn -- ^ optional constraint, just throw a warning
+                     SecrecError
+  deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP SecrecError where
     pp (TypecheckerError p err) = pp p <> char ':' $+$ nest 4 (pp err)
@@ -55,6 +51,7 @@ instance PP SecrecError where
     pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 msg
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
+    pp (OrWarn err) = pp err
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -66,7 +63,7 @@ data TypecheckerErr
         Doc -- type
         Word64 -- defined dimension
         Word64 -- expected dimension
-        (Either Doc (Doc,Doc)) -- name of the array variable
+        (Either Doc (Maybe Doc,Doc)) -- name of the array variable
     | MultipleDefinedVariable Identifier
     | NoReturnStatement
         Doc -- declaration
@@ -174,9 +171,36 @@ data TypecheckerErr
         Doc -- type to convert
     | Halt -- ^ an error because of lacking information
         TypecheckerErr
-  deriving (Show,Typeable,Data)
+    | NonPositiveIndexExpr
+        Doc -- the index expression
+        SecrecError -- sub-error
+    | UncheckedRangeSelection -- dependent size in selection
+        Doc -- type
+        Word64 -- dimension where the dependent size occurs
+        Doc -- range selection
+        SecrecError -- ^ sub-error
+    | StaticAssertionFailure
+        Doc -- assertion
+        SecrecError -- ^ sub-error
+    | NotSupportedIndexOp -- failed to convert expression into IExpr or ICond
+        Doc -- expression
+        (Maybe SecrecError) -- sub-error
+    | SMTException
+        Doc -- hypotheses
+        Doc -- expression
+        SecrecError -- sub-error
+  deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP TypecheckerErr where
+    pp (SMTException hyp prop err) = text "Failed to prove proposition via SMT solvers:" $+$ nest 4
+        (text "Hypothesis:" $+$ (nest 4 hyp))
+        $+$ text "Proposition:" $+$ (nest 4 prop)
+        $+$ text "Because of:" $+$ (nest 4 (pp err))        
+    pp (NotSupportedIndexOp e Nothing) = text "Failed to convert expression" <+> quotes e <+> text "into an index operation"
+    pp (NotSupportedIndexOp e (Just err)) = text "Failed to convert expression" <+> quotes e <+> text "into an index operation" $+$ nest 4
+        (text "Because of:" $+$ nest 4 (pp err))
+    pp (StaticAssertionFailure e err) = text "Failed to statically check assertion" <+> quotes e $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
+    pp (NonPositiveIndexExpr e err) = text "Failed to prove that index expression" <+> quotes e <+> text ">= 0" $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
     pp (TypeConversionError k t) = text "Expected a" <+> k <+> text "but found" <+> quotes t
     pp e@(UnreachableDeadCode {}) = text (show e)
     pp e@(NonStaticDimension t err) = text "Array dimension must be statically known for type" <+> quotes t $+$ nest 4
@@ -184,7 +208,10 @@ instance PP TypecheckerErr where
     pp e@(MismatchingArrayDimension t d ds (Left proj)) = text "Mismatching dimensions for type" <+> quotes t <+> text "in projection" <+> proj <> char ':' $+$ nest 4
            (text "Expected:" <+> pp ds
         $+$ text "Actual:" <+> pp d)
-    pp e@(MismatchingArrayDimension t d ds (Right (v,sz))) = text "Mismatching dimensions for type" <+> quotes t <+> text "in variable declaration" <+> v <+> text "with size" <+> sz <> char ':' $+$ nest 4
+    pp e@(MismatchingArrayDimension t d ds (Right (Just v,sz))) = text "Mismatching dimensions for type" <+> quotes t <+> text "in variable declaration" <+> v <+> text "with size" <+> sz <> char ':' $+$ nest 4
+           (text "Expected:" <+> pp ds
+        $+$ text "Actual:" <+> pp d)
+    pp e@(MismatchingArrayDimension t d ds (Right (Nothing,sz))) = text "Mismatching dimensions for return type" <+> quotes t <+> text "with size" <+> sz <> char ':' $+$ nest 4
            (text "Expected:" <+> pp ds
         $+$ text "Actual:" <+> pp d)
     pp e@(MultipleDefinedVariable {}) = text (show e)
@@ -263,6 +290,9 @@ instance PP TypecheckerErr where
         where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
     pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes (pp i)
     pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
+    pp w@(UncheckedRangeSelection t i rng err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension can not be checked for type" <+> quotes t $+$ nest 4
+        (text "Because of:" <+> pp err)
+    
 
 ppConstraintEnv (Left env) = text "With binginds:" $+$ nest 4 env
 ppConstraintEnv (Right suberr) = text "Because of:" $+$ nest 4 (pp suberr)
@@ -274,11 +304,18 @@ isHaltError = everything (||) (mkQ False aux)
     aux (Halt _) = True
     aux _ = False
 
+isOrWarnError :: SecrecError -> Bool
+isOrWarnError = everything (||) (mkQ False aux)
+    where
+    aux :: SecrecError -> Bool
+    aux (OrWarn _) = True
+    aux _ = False
+
 data ModuleErr
     = DuplicateModuleName Identifier FilePath FilePath
     | ModuleNotFound Identifier
     | CircularModuleDependency [(Identifier,Identifier,Position)]
-  deriving (Show,Read,Data,Typeable)
+  deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP ModuleErr where
     pp (DuplicateModuleName i f1 f2) = text "Duplicate module" <+> quotes (text i) <> char ':' $+$ nest 4 (text f1 $+$ text f2)
@@ -298,31 +335,34 @@ genericError pos msg = throwError $ GenericError pos msg
 typecheckerError :: Position -> TypecheckerErr -> SecrecError
 typecheckerError = TypecheckerError
 
-data SecrecWarning = TypecheckerWarning Position TypecheckerWarn
+data SecrecWarning
+    = TypecheckerWarning Position TypecheckerWarn
+    | ErrWarn SecrecError
   deriving (Show,Typeable)
   
 instance PP SecrecWarning where
-    pp (TypecheckerWarning p w) = pp p <> text ": Warning:" $+$ nest 4 (pp w)
+    pp (TypecheckerWarning p w) = text "Warning:" <+> pp p $+$ nest 4 (pp w)
+    pp (ErrWarn err) = text "Warning:" <+> pp err
   
 data TypecheckerWarn
     = UnusedVariable
         Doc -- ^ variable
-    | DependentSizeSelection -- dependent size in selection
-        Doc -- type
-        Word64 -- dimension where the dependent size occurs
-        (Maybe Doc) -- range selection
-        SecrecError -- ^ sub-error
-    | DependentMatrixSize
-        Doc -- type
-        Word64 -- size's dimension
-        Doc -- dependent expression
-        (Maybe Doc) -- variable declaration
-        SecrecError -- ^ sub-error
-    | DependentMatrixDimension
-        Doc -- partial type
-        Doc -- dependent expression
-        (Maybe Doc) -- variable declaration
-        SecrecError -- ^ sub-error
+--    | DependentSizeSelection -- dependent size in selection
+--        Doc -- type
+--        Word64 -- dimension where the dependent size occurs
+--        (Maybe Doc) -- range selection
+--        SecrecError -- ^ sub-error
+--    | DependentMatrixSize
+--        Doc -- type
+--        Word64 -- size's dimension
+--        Doc -- dependent expression
+--        (Maybe Doc) -- variable declaration
+--        SecrecError -- ^ sub-error
+--    | DependentMatrixDimension
+--        Doc -- partial type
+--        Doc -- dependent expression
+--        (Maybe Doc) -- variable declaration
+--        SecrecError -- ^ sub-error
     | EmptyBranch
         Doc -- statement
     | SingleIterationLoop
@@ -330,9 +370,6 @@ data TypecheckerWarn
     | ShadowedVariable
         Doc -- ^ name of the shadowed variable
         Position -- ^ shadowed position
-    | NoStaticDimension -- ^ matrix dimension not known at static time
-        Doc -- type
-        SecrecError -- ^ sub-eror
     | LiteralOutOfRange -- literal out of range
         String -- literal value
         Doc -- type
@@ -342,17 +379,15 @@ data TypecheckerWarn
 
 instance PP TypecheckerWarn where
     pp w@(UnusedVariable v) = text "Unused variable" <+> quotes v
-    pp w@(DependentSizeSelection t i Nothing err) = text "Array size of the" <+> ppOrdinal i <+> text "dimension is not statically know for type" <+> quotes t $+$ nest 4
-        (text "Static evaluation error:" <+> pp err)
-    pp w@(DependentSizeSelection t i (Just rng) err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension is not statically know for type" <+> quotes t $+$ nest 4
-        (text "Static evaluation error:" <+> pp err)
-    pp w@(DependentMatrixSize t d e mb err) = text "Dependent array size" <+> quotes e <+> text "in the" <+> ppOrdinal d <+> text "dimension of type" <+> t <+> maybe empty (\v -> text "in the variable declaration of" <+> quotes v) mb $+$ nest 4
-        (text "Static evaluation error:" <+> pp err)
-    pp w@(DependentMatrixDimension t e mb err) = text "Dependent array dimension" <+> quotes e <+> text "for type" <+> t <+> maybe empty (\v -> text "in the variable declaration of" <+> quotes v) mb $+$ nest 4
-        (text "Static evaluation error:" <+> pp err)
+--    pp w@(DependentSizeSelection t i Nothing err) = text "Array size of the" <+> ppOrdinal i <+> text "dimension is not statically know for type" <+> quotes t $+$ nest 4
+--        (text "Static evaluation error:" <+> pp err)
+--    pp w@(DependentSizeSelection t i (Just rng) err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension is not statically know for type" <+> quotes t $+$ nest 4
+--        (text "Static evaluation error:" <+> pp err)
+--    pp w@(DependentMatrixSize t d e mb err) = text "Dependent array size" <+> quotes e <+> text "in the" <+> ppOrdinal d <+> text "dimension of type" <+> t <+> maybe empty (\v -> text "in the variable declaration of" <+> quotes v) mb $+$ nest 4
+--        (text "Static evaluation error:" <+> pp err)
+--    pp w@(DependentMatrixDimension t e mb err) = text "Dependent array dimension" <+> quotes e <+> text "for type" <+> t <+> maybe empty (\v -> text "in the variable declaration of" <+> quotes v) mb $+$ nest 4
+--        (text "Static evaluation error:" <+> pp err)
     pp w@(EmptyBranch s) = text "Conditional branch statement is empty:" $+$ s
     pp w@(SingleIterationLoop s) = text "Single iteration loop with body:" $+$ s
     pp w@(ShadowedVariable n p) = text "Variable" <+> quotes n <+> text "shadows definition from" <+> pp p
-    pp w@(NoStaticDimension t err) = text "Array dimension not statically known for type" <+> quotes t $+$ nest 4
-        (text "Static evaluation error:" <+> pp err)
     pp w@(LiteralOutOfRange lit ty min max) = text "Literal" <+> quotes (text lit) <+> text "out of the range" <+> brackets (text min <> text ".." <> text max) <+> text "for type" <+> quotes ty

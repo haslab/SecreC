@@ -16,6 +16,7 @@ import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.Semantics
 import Language.SecreC.TypeChecker.Environment
+import Language.SecreC.TypeChecker.Index
 
 import Data.Traversable
 import qualified Data.Foldable as Foldable
@@ -113,6 +114,7 @@ tcStmt ret (DowhileStatement l bodyS condE) = tcBlock $ do
     return (DowhileStatement (notTyped "tcStmt" l) bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
     argE' <- tcGuard argE
+    checkAssertion argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
 tcStmt ret (SyscallStatement l n args) = do
@@ -185,28 +187,25 @@ tcVarDecl scope (VariableDeclaration l tyspec vars) = do
     return $ VariableDeclaration (notTyped "tcVarDecl" l) tyspec' vars'
 
 tcVarInit :: (VarsTcM loc,Location loc) => Scope -> ComplexType -> VariableInitialization Identifier loc -> TcM loc (VariableInitialization VarIdentifier (Typed loc))
-tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
-    d <- typeDim l ty
-    szs' <- mapM (tcSizes ty v d) szs
-    let tszs' = fmap (fmap typed) szs'
-    ty' <- refineTypeSizes l ty tszs'
+tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e c) = do
+    (ty',szs') <- tcTypeSizes l ty (Just v) szs
     e' <- mapM (tcExprTy $ ComplexT ty') e
+    c' <- mapM tcGuard c
     -- add the array size to the type
     let v' = VarName (Typed vl $ ComplexT ty') $ mkVarId vn
     -- add variable to the environment
-    let val = maybe NoValue KnownExpression e'
+    val <- case e' of
+        Nothing -> return NoValue
+        Just x -> return $ KnownExpression x
     newVariable scope v' val
-    return $ VariableInitialization (notTyped "tcVarInit" l) v' szs' e'
+    case c' of
+        Nothing -> return ()
+        Just x -> do
+            k <- expr2ICond x
+            addHypotheses scope [k]
+    return $ VariableInitialization (notTyped "tcVarInit" l) v' szs' e' c'
 
-tcSizes :: (VarsTcM loc,Location loc) => ComplexType -> VarName Identifier loc -> Maybe Word64 -> Sizes Identifier loc -> TcM loc (Sizes VarIdentifier (Typed loc))
-tcSizes ty v Nothing (Sizes szs) = tcError (locpos $ loc v) $ NoDimensionForMatrixInitialization (varNameId v)
-tcSizes ty v (Just d) x@(Sizes szs) = do
-    -- check array's dimension
-    let ds = toEnum (lengthNe szs)
-    unless (d == ds) $ tcError (locpos $ loc v) $ MismatchingArrayDimension (pp ty) d ds $ Right (pp v,pp x)
-    szs' <- mapM (\(i,x) -> tcSizeExpr ty i (Just v) x) (fromListNe $ zip [1..] $ Foldable.toList szs)
-    return $ Sizes szs'
-        
+    
 
 
 

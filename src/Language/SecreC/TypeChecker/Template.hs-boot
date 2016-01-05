@@ -7,4 +7,4 @@ import Language.SecreC.Location
 import Language.SecreC.Syntax
 import Language.SecreC.Vars
 
-matchTemplate :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> [Type] -> Maybe Type -> TcM loc [EntryEnv loc] -> TcM loc DecType
+matchTemplate :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> Maybe [Type] -> Maybe [Type] -> Maybe Type -> TcM loc [EntryEnv loc] -> TcM loc DecType

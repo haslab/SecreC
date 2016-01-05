@@ -14,8 +14,12 @@ class PP a where
 ppr :: PP a => a -> String
 ppr = show . pp
 
-ppMb Nothing = empty
-ppMb (Just x) = pp x
+ppOpt :: Maybe a -> (a -> Doc) -> Doc
+ppOpt Nothing f = empty
+ppOpt (Just x) f = f x
+
+ppMb :: PP a => Maybe a -> Doc
+ppMb = flip ppOpt pp
 
 abrackets p = char '<' <> p <> char '>'
 

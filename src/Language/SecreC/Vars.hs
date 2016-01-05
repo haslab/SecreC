@@ -10,6 +10,7 @@ import Language.SecreC.Location
 import Language.SecreC.Utils
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Pretty
+import Language.SecreC.Error
 
 import Text.PrettyPrint as PP
 
@@ -40,7 +41,7 @@ class (Monad m,IsScVar a) => Vars m a where
     substL pl a = case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf a) of
         EqT -> return $ Just a
         NeqT -> return Nothing
-    -- tries to cast a substitution expression info a value of type @a@
+    -- tries to cast a substitution expression into a value of type @a@
     substR :: Vars m r => Proxy a -> (r -> m (Maybe a))
     substR pa r = case eqTypeOf (typeOfProxy pa) (typeOfProxy $ proxyOf r) of
         EqT -> return $ Just r
@@ -218,11 +219,13 @@ instance (Location loc,IsScVar iden,Vars m loc) => Vars m (ProcedureDeclaration 
             return $ ProcedureDeclaration l' t' n' args' s'
 
 instance (Location loc,IsScVar iden,Vars m loc) => Vars m (ProcedureParameter iden loc) where
-    traverseVars f (ProcedureParameter l t v) = do
+    traverseVars f (ProcedureParameter l t v sz e) = do
         l' <- f l
         t' <- f t
         v' <- f v
-        return $ ProcedureParameter l' t' v'
+        sz' <- f sz
+        e' <- f e
+        return $ ProcedureParameter l' t' v' sz' e'
 
 instance (Location loc,Vars m loc,IsScVar iden) => Vars m (ReturnTypeSpecifier iden loc) where
     traverseVars f (ReturnType l mb) = do
@@ -467,11 +470,12 @@ instance (Location loc,Vars m loc,IsScVar iden) => Vars m (Expression iden loc) 
         l' <- f l
         e' <- f e
         return $ StringFromBytesExpr l' e'
-    traverseVars f (ProcCallExpr l n es) = do
+    traverseVars f (ProcCallExpr l n ts es) = do
         l' <- f l
         n' <- f n
+        ts' <- mapM (mapM f) ts
         es' <- mapM f es
-        return $ ProcCallExpr l' n' es'
+        return $ ProcCallExpr l' n' ts' es'
     traverseVars f (PostIndexExpr l e s) = do
         l' <- f l
         e' <- f e
@@ -584,12 +588,13 @@ instance (Location loc,Vars m loc,IsScVar iden) => Vars m (VariableDeclaration i
         return $ VariableDeclaration l' t' is'
     
 instance (Location loc,Vars m loc,IsScVar iden) => Vars m (VariableInitialization iden loc) where
-    traverseVars f (VariableInitialization l v sz e) = do
+    traverseVars f (VariableInitialization l v sz e c) = do
         l' <- f l
         v' <- inLHS $ f v
         sz' <- mapM f sz
         e' <- mapM f e
-        return $ VariableInitialization l' v' sz' e'
+        c' <- mapM f c
+        return $ VariableInitialization l' v' sz' e' c'
     
 instance (Location loc,Vars m loc,IsScVar iden) => Vars m (Sizes iden loc) where
     traverseVars f (Sizes es) = do
@@ -694,16 +699,17 @@ instance (Location loc,Vars m loc,IsScVar iden) => Vars m (Attribute iden loc) w
         a' <- inLHS $ f a
         return $ Attribute l' t' a'
 
-instance (Vars m loc,IsScVar iden) => Vars m (TemplateQuantifier iden loc) where
+instance (Location loc,Vars m loc,IsScVar iden) => Vars m (TemplateQuantifier iden loc) where
     traverseVars f (DomainQuantifier l d k) = do
         l' <- f l
         d' <- inLHS $ f d
         k' <- mapM f k
         return $ DomainQuantifier l' d' k'
-    traverseVars f (DimensionQuantifier l d) = do
+    traverseVars f (DimensionQuantifier l d e) = do
         l' <- f l
         d' <- inLHS $ f d
-        return $ DimensionQuantifier l' d'
+        e' <- f e
+        return $ DimensionQuantifier l' d' e'
     traverseVars f (DataQuantifier l t) = do
         l' <- f l
         t' <- inLHS $ f t
@@ -747,5 +753,8 @@ instance (Vars m a,MonadIO m) => Vars m (UniqRef a) where
         liftIO $ newUniqRef x'
 
 instance Monad m => Vars m Ordering where
+    traverseVars f x = return x
+
+instance Monad m => Vars m SecrecError where
     traverseVars f x = return x
     

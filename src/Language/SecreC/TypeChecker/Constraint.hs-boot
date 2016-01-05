@@ -12,7 +12,8 @@ import Text.PrettyPrint
 
 import Data.Data
 
-tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc ()
+
+tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc Type
 
 proveWith :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
 
@@ -32,7 +33,7 @@ unifiesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc 
 
 equalsExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
 
-tcCstrM :: Location loc => loc -> TCstr -> TcM loc ()
+tcCstrM :: Location loc => loc -> TCstr -> TcM loc Type
 
 resolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc Type
 

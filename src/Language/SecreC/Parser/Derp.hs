@@ -47,8 +47,11 @@ scChar c = scTokPred (p . tSymb)
     p (CHAR c') = c == c'
     p _ = False
 
+scParens :: Ord a => ScParser a -> ScParser a
+scParens p = (scChar '(' ~> p) <~ scChar ')'
+
 scBraces :: Ord a => ScParser a -> ScParser a
-scBraces p = (scChar '(' ~> p) <~ scChar ')'
+scBraces p = (scChar '{' ~> p) <~ scChar '}'
 
 scBrackets :: Ord a => ScParser a -> ScParser a
 scBrackets p = (scChar '[' ~> p) <~ scChar ']'
@@ -167,7 +170,7 @@ scDomainDeclaration :: ScParser (DomainDeclaration Identifier Position)
 scDomainDeclaration = scTok DOMAIN <~> scDomainId <~> scKindId ==> (\(x1,(x2,x3)) -> Domain (loc x1) x2 x3)
 
 scVariableInitialization :: ScParser (VariableInitialization Identifier Position)
-scVariableInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) ==> (\(x1,(x2,x3)) -> VariableInitialization (loc x1) x1 x2 x3)
+scVariableInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) <~> optionMaybe (scBraces scExpression) ==> (\(x1,(x2,(x3,x4))) -> VariableInitialization (loc x1) x1 x2 x3 x4)
 
 scVariableInitializations :: ScParser (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = sepBy1 scVariableInitialization (scChar ',') ==> fromListNe
@@ -176,10 +179,13 @@ scVariableDeclaration :: ScParser (VariableDeclaration Identifier Position)
 scVariableDeclaration = scTypeSpecifier <~> scVariableInitializations ==> (\(x1,x2) -> VariableDeclaration (loc x1) x1 x2)
 
 scProcedureParameter :: ScParser (ProcedureParameter Identifier Position)
-scProcedureParameter = scTypeSpecifier <~> scVarId ==> (\(x1,x2) -> ProcedureParameter (loc x1) x1 x2)
+scProcedureParameter = scTypeSpecifier <~> scVarId <~> optionMaybe scDimensions <~> scInvariant ==> (\(x1,(x2,(x3,x4))) -> ProcedureParameter (loc x1) x1 x2 x3 x4)
+
+scInvariant :: ScParser (Maybe (Expression Identifier Position))
+scInvariant = optionMaybe (scBraces scExpression) 
 
 scDimensions :: ScParser (Sizes Identifier Position)
-scDimensions = scBraces scDimensionList ==> Sizes 
+scDimensions = scParens scDimensionList ==> Sizes 
 
 scExpressionList :: ScParser (NeList (Expression Identifier Position))
 scExpressionList = sepBy1 scExpression (scChar ',') ==> fromListNe
@@ -255,7 +261,7 @@ scTemplateQuantifiers = Derp.sepBy scTemplateQuantifier (scChar ',')
 
 scTemplateQuantifier :: ScParser (TemplateQuantifier Identifier Position)
 scTemplateQuantifier = scTok DOMAIN <~> scDomainId <~> optionMaybe (scChar ':' ~> scKindId) ==> (\(x1,(x2,x3)) -> DomainQuantifier (loc x1) x2 x3)
-                   <|> scTok DIMENSIONALITY <~> scVarId ==> (\(x1,x2) -> DimensionQuantifier (loc x1) x2)
+                   <|> scTok DIMENSIONALITY <~> scVarId <~> scInvariant ==> (\(x1,(x2,x3)) -> DimensionQuantifier (loc x1) x2 x3)
                    <|> scTok TYPE <~> scTypeId ==> (\(x1,x2) -> DataQuantifier (loc x1) x2)
 
 -- ** Structures                                                                 
@@ -276,10 +282,10 @@ scAttribute = scTypeSpecifier <~> (scAttributeId <~ (scChar ';')) ==> (\(x1,x2) 
 
 scReturnTypeSpecifier :: ScParser (ReturnTypeSpecifier Identifier Position)
 scReturnTypeSpecifier = scTok VOID ==> (\x1 -> ReturnType (loc x1) Nothing)
-                    <|> scTypeSpecifier ==> (\x1 -> ReturnType (loc x1) (Just x1))
+                    <|> scTypeSpecifier <~> optionMaybe scDimensions ==> (\(x1,x2) -> ReturnType (loc x1) (Just (x1,x2)))
 
 scProcedureDeclaration :: ScParser (ProcedureDeclaration Identifier Position)
-scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOp) <+> scProcedureId) <~> scBraces scProcedureParameterList <~> scCompoundStatement ==> f
+scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOp) <+> scProcedureId) <~> scParens scProcedureParameterList <~> scCompoundStatement ==> f
     where
     f (x1,(Left x2,(x3,x4))) = OperatorDeclaration (loc x1) x1 x2 x3 (unLoc x4)
     f (x1,(Right x2,(x3,x4))) = ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)
@@ -331,7 +337,7 @@ scStatement = scCompoundStatement ==> (\x1 -> CompoundStatement (loc x1) (unLoc 
           <|> scExpression  <~ scChar ';' ==> (\x1 -> ExpressionStatement (loc x1) x1)
 
 scIfStatement :: ScParser (Statement Identifier Position)
-scIfStatement = scTok IF <~> scBraces scExpression <~> scStatement  <~> optionMaybe (scTok ELSE ~> scStatement) ==> (\(x1,(x2,(x3,x4))) -> IfStatement (loc x1) x2 x3 x4)
+scIfStatement = scTok IF <~> scParens scExpression <~> scStatement  <~> optionMaybe (scTok ELSE ~> scStatement) ==> (\(x1,(x2,(x3,x4))) -> IfStatement (loc x1) x2 x3 x4)
 
 scForInitializer :: ScParser (ForInitializer Identifier Position)
 scForInitializer = optionMaybe scExpression ==> InitializerExpression
@@ -341,19 +347,19 @@ scForStatement :: ScParser (Statement Identifier Position)
 scForStatement = scTok FOR <~> (scChar '(' ~> scForInitializer) <~ scChar ';' <~> optionMaybe scExpression <~ scChar ';' <~> optionMaybe scExpression <~ scChar ')' <~> scStatement ==> (\(x1,(x2,(x3,(x4,x5)))) -> ForStatement (loc x1) x2 x3 x4 x5)
 
 scWhileStatement :: ScParser (Statement Identifier Position)
-scWhileStatement = scTok WHILE <~> scBraces scExpression <~> scStatement ==> (\(x1,(x2,x3)) -> WhileStatement (loc x1) x2 x3)
+scWhileStatement = scTok WHILE <~> scParens scExpression <~> scStatement ==> (\(x1,(x2,x3)) -> WhileStatement (loc x1) x2 x3)
 
 scPrintStatement :: ScParser (Statement Identifier Position)
-scPrintStatement = scTok PRINT <~> scBraces scExpressionList <~ scChar ';' ==> (\(x1,x2) -> PrintStatement (loc x1) x2)
+scPrintStatement = scTok PRINT <~> scParens scExpressionList <~ scChar ';' ==> (\(x1,x2) -> PrintStatement (loc x1) x2)
 
 scDowhileStatement :: ScParser (Statement Identifier Position)
-scDowhileStatement = scTok DO <~> scStatement <~ scTok WHILE <~> scBraces scExpression <~ scChar ';' ==> (\(x1,(x2,x3)) -> DowhileStatement (loc x1) x2 x3)
+scDowhileStatement = scTok DO <~> scStatement <~ scTok WHILE <~> scParens scExpression <~ scChar ';' ==> (\(x1,(x2,x3)) -> DowhileStatement (loc x1) x2 x3)
 
 scAssertStatement :: ScParser (Statement Identifier Position)
-scAssertStatement = scTok ASSERT <~> scBraces scExpression <~ scChar ';' ==> (\(x1,x2) -> AssertStatement (loc x1) x2)
+scAssertStatement = scTok ASSERT <~> scParens scExpression <~ scChar ';' ==> (\(x1,x2) -> AssertStatement (loc x1) x2)
 
 scSyscallStatement :: ScParser (Statement Identifier Position)
-scSyscallStatement = scTok SYSCALL <~> (scBraces sysparams <~ scChar ';') ==> (\(x1,(x2,x3)) -> SyscallStatement (loc x1) x2 x3)
+scSyscallStatement = scTok SYSCALL <~> (scParens sysparams <~ scChar ';') ==> (\(x1,(x2,x3)) -> SyscallStatement (loc x1) x2 x3)
     where
         sysparams = (scStringLiteral ==> unLoc)
                 <~> many (scChar ',' ~> scSyscallParameter)
@@ -534,10 +540,10 @@ scPostfixExpression = scFoldl f scPostfixExpression' (scSubscript <+> (scChar '.
     f pe (Right v) =  SelectionExpr (loc pe) pe v
 
 scPostfixExpression' :: ScParser (Expression Identifier Position)
-scPostfixExpression' = scTok DOMAINID <~> scBraces scSecTypeSpecifier ==> (\(x1,x2) -> DomainIdExpr (loc x1) x2)
-                  <|> scTok BYTESFROMSTRING <~> scBraces scExpression ==> (\(x1,x2) -> BytesFromStringExpr (loc x1) x2)
-                  <|> scTok STRINGFROMBYTES <~> scBraces scExpression ==> (\(x1,x2) -> StringFromBytesExpr (loc x1) x2)
-                  <|> scProcedureId <~> scBraces (optionMaybe scExpressionList) ==> (\(x1,x2) -> ProcCallExpr (loc x1) x1 (maybe [] Foldable.toList x2))
+scPostfixExpression' = scTok DOMAINID <~> scParens scSecTypeSpecifier ==> (\(x1,x2) -> DomainIdExpr (loc x1) x2)
+                  <|> scTok BYTESFROMSTRING <~> scParens scExpression ==> (\(x1,x2) -> BytesFromStringExpr (loc x1) x2)
+                  <|> scTok STRINGFROMBYTES <~> scParens scExpression ==> (\(x1,x2) -> StringFromBytesExpr (loc x1) x2)
+                  <|> scProcedureId <~> (optionMaybe $ scABrackets scTemplateTypeArguments) <~> scParens (optionMaybe scExpressionList) ==> (\(x1,(x2,x3)) -> ProcCallExpr (loc x1) x1 x2 (maybe [] Foldable.toList x3))
                   <|> scPrimaryExpression
 
 scPrimaryExpression :: ScParser (Expression Identifier Position)

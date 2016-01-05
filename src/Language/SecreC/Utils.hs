@@ -26,6 +26,9 @@ import Unsafe.Coerce
 
 import System.Mem.Weak.Exts as Weak
 
+mapFoldlM :: Monad m => (a -> k -> v -> m a) -> a -> Map k v -> m a
+mapFoldlM f z m = foldlM (\x (y,z) -> f x y z) z $ Map.toList m
+
 timeout :: Int -> IO a -> IO (Either a ())
 timeout t io = race io (threadDelay $ t * 1000000)
 

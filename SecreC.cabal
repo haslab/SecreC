@@ -23,7 +23,7 @@ Executable secrec
                         Paths_SecreC
         
   Hs-source-dirs:   src
-  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async
+  Build-Depends:    base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async, sbv
   ghc-prof-options: -prof -auto -fforce-recomp -rtsopts
   Build-Tools:      alex
 
@@ -55,6 +55,6 @@ Executable secrec
 --  Other-Modules:
 --                        Paths_SecreC
 --  Hs-Source-Dirs: src
---  Build-Depends:     base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async
+--  Build-Depends:     base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async, sbv
 --  ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
 --  Build-Tools:      alex

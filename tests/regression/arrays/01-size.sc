@@ -5,5 +5,5 @@ void main () {
   int [[2]] mat (5, 5);
   assert (size(empty_arr) == 0);
   assert (size(arr) == 100);
-  assert (size(mat) == 25);
+//  assert (size(mat) == 25);
 }

@@ -11,6 +11,9 @@ import Language.SecreC.Vars
 import Data.Int
 import Data.Word
 
+isBoolTypeM :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Bool
+isIntTypeM :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Bool
+
 typeToSecType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc SecType
 typeToBaseType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc BaseType
 typeToComplexType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc ComplexType
@@ -33,3 +36,7 @@ projectStructField :: (VarsTcM loc,Location loc) => loc -> BaseType -> Attribute
 refineTypeSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (Sizes VarIdentifier Type) -> TcM loc ComplexType
 
 tcCastType :: Location loc => CastType Identifier loc -> TcM loc (CastType VarIdentifier (Typed loc))
+
+tcTemplateTypeArgument :: (VarsTcM loc,Location loc) => TemplateTypeArgument Identifier loc -> TcM loc (TemplateTypeArgument VarIdentifier (Typed loc))
+
+tcTypeSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe (Sizes Identifier loc) -> TcM loc (ComplexType,Maybe (Sizes VarIdentifier (Typed loc)))

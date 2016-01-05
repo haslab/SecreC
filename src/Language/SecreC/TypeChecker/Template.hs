@@ -17,6 +17,7 @@ import Data.Either
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Data.Foldable
 
 import Control.Monad
 import Control.Monad.Except
@@ -26,16 +27,17 @@ import qualified Control.Monad.State as State
 import Text.PrettyPrint
 
 -- | Matches a list of template arguments against a list of template declarations
-matchTemplate :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> [Type] -> Maybe Type -> TcM loc [EntryEnv loc] -> TcM loc DecType
-matchTemplate l n args ret check = do
+matchTemplate :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> Maybe [Type] -> Maybe [Type] -> Maybe Type -> TcM loc [EntryEnv loc] -> TcM loc DecType
+matchTemplate l n targs pargs ret check = do
     entries <- check
-    instances <- instantiateTemplateEntries n args ret entries
-    let def = ppTpltApp n args ret
+    instances <- instantiateTemplateEntries n targs pargs ret entries
+    let def = ppTpltApp n targs pargs ret
     vs <- do
         x <- fvIds n
-        y <- fvIds args
+        y1 <- fvIds targs
+        y2 <- fvIds pargs
         z <- fvIds ret
-        return $ Set.unions [x,y,z]
+        return $ Set.unions [x,y1,y2,z]
     let oks = rights instances
     let errs = lefts instances
     case oks of
@@ -43,7 +45,7 @@ matchTemplate l n args ret check = do
             let defs = map (\(e,err) -> (locpos $ entryLoc e,pp (entryType e),err)) errs
             ss <- liftM ppTSubsts (filterTSubsts vs =<< getTSubsts)
             tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure def defs ss
-        [(e,subst)] -> resolveTemplateEntry l n args ret e subst
+        [(e,subst)] -> resolveTemplateEntry l n targs pargs ret e subst
         otherwise -> do
             -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
             ((e,subst):_) <- sortByM (compareTemplateDecls def l n) oks
@@ -52,21 +54,21 @@ matchTemplate l n args ret check = do
                 (TypecheckerError (locpos l) . Halt . TemplateSolvingError def)
                 (prove l True (addHeadTDict subst))
             -- return the instantiated body of the most specific declaration
-            resolveTemplateEntry l n args ret e subst
+            resolveTemplateEntry l n targs pargs ret e subst
 
 templateCstrs :: Location loc => Doc -> loc -> TDict loc -> TDict loc
 templateCstrs doc p d = d { tCstrs = Map.map upd (tCstrs d) }
     where
     upd (Loc l k) = Loc p $ k { kCstr = DelayedCstr (kCstr k) (TypecheckerError (locpos p) . TemplateSolvingError doc) }
 
-resolveTemplateEntry :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> [Type] -> Maybe Type -> EntryEnv loc -> TDict loc -> TcM loc DecType
-resolveTemplateEntry p n args ret e dict = do
+resolveTemplateEntry :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> Maybe [Type] -> Maybe [Type] -> Maybe Type -> EntryEnv loc -> TDict loc -> TcM loc DecType
+resolveTemplateEntry p n targs pargs ret e dict = do
 --    liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr args ++ " " ++ ppr (entryType e)
     let l = entryLoc e
     addHeadTDict dict
     case entryType e of
         DecT (TpltType a b cstrs specs body) -> do
-            let ppApp = quotes (ppTpltApp n args ret) 
+            let ppApp = quotes (ppTpltApp n targs pargs ret) 
             let cstrs' = fmap (updpos l) $ templateCstrs ppApp (locpos p) cstrs
 --            doc <- ppConstraints cstrs'
 --            liftIO $ putStrLn $ "constraints " ++ show doc
@@ -102,11 +104,15 @@ compareTemplateDecls :: (VarsTcM loc,Location loc) => Doc -> loc -> TIdentifier 
 compareTemplateDecls def l n (e1,s1) (e2,d2) = tcBlock $ do
     e1' <- localTemplate e1
     e2' <- localTemplate e2
-    targs1 <- templateArgs n e1'
-    targs2 <- templateArgs n e2'
+    (targs1,pargs1,ret1) <- templateArgs n e1'
+    (targs2,pargs2,ret2) <- templateArgs n e2'
     let defs = map (\e -> (locpos $ entryLoc e,pp (entryType e))) [e1,e2]
     let err = TypecheckerError (locpos l) . Halt . ConflictingTemplateInstances def defs
-    ord <- addErrorM err $ comparesList l targs1 targs2
+    ord <- addErrorM err $ do
+        ord1 <- comparesList l (concat targs1) (concat targs2)
+        ord2 <- comparesList l (concat pargs1) (concat pargs2)
+        ord3 <- comparesList l (maybeToList ret1) (maybeToList ret2)
+        return $ mconcat [ord1,ord2,ord3]
     when (ord == EQ) $ do
         ss <- liftM ppTSubsts getTSubsts
         tcError (locpos l) $ DuplicateTemplateInstances def defs ss
@@ -115,25 +121,27 @@ compareTemplateDecls def l n (e1,s1) (e2,d2) = tcBlock $ do
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
-instantiateTemplateEntries :: (VarsTcM loc,Location loc) => TIdentifier -> [Type] -> Maybe Type -> [EntryEnv loc] -> TcM loc [Either (EntryEnv loc,SecrecError) (EntryEnv loc,TDict loc)]
-instantiateTemplateEntries n args ret es = mapM (instantiateTemplateEntry n args ret) es
+instantiateTemplateEntries :: (VarsTcM loc,Location loc) => TIdentifier -> Maybe [Type] -> Maybe [Type] -> Maybe Type -> [EntryEnv loc] -> TcM loc [Either (EntryEnv loc,SecrecError) (EntryEnv loc,TDict loc)]
+instantiateTemplateEntries n targs pargs ret es = mapM (instantiateTemplateEntry n targs pargs ret) es
 
-instantiateTemplateEntry :: (VarsTcM loc,Location loc) => TIdentifier -> [Type] -> Maybe Type -> EntryEnv loc -> TcM loc (Either (EntryEnv loc,SecrecError) (EntryEnv loc,TDict loc))
-instantiateTemplateEntry n args ret e = do
+instantiateTemplateEntry :: (VarsTcM loc,Location loc) => TIdentifier -> Maybe [Type] -> Maybe [Type] -> Maybe Type -> EntryEnv loc -> TcM loc (Either (EntryEnv loc,SecrecError) (EntryEnv loc,TDict loc))
+instantiateTemplateEntry n targs pargs ret e = do
     let l = entryLoc e
     e' <- localTemplate e
-    targs <- templateArgs n e'
+    (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs n e'
     let matchName = unifiesTIdentifier l (templateIdentifier $ entryType e') n -- reverse unification
-    let proof = case ret of
-                Nothing -> coercesList l args targs
-                Just r -> do
-                    coercesList l args (init targs)
-                    tcCstrM l $ Unifies (last targs) r -- reverse unification
+    let proof = do
+                    -- if the instantiation has explicit template arguments, unify them with the base template
+                    when (isJust $ targs) $ unifiesList l (concat tplt_targs) (concat targs) -- reverse unification
+                    -- coerce procedure arguments into the base procedure arguments
+                    coercesList l (concat pargs) (concat tplt_pargs)
+                    -- unify the procedure return type
+                    unifiesList l (maybeToList tplt_ret) (maybeToList ret) -- reverse unification
     ok <- newErrorM $ proveWith l False (matchName >> proof)
     case ok of
         Left err -> return $ Left (e',err)
         Right ((),subst) -> do
-            liftIO $ putStrLn $ "entry " ++ ppr (entryType e) ++ "\n" ++ ppr subst
+--            liftIO $ putStrLn $ "entry " ++ ppr (entryType e) ++ "\n" ++ ppr subst
 --            liftIO $ putStrLn $ "instantiated " ++ ppr n ++ " " ++ ppr args ++ " " ++ ppr ret ++ " " ++ ppr (entryType e') ++ "\n" ++ show ss ++  "INST\n" ++ ppr (tSubsts subst) 
             return $ Right (e',subst)
 
@@ -145,37 +153,51 @@ templateIdentifier (DecT t) = templateIdentifier' t
     templateIdentifier' (ProcType _ _ n _ _ _) = Right n
     templateIdentifier' (StructType _ _ n _) = Left n
         
--- | Extracts a head signature from a template type declaration
-templateArgs :: Location loc => TIdentifier -> EntryEnv loc -> TcM loc [Type]
+-- | Extracts a head signature from a template type declaration (template arguments,procedure arguments, procedure return type)
+templateArgs :: Location loc => TIdentifier -> EntryEnv loc -> TcM loc (Maybe [Type],Maybe [Type],Maybe Type)
 templateArgs (Left name) e = case entryType e of
-    DecT (TpltType _ args cstrs [] body) -> return $ map varNameToType args -- a base template uses the base arguments
-    DecT (TpltType _ args cstrs specials body) -> return specials -- a specialization uses the specialized arguments
+    DecT (TpltType _ args cstrs [] body) -> do -- a base template uses the base arguments
+        return (Just $ map condVarNameToType args,Nothing,Nothing)
+    DecT (TpltType _ args cstrs specials body) -> do -- a specialization uses the specialized arguments
+        return (Just specials,Nothing,Nothing)
 templateArgs (Right name) e = case entryType e of
     DecT (TpltType _ args cstrs [] (ProcType _ _ n vars ret stmts)) -> do -- include the return type
-        return $ map (\(VarName t n) -> t) vars ++ [ret]
+        return (Just $ map condVarType args,Just $ map condVarType vars,Just ret)
     DecT (ProcType _ _ n vars ret stmts) -> do -- include the return type
-        return $ map (\(VarName t n) -> t) vars ++ [ret]
+        return (Nothing,Just $ map condVarType vars,Just ret)
     otherwise -> genericError (locpos $ entryLoc e) $ text "Invalid type for procedure template"
+
+condVarType (Cond (VarName t n) c) = condType t c
 
 -- | renames the variables in a template to local names
 localTemplate :: (VarsTcM loc,Location loc) => EntryEnv loc -> TcM loc (EntryEnv loc)
 localTemplate (e::EntryEnv loc) = case entryType e of
     DecT (TpltType tpltid args cstrs specials body) -> do
-        uniqs <- mapM uniqueVar args
-        
+        (args',uniqs) <- uniqueVars Map.empty args
         let sub :: Vars (TcM loc) a => a -> TcM loc a
-            sub = substFromTSubsts l $ Map.fromList $ map (\(x,y) -> (x,varNameToType y)) uniqs
+            sub = substFromTSubsts l uniqs
         body' <- sub body
         cstrs' <- sub cstrs
         specials' <- sub specials
-        let t' = DecT $ TpltType tpltid (map snd uniqs) cstrs' specials' body'
+        let t' = DecT $ TpltType tpltid args' cstrs' specials' body'
         v' <- sub (entryValue e)
         return $ EntryEnv l t' v'
     DecT t -> return e
   where
-    uniqueVar :: VarName VarIdentifier Type -> TcM loc (VarName VarIdentifier (),VarName VarIdentifier Type)
-    uniqueVar i@(VarName t v) = newTyVarId >>= \j -> return (VarName () v,VarName t (VarIdentifier (varIdBase v) (Just j) False))
+    uniqueVar :: TSubsts -> Cond (VarName VarIdentifier Type) -> TcM loc (Cond (VarName VarIdentifier Type),TSubsts)
+    uniqueVar ss (Cond i@(VarName t v) c) = do
+        j <- newTyVarId
+        let i' = VarName t (VarIdentifier (varIdBase v) (Just j) False)
+        let ss' = Map.insert (VarName () v) (varNameToType i') ss
+        c' <- substFromTSubsts l ss' c
+        return (Cond i' c',ss')
+    uniqueVars :: TSubsts -> [Cond (VarName VarIdentifier Type)] -> TcM loc ([Cond (VarName VarIdentifier Type)],TSubsts)
     l = entryLoc e
+    uniqueVars ss [] = return ([],ss)
+    uniqueVars ss (x:xs) = do
+        (x',ss') <- uniqueVar ss x
+        (xs',ss'') <- uniqueVars ss' xs
+        return (x':xs',ss'')
 
 
 

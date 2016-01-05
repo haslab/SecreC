@@ -78,11 +78,14 @@ scChar c = scTokPred (p . tSymb)
     p (CHAR c') = c == c'
     p _ = False
 
-scBraces :: Monad m => ScParserT u m a -> ScParserT u m a
-scBraces p = scChar '(' *> p <* scChar ')'
+scParens :: Monad m => ScParserT u m a -> ScParserT u m a
+scParens p = scChar '(' *> p <* scChar ')'
 
-scBraces' :: Monad m => (TokenInfo -> ScParserT u m a) -> ScParserT u m a
-scBraces' p = do
+scBraces :: Monad m => ScParserT u m a -> ScParserT u m a
+scBraces p = scChar '{' *> p <* scChar '}'
+
+scParens' :: Monad m => (TokenInfo -> ScParserT u m a) -> ScParserT u m a
+scParens' p = do
     x1 <- scChar '('
     x <- p x1
     scChar ')'
@@ -237,7 +240,12 @@ scDomainDeclaration :: Monad m => ScParserT u m (DomainDeclaration Identifier Po
 scDomainDeclaration = apA3 (scTok DOMAIN) scDomainId scKindId (\x1 x2 x3 -> Domain (loc x1) x2 x3) <?> "domain declaration"
 
 scVariableInitialization :: Monad m => ScParserT u m (VariableInitialization Identifier Position)
-scVariableInitialization = apA3 scVarId (optionMaybe scDimensions) (optionMaybe (scChar '=' *> scExpression)) (\x1 x2 x3 -> VariableInitialization (loc x1) x1 x2 x3) <?> "variable initialization"
+scVariableInitialization = apA4
+    scVarId
+    (optionMaybe scDimensions)
+    (optionMaybe (scChar '=' *> scExpression))
+    (optionMaybe (scBraces scExpression))
+    (\x1 x2 x3 x4 -> VariableInitialization (loc x1) x1 x2 x3 x4) <?> "variable initialization"
 
 scVariableInitializations :: Monad m => ScParserT u m (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = apA (sepBy1 scVariableInitialization (scChar ',')) fromListNe <?> "variable initializations"
@@ -246,10 +254,16 @@ scVariableDeclaration :: Monad m => ScParserT u m (VariableDeclaration Identifie
 scVariableDeclaration = scTypeSpecifier $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) x1 x2) <?> "variable declaration"
 
 scProcedureParameter :: Monad m => ScParserT u m (ProcedureParameter Identifier Position)
-scProcedureParameter = scTypeSpecifier $ \x1 -> apA scVarId (\x2 -> ProcedureParameter (loc x1) x1 x2) <?> "procedure parameter"
+scProcedureParameter = scTypeSpecifier $ \x1 -> apA3 scVarId (optionMaybe scDimensions) scInvariant (\x2 x3 x4 -> ProcedureParameter (loc x1) x1 x2 x3 x4) <?> "procedure parameter"
 
 scDimensions :: Monad m => ScParserT u m (Sizes Identifier Position)
-scDimensions = apA (scBraces scDimensionList) Sizes <?> "dimensions"
+scDimensions = apA (scParens scDimensionList) Sizes <?> "dimensions"
+
+scInvariant :: Monad m => ScParserT u m (Maybe (Expression Identifier Position))
+scInvariant = optionMaybe (scBraces scExpression) <?> "dimensions"
+
+scExpressionList0 :: Monad m => ScParserT u m [Expression Identifier Position]
+scExpressionList0 = sepBy scExpression (scChar ',') <?> "expression list"
 
 scExpressionList :: Monad m => ScParserT u m (NeList (Expression Identifier Position))
 scExpressionList = apA (sepBy1 scExpression (scChar ',')) fromListNe <?> "expression list"
@@ -332,7 +346,7 @@ scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?
 scTemplateQuantifier :: Monad m => ScParserT u m (TemplateQuantifier Identifier Position)
 scTemplateQuantifier =
         (apA3 (scTok DOMAIN) scDomainId (optionMaybe (scChar ':' *> scKindId)) (\x1 x2 x3 -> DomainQuantifier (loc x1) x2 x3)
-    <|> apA2 (scTok DIMENSIONALITY) scVarId (\x1 x2 -> DimensionQuantifier (loc x1) x2)
+    <|> apA3 (scTok DIMENSIONALITY) scVarId scInvariant (\x1 x2 x3 -> DimensionQuantifier (loc x1) x2 x3)
     <|> apA2 (scTok TYPE) scTypeId (\x1 x2 -> DataQuantifier (loc x1) x2)) <?> "template quantifier"
 
 -- ** Structures                                                                 
@@ -353,12 +367,15 @@ scAttribute = scTypeSpecifier $ \x1 -> apA2 scAttributeId (scChar ';') (\x2 x3 -
 
 scReturnTypeSpecifier :: Monad m => (ReturnTypeSpecifier Identifier Position -> ScParserT u m a) -> ScParserT u m a
 scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Nothing) >>= cont)
-                         <|> scTypeSpecifier (\x1 -> let s = ReturnType (loc x1) (Just x1) in cont s))
+                         <|> scTypeSpecifier (\x1 -> do
+                                 x2 <- optionMaybe scDimensions
+                                 let s = ReturnType (loc x1) (Just (x1,x2))
+                                 cont s))
                           <?> "return type specifier"
 
 scProcedureDeclaration :: Monad m => ScParserT u m (ProcedureDeclaration Identifier Position)
-scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOp (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
-                    <||> (scReturnTypeSpecifier $ \x1 -> apA3 scProcedureId (scBraces scProcedureParameterList) scCompoundStatement (\x2 x3 x4 -> ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)))) <?> "procedure definition"
+scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
+                    <||> (scReturnTypeSpecifier $ \x1 -> apA3 scProcedureId (scParens scProcedureParameterList) scCompoundStatement (\x2 x3 x4 -> ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)))) <?> "procedure definition"
     
 scProcedureParameterList :: Monad m => ScParserT u m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"
@@ -408,7 +425,7 @@ scStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc
         ) <?> "statement"
 
 scIfStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scIfStatement = apA4 (scTok IF) (scBraces scExpression) scStatement (optionMaybe (scTok ELSE *> scStatement)) (\x1 x2 x3 x4 -> IfStatement (loc x1) x2 x3 x4) <?> "if statement"
+scIfStatement = apA4 (scTok IF) (scParens scExpression) scStatement (optionMaybe (scTok ELSE *> scStatement)) (\x1 x2 x3 x4 -> IfStatement (loc x1) x2 x3 x4) <?> "if statement"
 
 scForInitializer :: Monad m => ScParserT u m (ForInitializer Identifier Position)
 scForInitializer = (apA scVariableDeclaration InitializerVariable
@@ -429,23 +446,23 @@ scForStatement = (do
     return $ ForStatement (loc x1) x2 x3 x4 x5) <?> "for statement"
 
 scWhileStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scWhileStatement = apA3 (scTok WHILE) (scBraces scExpression) scStatement (\x1 x2 x3 -> WhileStatement (loc x1) x2 x3)
+scWhileStatement = apA3 (scTok WHILE) (scParens scExpression) scStatement (\x1 x2 x3 -> WhileStatement (loc x1) x2 x3)
     <?> "while statement"
 
 scPrintStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scPrintStatement = apA3 (scTok PRINT) (scBraces scExpressionList) (scChar ';') (\x1 x2 x3 -> PrintStatement (loc x1) x2)
+scPrintStatement = apA3 (scTok PRINT) (scParens scExpressionList) (scChar ';') (\x1 x2 x3 -> PrintStatement (loc x1) x2)
     <?> "print statement"
 
 scDowhileStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scDowhileStatement = apA5 (scTok DO) scStatement (scTok WHILE) (scBraces scExpression) (scChar ';') (\x1 x2 x3 x4 x5 -> DowhileStatement (loc x1) x2 x4)
+scDowhileStatement = apA5 (scTok DO) scStatement (scTok WHILE) (scParens scExpression) (scChar ';') (\x1 x2 x3 x4 x5 -> DowhileStatement (loc x1) x2 x4)
     <?> "dowhile statement"
 
 scAssertStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scAssertStatement = apA3 (scTok ASSERT) (scBraces scExpression) (scChar ';') (\x1 x2 x3 -> AssertStatement (loc x1) x2)
+scAssertStatement = apA3 (scTok ASSERT) (scParens scExpression) (scChar ';') (\x1 x2 x3 -> AssertStatement (loc x1) x2)
     <?> "assert statement"
 
 scSyscallStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scSyscallStatement = apA3 (scTok SYSCALL) (scBraces sysparams) (scChar ';') (\x1 (x2,x3) x4 -> SyscallStatement (loc x1) x2 x3)
+scSyscallStatement = apA3 (scTok SYSCALL) (scParens sysparams) (scChar ';') (\x1 (x2,x3) x4 -> SyscallStatement (loc x1) x2 x3)
   <?> "syscall statement"
     where
     sysparams = liftM unLoc scStringLiteral
@@ -603,7 +620,7 @@ scCastExpression = (apA2 scCastType scCastExpression (\x1 x2 -> UnaryExpr (loc x
   where
 
 scCastType :: Monad m => ScParserT u m (CastType Identifier Position)
-scCastType = scBraces (apA scPrimitiveDatatype (CastPrim) <|> apA scTypeId (CastTy))
+scCastType = scParens (apA scPrimitiveDatatype (CastPrim) <|> apA scTypeId (CastTy))
 
 scPrefixOp :: Monad m => ScParserT u m (Expression Identifier Position)
 scPrefixOp = (apA2 (scTok INC_OP) scLvalue (\x1 x2 -> PreOp (loc x1) (OpAdd $ loc x1) x2)
@@ -630,14 +647,17 @@ scPostfixExpression = scFoldl f scPostfixExpression' (scSubscript >+< (scChar '.
     f pe (Right v) = return $ SelectionExpr (loc pe) pe v
 
 scPostfixExpression' :: Monad m => ScParserT u m (Expression Identifier Position)
-scPostfixExpression' = (apA2 (scTok DOMAINID) (scBraces scSecTypeSpecifier) (\x1 x2 -> DomainIdExpr (loc x1) x2)
-                  <|> apA2 (scTok STRINGFROMBYTES) (scBraces scExpression) (\x1 x2 -> StringFromBytesExpr (loc x1) x2)
-                  <|> apA2 (scTok BYTESFROMSTRING) (scBraces scExpression) (\x1 x2 -> BytesFromStringExpr (loc x1) x2)
-                  <|> apA2 scProcedureId (scBraces (optionMaybe scExpressionList)) (\x1 x2 -> ProcCallExpr (loc x1) x1 (maybe [] Foldable.toList x2))
+scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1 x2 -> DomainIdExpr (loc x1) x2)
+                  <|> apA2 (scTok STRINGFROMBYTES) (scParens scExpression) (\x1 x2 -> StringFromBytesExpr (loc x1) x2)
+                  <|> apA2 (scTok BYTESFROMSTRING) (scParens scExpression) (\x1 x2 -> BytesFromStringExpr (loc x1) x2)
+                  <|> apA3 scProcedureId
+                      (optionMaybe $ scABrackets scTemplateTypeArguments)
+                      (scParens (optionMaybe scExpressionList))
+                      (\x1 x2 x3 -> ProcCallExpr (loc x1) x1 x2 (maybe [] Foldable.toList x3))
                   <||> scPrimaryExpression) <?> "postfix expression"
 
 scPrimaryExpression :: Monad m => ScParserT u m (Expression Identifier Position)
-scPrimaryExpression = (scBraces scExpression
+scPrimaryExpression = (scParens scExpression
                   <|> scCBrackets' (\x1 -> apA scExpressionList (ArrayConstructorPExpr (loc x1)))
                   <|> apA scVarId (\x1 -> RVariablePExpr (loc x1) x1)
                   <|> apA scLiteral (\x1 -> LitPExpr (loc x1) x1)) <?> "primary expression"
@@ -691,7 +711,7 @@ parseSecreCWith fn str parser = do
             when (debugLexer opts) $ liftIO $ hPutStrLn stderr ("Lexed " ++ fn ++ ":") >> hPutStrLn stderr (show $ map tSymb toks)
             let e = runParser parser () fn toks
             case e of
-                Left err -> throwError $ parserError $ ParsecException err
+                Left err -> throwError $ parserError $ ParsecException $ show err
                 Right a -> do
                     when (debugParser opts) $ liftIO $ hPutStrLn stderr ("Parsed " ++ fn ++ ":") >> hPutStrLn stderr (ppr a)
                     return a
