@@ -178,14 +178,14 @@ trySolveCstr doAll (Loc l iok) = do
 
 -- throws a constraint
 
-tcCstrM :: Location loc => loc -> TCstr -> TcM loc Type
+tcCstrM :: Location loc => loc -> TCstr -> TcM loc ()
 tcCstrM l k = do
     err <- askErrorM
     let k' = DelayedCstr k err
     newTemplateConstraint l k'
-    return $ TCstr k
+    return ()
 
-tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc Type
+tcTopCstrM :: Location loc => loc -> TCstr -> TcM loc ()
 tcTopCstrM l k = newErrorM $ addErrorM (topCstrErr (locpos l) k) $ tcCstrM l k
 
 -- | error-handling for a top-level delayed constraint
@@ -201,31 +201,43 @@ topCstrErr p (TRet {}) err = err
 topCstrErr p (TDec {}) err = err
 topCstrErr p t err = err
 
-resolveTCstr :: (VarsTcM loc,Location loc) => loc -> TCstr -> TcM loc Type
-resolveTCstr l k@(TRet t) = do
+resolveTCstr :: (VarsTcM loc,Location loc) => loc -> TCstr -> TcM loc ()
+resolveTCstr l k@(TRet t x) = do
     res <- templateDecReturn l t
-    return res
-resolveTCstr l k@(TDec n args) = do
+    addErrorM
+        (TypecheckerError (locpos l) . TemplateSolvingError (text "Return type of" <+> quotes (pp t)))
+        (tcCstrM l $ Unifies res x)
+resolveTCstr l k@(TDec n args x) = do
     res <- matchTemplate l (Left n) (Just args) Nothing Nothing (checkTemplateType $ fmap (const l) n)
-    return res
-resolveTCstr l k@(PDec (Left n) specs args r) = do
+    addErrorM
+        (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args))))
+        (tcCstrM l $ Unifies (DecT res) (DecT x))
+resolveTCstr l k@(PDec (Left n) specs args r x) = do
     res <- matchTemplate l (Right $ Left n) specs (Just args) (Just r) (checkProcedure $ fmap (const l) n)
-    return res
-resolveTCstr l k@(PDec (Right o) specs args r) = do
+    addErrorM
+        (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args))))
+        (tcCstrM l $ Unifies (DecT res) (DecT x))
+resolveTCstr l k@(PDec (Right o) specs args r x) = do
     res <- matchTemplate l (Right $ Right o) specs (Just args) (Just r) (checkOperator $ fmap (const l) o)
-    return res
+    addErrorM
+        (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args))))
+        (tcCstrM l $ Unifies (DecT res) (DecT x))
 resolveTCstr l k@(Equals t1 t2) = do
     equals l t1 t2
 resolveTCstr l k@(Coerces t1 t2) = do
     coerces l t1 t2
-resolveTCstr l k@(Coerces2 t1 t2) = do
+resolveTCstr l k@(Coerces2 t1 t2 x) = do
     res <- coerces2 l t1 t2
-    return res
+    addErrorM
+        (TypecheckerError (locpos l) . BiCoercionException (Just $ pp x) (pp t1) (pp t2) . Right)
+        (tcCstrM l $ Unifies res x)
 resolveTCstr l k@(CoercesSec t1 t2 b) = do
     coercesSec l t1 t2 b
-resolveTCstr l k@(Coerces2Sec t1 t2 b) = do
+resolveTCstr l k@(Coerces2Sec t1 t2 b x) = do
     s3 <- coerces2Sec l t1 t2 b
-    return s3
+    addErrorM
+        (TypecheckerError (locpos l) . BiCoercionException (Just $ pp x) (pp t1) (pp t2) . Right)
+        (tcCstrM l $ Unifies (SecT s3) (SecT x))
 resolveTCstr l k@(Unifies t1 t2) = do
     unifies l t1 t2
 resolveTCstr l k@(SupportedPrint t) = do
@@ -244,13 +256,7 @@ resolveTCstr l (DelayedCstr k err) = do
     addErrorM err $ resolveTCstr l k
 resolveTCstr l (MultipleSubstitutions v s) = do
     multipleSubstitutions l v s
-resolveTCstr l (IsValid c) = isValid l c
-resolveTCstr l (Expr2IExpr e) = do
-    ires <- expr2IExpr $ fmap (Typed l) e
-    return $ IExprT ires
-resolveTCstr l (Expr2ICond e) = do
-    ires <- expr2ICond $ fmap (Typed l) e
-    return $ ICondT ires
+resolveTCstr l (IsValid c) = isValid l c   
 
 tcProve :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc (a,TDict loc)
 tcProve l doGuess m = do

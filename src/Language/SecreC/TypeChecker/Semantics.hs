@@ -327,12 +327,6 @@ tryResolveEVar l v@(VarName () n) = do
     ss <- liftM (tSubsts . mconcatNe . tDict) State.get
     case Map.lookup v ss of
         Just (IdxT (e)) -> return $ Just (fmap (Typed l) e)
-        Just (IExprT ie) -> do
-            e <- iExpr2Expr ie
-            return $ Just $ fmap (Typed l) e
-        Just (ICondT ic) -> do
-            e <- iCond2Expr ic
-            return $ Just $ fmap (Typed l) e
         otherwise -> do
             vs <- getVars LocalScope TypeC
             case Map.lookup n vs of
@@ -343,28 +337,6 @@ tryResolveEVar l v@(VarName () n) = do
                         tcError (locpos l) $ UnresolvedVariable (pp v) env
                     NoValue -> return Nothing
                     KnownExpression e -> return $ Just e
-
-tryResolveIExprVar :: (VarsTcM loc,Location loc) => loc -> VarIdentifier -> TcM loc (Maybe (IExpr VarIdentifier))
-tryResolveIExprVar l v = do
-    let ov = VarName () v
-    addVarDependencies ov
-    ss <- liftM (tSubsts . mconcatNe . tDict) State.get
-    case Map.lookup ov ss of
-        Just (IExprT ie) -> return $ Just ie
-        otherwise -> do
-            e <- tryResolveEVar l ov
-            mapM expr2IExpr e
-
-tryResolveICondVar :: (VarsTcM loc,Location loc) => loc -> VarIdentifier -> TcM loc (Maybe (ICond VarIdentifier))
-tryResolveICondVar l v = do
-    let ov = VarName () v
-    addVarDependencies ov
-    ss <- liftM (tSubsts . mconcatNe . tDict) State.get
-    case Map.lookup ov ss of
-        Just (ICondT ic) -> return $ Just ic
-        otherwise -> do
-            e <- tryResolveEVar l ov
-            mapM expr2ICond e
 
 hsValToSExpr :: Location loc => loc -> HsVal -> TcM loc (SExpr VarIdentifier (Typed loc))
 hsValToSExpr l v = do

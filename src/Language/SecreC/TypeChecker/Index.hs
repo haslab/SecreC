@@ -25,10 +25,14 @@ isIndexType t = isIntType t || isBoolType t
 
 expr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (IExpr VarIdentifier)
 expr2IExpr e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
-    ok <- isIntTypeM l t
-    if ok
-        then return $ IIdx n
-        else genExpr2IExpr e
+    mb <- tryResolveEVar l (VarName () n)
+    case mb of
+        Just e' -> expr2IExpr e'
+        Nothing -> do
+            ok <- isIntTypeM l t
+            if ok
+                then return $ IIdx n
+                else genExpr2IExpr e
 expr2IExpr (LitPExpr _ (IntLit _ i)) = return $ IInt i
 expr2IExpr (UnaryExpr _ (OpSub _) e) = liftM ISym $ expr2IExpr e
 expr2IExpr (BinaryExpr _ e1 op e2) = do
@@ -59,10 +63,14 @@ mapEOp o x y = tcError (locpos $ unTyped $ loc o) $ NotSupportedIndexOp (pp o) N
 
 expr2ICond :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (ICond VarIdentifier)
 expr2ICond e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
-    ok <- isBoolTypeM l t
-    if ok
-        then return $ IBInd n
-        else genExpr2ICond e
+    mb <- tryResolveEVar l (VarName () n)
+    case mb of
+        Just e' -> expr2ICond e'
+        Nothing -> do
+            ok <- isBoolTypeM l t
+            if ok
+                then return $ IBInd n
+                else genExpr2ICond e
 expr2ICond (LitPExpr _ (BoolLit _ b)) = return $ IBool b
 expr2ICond (UnaryExpr _ (OpNot _) e) = liftM INot $ expr2ICond e
 expr2ICond (BinaryExpr _ e1 op@(isCmpOp -> True) e2) = do

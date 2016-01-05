@@ -252,14 +252,11 @@ projectSize p ct i x y1 y2 = do
                 then return (indexExpr (u - l))
                 else tcError (locpos p) $ ArrayAccessOutOfBounds (pp ct) i (pp l <> char ':' <> pp u)
         (DynArrayIndex el _,DynArrayIndex eu _,_) -> addErrorM (TypecheckerError (locpos p) . UncheckedRangeSelection (pp ct) i (pp elow <> char ':' <> pp eupp)) $ do
-            addErrorM OrWarn $ do
-                il <- uniqVarId "il"
-                iu <- uniqVarId "iu"
-                isz <- uniqVarId "isz"
-                tcCstrM p $ Expr2IExpr el $ IIdx il
-                tcCstrM p $ Expr2IExpr eu $ IIdx iu
-                tcCstrM p $ Expr2IExpr x $ IIdx isz
-                tcCstrM p $ IsValid $ IAnd [IIdx il .>=. IInt 0,IIdx iu .>=. IInt 0,IIdx isz .>=. IIdx il,IIdx iu .<=. IIdx isz]
+            addErrorM OrWarn $ orWarn $ do
+                il <- expr2IExpr $ fmap (Typed p) el
+                iu <- expr2IExpr $ fmap (Typed p) eu
+                isz <- expr2IExpr $ fmap (Typed p) x
+                tcCstrM p $ IsValid $ IAnd [il .>=. IInt 0,iu .>=. IInt 0,isz .>=. il,iu .<=. isz]
             subtractIndexExprs p eupp elow
         otherwise -> do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp ct) i (pp elow <> char ':' <> pp eupp) arrerr

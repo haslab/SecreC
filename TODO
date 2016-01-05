@@ -25,6 +25,7 @@ most possibly controversial typechecker decisions:
 . template resolution algorithm
 
 TODO:
+. delayed expr2IExpr conversion
 . procedure template parameters
 . size-dependent types
 

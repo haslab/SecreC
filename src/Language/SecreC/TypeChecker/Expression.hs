@@ -256,10 +256,9 @@ binAssignOpToOp (BinaryAssignXor _) = Just $ OpXor ()
 tcIndexExpr :: (VarsTcM loc,Location loc) => Expression Identifier loc -> TcM loc (SExpr VarIdentifier (Typed loc),Either SecrecError Word64)
 tcIndexExpr e = do
     e' <- tcExprTy (BaseT index) e
-    addErrorM (OrWarn . TypecheckerError (locpos $ loc e) . NonPositiveIndexExpr (pp e)) $ do
-        n <- uniqVarId "e"
-        tcCstrM (loc e) $ Expr2IExpr (fmap typed e') $ IIdx n
-        tcCstrM (loc e) $ IsValid $ IIdx n .>=. IInt 0
+    addErrorM (OrWarn . TypecheckerError (locpos $ loc e) . NonPositiveIndexExpr (pp e)) $ orWarn $ do
+        ie <- expr2IExpr e'
+        tcCstrM (loc e) $ IsValid $ ie .>=. IInt 0
     mb <- tryEvaluateIndexExpr e'
     return (e',mb)
 

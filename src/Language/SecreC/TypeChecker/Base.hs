@@ -69,8 +69,8 @@ resetGlobalEnv = do
     deps <- WeakHash.newSized 1024
     writeIORef globalEnv $ g { tDeps = deps }
 
---orWarn :: Location loc => TcM loc () -> TcM loc ()
---orWarn m = m `catchError` \e -> TcM $ lift $ tell [ErrWarn e]
+orWarn :: Location loc => TcM loc () -> TcM loc ()
+orWarn m = m `catchError` \e -> TcM $ lift $ tell [ErrWarn e]
 
 data GlobalEnv = GlobalEnv
     { tDeps :: WeakHash.BasicHashTable VarIdentifier (WeakMap.WeakMap Unique (UniqRef TCstrStatus)) -- variable dependencies
@@ -223,38 +223,35 @@ isGlobalCstr = everything (||) (mkQ False isOverloadedK)
     isOverloadedK _ = False
 
 -- | A template constraint with a result type
-data TCstr a where
-    TDec -- ^ type template declaration
-        :: (TypeName VarIdentifier ()) -- template name
-        -> [Type] -- template arguments
-        -> TCstr DecType
-    TRet :: -- ^ template return type
-        -> DecType -- template declaration
-        -> TCstr Type
-    PDec -- ^ procedure declaration
-        :: PIdentifier -- procedure name
-        -> (Maybe [Type]) -- template arguments
-        -> [Type] -- procedure arguments
-        -> Type -- return type
-        TCstr DecType
-    Equals -- ^ types equal
-        :: Type -> Type -> TCstr ()
-    Coerces -- ^ types coercible
-        :: Type -> Type -> TCstr ()
-    CoercesSec
-        :: SecType -- security type
-        -> SecType -- security type
-        -> ComplexType -- complex type over which to perform classify
-        -> TCstr ()
-    Coerces2 -- ^ bidirectional coercion
-        :: Type -> Type 
-        -> TCstr Type
-    Coerces2Sec
-        :: SecType -- security type
-        -> SecType -- security type
-        -> ComplexType -- complex type over which to perform classify
-        -> TCstr SecType
-    Unifies Type Type -- ^ type unification
+data TCstr
+    = TDec -- ^ type template declaration
+        (TypeName VarIdentifier ()) -- template name
+        [Type] -- template arguments
+        DecType -- result
+    | TRet -- ^ template return type
+        DecType -- template declaration
+        Type -- result
+    | PDec -- ^ procedure declaration
+        PIdentifier -- procedure name
+        (Maybe [Type]) -- template arguments
+        [Type] -- procedure arguments
+        Type -- return type
+        DecType -- result
+    | Equals Type Type -- ^ types equal
+    | Coerces Type Type -- ^ types coercible
+    | CoercesSec
+        SecType -- security type
+        SecType -- security type
+        ComplexType -- complex type over which to perform classify
+    | Coerces2 -- ^ bidirectional coercion
+        Type Type 
+        Type -- result
+    | Coerces2Sec
+        SecType -- security type
+        SecType -- security type
+        ComplexType -- complex type over which to perform classify
+        SecType -- result
+    | Unifies Type Type -- ^ type unification
     | SupportedPrint [Type] -- ^ can call tostring on the argument type
     | ProjectStruct -- ^ struct type projection
         BaseType (AttributeName VarIdentifier ()) 
@@ -269,12 +266,6 @@ data TCstr a where
     | MultipleSubstitutions (VarName VarIdentifier ()) [(Type,[TCstr])]
     | IsValid
         (ICond VarIdentifier) -- condition
-    | Expr2IExpr
-        (SExpr VarIdentifier Type)
-        -- result: IExpr VarIdentifier
-    | Expr2ICond
-        (SExpr VarIdentifier Type)
-        -- result: ICond VarIdentifier
   deriving (Data,Typeable,Show)
  
 instance Eq TCstr where
@@ -294,8 +285,6 @@ instance Eq TCstr where
     (DelayedCstr c1 _) == (DelayedCstr c2 _) = c1 == c2
     (MultipleSubstitutions v1 s1) == (MultipleSubstitutions v2 s2) = v1 == v2 && s1 == s2
     (IsValid c1) == (IsValid c2) = c1 == c2
-    (Expr2IExpr e1) == (Expr2IExpr e2) = e1 == e2 
-    (Expr2ICond e1) == (Expr2ICond e2) = e1 == e2 
     x == y = False
     
 instance Ord TCstr where
@@ -315,8 +304,6 @@ instance Ord TCstr where
     compare (DelayedCstr c1 _) (DelayedCstr c2 _) = c1 `compare` c2
     compare (MultipleSubstitutions v1 s1) (MultipleSubstitutions v2 s2) = mconcat [compare v1 v2,compare s1 s2]
     compare (IsValid c1) (IsValid c2) = mconcat [c1 `compare` c2]
-    compare (Expr2IExpr e1) (Expr2IExpr e2) = mconcat [e1 `compare` e2]
-    compare (Expr2ICond e1) (Expr2ICond e2) = mconcat [e1 `compare` e2]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 instance PP TCstr where
@@ -336,8 +323,6 @@ instance PP TCstr where
     pp (DelayedCstr c f) = text "delayed" <+> pp c
     pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> pp (map fst s)
     pp (IsValid c) = text "isvalid" <+> pp c
-    pp (Expr2IExpr e) = text "expr2IExpr" <+> pp e 
-    pp (Expr2ICond e) = text "expr2ICond" <+> pp e 
     
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
@@ -424,12 +409,6 @@ arrayIndexErr (DynArrayIndex _ err) = Just err
 arrayIndexErr _ = Nothing
     
 instance MonadIO m => Vars m TCstr where
-    traverseVars f (Expr2IExpr e) = do
-        e' <- f e
-        return $ Expr2IExpr e'
-    traverseVars f (Expr2ICond e) = do
-        e' <- f e
-        return $ Expr2ICond e'
     traverseVars f (TRet t x) = do
         t' <- f t
         x' <- f x
@@ -531,7 +510,7 @@ instance PP IOCstr where
 
 data TCstrStatus
     = Unevaluated -- has never been evaluated
-    | Evaluated Type -- has been evaluated
+    | Evaluated  -- has been evaluated
     | Erroneous -- has failed
         SecrecError -- failure error
   deriving (Data,Typeable,Show)
@@ -634,7 +613,7 @@ ppConstraints d = do
         s <- liftIO $ readUniqRef $ kStatus c
         let pre = pp (kCstr c) <+> text (show $ hashUnique $ uniqId $ kStatus c)
         case s of
-            Evaluated t -> return $ pre <> char '=' <+> pp t
+            Evaluated -> return $ pre <+> text "OK"
             Unevaluated -> return $ pre
             Erroneous err -> return $ pre <> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
     ss <- liftM vcat $ mapM ppK (Map.elems $ tCstrs d)
@@ -770,8 +749,6 @@ data Type
     | DecT DecType
     | SysT SysType
     | IdxT (SExpr VarIdentifier Type) -- for index expressions
-    | IExprT (IExpr VarIdentifier)
-    | ICondT (ICond VarIdentifier)
     | CondType Type (SCond VarIdentifier Type) -- a type with an invariant
   deriving (Typeable,Show,Data,Eq,Ord)
 
@@ -815,8 +792,6 @@ instance PP Type where
     pp (DecT d) = pp d
     pp (SysT s) = pp s
     pp (IdxT e) = pp e
-    pp (IExprT e) = pp e
-    pp (ICondT e) = pp e
     pp (CondType t c) = ppCond pp (Cond t $ Just c)
 
 data TypeClass
@@ -850,8 +825,6 @@ typeClass msg (SecT _) = DomainC
 typeClass msg (DecT _) = DecC
 typeClass msg (SysT _) = SysC
 typeClass msg (IdxT _) = ExprC
-typeClass msg (IExprT _) = ExprC
-typeClass msg (ICondT _) = ExprC
 typeClass msg (ComplexT _) = TypeC
 typeClass msg (BaseT _) = TypeC
 typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
@@ -1090,12 +1063,6 @@ instance MonadIO m => Vars m Type where
     traverseVars f (IdxT c) = do
         c' <- f c
         return $ IdxT c'
-    traverseVars f (IExprT c) = do
-        c' <- f c
-        return $ IExprT c'
-    traverseVars f (ICondT c) = do
-        c' <- f c
-        return $ ICondT c'
     traverseVars f (CondType t c) = do
         t' <- f t
         c' <- f c
@@ -1119,14 +1086,6 @@ instance MonadIO m => Vars m Type where
     substL pl (IdxT (RVariablePExpr _ v)) = do
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf v) of
             EqT -> return $ Just v
-            NeqT -> return Nothing
-    substL pl (IExprT (IIdx v)) = do
-        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf $ VarName () v) of
-            EqT -> return $ Just $ VarName () v
-            NeqT -> return Nothing
-    substL pl (ICondT (IBInd v)) = do
-        case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf $ VarName () v) of
-            EqT -> return $ Just $ VarName () v
             NeqT -> return Nothing
     substL pl e = return Nothing
     substR pa r =

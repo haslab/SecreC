@@ -95,9 +95,9 @@ addHypotheses LocalScope xs = modify $ \env -> env { localHyps = xs ++ (localHyp
 checkAssertion :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc ()
 checkAssertion e = do
     let l = unTyped $ loc e
-    addErrorM (OrWarn . TypecheckerError (locpos l) . StaticAssertionFailure (pp e)) $ do
-        c <- tcCstrM l $ Expr2ICond (fmap typed e)
-        tcCstrM l $ IsValid c
+    addErrorM (OrWarn . TypecheckerError (locpos l) . StaticAssertionFailure (pp e)) $ orWarn $ do
+        ic <- expr2ICond e
+        tcCstrM l $ IsValid ic
 
 checkVariable :: Location loc => Scope -> VarName VarIdentifier loc -> TcM loc Type
 checkVariable scope (VarName l n) = do
@@ -369,7 +369,7 @@ newStruct (TypeName (Typed l t) n) = do
 addSubstsM :: Location loc => TSubsts -> TcM loc ()
 addSubstsM ss = do
     updateHeadTDict $ \d -> return ((),mappend d (TDict Map.empty Set.empty ss))
-    mapM_ (uncurry dirtyVarDependencies) $ Map.toList ss
+    mapM_ (dirtyVarDependencies . fst) $ Map.toList ss
 
 ---- | Adds a new template constraint to the environment
 newTemplateConstraint :: Location loc => loc -> TCstr -> TcM loc IOCstr
@@ -383,7 +383,7 @@ addSubstM :: Location loc => loc -> VarName VarIdentifier Type -> Type -> TcM lo
 addSubstM l v t | varNameToType v == t = return ()
                 | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
                     addSubst l (fmap (const ()) v) t
-                    dirtyVarDependencies ov t
+                    dirtyVarDependencies ov
                 | otherwise = genericError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
   where ov = fmap (const ()) v
 
@@ -434,13 +434,13 @@ newSizeVar = do
     
 addValue :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> SExpr VarIdentifier (Typed loc) -> TcM loc ()
 addValue l v (e) = updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (fmap (const ()) v) (IdxT (fmap typed e)) (tSubsts d) })
-    
+
 addValueM :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> SExpr VarIdentifier (Typed loc) -> TcM loc ()
 addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
 addValueM l v@(VarName t n) (e) | typeClass "addValueL" (typed t) == typeClass "addValueR" (typed $ loc e) = do
     addValue l v e
     addVarDependencies $ fmap (const ()) v
-    dirtyVarDependencies (VarName () n) (IdxT (fmap typed e))
+    dirtyVarDependencies (VarName () n) 
 addValueM l v e = genericError (locpos l) $ text "unification: mismatching expression types"
 
 openCstr l iok = do
@@ -457,18 +457,18 @@ newDict l = do
         then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
         else State.modify $ \e -> e { tDict = ConsNe mempty (tDict e) }
 
-resolveIOCstr :: Location loc => loc -> IOCstr -> (loc -> TCstr -> TcM loc Type) -> TcM loc Type
+resolveIOCstr :: Location loc => loc -> IOCstr -> (loc -> TCstr -> TcM loc ()) -> TcM loc ()
 resolveIOCstr l iok resolve = do
     st <- liftIO $ readUniqRef (kStatus iok)
     case st of
-        Evaluated t -> remove >> return t
+        Evaluated -> remove
         Erroneous err -> throwError err
         Unevaluated -> trySolve
   where
     trySolve = do
         openCstr l iok
         t <- resolve l $ kCstr iok
-        liftIO $ writeUniqRef (kStatus iok) $ Evaluated t
+        liftIO $ writeUniqRef (kStatus iok) $ Evaluated 
         State.modify $ \e -> e { openedCstrs = Set.delete iok (openedCstrs e) } 
         remove
         return t
@@ -503,26 +503,15 @@ updateHeadTDict upd = do
     return x
 
 -- | forget the result for a constraint when the value of a variable it depends on changes
-dirtyVarDependencies :: Location loc => VarName VarIdentifier () -> Type -> TcM loc ()
-dirtyVarDependencies v t = do
+dirtyVarDependencies :: Location loc => VarName VarIdentifier () -> TcM loc ()
+dirtyVarDependencies v = do
     cstrs <- liftM openedCstrs State.get
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
---    liftIO $ putStrLn $ "dirtyDependencies " ++ ppr v ++ " " ++ ppr t
     mb <- liftIO $ WeakHash.lookup deps (varNameId v)
     case mb of
         Nothing -> return ()
         Just m -> do
             liftIO $ WeakMap.forM_ m $ \(u,x) -> unless (elem x $ Set.map kStatus cstrs) $ writeUniqRef x Unevaluated
-
---    case Map.lookup v deps of
---        Nothing -> return ()
---        Just ios -> do
-----            liftIO $ putStrLn $ "deps " ++ show (map (show . hashUnique . uniqId . kStatus) $ Set.toList ios)
-----            liftIO $ putStrLn $ "opens " ++ show (map (show . hashUnique . uniqId . kStatus) cstrs)
---            let dirty x = unless (elem x cstrs) $ do
-----                liftIO $ putStrLn $ "dirty " ++ show (hashUnique $ uniqId $ kStatus x) ++ " " ++ ppr (kCstr x)
---                liftIO $ writeUniqRef (kStatus x) Unevaluated
---            mapM_ dirty ios
 
 fvIds :: Vars m a => a -> m (Set VarIdentifier)
 fvIds = liftM scVarsIds . fvs
