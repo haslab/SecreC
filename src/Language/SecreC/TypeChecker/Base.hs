@@ -49,8 +49,33 @@ import System.Mem.Weak.Exts as Weak
 
 -- warn for unused local variables
 
+data IOCstr = IOCstr
+    { kCstr :: TCstr
+    , kStatus :: UniqRef TCstrStatus
+    }
+  deriving (Data,Typeable,Show)
+  
+instance Eq IOCstr where
+    k1 == k2 = kStatus k1 == kStatus k2
+instance Ord IOCstr where
+    compare k1 k2 = compare (kStatus k1) (kStatus k2)
+
+instance PP IOCstr where
+    pp = pp . kCstr
+
+data TCstrStatus
+    = Unevaluated -- has never been evaluated
+    | Evaluated ShowOrdDyn  -- has been evaluated
+    | Erroneous -- has failed
+        SecrecError -- failure error
+  deriving (Data,Typeable,Show)
+
 data Scope = GlobalScope | LocalScope
   deriving (Show,Read,Data,Typeable)
+
+instance PP Scope where
+    pp GlobalScope = text "global"
+    pp LocalScope = text "local"
 
 {-# NOINLINE globalEnv #-}
 globalEnv :: IORef GlobalEnv
@@ -69,19 +94,32 @@ resetGlobalEnv = do
     deps <- WeakHash.newSized 1024
     writeIORef globalEnv $ g { tDeps = deps }
 
-orWarn :: Location loc => TcM loc () -> TcM loc ()
-orWarn m = m `catchError` \e -> TcM $ lift $ tell [ErrWarn e]
+orWarn :: Location loc => TcM loc a -> TcM loc (Maybe a)
+orWarn m = (liftM Just m) `catchError` \e -> TcM (lift $ tell [ErrWarn e]) >> return Nothing
+
+orWarn_ :: Location loc => TcM loc a -> TcM loc ()
+orWarn_ m = orWarn m >> return ()
 
 data GlobalEnv = GlobalEnv
-    { tDeps :: WeakHash.BasicHashTable VarIdentifier (WeakMap.WeakMap Unique (UniqRef TCstrStatus)) -- variable dependencies
+    { tDeps :: WeakHash.BasicHashTable VarIdentifier (WeakMap.WeakMap Unique IOCstr) -- variable dependencies
     , tyVarId :: TyVarId
     }
+
+varIdDeps :: VarIdentifier -> IO (Set IOCstr)
+varIdDeps v = do
+    g <- readIORef globalEnv
+    mb <- WeakHash.lookup (tDeps g) v
+    case mb of
+        Nothing -> return Set.empty
+        Just cs -> WeakMap.foldM (\xs (_,iok) -> return $ Set.insert iok xs) Set.empty cs
+
+type Hyps loc = Set (Loc loc IOCstr)
 
 data TcEnv loc = TcEnv {
       globalVars :: Map VarIdentifier (EntryEnv loc) -- ^ global variables: name |-> type of the variable
     , localVars  :: Map VarIdentifier (EntryEnv loc) -- ^ local variables: name |-> type of the variable
-    , globalHyps :: [ICond VarIdentifier] -- ^ global hypotheses
-    , localHyps :: [ICond VarIdentifier] -- ^ local hypotheses
+    , globalHyps :: Hyps loc -- ^ global hypotheses
+    , localHyps :: Hyps loc -- ^ local hypotheses
     , kinds :: Map VarIdentifier (EntryEnv loc) -- ^ defined kinds: name |-> type of the kind
     , domains :: Map VarIdentifier (EntryEnv loc) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
@@ -96,7 +134,21 @@ data TcEnv loc = TcEnv {
     , tDict :: NeList (TDict loc) -- ^ A stack of dictionaries
     , openedCstrs :: Set IOCstr -- constraints being resolved, for dependency tracking
     }
-  deriving Functor
+
+tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv loc2 -> TcEnv loc1
+tcEnvMap f g env = TcEnv
+    { globalVars = fmap (fmap f) $ globalVars env
+    , localVars = fmap (fmap f) $ localVars env
+    , globalHyps = Set.fromList $ map (mapLoc f) $ Set.toList $ globalHyps env
+    , localHyps = Set.fromList $ map (mapLoc f) $ Set.toList $ localHyps env
+    , kinds = fmap (fmap f) $ kinds env
+    , domains = fmap (fmap f) $ domains env
+    , operators = Map.map (Map.map (fmap f)) $ operators env
+    , procedures = Map.map (Map.map (fmap f)) $ procedures env
+    , structs = Map.map (\(x,y) -> (fmap f x,Map.map (fmap f) y)) $ structs env
+    , tDict = fmap (fmap f) $ tDict env
+    , openedCstrs = openedCstrs env
+    }
 
 type VarsTcM loc = Vars (TcM loc) loc
 
@@ -104,7 +156,7 @@ type VarsTcM loc = Vars (TcM loc) loc
 --insideTemplate = liftM inTemplate State.get
 
 emptyTcEnv :: TcEnv loc
-emptyTcEnv = TcEnv Map.empty Map.empty [] [] Map.empty Map.empty Map.empty Map.empty Map.empty (WrapNe mempty) Set.empty
+emptyTcEnv = TcEnv Map.empty Map.empty Set.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty (WrapNe mempty) Set.empty
 
 data EntryEnv loc = EntryEnv {
       entryLoc :: loc -- ^ Location where the entry is defined
@@ -186,8 +238,8 @@ tcLocM :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 a -> TcM loc2 a
 tcLocM f g m = do
     s2 <- get
     r2 <- ask
-    (x,s1,w1) <- TcM $ lift $ runRWST (unTcM m) r2 (fmap f s2)
-    put (fmap g s1)
+    (x,s1,w1) <- TcM $ lift $ runRWST (unTcM m) r2 (tcEnvMap f g s2)
+    put (tcEnvMap g f s1)
     tell w1
     return x
 
@@ -223,7 +275,7 @@ isGlobalCstr = everything (||) (mkQ False isOverloadedK)
     isOverloadedK _ = False
 
 -- | A template constraint with a result type
-data TCstr
+data TcCstr
     = TDec -- ^ type template declaration
         (TypeName VarIdentifier ()) -- template name
         [Type] -- template arguments
@@ -234,25 +286,41 @@ data TCstr
     | PDec -- ^ procedure declaration
         PIdentifier -- procedure name
         (Maybe [Type]) -- template arguments
-        [Type] -- procedure arguments
+        [Expression VarIdentifier Type] -- procedure arguments
         Type -- return type
         DecType -- result
+        (Maybe [VarName VarIdentifier Type]) -- resulting coerced procedure arguments
     | Equals Type Type -- ^ types equal
-    | Coerces Type Type -- ^ types coercible
+    | Coerces -- ^ types coercible
+        (Expression VarIdentifier Type)
+        Type
+        (VarName VarIdentifier Type)
+        Type
     | CoercesSec
-        SecType -- security type
-        SecType -- security type
-        ComplexType -- complex type over which to perform classify
+        (Expression VarIdentifier Type) -- source expression
+        ComplexType -- source complex type over which to perform classify
+        (VarName VarIdentifier Type) -- target variable where to store the resulting expression
+        SecType -- target security type
     | Coerces2 -- ^ bidirectional coercion
-        Type Type 
+        (Expression VarIdentifier Type)
+        Type
+        (Expression VarIdentifier Type)
+        Type
+        (VarName VarIdentifier Type)
+        (VarName VarIdentifier Type) 
         Type -- result
     | Coerces2Sec
-        SecType -- security type
-        SecType -- security type
-        ComplexType -- complex type over which to perform classify
+        (Expression VarIdentifier Type)
+        ComplexType -- base type 1
+        (Expression VarIdentifier Type)
+        ComplexType -- base type 2
+        (VarName VarIdentifier Type) -- variable to store the 1st resulting expression
+        (VarName VarIdentifier Type) -- variable to store the 2nd resulting expression
         SecType -- result
     | Unifies Type Type -- ^ type unification
-    | SupportedPrint [Type] -- ^ can call tostring on the argument type
+    | SupportedPrint
+        [Expression VarIdentifier Type] -- ^ can call tostring on the argument type
+        [VarName VarIdentifier Type] -- resulting coerced procedure arguments
     | ProjectStruct -- ^ struct type projection
         BaseType (AttributeName VarIdentifier ()) 
         Type -- result
@@ -260,70 +328,113 @@ data TCstr
         ComplexType [ArrayProj]
         ComplexType -- result
     | IsReturnStmt (Set StmtClass) Type (ProcedureDeclaration VarIdentifier Position) -- ^ is return statement
-    | DelayedCstr
+    | MultipleSubstitutions (VarName VarIdentifier ()) [(Type,[TcCstr])]
+    | MatchTypeDimension
+        ComplexType -- type
+        Word64 -- expected dimension
+  deriving (Data,Typeable,Show,Eq,Ord)
+ 
+-- | checks (raise warnings)
+data CheckCstr
+    = CheckAssertion
+        (SCond VarIdentifier Type) -- condition
+    | CheckIndex -- (x::Integer) >= 0
+        (SExpr VarIdentifier Type) -- x
+    | CheckArrayAccess -- [min..max] in [0..size]
+        ComplexType -- type
+        Word64 -- dimension
+        (SExpr VarIdentifier Type) -- min access
+        (SExpr VarIdentifier Type) -- max access
+        (SExpr VarIdentifier Type) -- array size
+    | IsValid -- check if an index condition is valid (this is mandatory: raises an error)
+        (ICond VarIdentifier) -- condition
+  deriving (Data,Typeable,Show,Eq,Ord)
+ 
+-- hypothesis (raises warnings)
+data HypCstr
+    = HypCondition -- c == True
+        (SExpr VarIdentifier Type)
+    | HypNotCondition -- c == False
+        (SExpr VarIdentifier Type)
+    | HypAssign -- v == e
+        (VarName VarIdentifier Type)
+        (SExpr VarIdentifier Type)
+    | HypEqual -- e1 == e2
+        (SExpr VarIdentifier Type)
+        (SExpr VarIdentifier Type)
+  deriving (Data,Typeable,Show,Eq,Ord)
+ 
+unTH (HypK c) = c
+ 
+isTcCstr :: TCstr -> Bool
+isTcCstr (TcK _) = True
+isTcCstr (DelayedK k _) = isTcCstr k
+isTcCstr _ = False
+
+isCheckCstr :: TCstr -> Bool
+isCheckCstr (CheckK {}) = True
+isCheckCstr (DelayedK k _) = isCheckCstr k
+isCheckCstr _ = False
+
+data TCstr
+    = TcK TcCstr
+    | DelayedK
         TCstr -- a constraint
         (SecrecError -> SecrecError) -- an error message with updated context
-    | MultipleSubstitutions (VarName VarIdentifier ()) [(Type,[TCstr])]
-    | IsValid
-        (ICond VarIdentifier) -- condition
+    | CheckK (Hyps Position) CheckCstr
+    | HypK HypCstr
   deriving (Data,Typeable,Show)
  
 instance Eq TCstr where
-    (TRet x1 r1) == (TRet x2 r2) = x1 == x2 && r1 == r2
-    (TDec n1 ts1 r1) == (TDec n2 ts2 r2) = n1 == n2 && ts1 == ts2 && r1 == r2
-    (PDec n1 specs1 ts1 r1 x1) == (PDec n2 specs2 ts2 r2 x2) = n1 == n2 && specs1 == specs2 && ts1 == ts2 && r1 == r2 && x1 == x2
-    (Equals x1 y1) == (Equals x2 y2) = x1 == x2 && y1 == y2
-    (Coerces x1 y1) == (Coerces x2 y2) = x1 == x2 && y1 == y2
-    (CoercesSec x1 y1 c1) == (CoercesSec x2 y2 c2) = x1 == x2 && y1 == y2 && c1 == c2
-    (Coerces2Sec x1 y1 c1 r1) == (Coerces2Sec x2 y2 c2 r2) = x1 == x2 && y1 == y2 && c1 == c2 && r1 == r2
-    (Coerces2 x1 y1 r1) == (Coerces2 x2 y2 r2) = x1 == x2 && y1 == y2 && r1 == r2
-    (Unifies x1 y1) == (Unifies x2 y2) = x1 == x2 && y1 == y2
-    (SupportedPrint x1) == (SupportedPrint x2) = x1 == x2
-    (ProjectStruct x1 y1 r1) == (ProjectStruct x2 y2 r2) = x1 == x2 && y1 == y2 && r1 == r2
-    (ProjectMatrix x1 y1 r1) == (ProjectMatrix x2 y2 r2) = x1 == x2 && y1 == y2 && r1 == r2
-    (IsReturnStmt s1 x1 y1) == (IsReturnStmt s2 x2 y2) = x1 == x2 && y1 == y2
-    (DelayedCstr c1 _) == (DelayedCstr c2 _) = c1 == c2
-    (MultipleSubstitutions v1 s1) == (MultipleSubstitutions v2 s2) = v1 == v2 && s1 == s2
-    (IsValid c1) == (IsValid c2) = c1 == c2
+    (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
+    (TcK x) == (TcK y) = x == y
+    (HypK x) == (HypK y) = x == y
+    (CheckK hyps1 x) == (CheckK hyps2 y) = hyps1 == hyps2 && x == y
     x == y = False
     
 instance Ord TCstr where
-    compare (TRet x1 r1) (TRet x2 r2) = mconcat [compare x1 x2,compare r1 r2]
-    compare (TDec n1 ts1 r1) (TDec n2 ts2 r2) = mconcat [n1 `compare` n2,ts1 `compare` ts2,r1 `compare` r2]
-    compare (PDec n1 specs1 ts1 r1 res1) (PDec n2 specs2 ts2 r2 res2) = mconcat [n1 `compare` n2,specs1 `compare` specs2,ts1 `compare` ts2,r1 `compare` r2,res1 `compare` res2]
-    compare (Equals x1 y1) (Equals x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
-    compare (Coerces x1 y1) (Coerces x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
-    compare (CoercesSec x1 y1 c1) (CoercesSec x2 y2 c2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2]
-    compare (Coerces2Sec x1 y1 c1 r1) (Coerces2Sec x2 y2 c2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,c1 `compare` c2,r1 `compare` r2]
-    compare (Coerces2 x1 y1 r1) (Coerces2 x2 y2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,r1 `compare` r2]
-    compare (Unifies x1 y1) (Unifies x2 y2) = mconcat [x1 `compare` x2,y1 `compare` y2]
-    compare (SupportedPrint x1) (SupportedPrint x2) = x1 `compare` x2
-    compare (ProjectStruct x1 y1 r1) (ProjectStruct x2 y2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,r1 `compare` r2]
-    compare (ProjectMatrix x1 y1 r1) (ProjectMatrix x2 y2 r2) = mconcat [x1 `compare` x2,y1 `compare` y2,r1 `compare` r2]
-    compare (IsReturnStmt s1 x1 y1) (IsReturnStmt s2 x2 y2) = mconcat [s1 `compare` s2,x1 `compare` x2,y1 `compare` y2]
-    compare (DelayedCstr c1 _) (DelayedCstr c2 _) = c1 `compare` c2
-    compare (MultipleSubstitutions v1 s1) (MultipleSubstitutions v2 s2) = mconcat [compare v1 v2,compare s1 s2]
-    compare (IsValid c1) (IsValid c2) = mconcat [c1 `compare` c2]
+    compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
+    compare (TcK c1) (TcK c2) = compare c1 c2
+    compare (HypK x) (HypK y) = compare x y
+    compare (CheckK hyps1 x) (CheckK hyps2 y) = mconcat [compare hyps1 hyps2,compare x y]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
-instance PP TCstr where
+instance PP TcCstr where
     pp (TRet t x) = text "tret" <+> pp t <+> char '=' <+> pp x
     pp (TDec n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
-    pp (PDec n specs ts r x) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map pp ts)) <+> char '=' <+> pp x
+    pp (PDec n specs ts r x Nothing) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map pp ts)) <+> char '=' <+> pp x
+    pp (PDec n specs ts r x (Just xs)) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map pp ts)) <+> char '=' <+> pp x <+> parens (sepBy comma $ map pp xs)
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
-    pp (Coerces t1 t2) = text "coerces" <+> pp t1 <+> pp t2
-    pp (CoercesSec t1 t2 b) = text "coercessec" <+> pp t1 <+> pp t2 <+> pp b
-    pp (Coerces2Sec t1 t2 b x) = text "coerces2sec" <+> pp t1 <+> pp t2 <+> pp b <+> char '=' <+> pp x
-    pp (Coerces2 t1 t2 x) = text "coerces2" <+> pp t1 <+> pp t2 <+> char '=' <+> pp x
+    pp (Coerces e1 t1 v2 t2) = text "coerces" <+> pp e1 <+> pp t1 <+> pp v2 <+> pp t2
+    pp (CoercesSec e1 t1 v2 t2) = text "coercessec" <+> pp e1 <+> pp t1 <+> pp v2 <+> pp t2
+    pp (Coerces2Sec e1 t1 e2 t2 v1 v2 x) = text "coerces2sec" <+> pp e1 <+> pp t1 <+> pp e2 <+> pp t2 <+> char '=' <+> pp v1 <+> pp v2 <+> pp x
+    pp (Coerces2 e1 t1 e2 t2 v1 v2 x) = text "coerces2" <+> pp e1 <+> pp t1 <+> pp e2 <+> pp t2 <+> char '=' <+> pp v1 <+> pp v2 <+> pp x
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
-    pp (SupportedPrint ts) = text "print" <+> sepBy space (map pp ts)
+    pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
     pp (IsReturnStmt cs t dec) = text "return" <+> (hcat $ map pp $ Set.toList cs) <+> pp t <+> pp dec
-    pp (DelayedCstr c f) = text "delayed" <+> pp c
     pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> pp (map fst s)
+    pp (MatchTypeDimension t d) = text "matchtypedimension" <+> pp t <+> pp d
+
+instance PP CheckCstr where
+    pp (CheckAssertion c) = text "checkAssertion" <+> pp c
+    pp (CheckIndex c) = text "checkIndex" <+> pp c
+    pp (CheckArrayAccess t d l u sz) = text "checkArrayAccess" <+> pp t <+> pp d <+> pp l <+> pp u <+> pp sz
     pp (IsValid c) = text "isvalid" <+> pp c
-    
+
+instance PP HypCstr where
+    pp (HypCondition c) = pp c
+    pp (HypNotCondition c) = char '!' <> pp c
+    pp (HypAssign v e) = pp v <+> char '=' <+> pp e
+    pp (HypEqual e1 e2) = pp e1 <+> text "==" <+> pp e2
+
+instance PP TCstr where
+    pp (DelayedK c f) = text "delayed" <+> pp c
+    pp (TcK k) = pp k
+    pp (CheckK hyps c) = sepBy (text "&&") (map pp $ Set.toList hyps) <+> text "=>" <+> pp c
+    pp (HypK h) = pp h
+
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
     | ArrayIdx ArrayIndex
@@ -408,7 +519,7 @@ arrayIndexErr :: ArrayIndex -> Maybe SecrecError
 arrayIndexErr (DynArrayIndex _ err) = Just err
 arrayIndexErr _ = Nothing
     
-instance MonadIO m => Vars m TCstr where
+instance MonadIO m => Vars m TcCstr where
     traverseVars f (TRet t x) = do
         t' <- f t
         x' <- f x
@@ -418,44 +529,56 @@ instance MonadIO m => Vars m TCstr where
         args' <- mapM f args
         x' <- f x
         return $ TDec n' args' x'
-    traverseVars f (PDec n ts args ret x) = do
+    traverseVars f (PDec n ts args ret x xs) = do
         n' <- f n
         x' <- f x
         ts' <- mapM f ts
         args' <- mapM f args
         ret' <- f ret
-        return $ PDec n' ts' args' ret' x'
+        xs' <- mapM (mapM f) xs
+        return $ PDec n' ts' args' ret' x' xs'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
         return $ Equals t1' t2'
-    traverseVars f (Coerces t1 t2) = do
+    traverseVars f (Coerces e1 t1 v2 t2) = do
+        e1' <- f e1
         t1' <- f t1
+        v2' <- f v2
         t2' <- f t2
-        return $ Coerces t1' t2'
-    traverseVars f (CoercesSec t1 t2 b) = do
+        return $ Coerces e1' t1' v2' t2'
+    traverseVars f (CoercesSec e1 t1 e2 t2) = do
+        e1' <- f e1
         t1' <- f t1
+        e2' <- f e2
         t2' <- f t2
-        b' <- f b
-        return $ CoercesSec t1' t2' b'
-    traverseVars f (Coerces2 t1 t2 x) = do
+        return $ CoercesSec e1' t1' e2' t2'
+    traverseVars f (Coerces2 e1 t1 e2 t2 v1 v2 x) = do
+        e1' <- f e1
         t1' <- f t1
+        e2' <- f e2
         t2' <- f t2
+        v1' <- f v1
+        v2' <- f v2
         x' <- f x
-        return $ Coerces2 t1' t2' x'
-    traverseVars f (Coerces2Sec t1 t2 b x) = do
+        return $ Coerces2 e1' t1' e2' t2' v1' v2' x'
+    traverseVars f (Coerces2Sec e1 t1 e2 t2 v1 v2 x) = do
+        e1' <- f e1
         t1' <- f t1
+        e2' <- f e2
         t2' <- f t2
-        b' <- f b
+        v1' <- f v1
+        v2' <- f v2
         x' <- f x
-        return $ Coerces2Sec t1' t2' b' x'
+        return $ Coerces2Sec e1' t1' e2' t2' v1' v2' x'
     traverseVars f (Unifies t1 t2) = do
         t1' <- f t1
         t2' <- f t2
         return $ Unifies t1' t2'
-    traverseVars f (SupportedPrint ts) = do
+    traverseVars f (SupportedPrint ts xs) = do
         ts' <- mapM f ts
-        return $ SupportedPrint ts'
+        xs' <- mapM f xs
+        return $ SupportedPrint ts' xs'
     traverseVars f (ProjectStruct t a x) = do
         t' <- f t
         a' <- f a
@@ -471,16 +594,63 @@ instance MonadIO m => Vars m TCstr where
         t' <- f t
         p' <- f p
         return $ IsReturnStmt cs' t' p'
-    traverseVars f (DelayedCstr c err) = do
-        c' <- f c
-        return $ DelayedCstr c' err
     traverseVars f (MultipleSubstitutions v s) = do
         v' <- f v
         s' <- mapM f s
         return $ MultipleSubstitutions v' s'
+    traverseVars f (MatchTypeDimension t d) = do
+        t' <- f t
+        d' <- f d
+        return $ MatchTypeDimension t' d'
+
+instance MonadIO m => Vars m CheckCstr where
+    traverseVars f (CheckAssertion c) = do
+        c' <- f c
+        return $ CheckAssertion c'
+    traverseVars f (CheckIndex c) = do
+        c' <- f c
+        return $ CheckIndex c'
+    traverseVars f (CheckArrayAccess t d l u sz) = do
+        t' <- f t
+        d' <- f d
+        l' <- f l
+        u' <- f u
+        sz' <- f sz
+        return $ CheckArrayAccess t' d' l' u' sz'
     traverseVars f (IsValid c) = do
         c' <- f c
         return $ IsValid c'
+
+instance MonadIO m => Vars m HypCstr where
+    traverseVars f (HypAssign v e) = do
+        v' <- f v
+        e' <- f e
+        return $ HypAssign v' e'
+    traverseVars f (HypCondition c) = do
+        c' <- f c
+        return $ HypCondition c'
+    traverseVars f (HypNotCondition c) = do
+        c' <- f c
+        return $ HypNotCondition c'
+    traverseVars f (HypEqual e1 e2) = do
+        e1' <- f e1
+        e2' <- f e2
+        return $ HypEqual e1' e2'
+
+instance MonadIO m => Vars m TCstr where
+    traverseVars f (DelayedK c err) = do
+        c' <- f c
+        return $ DelayedK c' err
+    traverseVars f (TcK k) = do
+        k' <- f k
+        return $ TcK k'
+    traverseVars f (CheckK hyps k) = do
+        hyps' <- f hyps
+        k' <- f k
+        return $ CheckK hyps' k'
+    traverseVars f (HypK k) = do
+        k' <- f k
+        return $ HypK k'
 
 -- | Template constraint dictionary
 -- a dictionary with a set of inferred constraints and resolved constraints
@@ -493,27 +663,6 @@ data TDict loc = TDict
 
 -- | mappings from variables to current substitution
 type TSubsts = Map (VarName VarIdentifier ()) Type
-
-data IOCstr = IOCstr
-    { kCstr :: TCstr
-    , kStatus :: UniqRef TCstrStatus
-    }
-  deriving (Data,Typeable,Show)
-  
-instance Eq IOCstr where
-    k1 == k2 = kStatus k1 == kStatus k2
-instance Ord IOCstr where
-    compare k1 k2 = compare (kStatus k1) (kStatus k2)
-
-instance PP IOCstr where
-    pp = pp . kCstr
-
-data TCstrStatus
-    = Unevaluated -- has never been evaluated
-    | Evaluated  -- has been evaluated
-    | Erroneous -- has failed
-        SecrecError -- failure error
-  deriving (Data,Typeable,Show)
 
 instance Functor TDict where
     fmap f dict = dict { tCstrs = Map.map (mapLoc f) (tCstrs dict) }
@@ -529,7 +678,7 @@ addCstrDeps iok = do
     forM_ vs $ \v -> do
         mb <- WeakHash.lookup g (varNameId v)
         m <- maybe (WeakMap.new >>= \m -> WeakHash.insertWithMkWeak g (varNameId v) m (MkWeak $ mkWeakKey m) >> return m) return mb
-        WeakMap.insertWithMkWeak m (uniqId $ kStatus iok) (kStatus iok) (MkWeak $ mkWeakKey $ kStatus iok)
+        WeakMap.insertWithMkWeak m (uniqId $ kStatus iok) iok (MkWeak $ mkWeakKey $ kStatus iok)
 --    modifyIORef' globalEnv $ \g -> g { tDeps = Map.unionWith Set.union (tDeps g) (Map.fromList $ zip vs $ repeat $ Set.singleton iok) }
 
 tCstrVars :: TCstr -> [VarName VarIdentifier ()]
@@ -538,9 +687,9 @@ tCstrVars = everything (++) (mkQ [] aux1 `extQ` aux2 `extQ` aux3)
     aux1 :: VarName VarIdentifier () -> [VarName VarIdentifier ()]
     aux1 v = [v]
     aux2 :: VarName VarIdentifier Type -> [VarName VarIdentifier ()]
-    aux2 v = [fmap (const ()) v]
+    aux2 v = [funit v]
     aux3 :: VarName VarIdentifier (Typed Position) -> [VarName VarIdentifier ()]
-    aux3 v = [fmap (const ()) v]
+    aux3 v = [funit v]
 
 instance (Location loc,MonadIO m,Vars m loc) => Vars m (TDict loc) where
     traverseVars f (TDict cstrs choices substs) = varsBlock $ do
@@ -597,11 +746,7 @@ substFromTSubsts l tys =
     -- VarName VarIdentifier () --> Expression VarIdentifier (Typed loc)
     exprsLoc = Map.foldrWithKey (\k t m -> case t of { IdxT s -> Map.insert k (fmap (Typed l) s) m; otherwise -> m }) Map.empty tys
 
-insertTDictCstr :: loc -> TCstr -> TCstrStatus -> TDict loc -> TcM loc (IOCstr,TDict loc)
-insertTDictCstr l c res dict = do
-    st <- liftIO $ newUniqRef res
-    let io = IOCstr c st
-    return (io,dict { tCstrs = Map.insert (uniqId $ kStatus io) (Loc l io) (tCstrs dict) })
+--addVarDependency :: Location loc => VarName VarIdentifier () -> Set IOCstr -> TcM loc ()
 
 instance PP (TDict loc) where
     pp dict = text "Constraints:" $+$ nest 4 (vcat $ map pp $ Map.elems $ tCstrs dict)
@@ -613,7 +758,7 @@ ppConstraints d = do
         s <- liftIO $ readUniqRef $ kStatus c
         let pre = pp (kCstr c) <+> text (show $ hashUnique $ uniqId $ kStatus c)
         case s of
-            Evaluated -> return $ pre <+> text "OK"
+            Evaluated t -> return $ pre <+> text (show t)
             Unevaluated -> return $ pre
             Erroneous err -> return $ pre <> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
     ss <- liftM vcat $ mapM ppK (Map.elems $ tCstrs d)
@@ -686,7 +831,7 @@ instance Ord DecType where
     compare x y = compare (decTypeTyVarId x) (decTypeTyVarId y)
 
 data Cond a = Cond a (Maybe (SCond VarIdentifier Type))
-  deriving (Typeable,Show,Data,Eq,Ord)
+  deriving (Typeable,Show,Data,Eq,Ord,Functor)
 
 unCond :: Cond a -> a
 unCond (Cond x c) = x
@@ -702,7 +847,7 @@ instance (MonadIO m,Vars m a) => Vars m (Cond a) where
     traverseVars f (Cond t e) = do
         t' <- f t
         e' <- f e
-        return $ Cond t e'
+        return $ Cond t' e'
 
 data BaseType
     = TyPrim (PrimitiveDatatype ())
@@ -817,6 +962,7 @@ instance PP TypeClass where
     
 
 typeClass :: String -> Type -> TypeClass
+typeClass msg (CondType t _) = typeClass msg t
 typeClass msg TType = TypeStarC
 typeClass msg BType = TypeStarC
 typeClass msg KType = KindStarC
@@ -931,8 +1077,14 @@ instance Monad m => Vars m SecType where
 
 instance MonadIO m => Vars m [TCstr] where
     traverseVars f xs = mapM f xs
+    
+instance MonadIO m => Vars m [TcCstr] where
+    traverseVars f xs = mapM f xs
 
 instance PP [TCstr] where
+    pp xs = brackets (sepBy comma $ map pp xs)
+    
+instance PP [TcCstr] where
     pp xs = brackets (sepBy comma $ map pp xs)
 
 instance MonadIO m => Vars m DecType where
@@ -1244,10 +1396,10 @@ ppVarId :: VarIdentifier -> Doc
 ppVarId (VarIdentifier n Nothing _) =  text n
 ppVarId (VarIdentifier n (Just i) _) = text n <> char '_' <> Pretty.int i
 
-ppTpltApp :: TIdentifier -> Maybe [Type] -> Maybe [Type] -> Maybe Type -> Doc
+ppTpltApp :: TIdentifier -> Maybe [Type] -> Maybe [Expression VarIdentifier Type] -> Maybe Type -> Doc
 ppTpltApp (Left n) args Nothing Nothing = text "struct" <+> pp n <> abrackets (sepBy comma $ map pp $ concat $ args)
-ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map pp $ concat args)
-ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map pp $ concat args)
+ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\e -> pp e <+> text "::" <+> pp (loc e)) $ concat args)
+ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\e -> pp e <+> text "::" <+> pp (loc e)) $ concat args)
     
 ppTSubsts :: TSubsts -> Doc
 ppTSubsts xs = vcat $ map ppSub $ Map.toList xs
@@ -1507,7 +1659,10 @@ data IAOp
 
 instance (Monad m,IsScVar iden) => Vars m (IExpr iden) where
     traverseVars f (IInt i) = liftM IInt $ f i
-    traverseVars f (IIdx n) = return (IIdx n)
+    traverseVars f (IIdx n) = do
+        isLHS <- getLHS
+        if isLHS then addBVId n else addFVId n
+        return $ IIdx n
     traverseVars f (ISum is) = liftM ISum $ mapM f is
     traverseVars f (IArith o e1 e2) = do
         o' <- f o
@@ -1517,7 +1672,10 @@ instance (Monad m,IsScVar iden) => Vars m (IExpr iden) where
     traverseVars f (ISym e) = liftM ISym $ f e
 instance (Monad m,IsScVar iden) => Vars m (ICond iden) where
     traverseVars f (IBool b) = liftM IBool $ f b
-    traverseVars f (IBInd i) = return (IBInd i)
+    traverseVars f (IBInd n) = do
+        isLHS <- getLHS
+        if isLHS then addBVId n else addFVId n
+        return $ IBInd n
     traverseVars f (INot c) = liftM INot $ f c
     traverseVars f (IAnd cs) = liftM IAnd $ mapM f cs
     traverseVars f (IBoolOp o c1 c2) = do
@@ -1538,13 +1696,41 @@ instance PP IAOp where
     pp IPower = text "**"
     pp IDiv   = char '/'
     pp IModOp = char '%'
-        
-tcError :: Location loc => Position -> TypecheckerErr -> TcM loc a
-tcError pos msg = do
-    f <- Reader.ask
-    let err = f $ typecheckerError pos msg
-    ios <- liftM openedCstrs State.get
-    let add io = liftIO $ writeUniqRef (kStatus io) (Erroneous err)
-    mapM_ add ios
-    throwError err        
 
+tcError :: Location loc => Position -> TypecheckerErr -> TcM loc a
+tcError pos msg = throwTcError $ TypecheckerError pos msg  
+
+genTcError :: Location loc => Position -> Doc -> TcM loc a
+genTcError pos msg = throwTcError $ GenericError pos msg  
+
+throwTcError :: Location loc => SecrecError -> TcM loc a
+throwTcError err = do
+    f <- Reader.ask
+    let err2 = f err
+    ios <- liftM openedCstrs State.get
+    let add io = liftIO $ writeUniqRef (kStatus io) (Erroneous err2)
+    mapM_ add ios
+    throwError err2     
+
+removeOrWarn :: SecrecError -> SecrecError
+removeOrWarn = everywhere (mkT f) where
+    f (OrWarn err) = err
+    f err = err
+    
+varExpr :: Location loc => VarName iden loc -> Expression iden loc
+varExpr v = RVariablePExpr (loc v) v
+
+varIdxT :: VarName VarIdentifier Type -> Type
+varIdxT v = IdxT $ varExpr v
+
+askOpts :: TcM loc Options
+askOpts = TcM $ lift ask
+
+localOpts :: (Options -> Options) -> TcM loc a -> TcM loc a
+localOpts f (TcM m) = TcM $ RWS.mapRWST (SecrecM . Reader.local f . runSecrecM) m
+
+withoutImplicitClassify :: TcM loc a -> TcM loc a
+withoutImplicitClassify m = localOpts (\opts -> opts { implicitClassify = False }) m
+    
+    
+    

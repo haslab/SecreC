@@ -15,6 +15,8 @@ import Text.PrettyPrint
 import Data.Int
 import Data.Word
 
+landExprs :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc (Expression VarIdentifier Type)
+
 tcExpr :: (VarsTcM loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
 
 tcGuard :: (VarsTcM loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))
@@ -29,4 +31,8 @@ tcVarName :: Location loc => VarName Identifier loc -> TcM loc (VarName VarIdent
 
 tcDimExpr :: (VarsTcM loc,Location loc) => Doc -> Maybe (VarName Identifier loc) -> Expression Identifier loc -> TcM loc (SExpr VarIdentifier (Typed loc))
 
-tcSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe Word64 -> Sizes Identifier loc -> TcM loc (Sizes VarIdentifier (Typed loc))
+tcSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Sizes Identifier loc -> TcM loc (Sizes VarIdentifier (Typed loc))
+
+subtractIndexExprs :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc (Expression VarIdentifier Type)
+
+tcIndexCond :: (VarsTcM loc,Location loc) => Expression Identifier loc -> TcM loc (Expression VarIdentifier (Typed loc))

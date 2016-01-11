@@ -11,6 +11,8 @@ import Language.SecreC.Vars
 import Data.Int
 import Data.Word
 
+castTypeToType :: CastType VarIdentifier Type -> Type
+
 isBoolTypeM :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Bool
 isIntTypeM :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Bool
 
@@ -27,7 +29,9 @@ tcRetTypeSpec :: (VarsTcM loc,Location loc) => ReturnTypeSpecifier Identifier lo
 
 tcPrimitiveDatatype :: Location loc => PrimitiveDatatype loc -> TcM loc (PrimitiveDatatype (Typed loc))
 
-typeDim :: (VarsTcM loc,Location loc) => loc -> ComplexType -> TcM loc (Maybe Word64)
+typeDim :: (VarsTcM loc,Location loc) => loc -> ComplexType -> TcM loc (SExpr VarIdentifier Type)
+
+matchTypeDimension :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Word64 -> TcM loc ()
 
 projectMatrixType :: (VarsTcM loc,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc ComplexType
 
@@ -40,3 +44,7 @@ tcCastType :: Location loc => CastType Identifier loc -> TcM loc (CastType VarId
 tcTemplateTypeArgument :: (VarsTcM loc,Location loc) => TemplateTypeArgument Identifier loc -> TcM loc (TemplateTypeArgument VarIdentifier (Typed loc))
 
 tcTypeSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe (Sizes Identifier loc) -> TcM loc (ComplexType,Maybe (Sizes VarIdentifier (Typed loc)))
+
+checkIndex :: (Vars (TcM loc) loc,Location loc) => loc -> SExpr VarIdentifier Type -> TcM loc ()
+
+checkArrayAccess :: (Vars (TcM loc) loc,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc ()

@@ -22,9 +22,12 @@ applications for random ; sort: RSA exponentiation?
 most possibly controversial typechecker decisions:
 . promote sizes to the type-level
 . literal coercions
-. template resolution algorithm
+. template resolution algorithm:
+    - templates raise constraints that are only solved on instantiation (akin to Haskell typeclass constraints)
+    - regular procedures and structs solve constraints 
 
 TODO:
+. index expression semantics is independent from expression semantics
 . delayed expr2IExpr conversion
 . procedure template parameters
 . size-dependent types

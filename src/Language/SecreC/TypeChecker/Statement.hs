@@ -105,16 +105,20 @@ tcStmt ret (WhileStatement l condE bodyS) = do
 tcStmt ret (PrintStatement l argsE) = do
     argsE' <- mapM tcExpr argsE
     let targs = map (typed . loc) $ Foldable.toList argsE'
-    tcTopCstrM l (SupportedPrint targs)
+    xs <- replicateM (length targs) $ do
+        tx <- newTyVar
+        newTypedVar tx
+    tcTopCstrM l $ SupportedPrint (map (fmap typed) $ Foldable.toList argsE') xs
+    let exs = fromListNe $ map (fmap (Typed l)) $ map (\x -> RVariablePExpr (loc x) x) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
-    return (PrintStatement (Typed l t) argsE',t)
+    return (PrintStatement (Typed l t) exs,t)
 tcStmt ret (DowhileStatement l bodyS condE) = tcBlock $ do
     (bodyS',t') <- tcLoopBodyStmt ret l bodyS
     condE' <- tcGuard condE
     return (DowhileStatement (notTyped "tcStmt" l) bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
     argE' <- tcGuard argE
-    checkAssertion argE'
+    checkCstrM l $ CheckAssertion $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
 tcStmt ret (SyscallStatement l n args) = do
@@ -133,9 +137,11 @@ tcStmt ret (ReturnStatement l Nothing) = do
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
-    tcTopCstrM l $ Coerces et' ret
+    x <- newTypedVar ret
+    tcTopCoercesCstrM l (fmap typed e') et' x ret
     let t = StmtType (Set.singleton StmtReturn)
-    return (ReturnStatement (Typed l t) (Just e'),t)
+    let ex = fmap (Typed l) $ RVariablePExpr ret x
+    return (ReturnStatement (Typed l t) (Just ex),t)
 tcStmt ret (ContinueStatement l) = do
     let t = StmtType (Set.singleton StmtContinue)
     return (BreakStatement $ Typed l t,t)
@@ -190,7 +196,7 @@ tcVarInit :: (VarsTcM loc,Location loc) => Scope -> ComplexType -> VariableIniti
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e c) = do
     (ty',szs') <- tcTypeSizes l ty (Just v) szs
     e' <- mapM (tcExprTy $ ComplexT ty') e
-    c' <- mapM tcGuard c
+    c' <- mapM tcIndexCond c
     -- add the array size to the type
     let v' = VarName (Typed vl $ ComplexT ty') $ mkVarId vn
     -- add variable to the environment
@@ -200,9 +206,7 @@ tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e c) = do
     newVariable scope v' val
     case c' of
         Nothing -> return ()
-        Just x -> do
-            k <- expr2ICond x
-            addHypotheses scope [k]
+        Just x -> tryAddHypothesis l scope $ HypCondition $ fmap typed x
     return $ VariableInitialization (notTyped "tcVarInit" l) v' szs' e' c'
 
     

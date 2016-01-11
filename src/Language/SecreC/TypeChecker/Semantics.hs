@@ -9,6 +9,7 @@ module Language.SecreC.TypeChecker.Semantics (
     , simplifyIndexExpr
     , evaluateExpr
     , tryResolveEVar
+    , evaluateTypeSize
     ) where
 
 import Language.SecreC.Syntax
@@ -41,33 +42,36 @@ import Control.Monad.Except
 
 -- * Exports
 
+evaluateTypeSize :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Word64
+evaluateTypeSize l t = evaluate l (pp t) $ evalTypeSize l t
+
 tryEvaluateIndexExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either SecrecError Word64)
-tryEvaluateIndexExpr e = evaluate e $ tryEvalIndexExpr e
+tryEvaluateIndexExpr e = evaluate (unTyped $ loc e) (pp e) $ tryEvalIndexExpr e
 
 evaluateIndexExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc Word64
-evaluateIndexExpr e = evaluate e $ evalIndexExpr e
+evaluateIndexExpr e = evaluate (unTyped $ loc e) (pp e) $ evalIndexExpr e
 
 tryEvaluateBoolExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either SecrecError Bool)
-tryEvaluateBoolExpr e = evaluate e $ tryEvalBoolExpr e
+tryEvaluateBoolExpr e = evaluate (unTyped $ loc e) (pp e) $ tryEvalBoolExpr e
 
 evaluateBoolExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc Bool
-evaluateBoolExpr e = evaluate e $ evalBoolExpr e
+evaluateBoolExpr e = evaluate (unTyped $ loc e) (pp e) $ evalBoolExpr e
 
 simplifyIndexExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Expression VarIdentifier (Typed loc))
-simplifyIndexExpr e = evaluate e $ simplIndexExpr e
+simplifyIndexExpr e = evaluate (unTyped $ loc e) (pp e) $ simplIndexExpr e
 
 evaluateExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc HsVal
-evaluateExpr e = evaluate e $ evalExpr e
+evaluateExpr e = evaluate (unTyped $ loc e) (pp e) $ evalExpr e
 
 -- * Internal declarations
 
-evaluate :: Location loc => Expression VarIdentifier (Typed loc) -> TcM loc a -> TcM loc a
-evaluate ex m = do
+evaluate :: Location loc => loc -> Doc -> TcM loc a -> TcM loc a
+evaluate l doc m = do
     opts <- TcM $ lift Reader.ask
     mb <- liftIO $ timeout (evalTimeOut opts) $ ioSecrecMWith opts (runTcM m)
     case mb of
-        Right () -> tcError (locpos $ loc ex) $ Halt $ StaticEvalError (pp ex) $ Right $ TimedOut $ evalTimeOut opts
-        Left (Left err) -> throwError err
+        Right () -> tcError (locpos l) $ Halt $ StaticEvalError doc $ Right $ TimedOut $ evalTimeOut opts
+        Left (Left err) -> tcError (locpos l) $ Halt $ StaticEvalError doc $ Right err
         Left (Right (x,warns)) -> TcM (lift $ Writer.tell warns) >> return x
         
 tryEvalIndexExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either SecrecError Word64)
@@ -79,7 +83,7 @@ evalIndexExpr e = do
     case v of
         HsUint64 x -> return x
         HsLit (IntLit _ x) -> return $ fromInteger x
-        otherwise -> genericError (locpos $ loc e) (pp v <+> text "not an index")
+        otherwise -> genTcError (locpos $ loc e) (pp v <+> text "not an index")
 
 tryEvalBoolExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either SecrecError Bool)
 tryEvalBoolExpr e = (liftM Right $ evalBoolExpr e) `catchError` (return . Left)
@@ -89,7 +93,7 @@ evalBoolExpr e = do
     v <- evalExpr e
     case v of
         HsLit (BoolLit _ x) -> return x
-        otherwise -> genericError (locpos $ loc e) (pp v <+> text "not a boolean")
+        otherwise -> genTcError (locpos $ loc e) (pp v <+> text "not a boolean")
 
 simplIndexExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Expression VarIdentifier (Typed loc))
 simplIndexExpr e = do
@@ -101,31 +105,31 @@ simplIndexExpr e = do
         Right i -> return $ LitPExpr ty $ IntLit ty $ toInteger i
 
 evalExpr :: (VarsTcM loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc HsVal
-evalExpr e@(BinaryAssign l e1 o e2) = genericError (locpos l) (pp e) -- TODO
+evalExpr e@(BinaryAssign l e1 o e2) = genTcError (locpos l) (pp e) -- TODO
 evalExpr e@(QualExpr l e1 t) = evalExpr (updLoc e1 (flip Typed (typed $ loc t) $ unTyped $ loc e1))
-evalExpr e@(CondExpr l c e1 e2) = genericError (locpos l) (pp e)
+evalExpr e@(CondExpr l c e1 e2) = genTcError (locpos l) (pp e)
 evalExpr e@(BinaryExpr l e1 o e2) = do
     d <- typeToDecType (unTyped l) (typed $ loc o)
     evalProc (unTyped l) d [e1,e2]
-evalExpr e@(PreOp l _ e1) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(PostOp l _ e1) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(UnaryExpr l o e1) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(DomainIdExpr l e1) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(StringFromBytesExpr l e1) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(BytesFromStringExpr l e1) = genericError (locpos l) (pp e) -- TODO
+evalExpr e@(PreOp l _ e1) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(PostOp l _ e1) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(UnaryExpr l o e1) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(DomainIdExpr l e1) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(StringFromBytesExpr l e1) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(BytesFromStringExpr l e1) = genTcError (locpos l) (pp e) -- TODO
 evalExpr e@(ProcCallExpr l n _ es) = do
     d <- typeToDecType (unTyped l) (typed $ loc n)
     evalProc (unTyped l) d es
-evalExpr e@(PostIndexExpr l e1 s) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(SelectionExpr l e1 a) = genericError (locpos l) (pp e) -- TODO
-evalExpr e@(ArrayConstructorPExpr l es) = genericError (locpos l) (pp e) -- TODO
+evalExpr e@(PostIndexExpr l e1 s) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(SelectionExpr l e1 a) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(ArrayConstructorPExpr l es) = genTcError (locpos l) (pp e) -- TODO
 evalExpr e@(RVariablePExpr l v) = evalVarName v
 evalExpr e@(LitPExpr l lit) = evalLit lit
 
 evalVarName :: (VarsTcM loc,Location loc) => VarName VarIdentifier (Typed loc) -> TcM loc HsVal
 evalVarName v = do
     let l = unTyped $ loc v
-    let ov = fmap (const ()) v
+    let ov = funit v
     mb <- tryResolveEVar l ov
     case mb of
         Nothing -> do
@@ -142,11 +146,11 @@ evalProc l (ProcType _ _ n vars ret stmts) args = tcBlock $ do
         then do
             mapM evalProcParam (zip (List.map unCond vars) args)
             evalStmts $ List.map (fmap (fmap (updpos l))) stmts
-        else genericError (locpos l) (text "invalid number of procedure arguments")
+        else genTcError (locpos l) (text "invalid number of procedure arguments")
   where
     evalProcParam (VarName t n,arg) = do
         addVar LocalScope n (EntryEnv l t $ KnownExpression (arg))
-evalProc l t args = genericError (locpos l) (text "can't evaluate procedure" <+> pp t <+> parens (sepBy comma $ List.map pp args))
+evalProc l t args = genTcError (locpos l) (text "can't evaluate procedure" <+> pp t <+> parens (sepBy comma $ List.map pp args))
 
 evalStmts :: (VarsTcM loc,Location loc) => [Statement VarIdentifier (Typed loc)] -> TcM loc HsVal
 evalStmts [] = return HsVoid
@@ -186,14 +190,14 @@ evalStmt (WhileStatement _ c s) = tcBlock $ do
         HsLit (BoolLit _ ok) <- evalExpr c
         if ok then evalStmt s `loopCont` cyc else return HsVoid
     cyc
-evalStmt s@(PrintStatement l es) = genericError (locpos l) (pp s)
+evalStmt s@(PrintStatement l es) = genTcError (locpos l) (pp s)
 evalStmt (DowhileStatement _ s c) = do
     let cyc = do
         evalStmt s `loopCont` do { HsLit (BoolLit _ ok) <- evalExpr c; if ok then cyc else return HsVoid }
     cyc
 evalStmt (AssertStatement l e) = do
     HsLit (BoolLit _ ok) <- evalExpr e
-    if ok then return HsVoid else genericError (locpos l) (text "Assert failure:" <+> pp e)
+    if ok then return HsVoid else genTcError (locpos l) (text "Assert failure:" <+> pp e)
 evalStmt s@(SyscallStatement l n ps) = do
     case (n,ps) of
         (stripPrefix "haskell." -> Just hsn,ps) -> do
@@ -205,16 +209,16 @@ evalStmt s@(SyscallStatement l n ps) = do
             return HsVoid
         ("core.size",[SyscallPush _ e,SyscallReturn _ ret]) -> do
             let t = typed $ loc e
-            i <- typeSize (unTyped l) t
+            i <- evalTypeSize (unTyped l) t
             return $ HsUint64 i
-        otherwise -> genericError (locpos l) (pp s)
+        otherwise -> genTcError (locpos l) (pp s)
   where
     parseHaskellParams [SyscallReturn _ ret] = return ([],ret)
     parseHaskellParams (SyscallPush _ e:ps) = do
         v <- evalExpr e
         (vs,ret) <- parseHaskellParams ps
         return (v:vs,ret) 
-    parseHaskellParams _ = genericError (locpos l) (text "invalid haskell parameters for " <+> pp s)
+    parseHaskellParams _ = genTcError (locpos l) (text "invalid haskell parameters for " <+> pp s)
 evalStmt (VarStatement _ d) = evalVarDecl d >> return HsVoid
 evalStmt (ReturnStatement _ Nothing) = return HsVoid
 evalStmt (ReturnStatement _ (Just e)) = evalExpr e
@@ -224,12 +228,12 @@ evalStmt (ExpressionStatement _ e) = do
     evalExpr e
     return HsVoid
 
-typeSize :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Word64
-typeSize l (BaseT _) = return 0
-typeSize l (ComplexT (CType _ _ _ szs)) | length szs > 0 = do
+evalTypeSize :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Word64
+evalTypeSize l (BaseT _) = return 0
+evalTypeSize l (ComplexT (CType _ _ _ szs)) | length szs > 0 = do
     is <- mapM (evalIndexExpr . fmap (Typed l)) szs
-    return $ sum is
-typeSize l t = genericError (locpos l) $ text "No static size for type" <+> quotes (pp t)
+    return $ product is
+evalTypeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
 
 evalVarDecl :: (VarsTcM loc,Location loc) => VariableDeclaration VarIdentifier (Typed loc) -> TcM loc ()
 evalVarDecl (VariableDeclaration _ t is) = mapM_ (evalVarInit $ typed $ loc t) is
@@ -255,7 +259,7 @@ add_float64 (HsFloat64 i1) (HsFloat64 i2) = HsFloat64 (i1 + i2)
 
 
 evalLit :: (Monad m,Location loc) => Literal loc -> m HsVal
-evalLit l = return $ HsLit $ fmap (const ()) l
+evalLit l = return $ HsLit $ funit l
 
 isHsInt8 :: HsVal -> Maybe Int8
 isHsInt8 (HsLit (IntLit _ i)) = Just $ fromInteger i
@@ -319,11 +323,11 @@ haskellSyscall l "add_uint32" [isHsUint32 -> Just i1,isHsUint32 -> Just i2] = re
 haskellSyscall l "add_uint64" [isHsUint64 -> Just i1,isHsUint64 -> Just i2] = return $ HsUint64 (i1 + i2)
 haskellSyscall l "add_float32" [isHsFloat32 -> Just i1,isHsFloat32 -> Just i2] = return $ HsFloat32 (i1 + i2)
 haskellSyscall l "add_float64" [isHsFloat64 -> Just i1,isHsFloat64 -> Just i2] = return $ HsFloat64 (i1 + i2)
-haskellSyscall l str args = genericError (locpos l) $ text (show str) <+> parens (sepBy comma (List.map pp args))
+haskellSyscall l str args = genTcError (locpos l) $ text (show str) <+> parens (sepBy comma (List.map pp args))
 
 tryResolveEVar :: (VarsTcM loc,Location loc) => loc -> VarName VarIdentifier () -> TcM loc (Maybe (SExpr VarIdentifier (Typed loc)))
 tryResolveEVar l v@(VarName () n) = do
-    addVarDependencies v
+    addVarDependencies n
     ss <- liftM (tSubsts . mconcatNe . tDict) State.get
     case Map.lookup v ss of
         Just (IdxT (e)) -> return $ Just (fmap (Typed l) e)
@@ -332,11 +336,11 @@ tryResolveEVar l v@(VarName () n) = do
             case Map.lookup n vs of
                 Nothing -> return Nothing
                 Just e -> case entryValue e of
+                    KnownExpression e -> return $ Just e
                     UnknownValue -> do
                         env <- liftM ppTSubsts getTSubsts
                         tcError (locpos l) $ UnresolvedVariable (pp v) env
                     NoValue -> return Nothing
-                    KnownExpression e -> return $ Just e
 
 hsValToSExpr :: Location loc => loc -> HsVal -> TcM loc (SExpr VarIdentifier (Typed loc))
 hsValToSExpr l v = do
@@ -366,7 +370,7 @@ hsValToExpr l (HsFloat64 i) = return $ LitPExpr t $ FloatLit t $ realToFrac i
     where t = (Typed l $ BaseT int64)
 hsValToExpr l (HsLit lit) = return $ LitPExpr t $ fmap (const t) lit
     where t = (Typed l $ ComplexT $ TyLit lit)
-hsValToExpr l v = genericError (locpos l) $ text "Cannot convert Haskell value" <+> quotes (pp v) <+> text "to an expression."
+hsValToExpr l v = genTcError (locpos l) $ text "Cannot convert Haskell value" <+> quotes (pp v) <+> text "to an expression."
 
 
 

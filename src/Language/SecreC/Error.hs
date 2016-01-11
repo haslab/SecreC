@@ -61,9 +61,8 @@ data TypecheckerErr
         SecrecError -- ^ sub-error
     | MismatchingArrayDimension -- ^ array dimension does not match sizes
         Doc -- type
-        Word64 -- defined dimension
         Word64 -- expected dimension
-        (Either Doc (Maybe Doc,Doc)) -- name of the array variable
+        (Maybe SecrecError)
     | MultipleDefinedVariable Identifier
     | NoReturnStatement
         Doc -- declaration
@@ -128,8 +127,6 @@ data TypecheckerErr
     | FieldNotFound -- ^ field not found in structure definition
         Doc -- ^ type 
         Doc -- ^ field name
-    | NoDimensionForMatrixInitialization -- ^ no static dimension known for matrix initialization
-        Identifier -- variable name
     | ArrayAccessOutOfBounds
         Doc -- type
         Word64 -- dimension
@@ -189,13 +186,18 @@ data TypecheckerErr
         Doc -- hypotheses
         Doc -- expression
         SecrecError -- sub-error
+    | FailAddHypothesis -- failed to add hypothesis
+        Doc -- hypothesis
+        SecrecError -- sub-error
   deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP TypecheckerErr where
+    pp (FailAddHypothesis hyp err) = text "Failed to add hypothesis" <+> quotes hyp $+$ nest 4
+        (text "Because of:" $+$ (nest 4 (pp err)))
     pp (SMTException hyp prop err) = text "Failed to prove proposition via SMT solvers:" $+$ nest 4
-        (text "Hypothesis:" $+$ (nest 4 hyp))
+        (text "Hypothesis:" $+$ (nest 4 hyp)
         $+$ text "Proposition:" $+$ (nest 4 prop)
-        $+$ text "Because of:" $+$ (nest 4 (pp err))        
+        $+$ text "Because of:" $+$ (nest 4 (pp err)))        
     pp (NotSupportedIndexOp e Nothing) = text "Failed to convert expression" <+> quotes e <+> text "into an index operation"
     pp (NotSupportedIndexOp e (Just err)) = text "Failed to convert expression" <+> quotes e <+> text "into an index operation" $+$ nest 4
         (text "Because of:" $+$ nest 4 (pp err))
@@ -205,15 +207,8 @@ instance PP TypecheckerErr where
     pp e@(UnreachableDeadCode {}) = text (show e)
     pp e@(NonStaticDimension t err) = text "Array dimension must be statically known for type" <+> quotes t $+$ nest 4
         (text "Static evaluation error:" $+$ nest 4 (pp err))
-    pp e@(MismatchingArrayDimension t d ds (Left proj)) = text "Mismatching dimensions for type" <+> quotes t <+> text "in projection" <+> proj <> char ':' $+$ nest 4
-           (text "Expected:" <+> pp ds
-        $+$ text "Actual:" <+> pp d)
-    pp e@(MismatchingArrayDimension t d ds (Right (Just v,sz))) = text "Mismatching dimensions for type" <+> quotes t <+> text "in variable declaration" <+> v <+> text "with size" <+> sz <> char ':' $+$ nest 4
-           (text "Expected:" <+> pp ds
-        $+$ text "Actual:" <+> pp d)
-    pp e@(MismatchingArrayDimension t d ds (Right (Nothing,sz))) = text "Mismatching dimensions for return type" <+> quotes t <+> text "with size" <+> sz <> char ':' $+$ nest 4
-           (text "Expected:" <+> pp ds
-        $+$ text "Actual:" <+> pp d)
+    pp e@(MismatchingArrayDimension t d Nothing) = text "Expecting dimension" <+> pp d <+> text "for type" <+> quotes t
+    pp e@(MismatchingArrayDimension t d (Just err)) = text "Expecting dimension" <+> pp d <+> text "for type" <+> quotes t <> char ':' $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
     pp e@(MultipleDefinedVariable {}) = text (show e)
     pp e@(NoReturnStatement dec) = text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
     pp e@(NoTemplateType n p t) = text "Declaration" <+> quotes t <+> text "at" <+> pp p <+> text "is not a template type with name" <+> quotes n
@@ -264,7 +259,6 @@ instance PP TypecheckerErr where
     pp e@(MultipleDefinedStruct {}) = text (show e)
     pp e@(NonDeclassifiableExpression {}) = text (show e)
     pp e@(FieldNotFound t a) = text "Type" <+> quotes t <+> text "does not possess a field" <+> quotes a
-    pp e@(NoDimensionForMatrixInitialization {}) = text (show e)
     pp e@(ArrayAccessOutOfBounds t i rng) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension of type" <+> quotes t <+> text "out of bounds"
     pp e@(VariableNotFound v) = text "Variable" <+> quotes v <+> text "not found"
     pp e@(InvalidToStringArgument {}) = text (show e)
@@ -329,8 +323,8 @@ moduleError = ModuleError
 modError :: MonadError SecrecError m => Position -> ModuleErr -> m a
 modError pos msg = throwError $ moduleError pos msg
 
-genericError :: MonadError SecrecError m => Position -> Doc -> m a
-genericError pos msg = throwError $ GenericError pos msg
+genError :: MonadError SecrecError m => Position -> Doc -> m a
+genError pos msg = throwError $ GenericError pos msg
 
 typecheckerError :: Position -> TypecheckerErr -> SecrecError
 typecheckerError = TypecheckerError

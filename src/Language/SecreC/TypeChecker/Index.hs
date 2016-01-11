@@ -23,16 +23,25 @@ import Safe
 isIndexType :: Type -> Bool
 isIndexType t = isIntType t || isBoolType t
 
+expr2IExprAs :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> Type -> TcM loc (IExpr VarIdentifier)
+expr2IExprAs e t = do
+    let l = unTyped $ loc e
+    i <- expr2IExpr e
+    addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+        ok <- isIntTypeM l t
+        unless ok $ genTcError noloc $ text "Not an index type:" <+> pp t
+        return i
+
 expr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (IExpr VarIdentifier)
 expr2IExpr e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
     mb <- tryResolveEVar l (VarName () n)
     case mb of
         Just e' -> expr2IExpr e'
-        Nothing -> do
+        Nothing -> addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
             ok <- isIntTypeM l t
             if ok
                 then return $ IIdx n
-                else genExpr2IExpr e
+                else genTcError noloc $ text "Not an index type:" <+> pp t
 expr2IExpr (LitPExpr _ (IntLit _ i)) = return $ IInt i
 expr2IExpr (UnaryExpr _ (OpSub _) e) = liftM ISym $ expr2IExpr e
 expr2IExpr (BinaryExpr _ e1 op e2) = do
@@ -40,13 +49,19 @@ expr2IExpr (BinaryExpr _ e1 op e2) = do
 	i2 <- expr2IExpr e2
 	mapEOp op i1 i2
 expr2IExpr ce@(UnaryExpr _ (OpCast _ t) e) = do
+    let l = unTyped $ loc ce
     i <- expr2IExpr e
-    case typed (loc t) of
-        (isIntType -> True) -> return i
-        otherwise -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) Nothing
-expr2IExpr e = genExpr2IExpr e
-
-genExpr2IExpr e = do
+    addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+        let ty = typed $ loc t
+        ok <- isIntTypeM l ty
+        if ok
+            then return i
+            else genTcError (locpos l) $ text "Unsupported cast"
+expr2IExpr (ProcCallExpr l (ProcedureName _ ((==mkVarId "size") -> True)) Nothing [e]) = do
+    let t = typed $ loc e
+    dim <- evaluateTypeSize (unTyped l) t
+    return $ IInt $ toInteger dim
+expr2IExpr e = do
     res <- tryEvaluateIndexExpr e
     case res of
         Left err -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) $ Just err
@@ -66,11 +81,11 @@ expr2ICond e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
     mb <- tryResolveEVar l (VarName () n)
     case mb of
         Just e' -> expr2ICond e'
-        Nothing -> do
+        Nothing -> addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
             ok <- isBoolTypeM l t
             if ok
                 then return $ IBInd n
-                else genExpr2ICond e
+                else genTcError noloc $ text "Not an index condition type:" <+> pp t
 expr2ICond (LitPExpr _ (BoolLit _ b)) = return $ IBool b
 expr2ICond (UnaryExpr _ (OpNot _) e) = liftM INot $ expr2ICond e
 expr2ICond (BinaryExpr _ e1 op@(isCmpOp -> True) e2) = do
@@ -81,9 +96,7 @@ expr2ICond (BinaryExpr _ e1 op@(isBoolOp -> True) e2) = do
     i1 <- expr2ICond e1
     i2 <- expr2ICond e2
     mapBOp op i1 i2
-expr2ICond e = genExpr2ICond e
-
-genExpr2ICond e = do
+expr2ICond e = do
     res <- tryEvaluateBoolExpr e
     case res of
         Left err -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) $ Just err
@@ -101,6 +114,7 @@ mapCOp o x y = tcError (locpos $ unTyped $ loc o) $ NotSupportedIndexOp (pp o) N
 mapBOp :: (Location loc,PP id) => Op id (Typed loc) -> ICond id -> ICond id -> TcM loc (ICond id)
 mapBOp (OpLor _) x y = return $ x .||. y
 mapBOp (OpXor _) x y = return $ x .^^. y
+mapBOp (OpLand _) x y = return $ x .&&. y
 mapBOp o x y = tcError (locpos $ unTyped $ loc o) $ NotSupportedIndexOp (pp o) Nothing
 
 tryExpr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either (IExpr VarIdentifier) SecrecError)
@@ -128,9 +142,10 @@ tryExpr2ICond e = liftM Left (expr2ICond e) `catchError` (return . Right)
 (.>.)  = flip (.<.)
 (.>=.) = flip (.<=.)
 
-(.||.), (.^^.),sameBool :: ICond id -> ICond id -> ICond id
+(.||.), (.^^.),(.&&.),sameBool :: ICond id -> ICond id -> ICond id
 (.||.) = IBoolOp IOr
 (.^^.) = IBoolOp IXor
+(.&&.) x y = IAnd [x,y]
 sameBool = \c1 c2 -> INot $ IBoolOp IXor c1 c2
 
 implies :: ICond id -> ICond id -> ICond id

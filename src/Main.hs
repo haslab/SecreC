@@ -49,6 +49,7 @@ opts  = Opts {
     , outputs               = outputs defaultOptions &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
     , paths                 = paths defaultOptions &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
     , parser                = parser defaultOptions &= typ "parsec OR derp" &= help "backend Parser type"
+    , implicitBuiltin       = implicitBuiltin defaultOptions &= name "builtin" &= help "Implicitly import the builtin module"
     
     -- Optimization
     , knowledgeInference    = knowledgeInference defaultOptions &= name "ki" &= help "Infer private data from public data" &= groupname "Optimization"

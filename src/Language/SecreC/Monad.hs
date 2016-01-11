@@ -38,6 +38,7 @@ data Options
         , typecheckTemplates    :: Bool
         , evalTimeOut           :: Int
         , implicitClassify      :: Bool
+        , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
         }
     deriving (Show, Data, Typeable)
@@ -60,6 +61,7 @@ defaultOptions = Opts
     , typecheckTemplates = True
     , evalTimeOut = 5
     , implicitClassify = True
+    , implicitBuiltin = True
     , externalSMT = True
     }
 
@@ -106,7 +108,7 @@ instance MonadCatch SecrecM where
     catch = liftCatch catch
 
 instance MonadPlus SecrecM where
-    mzero = genericError noloc (text "mzero")
+    mzero = genError noloc (text "mzero")
     mplus x y = catchError x (const y)
     
 instance Alternative SecrecM where

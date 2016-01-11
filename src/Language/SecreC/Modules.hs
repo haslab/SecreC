@@ -42,11 +42,14 @@ type ModuleGraph = Gr (Module Identifier Position) Position
 
 -- | Parses and resolves imports, returning all the modules to be loaded, in evaluation order 
 parseModuleFiles :: [FilePath] -> SecrecM [Module Identifier Position]
-parseModuleFiles files = do 
-    builtin <- resolveModule "builtin.sc" >>= parseFile
+parseModuleFiles files = do
+    opts <- ask
+    addBuiltin <- if implicitBuiltin opts
+        then resolveModule "builtin.sc" >>= parseFile >>= \builtin -> return (builtin:)
+        else return id
     g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles (files) empty
     let modules = topsort' g
-    return (builtin:modules)
+    return $ addBuiltin modules
 
 resolveModule :: FilePath -> SecrecM FilePath
 resolveModule file = do

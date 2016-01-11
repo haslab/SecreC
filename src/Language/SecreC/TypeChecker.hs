@@ -30,6 +30,7 @@ import Data.Generics
 import Data.Traversable
 import Data.Foldable
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Control.Monad hiding (mapM,mapAndUnzipM)
 import Control.Monad.IO.Class
@@ -43,10 +44,10 @@ import Text.PrettyPrint
 import System.IO
 
 tcModule :: (VarsTcM loc,Location loc) => Module Identifier loc -> TcM loc (Module VarIdentifier (Typed loc))
-tcModule (Module l name prog) = do
+tcModule m@(Module l name prog) = do
     opts <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts) $
-        liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr name ++ "...")
+        liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr (modulePosId $ fmap locpos m) ++ "...")
     prog' <- tcProgram prog
     return $ Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
 
@@ -79,7 +80,7 @@ tcGlobalDeclaration (GlobalTemplate l td) = do
 tcDomainDecl :: Location loc => DomainDeclaration Identifier loc -> TcM loc (DomainDeclaration VarIdentifier (Typed loc))
 tcDomainDecl (Domain l d@(DomainName dl dn) k) = do
     let vk = bimap mkVarId id k
-    let t = SType $ PrivateKind $ Just $ fmap (const ()) vk
+    let t = SType $ PrivateKind $ Just $ funit vk
     let d' = DomainName (Typed dl t) $ mkVarId dn
     newDomain d'
     checkKind vk
@@ -98,33 +99,29 @@ tcProcedureDecl :: (VarsTcM loc,Location loc) => (Op VarIdentifier (Typed loc) -
                 -> ProcedureDeclaration Identifier loc -> TcM loc (ProcedureDeclaration VarIdentifier (Typed loc))
 tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
     top <- tcOp op
-    ps' <- mapM tcProcedureParam ps
+    (ps',vars) <- mapAndUnzipM tcProcedureParam ps
     ret' <- tcRetTypeSpec ret
     let tret = typed $ loc ret'
     (s',StmtType st) <- tcStmts tret s
     tcTopCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
     i <- newTyVarId
-    let tproc = DecT $ ProcType i (locpos l) (Right $ fmap typed top) (map procedureParameterCondType ps') tret $ map (fmap (fmap locpos)) s'
+    let tproc = DecT $ ProcType i (locpos l) (Right $ fmap typed top) vars tret $ map (fmap (fmap locpos)) s'
     let op' = updLoc top (Typed l tproc)
     addOp op'
     return $ OperatorDeclaration (notTyped "tcProcedureDecl" l) ret' op' ps' s'
 tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureName pl pn) ps s) = do
-    ps' <- mapM tcProcedureParam ps
+    (ps',vars) <- mapAndUnzipM tcProcedureParam ps
     ret' <- tcRetTypeSpec ret
     let tret = typed $ loc ret'
     (s',StmtType st) <- tcStmts tret s
     tcTopCstrM l $ IsReturnStmt st tret (bimap mkVarId locpos dec)
-    let vars = map procedureParameterCondType ps'
     i <- newTyVarId
     let tproc = DecT $ ProcType i (locpos l) (Left $ ProcedureName () $ mkVarId pn) vars tret $ map (fmap (fmap locpos)) s'
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     addProc proc'
     return $ ProcedureDeclaration (notTyped "tcProcedureDecl" l) ret' proc' ps' s'
 
-procedureParameterCondType :: ProcedureParameter VarIdentifier (Typed loc) -> Cond (VarName VarIdentifier Type)
-procedureParameterCondType (ProcedureParameter _ _ n _ c) = Cond (fmap typed n) (fmap (fmap typed) c)
-
-tcProcedureParam :: (VarsTcM loc,Location loc) => ProcedureParameter Identifier loc -> TcM loc (ProcedureParameter VarIdentifier (Typed loc))
+tcProcedureParam :: (VarsTcM loc,Location loc) => ProcedureParameter Identifier loc -> TcM loc (ProcedureParameter VarIdentifier (Typed loc),Cond (VarName VarIdentifier Type))
 tcProcedureParam (ProcedureParameter l s v sz c) = do
     s' <- tcTypeSpec s
     let t = typed $ loc s'
@@ -133,13 +130,12 @@ tcProcedureParam (ProcedureParameter l s v sz c) = do
     let vv = bimap mkVarId id v
     let v' = fmap (flip Typed $ ComplexT ty') vv
     newVariable LocalScope v' NoValue
-    c' <- mapM tcGuard c
+    c' <- mapM tcIndexCond c
     case c' of
         Nothing -> return ()
         Just x -> do
-            k <- expr2ICond x
-            addHypotheses LocalScope [k]
-    return $ ProcedureParameter (notTyped "tcProcedureParam" l) s' v' sz' c'
+            tryAddHypothesis l LocalScope $ HypCondition $ fmap typed x
+    return (ProcedureParameter (notTyped "tcProcedureParam" l) s' v' sz' c',Cond (fmap typed v') (fmap (fmap typed) c'))
 
 tcStructureDecl :: (VarsTcM loc,Location loc) => (TypeName VarIdentifier (Typed loc) -> TcM loc ())
                 -> StructureDeclaration Identifier loc -> TcM loc (StructureDeclaration VarIdentifier (Typed loc))
@@ -184,7 +180,7 @@ tcTemplateQuantifier (DomainQuantifier l v@(DomainName dl dn) mbk) = do
             k' <- tcKindName k
             let vk = bimap mkVarId id k
             checkKind vk
-            return (Just k',PrivateKind $ Just $ fmap (const ()) vk)
+            return (Just k',PrivateKind $ Just $ funit vk)
         Nothing -> do -- domain variable of any kind
             return (Nothing,AnyKind)
     let t = SType dk
@@ -198,12 +194,13 @@ tcTemplateQuantifier (DimensionQuantifier l v@(VarName dl dn) c) = do
     let tl = Typed dl t
     let v' = VarName tl vdn
     newVariable LocalScope v' NoValue
-    c' <- mapM tcGuard c
-    let gt0 = BinaryExpr tl (RVariablePExpr tl v') (OpLand $ Typed l $ NoType "dim") (LitPExpr tl $ IntLit tl 0)
-    c'' <- case c' of
-        Nothing -> return gt0
-        Just x -> landExprsLoc l x gt0
-    return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) v' c',Cond (VarName t vdn) (fmap (fmap typed) c'))
+    c' <- mapM tcIndexCond c
+    let gt0 = BinaryExpr tl (RVariablePExpr tl v') (OpGe $ Typed l $ NoType "dim") (LitPExpr tl $ IntLit tl 0)
+    case c' of
+        Nothing -> return ()
+        Just x -> tryAddHypothesis l LocalScope $ HypCondition $ fmap typed x
+    tryAddHypothesis l LocalScope $ HypCondition $ fmap typed gt0
+    return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) v' c',Cond (VarName t vdn) $ fmap (fmap typed) c')
 tcTemplateQuantifier (DataQuantifier l v@(TypeName tl tn)) = do
     let t = BType -- variable of any base type
     let vtn = mkVarId tn
@@ -223,7 +220,7 @@ tcGlobal l m = do
     newDict l
     x <- m
     solve l True
-    State.modify $ \e -> e { localVars = Map.empty, localHyps = [], tDict = updDict (tDict e) }
+    State.modify $ \e -> e { localVars = Map.empty, localHyps = Set.empty, tDict = updDict (tDict e) }
     liftIO resetGlobalEnv
     return x
   where

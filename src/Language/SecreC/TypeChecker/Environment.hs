@@ -14,6 +14,7 @@ import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Index
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 
 import Data.IORef
 import Data.Int
@@ -55,6 +56,11 @@ import qualified System.Mem.Weak.Map as WeakMap
 
 import System.Mem.Weak.Exts as Weak
 
+getHyps :: Location loc => TcM loc (Hyps loc)
+getHyps = do
+    env <- State.get
+    return $ globalHyps env `Set.union` localHyps env
+
 -- | Gets the variables of a given type class
 getVars :: Location loc => Scope -> TypeClass -> TcM loc (Map VarIdentifier (EntryEnv loc))
 getVars GlobalScope c = do
@@ -67,11 +73,6 @@ getVars LocalScope c = do
 addVar :: Location loc => Scope -> VarIdentifier -> EntryEnv loc -> TcM loc ()
 addVar GlobalScope n e = modify $ \env -> env { globalVars = Map.insert n e (globalVars env) }
 addVar LocalScope n e = modify $ \env -> env { localVars = Map.insert n e (localVars env) }
-
-getHypotheses :: TcM loc [ICond VarIdentifier]
-getHypotheses = do
-    env <- State.get
-    return $ localHyps env ++ globalHyps env
 
 withHypotheses :: Scope -> TcM loc a -> TcM loc a
 withHypotheses LocalScope m = do
@@ -87,17 +88,6 @@ withHypotheses GlobalScope m = do
     x <- m
     State.modify $ \env -> env { localHyps = l, globalHyps = g }
     return x
-
-addHypotheses :: Location loc => Scope -> [ICond VarIdentifier] -> TcM loc ()
-addHypotheses GlobalScope xs = modify $ \env -> env { globalHyps = xs ++ (globalHyps env) }
-addHypotheses LocalScope xs = modify $ \env -> env { localHyps = xs ++ (localHyps env) }
-
-checkAssertion :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc ()
-checkAssertion e = do
-    let l = unTyped $ loc e
-    addErrorM (OrWarn . TypecheckerError (locpos l) . StaticAssertionFailure (pp e)) $ orWarn $ do
-        ic <- expr2ICond e
-        tcCstrM l $ IsValid ic
 
 checkVariable :: Location loc => Scope -> VarName VarIdentifier loc -> TcM loc Type
 checkVariable scope (VarName l n) = do
@@ -116,11 +106,17 @@ newVariable scope (VarName (Typed l t) n) val = do
     addVar scope n (EntryEnv l t val)
     case val of
         KnownExpression e -> do
-            i <- tryExpr2IExpr e
-            case i of
-                Left x -> addHypotheses scope [IIdx n .==. x]
-                Right err -> return ()
+            tryAddHypothesis l scope $ HypAssign (VarName t n) $ fmap typed e
         otherwise -> return ()
+
+addHypothesis :: Location loc => Scope -> Loc loc IOCstr -> TcM loc ()
+addHypothesis GlobalScope hyp = modify $ \env -> env { globalHyps = Set.insert hyp (globalHyps env) }
+addHypothesis LocalScope hyp = modify $ \env -> env { localHyps = Set.insert hyp (localHyps env) }
+
+tryAddHypothesis :: Location loc => loc -> Scope -> HypCstr -> TcM loc ()
+tryAddHypothesis l scope hyp = do
+    iok <- liftIO $ newIOCstr (HypK hyp) Unevaluated
+    addHypothesis scope $ Loc l iok
 
 -- | Adds a new domain variable to the environment
 newDomainVariable :: Location loc => Scope -> DomainName VarIdentifier (Typed loc) -> TcM loc ()
@@ -164,7 +160,7 @@ checkDomain (DomainName l n) = do
     case Map.lookup n ds of
         Just e -> case entryType e of
             SType (PrivateKind (Just k)) -> return $ SecT $ Private (DomainName () n) k
-            otherwise -> genericError (locpos l) $ text "Unexpected domain" <+> quotes (pp n) <+> text "without kind."
+            otherwise -> genTcError (locpos l) $ text "Unexpected domain" <+> quotes (pp n) <+> text "without kind."
         Nothing -> do
             dvars <- getVars LocalScope KindC
             case Map.lookup n dvars of
@@ -220,7 +216,7 @@ checkTemplateArg (TemplateArgName l vn) = do
             es -> tcError (locpos l) $ NoNonTemplateType (ppVarId vn)
         (Nothing,Just e,Nothing) -> case entryType e of
             SType (PrivateKind (Just k)) -> return $ SecT $ Private (DomainName () vn) k
-            otherwise -> genericError (locpos l) $ text "Unexpected domain" <+> quotes (pp vn) <+> text "without kind."
+            otherwise -> genTcError (locpos l) $ text "Unexpected domain" <+> quotes (pp vn) <+> text "without kind."
         (Nothing,Nothing,Just e) -> return $ varNameToType $ VarName (entryType e) vn
         (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (ppVarId vn) $ map (locpos . entryLoc) $ maybe [] (\(b,es) -> b:Map.elems es) mb1 ++ maybeToList mb2 ++ maybeToList mb3
 
@@ -246,9 +242,7 @@ newKind (KindName (Typed l t) n) = do
 solveTemplate :: (VarsTcM loc,Location loc) => loc -> TcM loc ()
 solveTemplate l = do
     opts <- TcM $ lift $ Reader.ask
-    if typecheckTemplates opts
-        then solve l False
-        else return ()
+    when (typecheckTemplates opts) $ solve l False
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
@@ -256,7 +250,7 @@ addTemplateOperator :: (VarsTcM loc,Location loc) => [Cond (VarName VarIdentifie
 addTemplateOperator vars op = do
     let Typed l t = loc op
     d <- typeToDecType l t
-    let o = fmap (const ()) op
+    let o = funit op
     solveTemplate l
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
@@ -270,8 +264,8 @@ newOperator op = do
     d <- typeToDecType l t
     i <- case decTypeTyVarId d of
         Just i -> return i
-        otherwise -> genericError (locpos l) $ text "Unresolved declaration for operator" <+> pp op
-    let o = fmap (const ()) op
+        otherwise -> genTcError (locpos l) $ text "Unresolved declaration for operator" <+> pp op
+    let o = funit op
     let e = EntryEnv l t UnknownValue
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
   
@@ -279,13 +273,13 @@ newOperator op = do
 checkOperator :: (VarsTcM loc,Location loc) => Op VarIdentifier loc -> TcM loc [EntryEnv loc]
 checkOperator op@(OpCast l t) = do
     ps <- liftM operators State.get
-    let cop = fmap (const ()) op
+    let cop = funit op
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCast k) ps
     return casts
 checkOperator op = do
     ps <- liftM operators State.get
-    let cop = fmap (const ()) op
+    let cop = funit op
     case Map.lookup cop ps of
         Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
         Just es -> return $ Map.elems es
@@ -307,7 +301,7 @@ newProcedure (ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
     i <- case decTypeTyVarId d of
         Just i -> return i
-        otherwise -> genericError (locpos l) $ text "Unresolved declaration for procedure" <+> quotes (pp n)
+        otherwise -> genTcError (locpos l) $ text "Unresolved declaration for procedure" <+> quotes (pp n)
     let e = EntryEnv l t UnknownValue
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
   
@@ -338,6 +332,7 @@ addTemplateStruct vars (TypeName (Typed l t) n) = do
 addTemplateStructSpecialization :: (VarsTcM loc,Location loc) => [Cond (VarName VarIdentifier Type)] -> [Type] -> TypeName VarIdentifier (Typed loc) -> TcM loc ()
 addTemplateStructSpecialization vars specials (TypeName (Typed l t) n) = do
     struct <- typeToDecType l t
+    solveTemplate l
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) specials struct) UnknownValue
@@ -382,10 +377,10 @@ addSubst l v t = updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert v t
 addSubstM :: Location loc => loc -> VarName VarIdentifier Type -> Type -> TcM loc ()
 addSubstM l v t | varNameToType v == t = return ()
                 | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
-                    addSubst l (fmap (const ()) v) t
+                    addSubst l (funit v) t
                     dirtyVarDependencies ov
-                | otherwise = genericError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
-  where ov = fmap (const ()) v
+                | otherwise = genTcError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
+  where ov = funit v
 
 newTyVarId :: TcM loc TyVarId
 newTyVarId = do
@@ -402,6 +397,12 @@ newDimVar = do
     n <- uniqVarId "dim"
     let v = VarName (BaseT index) n
     return (RVariablePExpr (BaseT index) v)
+
+--newBlankVar :: Location loc => TcM loc (VarName VarIdentifier ())
+--newBlankVar = liftM (VarName ()) $ uniqVarId "x"
+
+newTypedVar :: Location loc => Type -> TcM loc (VarName VarIdentifier Type)
+newTypedVar t = liftM (VarName t) $ uniqVarId "x"
 
 newTyVar :: Location loc => TcM loc Type
 newTyVar = do
@@ -432,16 +433,16 @@ newSizeVar = do
     let v = VarName (BaseT index) n
     return (RVariablePExpr (BaseT index) v)
     
-addValue :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> SExpr VarIdentifier (Typed loc) -> TcM loc ()
-addValue l v (e) = updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (fmap (const ()) v) (IdxT (fmap typed e)) (tSubsts d) })
+addValue :: Location loc => loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc ()
+addValue l v (e) = updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (funit v) (IdxT e) (tSubsts d) })
 
-addValueM :: Location loc => loc -> VarName VarIdentifier (Typed loc) -> SExpr VarIdentifier (Typed loc) -> TcM loc ()
+addValueM :: Location loc => loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc ()
 addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
-addValueM l v@(VarName t n) (e) | typeClass "addValueL" (typed t) == typeClass "addValueR" (typed $ loc e) = do
+addValueM l v@(VarName t n) (e) | typeClass "addValueL" t == typeClass "addValueR" (loc e) = do
     addValue l v e
-    addVarDependencies $ fmap (const ()) v
+    addVarDependencies (varNameId v)
     dirtyVarDependencies (VarName () n) 
-addValueM l v e = genericError (locpos l) $ text "unification: mismatching expression types"
+addValueM l v e = genTcError (locpos l) $ text "unification: mismatching expression types"
 
 openCstr l iok = do
     opts <- TcM $ lift ask
@@ -457,39 +458,55 @@ newDict l = do
         then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
         else State.modify $ \e -> e { tDict = ConsNe mempty (tDict e) }
 
-resolveIOCstr :: Location loc => loc -> IOCstr -> (loc -> TCstr -> TcM loc ()) -> TcM loc ()
-resolveIOCstr l iok resolve = do
+resolveIOCstr :: (IsScVar a,Location loc) => loc -> IOCstr -> (loc -> TCstr -> TcM loc a) -> TcM loc a
+resolveIOCstr l iok (resolve :: loc -> TCstr -> TcM loc a) = do
     st <- liftIO $ readUniqRef (kStatus iok)
     case st of
-        Evaluated -> remove
+        Evaluated x -> do
+            remove
+            case fromShowOrdDyn x of
+                Nothing -> genError (locpos l) $ text "Wrong IOCstr output type" <+> text (show x) <+> text "with type" <+> text (show $ typeOf (undefined::a)) <+> pp (kCstr iok)
+                Just x -> return x
         Erroneous err -> throwError err
         Unevaluated -> trySolve
   where
     trySolve = do
         openCstr l iok
         t <- resolve l $ kCstr iok
-        liftIO $ writeUniqRef (kStatus iok) $ Evaluated 
+        liftIO $ writeUniqRef (kStatus iok) $ Evaluated $ ShowOrdDyn t
         State.modify $ \e -> e { openedCstrs = Set.delete iok (openedCstrs e) } 
         remove
         return t
     remove = updateHeadTDict $ \d -> return ((),d { tCstrs = Map.delete (uniqId $ kStatus iok) (tCstrs d) })
 
 -- | adds a dependency on the given variable for all the opened constraints
-addVarDependencies :: Location loc => VarName VarIdentifier () -> TcM loc ()
+addVarDependencies :: Location loc => VarIdentifier -> TcM loc ()
 addVarDependencies v = do
     cstrs <- liftM openedCstrs State.get
     addVarDependency v cstrs
     
-addVarDependency :: Location loc => VarName VarIdentifier () -> Set IOCstr -> TcM loc ()
+addVarDependency :: Location loc => VarIdentifier -> Set IOCstr -> TcM loc ()
 addVarDependency v cstrs = do
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
-    mb <- liftIO $ WeakHash.lookup deps (varNameId v)
+    mb <- liftIO $ WeakHash.lookup deps v
     m <- case mb of
-        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (varNameId v) m (MkWeak $ mkWeakKey m) >> return m
+        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps v m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
-    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) (kStatus k) (MkWeak $ mkWeakKey $ kStatus k)
-    
+    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 --    liftIO $ modifyIORef' globalEnv $ \g -> g { tDeps = Map.insertWith (Set.union) v cstrs (tDeps g) }
+
+newIOCstr :: TCstr -> TCstrStatus -> IO IOCstr
+newIOCstr c res = do
+    st <- newUniqRef res
+    let io = IOCstr c st
+    return io
+
+insertTDictCstr :: Location loc => loc -> TCstr -> TCstrStatus -> TDict loc -> TcM loc (IOCstr,TDict loc)
+insertTDictCstr l c res dict = do
+    io <- liftIO $ newIOCstr c res
+--    vs <- fvIds c
+--    forM_ vs $ \v -> addVarDependency v $ Set.singleton io
+    return (io,dict { tCstrs = Map.insert (uniqId $ kStatus io) (Loc l io) (tCstrs dict) })
 
 addHeadTDict :: Location loc => TDict loc -> TcM loc ()
 addHeadTDict d = updateHeadTDict $ \x -> return ((),mappend x d)
@@ -511,7 +528,7 @@ dirtyVarDependencies v = do
     case mb of
         Nothing -> return ()
         Just m -> do
-            liftIO $ WeakMap.forM_ m $ \(u,x) -> unless (elem x $ Set.map kStatus cstrs) $ writeUniqRef x Unevaluated
+            liftIO $ WeakMap.forM_ m $ \(u,x) -> unless (elem x cstrs) $ writeUniqRef (kStatus x) Unevaluated
 
 fvIds :: Vars m a => a -> m (Set VarIdentifier)
 fvIds = liftM scVarsIds . fvs
@@ -528,8 +545,8 @@ scVarIds (ScVar a) = everything (Set.union) (mkQ Set.empty f) a
 vars env = Map.union (localVars env) (globalVars env)
 
 filterTSubsts :: Location loc => Set VarIdentifier -> TSubsts -> TcM loc TSubsts
-filterTSubsts vs ss = 
-    return $ Map.filterWithKey (\k v -> varNameId k `Set.member` vs) ss
+filterTSubsts vs ss = return ss
+--    return $ Map.filterWithKey (\k v -> varNameId k `Set.member` vs) ss
 --    (g,(_,nodes)) <- graphTSubsts ss
 --    let g' = trc g
 --    let is = Map.elems $ Map.filterWithKey (\k v -> k `Set.member` vs) nodes
@@ -563,6 +580,12 @@ getTSubsts = do
     let es = Map.foldrWithKey (\k e m -> case entryValue e of { KnownExpression ex -> Map.insert (VarName () k) (IdxT ( fmap typed ex)) m; otherwise -> m}) Map.empty $ vars env
     let sst = tSubsts $ mconcatNe $ tDict env
     return $ Map.unions [es,sst]
+
+getTCstrs :: Location loc => TcM loc [Loc loc TCstr]
+getTCstrs = do
+    env <- State.get
+    let cstrs = map (fmap kCstr) $ Map.elems $ tCstrs $ mconcatNe $ tDict env
+    return cstrs
 
 tcWarn :: Location loc => Position -> TypecheckerWarn -> TcM loc ()
 tcWarn pos msg = TcM $ lift $ tell [TypecheckerWarning pos msg]

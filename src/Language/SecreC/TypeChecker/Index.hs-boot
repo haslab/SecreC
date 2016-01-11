@@ -7,8 +7,11 @@ import Language.SecreC.Syntax
 import Language.SecreC.Error
 import Language.SecreC.Location
 import Language.SecreC.Vars
+import Text.PrettyPrint
 
 isIndexType :: Type -> Bool
+
+expr2IExprAs :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> Type -> TcM loc (IExpr VarIdentifier)
 
 expr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (IExpr VarIdentifier)
 

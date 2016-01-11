@@ -150,11 +150,19 @@ addFV :: (Monad m,Functor a,IsScVar (a ()),IsScVar (a loc)) => a loc -> VarsM m 
 addFV x = State.modify $ \(lhs,fvs,bvs) -> if Set.member (ScVar c) bvs
     then (lhs,fvs,bvs) -- don't add an already bound variable to the free variables
     else (lhs,Set.insert (ScVar c) fvs,bvs)
- where c = fmap (const ()) x
+ where c = funit x
 
 addBV :: (Monad m,Functor a,IsScVar (a ()),IsScVar (a loc)) => a loc -> VarsM m ()
 addBV x = State.modify $ \(lhs,fvs,bvs) -> (lhs,fvs,Set.insert (ScVar c) bvs)
- where c = fmap (const ()) x
+ where c = funit x
+
+addFVId :: (Monad m,IsScVar a) => a -> VarsM m ()
+addFVId x = State.modify $ \(lhs,fvs,bvs) -> if Set.member (ScVar x) bvs
+    then (lhs,fvs,bvs) -- don't add an already bound variable to the free variables
+    else (lhs,Set.insert (ScVar x) fvs,bvs)
+ 
+addBVId :: (Monad m,IsScVar a) => a -> VarsM m ()
+addBVId x = State.modify $ \(lhs,fvs,bvs) -> (lhs,fvs,Set.insert (ScVar x) bvs)
 
 instance Monad m => Vars m Integer where
     traverseVars f i = return i
@@ -168,6 +176,9 @@ instance Monad m => Vars m Word64 where
 instance (PP a,PP b) => PP (Map a b) where
     pp xs = vcat $ map (\(k,v) -> pp k <+> char '=' <+> pp v) $ Map.toList xs
 
+instance PP a => PP (Set a) where
+    pp xs = vcat $ map pp $ Set.toList xs
+
 instance (Vars m a,Vars m b) => Vars m (Map a b) where
     traverseVars f xs = liftM Map.fromList $ aux $ Map.toList xs
         where
@@ -177,6 +188,9 @@ instance (Vars m a,Vars m b) => Vars m (Map a b) where
             v' <- f v
             xs' <- aux xs
             return ((k',v'):xs')
+
+instance Vars m a => Vars m (Set a) where
+    traverseVars f xs = liftM Set.fromList $ mapM f $ Set.toList xs
 
 instance Vars m a => Vars m (Maybe a) where
     traverseVars f x = mapM f x
@@ -239,7 +253,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (VarName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ VarName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -250,7 +264,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (ProcedureName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ ProcedureName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -261,7 +275,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (DomainName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ DomainName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -272,7 +286,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (KindName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ KindName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -283,7 +297,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (ModuleName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ ModuleName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -294,7 +308,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (TemplateArgName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ TemplateArgName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -305,7 +319,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (AttributeName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ AttributeName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -316,7 +330,7 @@ instance (Vars m loc,IsScVar iden) => Vars m (TypeName iden loc) where
         isLHS <- getLHS
         if isLHS then addBV v else addFV v
         return $ TypeName l' n
-    substL pl v = let n = fmap (const ()) v in
+    substL pl v = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -499,7 +513,7 @@ instance (Location loc,Vars m loc,IsScVar iden) => Vars m (Expression iden loc) 
         lit' <- f lit
         return $ LitPExpr l' lit'
     
-    substL pl (RVariablePExpr _ v) = let n = fmap (const ()) v in
+    substL pl (RVariablePExpr _ v) = let n = funit v in
         case eqTypeOf (typeOfProxy pl) (typeOfProxy $ proxyOf n) of
             EqT -> return $ Just n
             NeqT -> return Nothing
@@ -757,4 +771,7 @@ instance Monad m => Vars m Ordering where
 
 instance Monad m => Vars m SecrecError where
     traverseVars f x = return x
-    
+
+
+
+

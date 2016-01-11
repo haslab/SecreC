@@ -370,5 +370,10 @@ thr3 (x,y,z) = z
 
 instance Hashable Unique where
     hashWithSalt i a = hashWithSalt i (hashUnique a)
-    
-    
+
+funit :: Functor f => f a -> f ()
+funit = fmap (const ())
+
+
+
+
