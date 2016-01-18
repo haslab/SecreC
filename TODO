@@ -27,6 +27,7 @@ most possibly controversial typechecker decisions:
     - regular procedures and structs solve constraints 
 
 TODO:
+. assignments must remove hypothesis over variables
 . index expression semantics is independent from expression semantics
 . delayed expr2IExpr conversion
 . procedure template parameters

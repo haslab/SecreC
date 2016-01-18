@@ -9,6 +9,15 @@ sharemind_test_pd bool operator == (sharemind_test_pd bool x,sharemind_test_pd b
 
 int one () { return 1; }
 
+sharemind_test_pd bool classify (bool x) {
+    sharemind_test_pd bool y;
+    return y;
+}
+bool declassify (sharemind_test_pd bool x) {
+    bool y;
+    return y;
+}
+
 sharemind_test_pd bool ft () { return true; }
 
 void ret () {

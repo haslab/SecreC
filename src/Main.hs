@@ -66,7 +66,6 @@ opts  = Opts {
     , implicitClassify   = implicitClassify defaultOptions &= name "implicit" &= help "Enables implicit classification of public data" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
-    , typecheckTemplates   = typecheckTemplates defaultOptions &= name "tc-tplts" &= help "Typechecks template declarations for early error detection (slower)" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= name "eval-timeout" &= explicit &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
     }
     &= help "SecreC analyser"
@@ -127,7 +126,7 @@ secrec opts = do
     let secrecFiles = inputs opts
     let secrecOuts = outputs opts
     when (List.null secrecFiles) $ throwError $ userError "no SecreC input files"
-    ioSecrecM opts $ do
+    runSecrecM opts $ do
         modules <- parseModuleFiles secrecFiles
         let moduleso = resolveOutput secrecFiles secrecOuts modules
         let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . modulePosId) modules) <+> text str <> char '.'

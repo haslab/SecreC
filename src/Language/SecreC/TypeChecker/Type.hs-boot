@@ -11,40 +11,44 @@ import Language.SecreC.Vars
 import Data.Int
 import Data.Word
 
+import Control.Monad.IO.Class
+
 castTypeToType :: CastType VarIdentifier Type -> Type
 
-isBoolTypeM :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Bool
-isIntTypeM :: (Vars (TcM loc) loc,Location loc) => loc -> Type -> TcM loc Bool
+isBoolTypeM :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Bool
+isIntTypeM :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Bool
 
-typeToSecType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc SecType
-typeToBaseType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc BaseType
-typeToComplexType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc ComplexType
-typeToDecType :: (VarsTcM loc,Location loc) => loc -> Type -> TcM loc DecType
+typeToSecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m SecType
+typeToBaseType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m BaseType
+typeToComplexType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m ComplexType
+typeToDecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m DecType
 
-tcTypeSpec :: (VarsTcM loc,Location loc) => TypeSpecifier Identifier loc -> TcM loc (TypeSpecifier VarIdentifier (Typed loc))
+tcTypeSpec :: (VarsIdTcM loc m,Location loc) => TypeSpecifier Identifier loc -> TcM loc m (TypeSpecifier VarIdentifier (Typed loc))
 
-tcSecTypeSpec :: (VarsTcM loc,Location loc) => SecTypeSpecifier Identifier loc -> TcM loc (SecTypeSpecifier VarIdentifier (Typed loc))
+tcSecTypeSpec :: (VarsIdTcM loc m,Location loc) => SecTypeSpecifier Identifier loc -> TcM loc m (SecTypeSpecifier VarIdentifier (Typed loc))
 
-tcRetTypeSpec :: (VarsTcM loc,Location loc) => ReturnTypeSpecifier Identifier loc -> TcM loc (ReturnTypeSpecifier VarIdentifier (Typed loc))
+tcRetTypeSpec :: (VarsIdTcM loc m,Location loc) => ReturnTypeSpecifier Identifier loc -> TcM loc m (ReturnTypeSpecifier VarIdentifier (Typed loc))
 
-tcPrimitiveDatatype :: Location loc => PrimitiveDatatype loc -> TcM loc (PrimitiveDatatype (Typed loc))
+tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM loc m (PrimitiveDatatype (Typed loc))
 
-typeDim :: (VarsTcM loc,Location loc) => loc -> ComplexType -> TcM loc (SExpr VarIdentifier Type)
+typeDim :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> TcM loc m (SExpr VarIdentifier Type)
 
-matchTypeDimension :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Word64 -> TcM loc ()
+matchTypeDimension :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> TcM loc m ()
 
-projectMatrixType :: (VarsTcM loc,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc ComplexType
+projectMatrixType :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc m ComplexType
 
-projectStructField :: (VarsTcM loc,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc Type
+projectStructField :: (VarsIdTcM loc m,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc m Type
 
-refineTypeSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (Sizes VarIdentifier Type) -> TcM loc ComplexType
+refineTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Maybe (Sizes VarIdentifier Type) -> TcM loc m ComplexType
 
-tcCastType :: Location loc => CastType Identifier loc -> TcM loc (CastType VarIdentifier (Typed loc))
+tcCastType :: (MonadIO m,Location loc) => CastType Identifier loc -> TcM loc m (CastType VarIdentifier (Typed loc))
 
-tcTemplateTypeArgument :: (VarsTcM loc,Location loc) => TemplateTypeArgument Identifier loc -> TcM loc (TemplateTypeArgument VarIdentifier (Typed loc))
+tcTemplateTypeArgument :: (VarsIdTcM loc m,Location loc) => TemplateTypeArgument Identifier loc -> TcM loc m (TemplateTypeArgument VarIdentifier (Typed loc))
 
-tcTypeSizes :: (VarsTcM loc,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe (Sizes Identifier loc) -> TcM loc (ComplexType,Maybe (Sizes VarIdentifier (Typed loc)))
+tcTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe (Sizes Identifier loc) -> TcM loc m (ComplexType,Maybe (Sizes VarIdentifier (Typed loc)))
 
-checkIndex :: (Vars (TcM loc) loc,Location loc) => loc -> SExpr VarIdentifier Type -> TcM loc ()
+checkIndex :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> TcM loc m ()
 
-checkArrayAccess :: (Vars (TcM loc) loc,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc ()
+checkArrayAccess :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+
+typeToPrimType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Prim

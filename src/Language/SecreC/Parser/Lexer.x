@@ -69,6 +69,7 @@ tokens :-
 
 -- Keywords:
 <0>                     assert                { lexerTokenInfo ASSERT }
+<0>                     const                { lexerTokenInfo CONST }
 <0>                     bool                  { lexerTokenInfo BOOL }
 <0>                     break                 { lexerTokenInfo BREAK }
 <0>                     continue              { lexerTokenInfo CONTINUE }

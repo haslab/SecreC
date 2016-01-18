@@ -39,6 +39,7 @@ data Token
     | STR_FRAGMENT String
     | CHAR Char
     | ASSERT
+    | CONST
     | BOOL
     | BREAK
     | CONTINUE 
@@ -119,6 +120,7 @@ data Token
 
 instance PP Token where
     pp (STR_FRAGMENT s) = text s
+    pp (CONST) = text "const"
     pp (STR_IDENTIFIER s) = text s
     pp (CHAR c) = char c
     pp ASSERT = text "assert"

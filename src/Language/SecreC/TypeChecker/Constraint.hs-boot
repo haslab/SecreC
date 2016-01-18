@@ -11,60 +11,63 @@ import Language.SecreC.Position
 
 import Text.PrettyPrint
 
+import Control.Monad.IO.Class
+
 import Data.Data
 
-solveHypotheses :: (Vars (TcM loc) loc,Location loc) => TcM loc [ICond VarIdentifier]
+solveHypotheses :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m [ICond]
 
-tcTopCstrM :: Location loc => loc -> TcCstr -> TcM loc ()
+tcTopCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
 
-proveWith :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc (Either SecrecError (a,TDict loc))
+proveWith :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
 
-prove :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc a
+prove :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m a
 
-tcProve :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc a -> TcM loc (a,TDict loc)
+tcProve :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m (a,TDict loc)
 
-compares :: (VarsTcM loc,Location loc) => loc -> Type -> Type -> TcM loc Ordering
+compares :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Ordering
 
-checkCstrM :: Location loc => loc -> CheckCstr -> TcM loc ()
+checkCstrM :: (MonadIO m,Location loc) => loc -> CheckCstr -> TcM loc m ()
 
-coercesE :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Type -> TcM loc (Expression VarIdentifier Type)
+coercesE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Type -> TcM loc m (Expression VarIdentifier Type)
 
-comparesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc Ordering
+comparesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m Ordering
 
-comparesSCond :: (VarsTcM loc,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc Ordering
+comparesSCond :: (VarsIdTcM loc m,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc m Ordering
 
-constraintList :: (VarsTcM loc,Location loc,Vars (TcM Position) [a],Vars (TcM Position) [b]) =>
-    (Doc -> Doc -> Either Doc SecrecError -> TypecheckerErr)
-    -> (a -> b -> TcM loc x) -> loc -> [a] -> [b] -> TcM loc [x]
+constraintList :: (VarsIdTcM loc m,Location loc,VarsId (TcM loc m) [a],VarsId (TcM loc m) [b]) =>
+    (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr)
+    -> (a -> b -> TcM loc m x) -> loc -> [a] -> [b] -> TcM loc m [x]
 
-unifies :: (VarsTcM loc,Location loc) => loc -> Type -> Type -> TcM loc ()
+unifies :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m ()
 
-unifiesSizes :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc ()
+unifiesSizes :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc m ()
 
-equals :: (VarsTcM loc,Location loc) => loc -> Type -> Type -> TcM loc ()
+equals :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m ()
 
-unifiesList :: (VarsTcM loc,Location loc) => loc -> [Type] -> [Type] -> TcM loc ()
+unifiesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m ()
 
-equalsExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
+equalsExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
 
-tcCstrM :: Location loc => loc -> TcCstr -> TcM loc ()
+tcCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
 
-resolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc Type
+resolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m Type
 
-tryResolveTVar :: Location loc => loc -> VarName VarIdentifier () -> TcM loc (Maybe Type)
+tryResolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m (Maybe Type)
 
-solve :: (VarsTcM loc,Location loc) => loc -> Bool -> TcM loc ()
+solve :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m ()
 
-unifiesExpr :: (VarsTcM loc,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc ()
+unifiesExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
 
-resolveCVar :: (VarsTcM loc,Location loc) => loc -> VarName VarIdentifier () -> TcM loc ComplexType
+resolveCVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m ComplexType
 
-resolveDVar :: (VarsTcM loc,Location loc) => loc -> VarName VarIdentifier () -> TcM loc DecType
+resolveDVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m DecType
 
-unifiesTIdentifier :: (VarsTcM loc,Location loc) => loc -> TIdentifier -> TIdentifier -> TcM loc ()
+unifiesTIdentifier :: (VarsIdTcM loc m,Location loc) => loc -> TIdentifier -> TIdentifier -> TcM loc m ()
 
-tcTopPDecCstrM :: Location loc => loc -> Bool -> PIdentifier -> (Maybe [Type]) -> [Expression VarIdentifier Type] -> Type -> TcM loc (DecType,[Expression VarIdentifier Type])
+tcTopPDecCstrM :: (MonadIO m,Location loc) => loc -> Bool -> PIdentifier -> (Maybe [Type]) -> [Expression VarIdentifier Type] -> Type -> TcM loc m (DecType,[Expression VarIdentifier Type])
 
-tcTopCoerces2CstrM :: (Vars (TcM loc) loc,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> VarName VarIdentifier Type -> Type -> TcM loc ()
+tcTopCoerces2CstrM :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> VarName VarIdentifier Type -> Type -> TcM loc m ()
 
-tcTopCoercesCstrM :: (Vars (TcM loc) loc,Location loc) => loc -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> Type -> TcM loc ()
+tcTopCoercesCstrM :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> Type -> TcM loc m ()
+

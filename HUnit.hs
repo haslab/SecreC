@@ -44,10 +44,9 @@ hasLabel s t = False
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
     code <- system $ "secrec " ++ f
-    let neg = if isInfixOf "fail" (takeFileName f) then not else id
-    return $ case code of
-        ExitSuccess -> neg True
-        ExitFailure i -> neg False
+    case code of
+        ExitSuccess -> return True
+        ExitFailure i -> return False
 
 main = buildTestTree >>= runTestTT 
 

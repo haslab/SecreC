@@ -16,7 +16,7 @@ import Control.Monad.Except
 import Control.Monad.Writer (tell,MonadWriter(..))
 
 import Text.Parsec (ParseError(..))
-import Text.PrettyPrint
+import Text.PrettyPrint as PP
 
 data ParserException 
     = LexicalException String
@@ -73,7 +73,6 @@ data TypecheckerErr
     | NoMatchingTemplateOrProcedure -- ^ suitable template instantiation not found
         Doc -- ^ expected match
         [(Position,Doc,SecrecError)] -- ^ declared instantiations in scope
-        Doc -- ^ variable bindings in scope
     | NotDefinedDomain Doc
     | NotDefinedKind Doc
     | InvalidDomainVariableName -- ^ a domain already exists with the declared domain variable name
@@ -106,20 +105,25 @@ data TypecheckerErr
         Doc -- ^ template name
         Position -- ^ position of the already defined struct
     | EqualityException -- ^ @equals@ fails to prove equality
+        String -- label
         Doc Doc -- types
-        (Either Doc SecrecError) -- environment or sub-error
+        (Maybe SecrecError) -- sub-error
     | CoercionException -- ^ @coerces@ fails to prove equality
+        String --label
         Doc Doc -- types
-        (Either Doc SecrecError) -- environment or sub-error
+        (Maybe SecrecError) -- sub-error
     | BiCoercionException -- ^ @coerces@ fails to prove equality
+        String -- label
         (Maybe Doc) Doc Doc -- types
-        (Either Doc SecrecError) -- environment or sub-error
+        (Maybe SecrecError) -- sub-error
     | UnificationException -- ^ @unifies@ fails to unify two types
+        String -- label
         Doc Doc -- types
-        (Either Doc SecrecError) -- environment or sub-error
+        (Maybe SecrecError) --  sub-error
     | ComparisonException -- ^ @compares@ fails to compare two types
+        String -- label
         Doc Doc -- types
-        (Either Doc SecrecError) -- environment or sub-error
+        (Maybe SecrecError) -- sub-error
     | MultipleDefinedStruct -- ^ a struct is multiply defined
         Doc -- ^struct name
         Position -- ^existing definition
@@ -138,7 +142,6 @@ data TypecheckerErr
     | DuplicateTemplateInstances
         Doc -- expected match
         [(Position,Doc)] -- duplicate declarations
-        Doc -- environment
     | ConflictingTemplateInstances
         Doc -- expected match
         [(Position,Doc)] -- duplicate declarations
@@ -148,10 +151,9 @@ data TypecheckerErr
         SecrecError -- sub-error
     | StaticEvalError
         Doc -- expression
-        (Either Doc SecrecError) -- environment or sub-error
+        (Maybe SecrecError) -- sub-error
     | UnresolvedVariable
         Doc -- variable name
-        Doc -- environment
     | UnresolvedMatrixProjection
         Doc -- ^ type
         Doc -- ^ ranges
@@ -189,9 +191,17 @@ data TypecheckerErr
     | FailAddHypothesis -- failed to add hypothesis
         Doc -- hypothesis
         SecrecError -- sub-error
+    | AssignConstVariable
+        Doc -- variable name
+    | DependencyErr
+        Doc -- constraint dependent
+        Doc -- constraint dependency
   deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP TypecheckerErr where
+    pp (DependencyErr k c) = text "Failed to solve constraint dependency" $+$ nest 4
+        (text "Dependent:" <+> k $+$ text "Dependency:" <+> pp c)
+    pp (AssignConstVariable n) = text "Cannot perform assignment on constant variable" <+> quotes (pp n)
     pp (FailAddHypothesis hyp err) = text "Failed to add hypothesis" <+> quotes hyp $+$ nest 4
         (text "Because of:" $+$ (nest 4 (pp err)))
     pp (SMTException hyp prop err) = text "Failed to prove proposition via SMT solvers:" $+$ nest 4
@@ -212,10 +222,10 @@ instance PP TypecheckerErr where
     pp e@(MultipleDefinedVariable {}) = text (show e)
     pp e@(NoReturnStatement dec) = text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
     pp e@(NoTemplateType n p t) = text "Declaration" <+> quotes t <+> text "at" <+> pp p <+> text "is not a template type with name" <+> quotes n
-    pp e@(NoMatchingTemplateOrProcedure ex defs ss) = text "Could not find matching template or procedure:" $+$ nest 4
+    pp e@(NoMatchingTemplateOrProcedure ex defs) = text "Could not find matching template or procedure:" $+$ nest 4
            (text "Expected match:" <+> ex
         $+$ text "Actual declarations: " $+$ nest 4 (vcat (map (\(p,d,err) -> pp p <> char ':' $+$ nest 4 ((text "Declaration:" $+$ nest 4 d) $+$ (text "Instantiation error:" $+$ nest 4 (pp err)))) defs))
-        $+$ text "With bindings: " $+$ nest 4 ss)
+        )
     pp e@(NotDefinedDomain {}) = text (show e)
     pp e@(NotDefinedKind {}) = text (show e)
     pp e@(InvalidDomainVariableName {}) = text (show e)
@@ -231,28 +241,28 @@ instance PP TypecheckerErr where
     pp e@(MultipleDefinedStructTemplate i p) = text (show e)
 --        text "Overloaded templates for struct" <+> quotes (text i) <+> text "not supported:"
 --        $+$ nest 4 (error "TODO")
-    pp e@(EqualityException t1 t2 env) = text "Failed to prove equality:" $+$ nest 4
+    pp e@(EqualityException i t1 t2 env) = text "Failed to prove" <+> text i <+> text "equality:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
         $+$ ppConstraintEnv env)
-    pp e@(CoercionException t1 t2 env) = text "Failed to apply implicit coercion:" $+$ nest 4
+    pp e@(CoercionException i t1 t2 env) = text "Failed to apply implicit" <+> text i <+> text "coercion:" $+$ nest 4
            (text "From:" <+> t1
         $+$ text "To:" <+> t2
         $+$ ppConstraintEnv env)
-    pp e@(BiCoercionException Nothing t1 t2 env) = text "Failed to apply bidirectional coercion:" $+$ nest 4
+    pp e@(BiCoercionException i Nothing t1 t2 env) = text "Failed to apply bidirectional" <+> text i <+> text "coercion:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
         $+$ ppConstraintEnv env)
-    pp e@(BiCoercionException (Just t3) t1 t2 env) = text "Failed to apply bidirectional coercion:" $+$ nest 4
+    pp e@(BiCoercionException i (Just t3) t1 t2 env) = text "Failed to apply bidirectional" <+> text i <+> text "coercion:" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
         $+$ text "Result:" <+> t3
         $+$ ppConstraintEnv env)
-    pp e@(UnificationException t1 t2 env) = text "Failed to unify:" $+$ nest 4
+    pp e@(UnificationException i t1 t2 env) = text "Failed to unify " <+> text i <+> text ":" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
         $+$ ppConstraintEnv env)
-    pp e@(ComparisonException t1 t2 env) = text "Failed to compare:" $+$ nest 4
+    pp e@(ComparisonException i t1 t2 env) = text "Failed to compare" <+> text i <+> text ":" $+$ nest 4
            (text "Left:" <+> t1
         $+$ text "Right:" <+> t2
         $+$ ppConstraintEnv env)
@@ -263,10 +273,10 @@ instance PP TypecheckerErr where
     pp e@(VariableNotFound v) = text "Variable" <+> quotes v <+> text "not found"
     pp e@(InvalidToStringArgument {}) = text (show e)
     pp e@(InvalidSizeArgument {}) = text (show e)
-    pp e@(DuplicateTemplateInstances ex defs ss) = text "Duplicate matching instances for template or procedure application:" $+$ nest 4
+    pp e@(DuplicateTemplateInstances ex defs) = text "Duplicate matching instances for template or procedure application:" $+$ nest 4
            (text "Expected match:" <+> ex
         $+$ text "Duplicate declarations: " $+$ nest 4 (vcat (map (\(p,d) -> pp p <> char ':' $+$ nest 4 d) defs))
-        $+$ text "With bindings: " $+$ nest 4 ss)
+        )
     pp e@(ConflictingTemplateInstances ex defs err) = text "Conflicting matching instances for template or procedure application:" $+$ nest 4
            (text "Expected match:" <+> ex
         $+$ text "Conflicting declarations: " $+$ nest 4 (vcat (map (\(p,d) -> pp p <> char ':' $+$ nest 4 d) defs))
@@ -274,8 +284,7 @@ instance PP TypecheckerErr where
     pp (TemplateSolvingError app err) = text "Failed to solve template instantiation:" <+> app
         $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
     pp (StaticEvalError e env) = text "Unable to statically evaluate expression" <+> quotes e <> char ':' $+$ nest 4 (ppConstraintEnv env)
-    pp (UnresolvedVariable v env) = text "Unable to resolve variable: " <+> quotes v $+$ nest 4
-        (text "With bindings: " $+$ nest 4 env)
+    pp (UnresolvedVariable v) = text "Unable to resolve variable: " <+> quotes v
     pp (UnresolvedMatrixProjection t rngs err) = text "Unable to resolve matrix projection:" $+$ nest 4
         ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
     pp (UnresolvedFieldProjection t att err) = text "Unable to resolve struct field:" $+$ nest 4
@@ -288,8 +297,8 @@ instance PP TypecheckerErr where
         (text "Because of:" <+> pp err)
     
 
-ppConstraintEnv (Left env) = text "With binginds:" $+$ nest 4 env
-ppConstraintEnv (Right suberr) = text "Because of:" $+$ nest 4 (pp suberr)
+ppConstraintEnv Nothing = PP.empty
+ppConstraintEnv (Just suberr) = text "Because of:" $+$ nest 4 (pp suberr)
 
 isHaltError :: SecrecError -> Bool
 isHaltError = everything (||) (mkQ False aux)

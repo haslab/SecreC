@@ -17,6 +17,7 @@ import Control.Monad.Reader (MonadReader,ReaderT(..),ask,local)
 import qualified Control.Monad.Reader as Reader
 
 import Data.Generics
+import Data.Map as Map
 
 import Text.PrettyPrint
 
@@ -35,7 +36,6 @@ data Options
         , debugParser           :: Bool
         , debugTypechecker      :: Bool
         , constraintStackSize   :: Int
-        , typecheckTemplates    :: Bool
         , evalTimeOut           :: Int
         , implicitClassify      :: Bool
         , implicitBuiltin       :: Bool
@@ -57,94 +57,98 @@ defaultOptions = Opts
     , debugLexer = False
     , debugParser = False
     , debugTypechecker = False
-    , constraintStackSize = 5
-    , typecheckTemplates = True
+    , constraintStackSize = 10
     , evalTimeOut = 5
     , implicitClassify = True
     , implicitBuiltin = True
     , externalSMT = True
     }
 
+type SecrecWarnings = Map Int SecrecWarning
+
 -- | SecreC Monad
-data SecrecM a = SecrecM { runSecrecM :: ReaderT Options IO (Either SecrecError (a,[SecrecWarning])) }
+data SecrecM m a = SecrecM { unSecrecM :: ReaderT Options m (Either SecrecError (a,SecrecWarnings)) }
   deriving (Typeable)
 
-ioSecrecMWith :: Options -> SecrecM a -> IO (Either SecrecError (a,[SecrecWarning]))
-ioSecrecMWith opts m = flip runReaderT opts $ runSecrecM m
+mapSecrecM :: (m (Either SecrecError (a,SecrecWarnings)) -> n (Either SecrecError (b,SecrecWarnings))) -> SecrecM m a -> SecrecM n b
+mapSecrecM f (SecrecM m) = SecrecM $ Reader.mapReaderT f m
 
-ioSecrecM :: Options -> SecrecM a -> IO a
-ioSecrecM opts m = flip runReaderT opts $ do
-    e <- runSecrecM m
+runSecrecMWith :: Options -> SecrecM m a -> m (Either SecrecError (a,SecrecWarnings))
+runSecrecMWith opts m = flip runReaderT opts $ unSecrecM m
+
+runSecrecM :: MonadIO m => Options -> SecrecM m a -> m a
+runSecrecM opts m = flip runReaderT opts $ do
+    e <- unSecrecM m
     case e of
-        Left err -> throwError $ userError $ ppr err
+        Left err -> liftIO $ throwError $ userError $ ppr err
         Right (x,warns) -> do
-            forM_ warns $ \w -> lift $ hPutStrLn stderr (ppr w)
+            forM_ warns $ \w -> liftIO $ hPutStrLn stderr (ppr w)
             return x
 
-instance MonadReader Options SecrecM where
-    ask = SecrecM $ liftM (Right . (,[])) ask
+instance Monad m => MonadReader Options (SecrecM m) where
+    ask = SecrecM $ liftM (Right . (,Map.empty)) ask
     local f (SecrecM m) = SecrecM $ local f m 
 
-instance MonadWriter [SecrecWarning] SecrecM where
+instance Monad m => MonadWriter SecrecWarnings (SecrecM m) where
     writer (x,ws) = SecrecM $ return $ Right (x,ws)
     listen (SecrecM io) = SecrecM $ liftM (either Left (\(x,ws) -> Right ((x,ws),ws))) io
     pass (SecrecM io) = SecrecM $ liftM (either Left (\((x,f),ws) -> Right (x,f ws))) io
 
-instance MonadError SecrecError SecrecM where
+instance Monad m => MonadError SecrecError (SecrecM m) where
     throwError e = SecrecM $ return $ Left e
     catchError (SecrecM m) f = SecrecM $ do
         x <- m
         case x of
-            Left err -> runSecrecM (f err)
+            Left err -> unSecrecM (f err)
             otherwise -> return x
 
-instance MonadIO SecrecM where
-    liftIO io = SecrecM $ lift $ liftM (Right . (,[])) io
+instance MonadIO m => MonadIO (SecrecM m) where
+    liftIO io = SecrecM $ liftIO $ liftM (Right . (,Map.empty)) io
 
-instance MonadThrow SecrecM where
-    throwM e = liftIO $ throwIO e
+instance MonadThrow m => MonadThrow (SecrecM m) where
+    throwM e = SecrecM $ lift $ throwM e
 
-instance MonadCatch SecrecM where
+instance MonadCatch m => MonadCatch (SecrecM m) where
     catch = liftCatch catch
 
-instance MonadPlus SecrecM where
+instance Monad m => MonadPlus (SecrecM m) where
     mzero = genError noloc (text "mzero")
     mplus x y = catchError x (const y)
     
-instance Alternative SecrecM where
+instance Monad m => Alternative (SecrecM m) where
     empty = mzero
     (<|>) = mplus
 
-liftCatch :: Catch e (ReaderT Options IO) (Either SecrecError (a,[SecrecWarning])) -> Catch e SecrecM a
-liftCatch catchE m h = SecrecM $ runSecrecM m `catchE` \ e -> runSecrecM (h e)
+liftCatch :: Catch e (ReaderT Options m) (Either SecrecError (a,SecrecWarnings)) -> Catch e (SecrecM m) a
+liftCatch catchE m h = SecrecM $ unSecrecM m `catchE` \ e -> unSecrecM (h e)
 
-instance MonadMask SecrecM where
-    mask a = SecrecM $ mask $ \u -> runSecrecM (a $ liftMask u)
-    uninterruptibleMask a = SecrecM $ uninterruptibleMask $ \u -> runSecrecM (a $ liftMask u)
+instance MonadMask m => MonadMask (SecrecM m) where
+    mask a = SecrecM $ mask $ \u -> unSecrecM (a $ liftMask u)
+    uninterruptibleMask a = SecrecM $ uninterruptibleMask $ \u -> unSecrecM (a $ liftMask u)
 
-liftMask :: (ReaderT Options IO ((Either SecrecError (a,[SecrecWarning]))) -> ReaderT Options IO ((Either SecrecError (a,[SecrecWarning])))) -> SecrecM a -> SecrecM a
+liftMask :: (ReaderT Options m ((Either SecrecError (a,SecrecWarnings))) -> ReaderT Options m ((Either SecrecError (a,SecrecWarnings)))) -> SecrecM m a -> SecrecM m a
 liftMask u (SecrecM b) = SecrecM (u b)
 
-instance Functor SecrecM where
+instance Monad m => Functor (SecrecM m) where
     fmap f (SecrecM m) = SecrecM $ do
         e <- m
         case e of
             Left err -> return (Left err)
             Right (x,w) -> return (Right (f x,w))
             
-instance Monad SecrecM where
-    return x = SecrecM $ return $ Right (x,[])
+instance Monad m => Monad (SecrecM m) where
+    return x = SecrecM $ return $ Right (x,Map.empty)
     (SecrecM m) >>= f = SecrecM $ do
         ex <- m
         case ex of
             Left err -> return (Left err)
             Right (x,wsx) -> do
-                ey <- runSecrecM (f x)
+                ey <- unSecrecM (f x)
                 case ey of
                     Left err -> return (Left err)
-                    Right (y,wsy) -> return (Right (y,wsx ++ wsy))
+                    Right (y,wsy) -> return (Right (y,wsx `Map.union` wsy))
 
-instance Applicative SecrecM where
+instance Monad m => Applicative (SecrecM m) where
     pure = return
     (<*>) = ap
 

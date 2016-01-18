@@ -11,19 +11,19 @@ import Text.PrettyPrint
 
 isIndexType :: Type -> Bool
 
-expr2IExprAs :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> Type -> TcM loc (IExpr VarIdentifier)
+expr2IExprAs :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> Type -> TcM loc m (IExpr)
 
-expr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (IExpr VarIdentifier)
+expr2IExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (IExpr)
 
-expr2ICond :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (ICond VarIdentifier)
+expr2ICond :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (ICond)
 
-tryExpr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either (IExpr VarIdentifier) SecrecError)
+tryExpr2IExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (Either (IExpr) SecrecError)
 
-tryExpr2ICond :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either (ICond VarIdentifier) SecrecError)
+tryExpr2ICond :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (Either (ICond) SecrecError)
 
-iExpr2Expr :: (Vars (TcM loc) loc,Location loc) => IExpr VarIdentifier -> TcM loc (Expression VarIdentifier Type)
-iCond2Expr :: (Vars (TcM loc) loc,Location loc) => ICond VarIdentifier -> TcM loc (Expression VarIdentifier Type)
+iExpr2Expr :: (VarsIdTcM loc m,Location loc) => IExpr -> TcM loc m (Expression VarIdentifier Type)
+iCond2Expr :: (VarsIdTcM loc m,Location loc) => ICond -> TcM loc m (Expression VarIdentifier Type)
 
-(.+.), (.-.), (.*.), (.**.), (./.), (.%.) :: IExpr id -> IExpr id -> IExpr id
+(.+.), (.-.), (.*.), (.**.), (./.), (.%.) :: IExpr -> IExpr -> IExpr
 
-(.==.), (./=.), (.<.), (.<=.), (.>.), (.>=.) :: IExpr id -> IExpr id -> ICond id
+(.==.), (./=.), (.<.), (.<=.), (.>.), (.>=.) :: IExpr -> IExpr -> ICond

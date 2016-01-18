@@ -19,7 +19,7 @@ parseFileIO opts fn = case parser opts of
     Parsec -> Parsec.parseFileIO opts fn
     Derp -> Derp.parseFileIO opts fn
 
-parseFile :: String -> SecrecM (Module Identifier Position)
+parseFile :: MonadIO m => String -> SecrecM m (Module Identifier Position)
 parseFile s = do
     opts <- ask
     case parser opts of

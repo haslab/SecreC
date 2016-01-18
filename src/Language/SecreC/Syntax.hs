@@ -7,7 +7,7 @@ import Data.Foldable as Foldable
 import Data.Generics hiding (empty)
 import Data.Bifunctor.TH
 
-import Text.PrettyPrint
+import Text.PrettyPrint as PP
 
 import Language.SecreC.Pretty
 import Language.SecreC.Location
@@ -110,6 +110,7 @@ instance PP iden => PP (ImportDeclaration iden loc) where
 
 data GlobalDeclaration iden loc
     = GlobalVariable loc (VariableDeclaration iden loc)
+    | GlobalConst loc (ConstDeclaration iden loc)
     | GlobalDomain loc (DomainDeclaration iden loc)
     | GlobalKind loc (KindDeclaration iden loc)
     | GlobalProcedure loc (ProcedureDeclaration iden loc)
@@ -120,12 +121,14 @@ data GlobalDeclaration iden loc
 instance Location loc => Located (GlobalDeclaration iden loc) where
     type LocOf (GlobalDeclaration iden loc) = loc
     loc (GlobalVariable l vd) = l
+    loc (GlobalConst l vd) = l
     loc (GlobalDomain l dd) = l
     loc (GlobalKind l kd) = l
     loc (GlobalProcedure l pd) = l
     loc (GlobalStructure l sd) = l
     loc (GlobalTemplate l td) = l
     updLoc (GlobalVariable _ vd) l = GlobalVariable l vd
+    updLoc (GlobalConst _ vd) l = GlobalConst l vd
     updLoc (GlobalDomain _ dd) l = GlobalDomain l dd
     updLoc (GlobalKind _ kd) l = GlobalKind l kd
     updLoc (GlobalProcedure _ pd) l = GlobalProcedure l pd
@@ -134,6 +137,7 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
 
 instance PP iden => PP (GlobalDeclaration iden loc) where
     pp (GlobalVariable _ vd) = pp vd
+    pp (GlobalConst _ vd) = pp vd
     pp (GlobalDomain _ dd) = pp dd
     pp (GlobalKind _ kd) = pp kd
     pp (GlobalProcedure _ pd) = pp pd
@@ -231,16 +235,32 @@ type Identifier = String
 instance PP String where
     pp s = text s
 
-data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
+data ConstInitialization iden loc = ConstInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  
+instance Location loc => Located (ConstInitialization iden loc) where
+    type LocOf (ConstInitialization iden loc) = loc
+    loc (ConstInitialization l _ _ _ _) = l
+    updLoc (ConstInitialization _ x y z w) l = ConstInitialization l x y z w
+ 
+instance PP iden => PP (ConstInitialization iden loc) where
+    pp (ConstInitialization _ v dim ex c) = pp v <+> ppDim dim <+> ppExp ex <+> ppOpt c (braces . pp)
+        where
+        ppDim Nothing = empty
+        ppDim (Just dim) = parens (pp dim)
+        ppExp Nothing = empty
+        ppExp (Just e) = text "=" <+> pp e
+
+data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (VariableInitialization iden loc) where
     type LocOf (VariableInitialization iden loc) = loc
-    loc (VariableInitialization l _ _ _ _) = l
-    updLoc (VariableInitialization _ x y z w) l = VariableInitialization l x y z w
+    loc (VariableInitialization l _ _ _) = l
+    updLoc (VariableInitialization _ x y z) l = VariableInitialization l x y z
  
 instance PP iden => PP (VariableInitialization iden loc) where
-    pp (VariableInitialization _ v dim ex c) = pp v <+> ppDim dim <+> ppExp ex <+> ppOpt c (braces . pp)
+    pp (VariableInitialization _ v dim ex) = pp v <+> ppDim dim <+> ppExp ex
         where
         ppDim Nothing = empty
         ppDim (Just dim) = parens (pp dim)
@@ -264,6 +284,17 @@ instance Location loc => Located (Sizes iden loc) where
 instance PP iden => PP (Sizes iden loc) where
     pp (Sizes es) = parens (sepBy comma $ fmap pp es)
 
+data ConstDeclaration iden loc = ConstDeclaration loc (TypeSpecifier iden loc) (NeList (ConstInitialization iden loc))
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+
+instance Location loc => Located (ConstDeclaration iden loc) where
+    type LocOf (ConstDeclaration iden loc) = loc
+    loc (ConstDeclaration l _ _) = l
+    updLoc (ConstDeclaration _ x y) l = ConstDeclaration l x y
+
+instance PP iden => PP (ConstDeclaration iden loc) where
+    pp (ConstDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
+
 data VariableDeclaration iden loc = VariableDeclaration loc (TypeSpecifier iden loc) (NeList (VariableInitialization iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
@@ -275,16 +306,21 @@ instance Location loc => Located (VariableDeclaration iden loc) where
 instance PP iden => PP (VariableDeclaration iden loc) where
     pp (VariableDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
 
-data ProcedureParameter iden loc = ProcedureParameter loc (TypeSpecifier iden loc) (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
+data ProcedureParameter iden loc
+    = ProcedureParameter loc (TypeSpecifier iden loc) (VarName iden loc) (Maybe (Sizes iden loc))
+    | ConstProcedureParameter loc (TypeSpecifier iden loc) (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
 instance Location loc => Located (ProcedureParameter iden loc) where
     type LocOf (ProcedureParameter iden loc) = loc
-    loc (ProcedureParameter l _ _ _ _) = l
-    updLoc (ProcedureParameter _ x y z w) l = ProcedureParameter l x y z w
+    loc (ProcedureParameter l _ _ _) = l
+    loc (ConstProcedureParameter l _ _ _ _) = l
+    updLoc (ProcedureParameter _ x y z) l = ProcedureParameter l x y z
+    updLoc (ConstProcedureParameter _ x y z w) l = ConstProcedureParameter l x y z w
 
 instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ t v sz e) = pp t <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
+    pp (ProcedureParameter _ t v sz) = pp t <+> pp v <> parens (pp sz)
+    pp (ConstProcedureParameter _ t v sz e) = text "const" <+> pp t <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
 
 -- Types:                                                                      
 
@@ -564,6 +600,8 @@ instance PP iden => PP (ReturnTypeSpecifier iden loc) where
     pp (ReturnType loc Nothing) = text "void"
     pp (ReturnType loc (Just (t,sz))) = pp t <> parens (pp sz)
   
+ppConst isConst = if isConst then text "const" else PP.empty
+  
 data ProcedureDeclaration iden loc
     = OperatorDeclaration loc
         (ReturnTypeSpecifier iden loc)
@@ -720,6 +758,7 @@ data Statement iden loc
     | DowhileStatement loc (Statement iden loc) (Expression iden loc)
     | AssertStatement loc (Expression iden loc)
     | SyscallStatement loc String [SyscallParameter iden loc]
+    | ConstStatement loc (ConstDeclaration iden loc)
     | VarStatement loc (VariableDeclaration iden loc)
     | ReturnStatement loc (Maybe (Expression iden loc))
     | ContinueStatement loc
@@ -738,6 +777,7 @@ instance Location loc => Located (Statement iden loc) where
     loc (AssertStatement l _) = l
     loc (SyscallStatement l _ _) = l
     loc (VarStatement l _) = l
+    loc (ConstStatement l _) = l
     loc (ReturnStatement l _) = l
     loc (ContinueStatement l) = l
     loc (BreakStatement l) = l
@@ -751,6 +791,7 @@ instance Location loc => Located (Statement iden loc) where
     updLoc (AssertStatement _ x) l = AssertStatement l x
     updLoc (SyscallStatement _ x y) l = SyscallStatement l x y
     updLoc (VarStatement _ x) l = VarStatement l x
+    updLoc (ConstStatement _ x) l = ConstStatement l x
     updLoc (ReturnStatement _ x) l = ReturnStatement l x
     updLoc (ContinueStatement _) l = ContinueStatement l
     updLoc (BreakStatement _) l = BreakStatement l
@@ -774,6 +815,7 @@ instance PP iden => PP (Statement iden loc) where
     pp (SyscallStatement _ n []) = text "__syscall" <> parens (text (show n)) <> semi
     pp (SyscallStatement _ n ps) = text "__syscall" <> parens (text (show n) <> comma <+> ppSyscallParameters ps) <> semi
     pp (VarStatement _ vd) = pp vd <> semi
+    pp (ConstStatement _ vd) = text "const" <+> pp vd <> semi
     pp (ReturnStatement _ e) = text "return" <+> ppMb e <> semi
     pp (ContinueStatement _) = text "continue" <> semi
     pp (BreakStatement _) = text "break" <> semi
@@ -996,6 +1038,8 @@ $(deriveBifunctor ''TemplateArgName)
 $(deriveBifunctor ''Program)
 $(deriveBifunctor ''ImportDeclaration)
 $(deriveBifunctor ''GlobalDeclaration)
+$(deriveBifunctor ''ConstDeclaration)
+$(deriveBifunctor ''ConstInitialization)
 $(deriveBifunctor ''KindDeclaration)
 $(deriveBifunctor ''KindName)
 $(deriveBifunctor ''DomainDeclaration)

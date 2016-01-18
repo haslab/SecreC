@@ -1,10 +1,11 @@
-{-# LANGUAGE GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
     
 import Language.SecreC.Pretty
 
-import Data.Generics hiding (GT)
+import Data.Generics as Generics hiding (GT,typeOf)
+import qualified Data.Generics as Generics
 import Data.Traversable as Traversable
 import Data.Foldable
 import Data.Map (Map(..))
@@ -21,6 +22,7 @@ import Text.PrettyPrint
 import Control.Monad
 import Control.Concurrent.Async
 import Control.Concurrent
+import Control.Monad.Trans
 
 import Unsafe.Coerce
 
@@ -28,9 +30,6 @@ import System.Mem.Weak.Exts as Weak
 
 mapFoldlM :: Monad m => (a -> k -> v -> m a) -> a -> Map k v -> m a
 mapFoldlM f z m = foldlM (\x (y,z) -> f x y z) z $ Map.toList m
-
-timeout :: Int -> IO a -> IO (Either a ())
-timeout t io = race io (threadDelay $ t * 1000000)
 
 instance WeakKey (UniqRef a) where
     mkWeakKey r = mkWeakKey (uniqRef r)
@@ -196,14 +195,14 @@ instance Show EqDyn where
     show q = "EqDyn"
 
 instance Eq EqDyn where
-    (EqDyn a) == (EqDyn b) = (typeOf a == typeOf b) && (a == unsafeCoerce b)
+    (EqDyn a) == (EqDyn b) = (Generics.typeOf a == Generics.typeOf b) && (a == unsafeCoerce b)
 
 toEqDyn :: (Data a,Typeable a,Eq a) => a -> EqDyn
 toEqDyn v = EqDyn v
 
 fromEqDyn :: (Data a,Typeable a,Eq a) => EqDyn -> Maybe a
 fromEqDyn (EqDyn v) = case unsafeCoerce v of 
-    r | typeOf v == typeOf r -> Just r
+    r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
       
 data OrdDyn where
@@ -223,10 +222,10 @@ instance Show OrdDyn where
     show d = "OrdDyn"
 
 instance Eq OrdDyn where
-    (OrdDyn a) == (OrdDyn b) = (typeOf a == typeOf b) && (a == unsafeCoerce b)
+    (OrdDyn a) == (OrdDyn b) = (Generics.typeOf a == Generics.typeOf b) && (a == unsafeCoerce b)
 
 instance Ord OrdDyn where
-    compare (OrdDyn a) (OrdDyn b) = case compare (typeOf a) (typeOf b) of
+    compare (OrdDyn a) (OrdDyn b) = case compare (Generics.typeOf a) (Generics.typeOf b) of
         EQ -> compare a (unsafeCoerce b)
         c -> c
 
@@ -235,7 +234,7 @@ toOrdDyn v = OrdDyn v
 
 fromOrdDyn :: (Data a,Typeable a,Eq a,Ord a) => OrdDyn -> Maybe a
 fromOrdDyn (OrdDyn v) = case unsafeCoerce v of 
-    r | typeOf v == typeOf r -> Just r
+    r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
       
 data ShowOrdDyn where
@@ -255,19 +254,22 @@ instance Show ShowOrdDyn where
     show (ShowOrdDyn d) = show d
 
 instance Eq ShowOrdDyn where
-    (ShowOrdDyn a) == (ShowOrdDyn b) = (typeOf a == typeOf b) && (a == unsafeCoerce b)
+    (ShowOrdDyn a) == (ShowOrdDyn b) = (Generics.typeOf a == Generics.typeOf b) && (a == unsafeCoerce b)
 
 instance Ord ShowOrdDyn where
-    compare (ShowOrdDyn a) (ShowOrdDyn b) = case compare (typeOf a) (typeOf b) of
+    compare (ShowOrdDyn a) (ShowOrdDyn b) = case compare (Generics.typeOf a) (Generics.typeOf b) of
         EQ -> compare a (unsafeCoerce b)
         c -> c
+
+applyShowOrdDyn :: (forall a . (Data a,Typeable a,Eq a,Ord a,Show a) => a -> b) -> ShowOrdDyn -> b
+applyShowOrdDyn f (ShowOrdDyn x) = f x
 
 toShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
 toShowOrdDyn v = ShowOrdDyn v
 
 fromShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => ShowOrdDyn -> Maybe a
 fromShowOrdDyn (ShowOrdDyn v) = case unsafeCoerce v of 
-    r | typeOf v == typeOf r -> Just r
+    r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
 
 data PPDyn where
@@ -297,7 +299,7 @@ toPPDyn v = PPDyn v
 
 fromPPDyn :: (Data a,Typeable a,Show a,PP a) => PPDyn -> Maybe a
 fromPPDyn (PPDyn v) = case unsafeCoerce v of 
-    r | typeOf v == typeOf r -> Just r
+    r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
 
 within :: Ord a => (a,a) -> (a,a) -> Bool
@@ -315,11 +317,17 @@ data EqT a b where
     EqT :: EqT a a -- evidence that two types are equal
     NeqT :: EqT a b -- evidence that two types are not equal
 
+typeRep :: Typeable a => TypeOf a
+typeRep = typeOf undefined
+
+typeOf :: Typeable a => a -> TypeOf a
+typeOf = typeOfProxy . proxyOf
+
 proxyOf :: a -> Proxy a
 proxyOf _ = Proxy
 
 typeOfProxy :: Typeable a => Proxy a -> TypeOf a
-typeOfProxy p = TypeOf (typeOf p)
+typeOfProxy p = TypeOf (Generics.typeOf p)
 
 eqTypeOf :: TypeOf a -> TypeOf b -> EqT a b
 eqTypeOf (TypeOf t1) (TypeOf t2) = if t1 == t2 then unsafeCoerce EqT else NeqT

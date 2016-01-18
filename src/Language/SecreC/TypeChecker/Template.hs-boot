@@ -7,6 +7,6 @@ import Language.SecreC.Location
 import Language.SecreC.Syntax
 import Language.SecreC.Vars
 
-templateDecReturn :: (VarsTcM loc,Location loc) => loc -> DecType -> TcM loc Type
+templateDecReturn :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> TcM loc m Type
 
-matchTemplate :: (VarsTcM loc,Location loc) => loc -> Bool -> TIdentifier -> Maybe [Type] -> Maybe [Expression VarIdentifier Type] -> Maybe Type -> TcM loc [EntryEnv loc] -> TcM loc (DecType,Maybe [VarName VarIdentifier Type])
+matchTemplate :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TIdentifier -> Maybe [Type] -> Maybe [Expression VarIdentifier Type] -> Maybe Type -> TcM loc m [EntryEnv loc] -> TcM loc m (DecType,[VarName VarIdentifier Type])

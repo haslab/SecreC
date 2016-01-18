@@ -570,18 +570,16 @@ D T[[N]] cat (D T[[N]] x, D T[[N]] y, uint n) {
 // TODO: make this a variadic function for an arbitrary number of dimensions?
 
 template <domain D, type T, dim N>
-D T[[1]](n) reshape (D T[[N]] arr,uint n { n >= 0 }) {
+D T[[1]](n) reshape (D T[[N]] arr,const uint n { n >= 0 && size(arr) == n }) {
     // stub
     D T[[1]] ret;
-    assert (size(arr) == n);
     return ret;
 }
 
 template <domain D, type T, dim N>
-D T[[2]](n,m) reshape (D T[[N]] inp,uint n { n >= 0 }, uint m { m >= 0 }) {
+D T[[2]](n,m) reshape (D T[[N]] inp,const uint n { n >= 0 }, const uint m { m >= 0 && size(inp) == n * m }) {
     // stub
     D T[[2]] ret;
-    assert (size(inp) == n * m);
     return ret;
 }
 
@@ -607,7 +605,7 @@ D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y) {
     //stub
     D bool[[N]] ret;
     D bool z;
-    // simply to enforce the T operator + (T,T) constraint
+    // simply to enforce the T operator && (T,T) constraint
     z = z && z;
     return ret;
 }
@@ -623,7 +621,7 @@ D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y) {
     //stub
     D bool [[N]] ret;
     D bool z;
-    // simply to enforce the T operator + (T,T) constraint
+    // simply to enforce the T operator || (T,T) constraint
     z = z || z;
     return ret;
 }
@@ -672,7 +670,7 @@ D T[[N]] operator - (D T[[N]] x) {
     //stub
     D T [[N]] ret;
     D T z;
-    // simply to enforce the T operator + (T,T) constraint
+    // simply to enforce the T operator - (T,T) constraint
     z = - z;
     return ret;
 }
@@ -737,7 +735,7 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y) {
     //stub
     D T [[N]] ret;
     D T z;
-    // simply to enforce the T operator + (T,T) constraint
+    // simply to enforce the T operator - (T,T) constraint
     z = z - z;
     return ret;
 }
@@ -1354,7 +1352,7 @@ D bool[[N]] operator == (D T[[N]] x,D T[[N]] y) {
     D bool [[N]] ret;
     D T z;
     D bool b;
-    // simply to enforce the T operator + (T,T) constraint
+    // simply to enforce the T operator == (T,T) constraint
     b = z == z;
     return ret;
 }
@@ -1425,7 +1423,7 @@ D bool[[N]] operator != (D T[[N]] x,D T[[N]] y) {
     D bool [[N]] ret;
     D T z;
     D bool b;
-    // simply to enforce the T operator + (T,T) constraint
+    // simply to enforce the T operator != (T,T) constraint
     b = z != z;
     return ret;
 }

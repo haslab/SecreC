@@ -156,7 +156,8 @@ scImportDeclaration :: ScParser (ImportDeclaration Identifier Position)
 scImportDeclaration = (scTok IMPORT) <~> scModuleId <~ (scChar ';') ==> (\(x1,x2) -> Import (loc x1) x2)
 
 scGlobalDeclaration :: ScParser (GlobalDeclaration Identifier Position)
-scGlobalDeclaration = scVariableDeclaration <~> scChar ';' ==> (\(x1,x2) -> GlobalVariable (loc x1) x1)
+scGlobalDeclaration = scConstDeclaration <~> scChar ';' ==> (\(x1,x2) -> GlobalConst (loc x1) x1)
+                  <|> scVariableDeclaration <~> scChar ';' ==> (\(x1,x2) -> GlobalVariable (loc x1) x1)
                   <|> scDomainDeclaration <~> scChar ';' ==> (\(x1,x2) -> GlobalDomain (loc x1) x1)
                   <|> scKindDeclaration <~> scChar ';' ==> (\(x1,x2) -> GlobalKind (loc x1) x1)
                   <|> scProcedureDeclaration ==> (\x1 -> GlobalProcedure (loc x1) x1)
@@ -170,16 +171,27 @@ scDomainDeclaration :: ScParser (DomainDeclaration Identifier Position)
 scDomainDeclaration = scTok DOMAIN <~> scDomainId <~> scKindId ==> (\(x1,(x2,x3)) -> Domain (loc x1) x2 x3)
 
 scVariableInitialization :: ScParser (VariableInitialization Identifier Position)
-scVariableInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) <~> optionMaybe (scBraces scExpression) ==> (\(x1,(x2,(x3,x4))) -> VariableInitialization (loc x1) x1 x2 x3 x4)
+scVariableInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) ==> (\(x1,(x2,x3)) -> VariableInitialization (loc x1) x1 x2 x3)
+
+scConstInitialization :: ScParser (ConstInitialization Identifier Position)
+scConstInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) <~> optionMaybe (scBraces scExpression) ==> (\(x1,(x2,(x3,x4))) -> ConstInitialization (loc x1) x1 x2 x3 x4)
 
 scVariableInitializations :: ScParser (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = sepBy1 scVariableInitialization (scChar ',') ==> fromListNe
 
+scConstInitializations :: ScParser (NeList (ConstInitialization Identifier Position))
+scConstInitializations = sepBy1 scConstInitialization (scChar ',') ==> fromListNe
+
 scVariableDeclaration :: ScParser (VariableDeclaration Identifier Position)
 scVariableDeclaration = scTypeSpecifier <~> scVariableInitializations ==> (\(x1,x2) -> VariableDeclaration (loc x1) x1 x2)
 
+scConstDeclaration :: ScParser (ConstDeclaration Identifier Position)
+scConstDeclaration = scTok CONST <~> scTypeSpecifier <~> scConstInitializations ==> (\(x0,(x1,x2)) -> ConstDeclaration (loc x0) x1 x2)
+
 scProcedureParameter :: ScParser (ProcedureParameter Identifier Position)
-scProcedureParameter = scTypeSpecifier <~> scVarId <~> optionMaybe scDimensions <~> scInvariant ==> (\(x1,(x2,(x3,x4))) -> ProcedureParameter (loc x1) x1 x2 x3 x4)
+scProcedureParameter =
+    (scTok CONST ~> scTypeSpecifier <~> scVarId <~> optionMaybe scDimensions <~> scInvariant ==> (\(x1,(x2,(x3,x4))) -> ConstProcedureParameter (loc x1) x1 x2 x3 x4))
+    <|> (scTypeSpecifier <~> scVarId <~> optionMaybe scDimensions ==> (\(x1,(x2,x3)) -> ProcedureParameter (loc x1) x1 x2 x3))
 
 scInvariant :: ScParser (Maybe (Expression Identifier Position))
 scInvariant = optionMaybe (scBraces scExpression) 
@@ -329,6 +341,7 @@ scStatement = scCompoundStatement ==> (\x1 -> CompoundStatement (loc x1) (unLoc 
           <|> scAssertStatement
           <|> scPrintStatement
           <|> scSyscallStatement
+          <|> scConstDeclaration <~> scChar ';' ==> (\(x1,x2) -> ConstStatement (loc x1) x1)
           <|> scVariableDeclaration <~> scChar ';' ==> (\(x1,x2) -> VarStatement (loc x1) x1)
           <|> scTok RETURN <~> optionMaybe scExpression <~> scChar ';' ==> (\(x1,(x2,x3)) -> ReturnStatement (loc x1) x2)
           <|> scTok CONTINUE <~> scChar ';' ==> (\(x1,x2) -> ContinueStatement (loc x1))
@@ -575,24 +588,24 @@ scLiteral = scIntLiteral ==> (\x1 -> IntLit (loc x1) (unLoc x1))
 -- * Parsing functions
 
 parseFileIO :: Options -> String -> IO (Module Identifier Position)
-parseFileIO opts fn = ioSecrecM opts $ parseFile fn
+parseFileIO opts fn = runSecrecM opts $ parseFile fn
 
-parseFile :: String -> SecrecM (Module Identifier Position)
+parseFile :: MonadIO m => String -> SecrecM m (Module Identifier Position)
 parseFile fn = do
     str <- liftIO (readFile fn)
     x <- parseSecreC fn str
     return x
 
 parseSecreCIO :: Options -> String -> String -> IO (Module Identifier Position)
-parseSecreCIO opts fn str = ioSecrecM opts $ parseSecreC fn str
+parseSecreCIO opts fn str = runSecrecM opts $ parseSecreC fn str
 
 parseSecreCIOWith :: (Ord a,PP a) => Options -> String -> String -> ScParser a -> IO a
-parseSecreCIOWith opts fn str parse = ioSecrecM opts $ parseSecreCWith fn str parse
+parseSecreCIOWith opts fn str parse = runSecrecM opts $ parseSecreCWith fn str parse
 
-parseSecreC :: String -> String -> SecrecM (Module Identifier Position)
+parseSecreC :: MonadIO m => String -> String -> SecrecM m (Module Identifier Position)
 parseSecreC fn str = parseSecreCWith fn str scModuleFile
 
-parseSecreCWith :: (Ord a,PP a) => String -> String -> ScParser a -> SecrecM a
+parseSecreCWith :: (MonadIO m,Ord a,PP a) => String -> String -> ScParser a -> SecrecM m a
 parseSecreCWith fn str parser = do
     case runLexer fn str of
         Left err -> throwError $ parserError $ LexicalException err

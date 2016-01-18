@@ -8,5 +8,5 @@ import Language.SecreC.Location
 import Language.SecreC.Vars
 import Language.SecreC.TypeChecker.Base
 
-tcStmt :: (VarsTcM loc,Location loc) => Type -> Statement Identifier loc -> TcM loc (Statement VarIdentifier (Typed loc),Type)
+tcStmt :: (VarsIdTcM loc m,Location loc) => Type -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
 

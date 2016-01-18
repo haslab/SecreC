@@ -226,7 +226,8 @@ scImportDeclaration :: Monad m => ScParserT u m (ImportDeclaration Identifier Po
 scImportDeclaration = apA3 (scTok IMPORT) scModuleId (scChar ';') (\x1 x2 x3 -> Import (loc x1) x2) <?> "import declaration"
 
 scGlobalDeclaration :: Monad m => ScParserT u m (GlobalDeclaration Identifier Position)
-scGlobalDeclaration = (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
+scGlobalDeclaration = (apA2 scConstDeclaration (scChar ';') (\x1 x2 -> GlobalConst (loc x1) x1) <?> "const declaration")
+                 <||>  (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
                  <||> (apA2 scDomainDeclaration (scChar ';') (\x1 x2 -> GlobalDomain (loc x1) x1) <?> "domain declaration")
                  <||> (apA2 scKindDeclaration (scChar ';') (\x1 x2 -> GlobalKind (loc x1) x1) <?> "kind declaration")
                  <||> (apA scProcedureDeclaration (\x1 -> GlobalProcedure (loc x1) x1) <?> "procedure declaration")
@@ -240,21 +241,38 @@ scDomainDeclaration :: Monad m => ScParserT u m (DomainDeclaration Identifier Po
 scDomainDeclaration = apA3 (scTok DOMAIN) scDomainId scKindId (\x1 x2 x3 -> Domain (loc x1) x2 x3) <?> "domain declaration"
 
 scVariableInitialization :: Monad m => ScParserT u m (VariableInitialization Identifier Position)
-scVariableInitialization = apA4
+scVariableInitialization = apA3
+    scVarId
+    (optionMaybe scDimensions)
+    (optionMaybe (scChar '=' *> scExpression))
+    (\x1 x2 x3 -> VariableInitialization (loc x1) x1 x2 x3) <?> "variable initialization"
+
+scConstInitialization :: Monad m => ScParserT u m (ConstInitialization Identifier Position)
+scConstInitialization = apA4
     scVarId
     (optionMaybe scDimensions)
     (optionMaybe (scChar '=' *> scExpression))
     (optionMaybe (scBraces scExpression))
-    (\x1 x2 x3 x4 -> VariableInitialization (loc x1) x1 x2 x3 x4) <?> "variable initialization"
+    (\x1 x2 x3 x4 -> ConstInitialization (loc x1) x1 x2 x3 x4) <?> "const initialization"
 
 scVariableInitializations :: Monad m => ScParserT u m (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = apA (sepBy1 scVariableInitialization (scChar ',')) fromListNe <?> "variable initializations"
 
+scConstInitializations :: Monad m => ScParserT u m (NeList (ConstInitialization Identifier Position))
+scConstInitializations = apA (sepBy1 scConstInitialization (scChar ',')) fromListNe <?> "const initializations"
+
 scVariableDeclaration :: Monad m => ScParserT u m (VariableDeclaration Identifier Position)
 scVariableDeclaration = scTypeSpecifier $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) x1 x2) <?> "variable declaration"
 
+scConstDeclaration :: Monad m => ScParserT u m (ConstDeclaration Identifier Position)
+scConstDeclaration = do
+    x0 <- scTok CONST
+    scTypeSpecifier $ \x1 -> apA scConstInitializations (\x2 -> ConstDeclaration (loc x0) x1 x2) <?> "const declaration"
+
 scProcedureParameter :: Monad m => ScParserT u m (ProcedureParameter Identifier Position)
-scProcedureParameter = scTypeSpecifier $ \x1 -> apA3 scVarId (optionMaybe scDimensions) scInvariant (\x2 x3 x4 -> ProcedureParameter (loc x1) x1 x2 x3 x4) <?> "procedure parameter"
+scProcedureParameter =
+    (scTok CONST >>= \x0 -> (scTypeSpecifier $ \x1 -> apA3 scVarId (optionMaybe scDimensions) scInvariant (\x2 x3 x4 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4) <?> "const procedure parameter"))
+    <|> (scTypeSpecifier $ \x1 -> apA2 scVarId (optionMaybe scDimensions) (\x2 x3 -> ProcedureParameter (loc x1) x1 x2 x3) <?> "procedure parameter")
 
 scDimensions :: Monad m => ScParserT u m (Sizes Identifier Position)
 scDimensions = apA (scParens scDimensionList) Sizes <?> "dimensions"
@@ -416,7 +434,8 @@ scStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc
           <|> scAssertStatement
           <|> scPrintStatement
           <|> scSyscallStatement
-          <|> apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> VarStatement (loc x1) x1)
+          <|> apA2 scConstDeclaration (scChar ';') (\x1 x2 -> ConstStatement (loc x1) x1)
+          <||> apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> VarStatement (loc x1) x1)
           <||> apA3 (scTok RETURN) (optionMaybe scExpression) (scChar ';') (\x1 x2 x3 -> ReturnStatement (loc x1) x2)
           <|> apA2 (scTok CONTINUE) (scChar ';') (\x1 x2 -> ContinueStatement (loc x1))
           <|> apA2 (scTok BREAK) (scChar ';') (\x1 x2 -> BreakStatement (loc x1))
@@ -685,24 +704,24 @@ scLiteral = (apA scIntLiteral (\x1 -> IntLit (loc x1) (unLoc x1))
 -- * Parsing functions
 
 parseFileIO :: Options -> String -> IO (Module Identifier Position)
-parseFileIO opts fn = ioSecrecM opts $ parseFile fn
+parseFileIO opts fn = runSecrecM opts $ parseFile fn
 
-parseFile :: String -> SecrecM (Module Identifier Position)
+parseFile :: MonadIO m => String -> SecrecM m (Module Identifier Position)
 parseFile fn = do
     str <- liftIO (readFile fn)
     x <- parseSecreC fn str
     return x
 
 parseSecreCIO :: Options -> String -> String -> IO (Module Identifier Position)
-parseSecreCIO opts fn str = ioSecrecM opts $ parseSecreC fn str
+parseSecreCIO opts fn str = runSecrecM opts $ parseSecreC fn str
 
 parseSecreCIOWith :: PP a => Options -> String -> String -> ScParserT () Identity a -> IO a
-parseSecreCIOWith opts fn str parse = ioSecrecM opts $ parseSecreCWith fn str parse
+parseSecreCIOWith opts fn str parse = runSecrecM opts $ parseSecreCWith fn str parse
 
-parseSecreC :: String -> String -> SecrecM (Module Identifier Position)
+parseSecreC :: MonadIO m => String -> String -> SecrecM m (Module Identifier Position)
 parseSecreC fn str = parseSecreCWith fn str scModuleFile
 
-parseSecreCWith :: PP a => String -> String -> ScParserT () Identity a -> SecrecM a
+parseSecreCWith :: (MonadIO m,PP a) => String -> String -> ScParserT () Identity a -> SecrecM m a
 parseSecreCWith fn str parser = do
     case runLexer fn str of
         Left err -> throwError $ parserError $ LexicalException err

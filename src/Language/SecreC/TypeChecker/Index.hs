@@ -23,24 +23,33 @@ import Safe
 isIndexType :: Type -> Bool
 isIndexType t = isIntType t || isBoolType t
 
-expr2IExprAs :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> Type -> TcM loc (IExpr VarIdentifier)
+expr2ICondOrExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (Either ICond IExpr)
+expr2ICondOrExpr e = do
+    let (Typed l t) = loc e
+    addErrorM l (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+        isICond <- isBoolTypeM l t 
+        if isICond
+            then liftM Left (expr2ICond e)
+            else liftM Right (expr2IExpr e)
+
+expr2IExprAs :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> Type -> TcM loc m (IExpr)
 expr2IExprAs e t = do
     let l = unTyped $ loc e
     i <- expr2IExpr e
-    addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+    addErrorM l (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
         ok <- isIntTypeM l t
         unless ok $ genTcError noloc $ text "Not an index type:" <+> pp t
         return i
 
-expr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (IExpr VarIdentifier)
+expr2IExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (IExpr)
 expr2IExpr e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
-    mb <- tryResolveEVar l (VarName () n)
+    mb <- tryResolveEVar l n
     case mb of
         Just e' -> expr2IExpr e'
-        Nothing -> addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
-            ok <- isIntTypeM l t
-            if ok
-                then return $ IIdx n
+        Nothing -> addErrorM l (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+            p <- typeToPrimType l t
+            if isNumericPrimType p
+                then return $ IIdx $ VarName p n
                 else genTcError noloc $ text "Not an index type:" <+> pp t
 expr2IExpr (LitPExpr _ (IntLit _ i)) = return $ IInt i
 expr2IExpr (UnaryExpr _ (OpSub _) e) = liftM ISym $ expr2IExpr e
@@ -51,10 +60,10 @@ expr2IExpr (BinaryExpr _ e1 op e2) = do
 expr2IExpr ce@(UnaryExpr _ (OpCast _ t) e) = do
     let l = unTyped $ loc ce
     i <- expr2IExpr e
-    addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+    addErrorM l (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
         let ty = typed $ loc t
-        ok <- isIntTypeM l ty
-        if ok
+        p <- typeToPrimType l ty
+        if isNumericPrimType p
             then return i
             else genTcError (locpos l) $ text "Unsupported cast"
 expr2IExpr (ProcCallExpr l (ProcedureName _ ((==mkVarId "size") -> True)) Nothing [e]) = do
@@ -67,7 +76,7 @@ expr2IExpr e = do
         Left err -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) $ Just err
         Right i -> return $ IInt $ toInteger i
 
-mapEOp :: (PP id,Location loc) => Op id (Typed loc) -> IExpr id -> IExpr id -> TcM loc (IExpr id)
+mapEOp :: (MonadIO m,PP id,Location loc) => Op id (Typed loc) -> IExpr -> IExpr -> TcM loc m (IExpr)
 mapEOp (OpAdd _) x y = return $ x .+. y
 mapEOp (OpSub _) x y = return $ x .-. y
 mapEOp (OpMul _) x y = return $ x .*. y
@@ -76,12 +85,12 @@ mapEOp (OpDiv _)   x y = return $ x ./. y
 --mapAOp Power x y = return $ x .**. y
 mapEOp o x y = tcError (locpos $ unTyped $ loc o) $ NotSupportedIndexOp (pp o) Nothing
 
-expr2ICond :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (ICond VarIdentifier)
+expr2ICond :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (ICond)
 expr2ICond e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
-    mb <- tryResolveEVar l (VarName () n)
+    mb <- tryResolveEVar l n
     case mb of
         Just e' -> expr2ICond e'
-        Nothing -> addErrorM (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
+        Nothing -> addErrorM l (TypecheckerError (locpos l) . NotSupportedIndexOp (pp e) . Just) $ do
             ok <- isBoolTypeM l t
             if ok
                 then return $ IBInd n
@@ -102,7 +111,7 @@ expr2ICond e = do
         Left err -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) $ Just err
         Right b -> return $ IBool b
 
-mapCOp :: (Location loc,PP id) => Op id (Typed loc) -> IExpr id -> IExpr id -> TcM loc (ICond id)
+mapCOp :: (MonadIO m,Location loc,PP id) => Op id (Typed loc) -> IExpr -> IExpr -> TcM loc m (ICond)
 mapCOp (OpEq _) x y = return $ x .==. y
 mapCOp (OpNe _) x y = return $ x ./=. y
 mapCOp (OpLt _) x y = return $ x .<. y
@@ -111,22 +120,22 @@ mapCOp (OpGt _) x y = return $ x .>. y
 mapCOp (OpGe _) x y = return $ x .>=. y
 mapCOp o x y = tcError (locpos $ unTyped $ loc o) $ NotSupportedIndexOp (pp o) Nothing
 
-mapBOp :: (Location loc,PP id) => Op id (Typed loc) -> ICond id -> ICond id -> TcM loc (ICond id)
+mapBOp :: (MonadIO m,Location loc,PP id) => Op id (Typed loc) -> ICond -> ICond -> TcM loc m (ICond)
 mapBOp (OpLor _) x y = return $ x .||. y
 mapBOp (OpXor _) x y = return $ x .^^. y
 mapBOp (OpLand _) x y = return $ x .&&. y
 mapBOp o x y = tcError (locpos $ unTyped $ loc o) $ NotSupportedIndexOp (pp o) Nothing
 
-tryExpr2IExpr :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either (IExpr VarIdentifier) SecrecError)
+tryExpr2IExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (Either (IExpr) SecrecError)
 tryExpr2IExpr e = liftM Left (expr2IExpr e) `catchError` (return . Right)
 
-tryExpr2ICond :: (Vars (TcM loc) loc,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc (Either (ICond VarIdentifier) SecrecError)
+tryExpr2ICond :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (Either (ICond) SecrecError)
 tryExpr2ICond e = liftM Left (expr2ICond e) `catchError` (return . Right)
 
 --------------------------------------------------------------------------------
 -- * Syntactic sugar
 
-(.+.), (.-.), (.*.), (.**.), (./.), (.%.) :: IExpr id -> IExpr id -> IExpr id
+(.+.), (.-.), (.*.), (.**.), (./.), (.%.) :: IExpr -> IExpr -> IExpr
 (.+.)  x y = ISum [x,y]
 (.-.)  = IArith IMinus
 (.*.)  = IArith ITimes
@@ -134,7 +143,7 @@ tryExpr2ICond e = liftM Left (expr2ICond e) `catchError` (return . Right)
 (./.)  = IArith IDiv
 (.%.)  = IArith IModOp
 
-(.==.), (./=.), (.<.), (.<=.), (.>.), (.>=.) :: IExpr id -> IExpr id -> ICond id
+(.==.), (./=.), (.<.), (.<=.), (.>.), (.>=.) :: IExpr -> IExpr -> ICond
 (.==.) e1 e2 = IEq (IArith IMinus e1 e2)
 (./=.) e1 e2 = INot (e1 .==. e2)
 (.<.)  e1 e2 = ILeq $ ISum [e2, ISym e1, IInt (-1)]
@@ -142,13 +151,13 @@ tryExpr2ICond e = liftM Left (expr2ICond e) `catchError` (return . Right)
 (.>.)  = flip (.<.)
 (.>=.) = flip (.<=.)
 
-(.||.), (.^^.),(.&&.),sameBool :: ICond id -> ICond id -> ICond id
+(.||.), (.^^.),(.&&.),sameBool :: ICond -> ICond -> ICond
 (.||.) = IBoolOp IOr
 (.^^.) = IBoolOp IXor
 (.&&.) x y = IAnd [x,y]
 sameBool = \c1 c2 -> INot $ IBoolOp IXor c1 c2
 
-implies :: ICond id -> ICond id -> ICond id
+implies :: ICond -> ICond -> ICond
 implies p q = (INot p) .||. q
 
 -- * Simplifying index expressions
@@ -157,7 +166,7 @@ implies p q = (INot p) .||. q
 -- This implements the properties of the several boolean operators,
 -- except conjuntion. It does not use equality on expressions, only
 -- on variables.
-truthTable :: Eq id => ICond id -> ICond id
+truthTable :: ICond -> ICond
 truthTable (IBoolOp op (IBool b1) (IBool b2)) 
     = IBool $ mapIBOp op b1 b2
 truthTable (IBoolOp IOr (IBool b1) b2)
@@ -181,7 +190,7 @@ truthTable e = e
 
 --------------------------------------------------------------------------------
 -- Application of deMorgan rules
-deMorgan :: ICond id -> ICond id
+deMorgan :: ICond -> ICond
 deMorgan (IBool b)            = IBool $ not b
 deMorgan (INot c)             = c
 deMorgan (IBoolOp IOr c1 c2)  = IAnd [deMorgan c1, deMorgan c2]
@@ -202,7 +211,7 @@ deMorgan (IAnd lc)            = andToOr $ map deMorgan lc
 deMorgan i                    = INot i
 
 --------------------------------------------------------------------------------
-evalICond :: (PP id,Ord id, Eq id) => ICond id -> ICond id
+evalICond :: ICond -> ICond
 
 evalICond (INot c) = case deMorgan (evalICond c) of
     IAnd l -> flatAnd l
@@ -226,20 +235,20 @@ evalICond (IEq e)  = case evalIExpr e of
 evalICond c = c
 
 --------------------------------------------------------------------------------
-distrOr :: ICond id -> ICond id -> [ICond id]
+distrOr :: ICond -> ICond -> [ICond]
 distrOr (IAnd l1) (IAnd l2) = concatMap (distrOr' l1) l2
 distrOr c (IAnd l2) = distrOr' l2 c
 distrOr (IAnd l1) c = distrOr' l1 c
 distrOr _ _ = error "<distrOr>: not expected"
 
-distrOr' :: [ICond id] -> ICond id -> [ICond id]
+distrOr' :: [ICond] -> ICond -> [ICond]
 distrOr' l c = map (IBoolOp IOr c) l
 
 --------------------------------------------------------------------------------
 -- Remove True
 -- Reduce to False
 -- Bring out nested And
-flatAnd :: Eq id => [ICond id] -> ICond id
+flatAnd :: [ICond] -> ICond
 flatAnd c = let
         (v, var, i) = foldr aux (True, [], []) c
     in if v && not (null i && null var) 
@@ -277,10 +286,10 @@ flatAnd c = let
  7. Operations on literals are always computed
 -}
 --------------------------------------------------------------------------------
-evalIExpr :: (PP id,Eq id, Ord id) => IExpr id -> IExpr id
+evalIExpr :: IExpr -> IExpr
 evalIExpr = canonicalExpr . flatExpr
 
-flatExpr :: (PP id,Eq id) => IExpr id -> IExpr id
+flatExpr :: IExpr -> IExpr
 
 flatExpr i@(IInt _) = ISum [i]
 
@@ -314,10 +323,10 @@ flatExpr (IArith IModOp (IInt a) (IInt b)) = resInt $ mod a b
 
 flatExpr e = e
 
-resInt :: Integer -> IExpr id
+resInt :: Integer -> IExpr
 resInt n = ISum [IInt n]
 
-flatTimes :: (PP id,Eq id) => IExpr id -> IExpr id
+flatTimes :: IExpr -> IExpr
 flatTimes e@(IArith ITimes _ _) = let
         (ci, si, mi) = sepTimes e
 
@@ -333,7 +342,7 @@ flatTimes e@(IArith ITimes _ _) = let
     in ISum $ sumCi : pe ++ pe'
 flatTimes _ = error "<flatTimes>: not expected"
 
-toMult :: Integer -> [IExpr id] -> IExpr id
+toMult :: Integer -> [IExpr] -> IExpr
 toMult n [] = IInt n
 toMult n xs@(_:_) = IArith ITimes (IInt n) (aux xs)
     where
@@ -341,7 +350,7 @@ toMult n xs@(_:_) = IArith ITimes (IInt n) (aux xs)
     aux [e] = e
     aux (e:es) = IArith ITimes e (aux es)
 
-sepTimes :: (PP id,Eq id) => IExpr id -> ([Integer], [IExpr id], [IExpr id])
+sepTimes :: IExpr -> ([Integer], [IExpr], [IExpr])
 sepTimes (IInt n) = ([n], [], [])
 sepTimes i@(IIdx _) = ([], [], [i])
 sepTimes s@(ISum _) = ([], [s], [])
@@ -355,16 +364,16 @@ sepTimes (ISym e) = sepTimes (flatExpr e)
 sepTimes s@(IArith IDiv _ _) = ([], [s], [])
 sepTimes _ = error "<<TODO>><sepTimes: not implemented"
 
-constSum :: [IExpr id] -> IExpr id
+constSum :: [IExpr] -> IExpr
 constSum = constOp ((+), 0)
 
-constOp :: (Integer -> Integer -> Integer, Integer) -> [IExpr id] -> IExpr id
+constOp :: (Integer -> Integer -> Integer, Integer) -> [IExpr] -> IExpr
 constOp (f, n) = foldr aux (IInt n)
     where
     aux (IInt m) (IInt res) = IInt (f m res)
     aux _ _ = error "<constSum>: not expected"
 
-iTimesConcat :: [IExpr id] -> ([IExpr id], [IExpr id])
+iTimesConcat :: [IExpr] -> ([IExpr], [IExpr])
 iTimesConcat [] = ([IInt 0],[IInt 1])
 iTimesConcat [ISum x] = ([headNote "iTimesConcat" x], tailNote "iTimesConcat" x)
 iTimesConcat (ISum x:xs) = let
@@ -374,7 +383,7 @@ iTimesConcat (ISum x:xs) = let
     in ([constSum $ c ++ c'], i ++ i')
 iTimesConcat (_:_) = error "<iTimesConcat>: not expected"
 
-iTimesLst :: [IExpr id] -> [IExpr id] -> ([IExpr id], [IExpr id])
+iTimesLst :: [IExpr] -> [IExpr] -> ([IExpr], [IExpr])
 iTimesLst [] _ = ([], [])
 iTimesLst [x] xr = let
         (nl, ol) = unzip $ map (iTimes x) xr
@@ -384,7 +393,7 @@ iTimesLst (x:xl) xr = let
         (nl', ol') = unzip $ map (iTimes x) xr
     in ([constSum (nl ++ concat nl')], ol ++ concat ol')
 
-iTimes :: IExpr id -> IExpr id -> ([IExpr id], [IExpr id])
+iTimes :: IExpr -> IExpr -> ([IExpr], [IExpr])
 -- Constant * Constant
 iTimes (IInt n) (IInt n') = ([IInt $ n * n'], [])
 -- Constant * Variable
@@ -413,7 +422,7 @@ iTimes _ _ = error "<iTimes>: not expected"
 
 --------------------------------------------------------------------------------
 -- Expectes a flat expression
-distrSym :: PP id => IExpr id -> IExpr id
+distrSym :: IExpr -> IExpr
 distrSym e = case e of
     IInt n -> IInt (negate n)
     ISym i -> i
@@ -433,7 +442,7 @@ distrSym e = case e of
 
 --------------------------------------------------------------------------------
 
-listDiv :: [IExpr id] -> [IExpr id] -> IExpr id
+listDiv :: [IExpr] -> [IExpr] -> IExpr
 listDiv [IInt l] [IInt r] = IInt $ mapIAOp IDiv l r
 listDiv [IInt l] [IIdx r] = IArith IDiv (IInt l) (IIdx r)
 listDiv [IIdx l] [IInt r] = IArith IDiv (IIdx l) (IInt r)
@@ -442,12 +451,12 @@ listDiv l r = IArith IDiv (ISum l) (ISum r)
 
 --------------------------------------------------------------------------------
 -- This may not be enough to bring them to the top level
-flatSum :: [IExpr id] -> [IExpr id]
+flatSum :: [IExpr] -> [IExpr]
 flatSum l = let
         (c, l') = aux l
     in IInt (sum c) : concat l'
     where 
-    aux :: [IExpr id] -> ([Integer], [[IExpr id]])
+    aux :: [IExpr] -> ([Integer], [[IExpr]])
     aux [] = ([], [])
     aux (ISum (IInt n:l'):ls) = let
             (ns, ls') = aux ls
@@ -460,7 +469,7 @@ flatSum l = let
         in (ns, [x]:ls')
 
 --------------------------------------------------------------------------------
-cmp :: Ord id => IExpr id -> IExpr id -> Ordering
+cmp :: IExpr -> IExpr -> Ordering
 cmp (IInt _) _ = LT
 cmp _ (IInt _) = GT
 cmp (IArith ITimes (IInt _) (IIdx i)) (IArith ITimes (IInt _) (IIdx i')) =
@@ -472,7 +481,7 @@ cmp (IArith {}) (ISum _) = GT
 cmp (ISum l) (ISum l') = cmpList l l'
 cmp _ _ = error "Ordering: not expected: "
 -- Lexicographic order
-cmpList :: Ord id => [IExpr id] -> [IExpr id] -> Ordering
+cmpList :: [IExpr] -> [IExpr] -> Ordering
 cmpList [] [] = EQ
 cmpList [] _ = LT
 cmpList _ [] = GT
@@ -491,11 +500,11 @@ cmpIAOp IModOp _ = GT
 cmpIAOp _ _ = error "<cmpIAOp>: not expected"
 
 -- TODO: non-linear coeficients may need this as well
-canonicalExpr :: Ord id => IExpr id -> IExpr id
+canonicalExpr :: IExpr -> IExpr
 canonicalExpr (ISum l) = revert $ ISum $ combine $ sortBy cmp l
     where
 
-    combine :: Eq id => [IExpr id] -> [IExpr id]
+    combine :: [IExpr] -> [IExpr]
     combine [] = []
     combine [i] = [i]
     combine (e1@(IArith ITimes (IInt n) (IIdx i)): e2@(IArith ITimes (IInt n') (IIdx i')) : xs) = let r = n + n' 
@@ -506,7 +515,7 @@ canonicalExpr (ISum l) = revert $ ISum $ combine $ sortBy cmp l
             else e1 : combine (e2 : xs)
     combine (x:xs) = x : combine xs
 
-    revert :: IExpr id -> IExpr id
+    revert :: IExpr -> IExpr
     revert (ISum [i@(IInt _)]) = i
     revert (ISum [IInt 0, IArith ITimes (IInt 1) v]) = v
     revert (ISum (IInt 0 : xs)) = ISum $ concatMap aux xs
@@ -531,17 +540,17 @@ mapIAOp IDiv   = div
 mapIAOp IModOp = mod
 
 -- | simplify a set of conditions according to a set of hypotheses
-fromHyp :: [ICond VarIdentifier] -> [ICond VarIdentifier] -> ICond VarIdentifier
+fromHyp :: [ICond] -> [ICond] -> ICond
 fromHyp hyp cond = let
         cond' = filter (not . checkHyp hyp) cond
     in if null cond' then IBool True else IAnd cond'
 
     where
 
-    checkHyp :: [ICond VarIdentifier] -> ICond VarIdentifier -> Bool
+    checkHyp :: [ICond] -> ICond -> Bool
     checkHyp hyp' c = any (exactHyp c) hyp'
 
-    exactHyp :: ICond VarIdentifier -> ICond VarIdentifier -> Bool
+    exactHyp :: ICond -> ICond -> Bool
 -- C, a |= a
     exactHyp c h
         | c == h = True
@@ -560,14 +569,14 @@ fromHyp hyp cond = let
     exactHyp c (IAnd l) = checkHyp l c
     exactHyp _ _ = False
 
-evalBool :: [ICond VarIdentifier] -> Bool
+evalBool :: [ICond] -> Bool
 evalBool = toBool . evalICond . IAnd
-toBool :: ICond VarIdentifier -> Bool
+toBool :: ICond -> Bool
 toBool (IBool b) = b
 toBool _ = False 
 
 -- (Term, Coeficient, Variable)
-decompose :: IExpr VarIdentifier -> (IExpr VarIdentifier, IExpr VarIdentifier, IExpr VarIdentifier)
+decompose :: IExpr -> (IExpr, IExpr, IExpr)
 decompose (ISum [IInt n, IArith ITimes c i]) = (IInt n, c, i)
 decompose (ISum [IInt n, i])                 = (IInt n, IInt 1, i)
 decompose (ISum [IArith ITimes c i])         = (IInt 0, c, i)
@@ -575,10 +584,10 @@ decompose (IArith ITimes c i)                = (IInt 0, c, i)
 decompose i                                  = (IInt 0, IInt 1, i)
 
 
-iExpr2Expr :: (Vars (TcM loc) loc,Location loc) => IExpr VarIdentifier -> TcM loc (Expression VarIdentifier Type)
+iExpr2Expr :: (VarsIdTcM loc m,Location loc) => IExpr -> TcM loc m (Expression VarIdentifier Type)
 iExpr2Expr = undefined
     
-iCond2Expr :: (Vars (TcM loc) loc,Location loc) => ICond VarIdentifier -> TcM loc (Expression VarIdentifier Type)
+iCond2Expr :: (VarsIdTcM loc m,Location loc) => ICond -> TcM loc m (Expression VarIdentifier Type)
 iCond2Expr = undefined
 
 

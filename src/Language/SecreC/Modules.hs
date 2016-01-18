@@ -41,7 +41,7 @@ type IdNodes = Map Identifier (FilePath -- ^ module's file
 type ModuleGraph = Gr (Module Identifier Position) Position
 
 -- | Parses and resolves imports, returning all the modules to be loaded, in evaluation order 
-parseModuleFiles :: [FilePath] -> SecrecM [Module Identifier Position]
+parseModuleFiles :: MonadIO m => [FilePath] -> SecrecM m [Module Identifier Position]
 parseModuleFiles files = do
     opts <- ask
     addBuiltin <- if implicitBuiltin opts
@@ -51,14 +51,14 @@ parseModuleFiles files = do
     let modules = topsort' g
     return $ addBuiltin modules
 
-resolveModule :: FilePath -> SecrecM FilePath
+resolveModule :: MonadIO m => FilePath -> SecrecM m FilePath
 resolveModule file = do
     let m = ModuleName (UnhelpfulPos "resolveModule") (takeBaseName file)
     opts <- ask
     findModule (takeDirectory file : paths opts) m
 
 -- | Opens a list of modules by filename
-openModuleFiles :: [FilePath] -> ModuleGraph -> StateT (IdNodes,Int) SecrecM ModuleGraph
+openModuleFiles :: MonadIO m => [FilePath] -> ModuleGraph -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
 openModuleFiles fs g = foldlM open g fs
     where
     open g f = do
@@ -68,7 +68,7 @@ openModuleFiles fs g = foldlM open g fs
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter
-openModule :: Maybe (Position,Node) -> ModuleGraph -> FilePath -> Identifier -> Position -> SecrecM (Module Identifier Position) -> StateT (IdNodes,Int) SecrecM ModuleGraph
+openModule :: MonadIO m => Maybe (Position,Node) -> ModuleGraph -> FilePath -> Identifier -> Position -> SecrecM m (Module Identifier Position) -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
 openModule parent g f n pos load = do
     (ns,c) <- State.get
     g' <- case Map.lookup n ns of
@@ -96,16 +96,16 @@ openModule parent g f n pos load = do
     insParent Nothing i = id
     insParent (Just (l,j)) i = insEdge (i,j,l)
 
-closeModule :: Identifier -> StateT (IdNodes,Int) SecrecM ()
+closeModule :: MonadIO m => Identifier -> StateT (IdNodes,Int) (SecrecM m) ()
 closeModule n = State.modify $ \(ns,c) -> (Map.adjust (\(x,y,z) -> (x,y,False)) n ns,c) 
 
-openImport :: Node -> ModuleGraph -> ImportDeclaration Identifier Position -> StateT (IdNodes,Int) SecrecM ModuleGraph
+openImport :: MonadIO m => Node -> ModuleGraph -> ImportDeclaration Identifier Position -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
 openImport parent g (Import sl mn@(ModuleName l n)) = do
     f <- lift $ resolveModule n
     openModule (Just (sl,parent)) g f n l (parseFile f)
     
 -- | Finds a file in the path from a module name
-findModule :: [FilePath] -> ModuleName Identifier Position -> SecrecM FilePath
+findModule :: MonadIO m => [FilePath] -> ModuleName Identifier Position -> SecrecM m FilePath
 findModule [] (ModuleName l n) = modError l $ ModuleNotFound n
 findModule (p:ps) mn@(ModuleName l n) = do
     files <- liftIO $ FilePath.find (depth ==? 0) (canonicalName ==? addExtension n "sc") p
@@ -114,7 +114,7 @@ findModule (p:ps) mn@(ModuleName l n) = do
         [file] -> return file
         otherwise -> modError l $ ModuleNotFound n 
 
-findModuleCycle :: Node -> ModuleGraph -> SecrecM [(Identifier,Identifier,Position)]
+findModuleCycle :: MonadIO m => Node -> ModuleGraph -> SecrecM m [(Identifier,Identifier,Position)]
 findModuleCycle i g = do
     let ns = fromJust $ Foldable.find (i `elem`) (scc g)
     let g' = nfilter (`elem` ns) g
