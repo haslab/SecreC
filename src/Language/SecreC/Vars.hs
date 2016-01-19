@@ -35,6 +35,9 @@ import qualified Control.Monad.State as State
 type Substs iden m = forall b . (IsScVar iden,IsScVar b) => iden -> m (Maybe b)
 type SubstsProxy iden m = forall b . (IsScVar iden,IsScVar b) => Proxy b -> iden -> m (Maybe b)
 
+emptySubstsProxy :: Monad m => SubstsProxy iden m
+emptySubstsProxy = \proxy b -> return Nothing
+
 appendSubstsProxy :: Monad m => SubstsProxy iden m -> SubstsProxy iden m -> SubstsProxy iden m
 appendSubstsProxy f g proxy i = do
     mb <- f proxy i

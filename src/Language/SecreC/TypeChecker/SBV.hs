@@ -126,9 +126,9 @@ cond2SBV l ex = case ex of
     INot e -> liftM bnot $ cond2SBV l e
     IAnd e -> liftM bAnd $ mapM (cond2SBV l) e
     IBoolOp op e1 e2 -> do
-    	b1 <- cond2SBV l e1
-    	b2 <- cond2SBV l e2
-    	return $ bOp2SBV op b1 b2
+        b1 <- cond2SBV l e1
+        b2 <- cond2SBV l e2
+        return $ bOp2SBV op b1 b2
     ILeq e -> do
         let x = SLit $ IntLit () 0
         y <- expr2SBV l e

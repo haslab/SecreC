@@ -305,6 +305,11 @@ landExprs l e1 e2 = do
     (dec,[x1,x2]) <- tcTopPDecCstrM l True (Right $ OpSub $ NoType "landExprs") Nothing [e1,e2] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpLand $ DecT dec) x2)
 
+eqExprs :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Expression VarIdentifier Type)
+eqExprs l e1 e2 = do
+    (dec,[x1,x2]) <- tcTopPDecCstrM l True (Right $ OpEq $ NoType "eqExprs") Nothing [e1,e2] (BaseT bool)
+    return (BinaryExpr (BaseT bool) x1 (OpEq $ DecT dec) x2)
+
 --landExprsLoc :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier (Typed loc) -> Expression VarIdentifier (Typed loc) -> TcM loc m (Expression VarIdentifier (Typed loc))
 --landExprsLoc l e1 e2 = do
 --    (dec,[x1,x2]) <- tcTopPDecCstrM l True (Right $ OpSub $ NoType "landExprs") Nothing [(fmap typed e1),(fmap typed e2)] (BaseT bool)

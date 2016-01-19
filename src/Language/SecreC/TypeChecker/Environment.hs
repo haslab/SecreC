@@ -251,15 +251,16 @@ newKind (KindName (Typed l t) n) = do
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
-addTemplateOperator :: (VarsIdTcM loc m,Location loc) => [Cond (VarName VarIdentifier Type)] -> Op VarIdentifier (Typed loc) -> TcM loc m ()
-addTemplateOperator vars op = do
+addTemplateOperator :: (VarsIdTcM loc m,Location loc) => TDict loc -> [Cond (VarName VarIdentifier Type)] -> Op VarIdentifier (Typed loc) -> TcM loc m ()
+addTemplateOperator hdict vars op = do
     let Typed l t = loc op
     d <- typeToDecType l t
     let o = funit op
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     frees <- getFrees
-    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) [] frees d)
+    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos cstrs) [] frees d)
+    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
 
 -- | Adds a new (possibly overloaded) operator to the environment.
@@ -291,13 +292,13 @@ checkOperator op = do
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
-addTemplateProcedure :: (VarsIdTcM loc m,Location loc) => [Cond (VarName VarIdentifier Type)] -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m ()
-addTemplateProcedure vars (ProcedureName (Typed l t) n) = do
+addTemplateProcedure :: (VarsIdTcM loc m,Location loc) => TDict loc -> [Cond (VarName VarIdentifier Type)] -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m ()
+addTemplateProcedure hdict vars (ProcedureName (Typed l t) n) = do
     dt <- typeToDecType l t
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     frees <- getFrees
-    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) [] frees dt)
+    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos cstrs) [] frees dt)
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
@@ -320,13 +321,13 @@ checkProcedure (ProcedureName l n) = do
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStruct :: (VarsIdTcM loc m,Location loc) => [Cond (VarName VarIdentifier Type)] -> TypeName VarIdentifier (Typed loc) -> TcM loc m ()
-addTemplateStruct vars (TypeName (Typed l t) n) = do
+addTemplateStruct :: (VarsIdTcM loc m,Location loc) => TDict loc -> [Cond (VarName VarIdentifier Type)] -> TypeName VarIdentifier (Typed loc) -> TcM loc m ()
+addTemplateStruct hdict vars (TypeName (Typed l t) n) = do
     struct <- typeToDecType l t
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     frees <- getFrees
-    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) [] frees struct)
+    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos cstrs) [] frees struct)
     ss <- liftM structs get
     case Map.lookup n ss of
         Just (base,es) -> tcError (locpos l) $ MultipleDefinedStructTemplate (ppVarId n) (locpos $ loc base)
@@ -334,13 +335,13 @@ addTemplateStruct vars (TypeName (Typed l t) n) = do
     
 -- Adds a new (possibly overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStructSpecialization :: (VarsIdTcM loc m,Location loc) => [Cond (VarName VarIdentifier Type)] -> [Type] -> TypeName VarIdentifier (Typed loc) -> TcM loc m ()
-addTemplateStructSpecialization vars specials (TypeName (Typed l t) n) = do
+addTemplateStructSpecialization :: (VarsIdTcM loc m,Location loc) => TDict loc -> [Cond (VarName VarIdentifier Type)] -> [Type] -> TypeName VarIdentifier (Typed loc) -> TcM loc m ()
+addTemplateStructSpecialization hdict vars specials (TypeName (Typed l t) n) = do
     struct <- typeToDecType l t
     cstrs <- liftM (headNe . tDict) get
     i <- newTyVarId
     frees <- getFrees
-    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos cstrs) specials frees struct)
+    let e = EntryEnv l (DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos cstrs) specials frees struct)
     let mergeStructs (b1,s1) (b2,s2) = (b2,s1 `Map.union` s2)
     modify $ \env -> env { structs = Map.update (\(b,s) -> Just (b,Map.insert i e s)) n (structs env) }
 
@@ -450,13 +451,6 @@ openCstr l iok = do
         then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
         else State.modify $ \e -> e { openedCstrs = Set.insert iok $ openedCstrs e }
 
-newDict l = do
-    opts <- TcM $ lift ask
-    size <- liftM (lengthNe . tDict) State.get
-    if size >= constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
-        else State.modify $ \e -> e { tDict = ConsNe mempty (tDict e) }
-
 resolveIOCstr :: (MonadIO m,Location loc) => loc -> IOCstr -> (loc -> TCstr -> TcM loc m ShowOrdDyn) -> TcM loc m ShowOrdDyn
 resolveIOCstr l iok resolve = do
     st <- liftIO $ readUniqRef (kStatus iok)
@@ -473,6 +467,7 @@ resolveIOCstr l iok resolve = do
         liftIO $ writeUniqRef (kStatus iok) $ Evaluated t
         State.modify $ \e -> e { openedCstrs = Set.delete iok (openedCstrs e) } 
         remove
+        dirtyIOCstrDependencies iok
         return t
     remove = updateHeadTDict $ \d -> return ((),d { tCstrs = Map.delete (uniqId $ kStatus iok) (tCstrs d) })
 
@@ -491,6 +486,16 @@ addVarDependency v cstrs = do
         Just m -> return m
     liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 --    liftIO $ modifyIORef' globalEnv $ \g -> g { tDeps = Map.insertWith (Set.union) v cstrs (tDeps g) }
+
+addIOCstrDependency :: (MonadIO m,Location loc) => IOCstr -> Set IOCstr -> TcM loc m ()
+addIOCstrDependency iok cstrs = do
+    deps <- liftM ioDeps $ liftIO $ readIORef globalEnv
+    let uid = uniqId $ kStatus iok
+    mb <- liftIO $ WeakHash.lookup deps uid
+    m <- case mb of
+        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps uid m (MkWeak $ mkWeakKey m) >> return m
+        Just m -> return m
+    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 
 newIOCstr :: TCstr -> TCstrStatus -> IO IOCstr
 newIOCstr c res = do
@@ -524,8 +529,15 @@ dirtyVarDependencies v = do
     mb <- liftIO $ WeakHash.lookup deps v
     case mb of
         Nothing -> return ()
-        Just m -> do
-            liftIO $ WeakMap.forM_ m $ \(u,x) -> unless (elem x cstrs) $ writeUniqRef (kStatus x) Unevaluated
+        Just m -> liftIO $ WeakMap.forM_ m $ \(u,x) -> unless (elem x cstrs) $ writeUniqRef (kStatus x) Unevaluated
+
+dirtyIOCstrDependencies :: (MonadIO m,Location loc) => IOCstr -> TcM loc m ()
+dirtyIOCstrDependencies iok = do
+    deps <- liftM ioDeps $ liftIO $ readIORef globalEnv
+    mb <- liftIO $ WeakHash.lookup deps (uniqId $ kStatus iok)
+    case mb of
+        Nothing -> return ()
+        Just m -> liftIO $ WeakMap.forM_ m $ \(u,x) -> writeUniqRef (kStatus x) Unevaluated
 
 vars env = Map.union (localVars env) (globalVars env)
 

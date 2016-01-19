@@ -196,9 +196,15 @@ data TypecheckerErr
     | DependencyErr
         Doc -- constraint dependent
         Doc -- constraint dependency
+    | IndexConditionNotValid -- failed to prove mandatory index condition
+        Doc -- condition
+        SecrecError -- sub-error
   deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP TypecheckerErr where
+    pp (IndexConditionNotValid c err) = text "Failed to satisfy index condition:" $+$ nest 4
+        (text "Index condition:" <+> c
+        $+$ text "Because of:" <+> pp err)
     pp (DependencyErr k c) = text "Failed to solve constraint dependency" $+$ nest 4
         (text "Dependent:" <+> k $+$ text "Dependency:" <+> pp c)
     pp (AssignConstVariable n) = text "Cannot perform assignment on constant variable" <+> quotes (pp n)

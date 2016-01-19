@@ -59,12 +59,12 @@ castTypeToType (CastTy (TypeName t n)) = t
 
 typeToSecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m SecType
 typeToSecType l (SecT s) = return s
-typeToSecType l t = tcError (locpos l) $ TypeConversionError (pp $ SType AnyKind) (pp t)
+typeToSecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ SType AnyKind)
 
 typeToDecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m DecType
 typeToDecType l (DecT s) = return s
 --typeToDecType l (BaseT (TyDec d)) = return d
-typeToDecType l t = tcError (locpos l) $ TypeConversionError (pp DType) (pp t)
+typeToDecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp DType)
 
 typeToPrimType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Prim
 typeToPrimType l t = do
@@ -79,15 +79,15 @@ typeToBaseType l (BaseT s) = return s
 typeToBaseType l t@(ComplexT ct) = case ct of
     (CType s b d sz) -> catchError
         (newErrorM $ prove l True $ equals l t (ComplexT $ CType Public b (indexSExpr 0) []) >> return b)
-        (\err -> tcError (locpos l) $ TypeConversionError (pp BType) (pp t))
-    CVar _ -> tcError (locpos l) $ Halt $ TypeConversionError (pp BType) (pp t)
-    otherwise -> tcError (locpos l) $ TypeConversionError (pp BType) (pp t)
-typeToBaseType l t = tcError (locpos l) $ TypeConversionError (pp BType) (pp t)
+        (\err -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType))
+    CVar _ -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
+    otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
+typeToBaseType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
 
 typeToComplexType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m ComplexType
 typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
-typeToComplexType l t = tcError (locpos l) $ TypeConversionError (pp TType) (pp t)
+typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp TType)
 
 tcCastType :: (MonadIO m,Location loc) => CastType Identifier loc -> TcM loc m (CastType VarIdentifier (Typed loc))
 tcCastType (CastPrim p) = do
@@ -266,9 +266,7 @@ projectStructFieldDec l t@(StructType _ _ _ atts) (AttributeName _ a) = do -- pr
         Just (Cond (Attribute _ t f) c) -> do
             case c of
                 Nothing -> return ()
-                Just k -> do
-                    i <- expr2ICond $ fmap (Typed l) k
-                    checkCstrM l $ IsValid i
+                Just k -> tcCstrM l $ IsValid k
             return $ typeSpecifierLoc t
 
 resolveSizes :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> [SExpr VarIdentifier Type] -> TcM loc m [SExpr VarIdentifier Type]
@@ -296,7 +294,7 @@ matchTypeDimension :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Wo
 matchTypeDimension l t d = addErrorM l (TypecheckerError (locpos l) . MismatchingArrayDimension (pp t) d . Just) $ do
     td <- typeDim l t
     i <- expr2IExpr $ fmap (Typed l) td
-    checkCstrM l $ IsValid $ i .==. IInt (toInteger d)
+    isValid l $ i .==. IInt (toInteger d)
 
 -- | Update the size of a compound type
 refineTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Maybe (Sizes VarIdentifier Type) -> TcM loc m ComplexType

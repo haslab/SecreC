@@ -54,10 +54,10 @@ tcModule m@(Module l name prog) = do
     return $ Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
 
 tcProgram :: (VarsIdTcM loc m,Location loc) => Program Identifier loc -> TcM loc m (Program VarIdentifier (Typed loc))
-tcProgram (Program loc imports globals) = do
+tcProgram (Program l imports globals) = do
     let imports' = map (bimap mkVarId (notTyped "tcProgram")) imports
-    globals' <- mapM (tcGlobal loc . tcGlobalDeclaration) globals
-    return $ Program (notTyped "tcProgram" loc) imports' globals'
+    globals' <- mapM (\g -> tcGlobal (loc g) (tcGlobalDeclaration g)) globals
+    return $ Program (notTyped "tcProgram" l) imports' globals'
 
 tcGlobalDeclaration :: (VarsIdTcM loc m,Location loc) => GlobalDeclaration Identifier loc -> TcM loc m (GlobalDeclaration VarIdentifier (Typed loc))
 tcGlobalDeclaration (GlobalVariable l vd) = do
@@ -172,22 +172,22 @@ tcAttribute (Attribute l ty v@(AttributeName vl vn)) = do
 
 tcTemplateDecl :: (VarsIdTcM loc m,Location loc) => TemplateDeclaration Identifier loc -> TcM loc m (TemplateDeclaration VarIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate $ do
-    (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    ((targs',tvars),hdict) <- tcWith l (mapAndUnzipM tcTemplateQuantifier targs)
     let tvars' = toList tvars
-    s' <- tcStructureDecl (addTemplateStruct tvars') s
+    s' <- tcStructureDecl (addTemplateStruct hdict tvars') s
     return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate $ do
-    (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    ((targs',tvars),hdict) <- tcWith l (mapAndUnzipM tcTemplateQuantifier targs)
     let tvars' = toList tvars
     tspecials' <- mapM tcTemplateTypeArgument tspecials
     let tspecs = map (typed . loc) tspecials'
-    s' <- tcStructureDecl (addTemplateStructSpecialization tvars' tspecs) s
+    s' <- tcStructureDecl (addTemplateStructSpecialization hdict tvars' tspecs) s
     forM_ (zip tvars tspecs) $ \(ct,st) -> tcCstrM l $ Unifies (condVarNameToType ct) st
     return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate $ do
-    (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+    ((targs',tvars),hdict) <- tcWith l (mapAndUnzipM tcTemplateQuantifier targs)
     let tvars' = toList tvars
-    p' <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedure tvars') p
+    p' <- tcProcedureDecl (addTemplateOperator hdict tvars') (addTemplateProcedure hdict tvars') p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
     
 tcTemplateQuantifier :: (VarsIdTcM loc m,Location loc) => TemplateQuantifier Identifier loc -> TcM loc m (TemplateQuantifier VarIdentifier (Typed loc),Cond (VarName VarIdentifier Type))

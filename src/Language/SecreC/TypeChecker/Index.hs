@@ -54,9 +54,9 @@ expr2IExpr e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
 expr2IExpr (LitPExpr _ (IntLit _ i)) = return $ IInt i
 expr2IExpr (UnaryExpr _ (OpSub _) e) = liftM ISym $ expr2IExpr e
 expr2IExpr (BinaryExpr _ e1 op e2) = do
-	i1 <- expr2IExpr e1
-	i2 <- expr2IExpr e2
-	mapEOp op i1 i2
+    i1 <- expr2IExpr e1
+    i2 <- expr2IExpr e2
+    mapEOp op i1 i2
 expr2IExpr ce@(UnaryExpr _ (OpCast _ t) e) = do
     let l = unTyped $ loc ce
     i <- expr2IExpr e
