@@ -21,7 +21,7 @@ import qualified Control.Monad
 import Data.Hashable
 
 import GHC.Base
---import Control.Monad.Trans
+import Control.Monad.IO.Class
 import Data.Unique
 
 import Data.Strict.Tuple as Strict
@@ -287,11 +287,23 @@ foldWeakGenericM lift f z (WeakMap (tbl :!: _)) = lift (readIORef tbl) >>= HashM
 forM_ :: WeakMap k v -> ((k,v) -> IO a) -> IO ()	
 forM_ = flip mapM_
 
+forGenericM_ :: MonadIO m => WeakMap k v -> ((k,v) -> m a) -> m ()	
+forGenericM_ = flip mapGenericM_
+
 mapM_ :: ((k,v) -> IO a) -> WeakMap k v -> IO ()			
 mapM_ f (WeakMap (tbl :!: _)) = readIORef tbl >>= HashMap.foldrWithKey g (return ())
 	where
 	g k w m = do
 		mb <- Weak.deRefWeak w
+		case mb of
+			Nothing -> m
+			Just v -> f (k,v) >> m
+
+mapGenericM_ :: MonadIO m => ((k,v) -> m a) -> WeakMap k v -> m ()			
+mapGenericM_ f (WeakMap (tbl :!: _)) = liftIO (readIORef tbl) >>= HashMap.foldrWithKey g (return ())
+	where
+	g k w m = do
+		mb <- liftIO $ Weak.deRefWeak w
 		case mb of
 			Nothing -> m
 			Just v -> f (k,v) >> m

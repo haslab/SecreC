@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
     
@@ -16,8 +16,15 @@ import Data.Maybe
 import Data.Unique
 import Data.IORef
 import Data.Hashable
+import Data.Graph.Inductive.PatriciaTree
+import Data.Graph.Inductive.Graph as Gr
+import Data.Graph.Inductive.Monad as Gr
+import Data.Char
+import Data.List as List
 
 import Text.PrettyPrint
+
+import qualified GHC.Generics as G
 
 import Control.Monad
 import Control.Concurrent.Async
@@ -28,6 +35,87 @@ import Unsafe.Coerce
 
 import System.Mem.Weak.Exts as Weak
 
+import Safe
+
+-- find all roots in a directed graph
+rootsGr :: Gr a b -> [LNode a]
+rootsGr gr = filter (\(n,_) -> List.null $ filter (/= n) $ pre' $ context gr n) $ labNodes gr
+
+-- find all terminals in a directed graph
+endsGr :: Gr a b -> [LNode a]
+endsGr gr = filter (\(n,_) -> List.null $ filter (/= n) $ suc' $ context gr n) $ labNodes gr
+
+elimSpaces :: String -> String
+elimSpaces = filter (not . isSpace)
+
+contextGr :: (Graph gr) => gr a b -> Node -> Maybe (Context a b)
+contextGr g v = fst (Gr.match v g)
+
+mapGrM :: (Monad m,DynGraph gr) => (Context a b -> m (Context c d)) -> gr a b -> m (gr c d)
+mapGrM f gr = ufold g (return Gr.empty) gr
+    where
+    g ctx m = do
+        ctx' <- f ctx
+        liftM (ctx' &) m
+
+labnfilterM :: (Monad m,DynGraph gr) => (LNode a -> m Bool) -> gr a b -> m (gr a b)
+labnfilterM p gr = ufold aux (return Gr.empty) gr
+    where
+    aux ctx@(_,n,i,_) m = do
+        ok <- p (n,i)
+        if ok then liftM (ctx &) m else m
+
+grToList :: Gr a b -> [Context a b]
+grToList = ufold (:) []
+
+unionGr :: Gr a b -> Gr a b -> Gr a b
+unionGr x y = ufold (&) x y
+
+ppGr :: (a -> Doc) -> (b -> Doc) -> Gr a b -> Doc
+ppGr ppA ppB gr = vcat $ map ppNode $ grToList gr
+    where
+    ppNode (froms,k,v,tos) = ppA v $+$ nest 4 (sepBy comma $ map ppFrom froms ++ map ppTo tos)
+    ppTo (tolbl,toid) = text "-" <> ppB tolbl <> text "->" <+> pp toid
+    ppFrom (fromlbl,fromid) = pp fromid <+> text "-" <> ppB fromlbl <> text "->"
+
+ppGrM :: Monad m => (a -> m Doc) -> (b -> m Doc) -> Gr a b -> m Doc
+ppGrM ppA ppB gr = liftM vcat $ mapM ppNode $ grToList gr
+    where
+    ppNode (froms,k,v,tos) = do
+        vDoc <- ppA v
+        tosDoc <- liftM (sepBy comma) $ do
+            xs <- mapM ppFrom froms
+            ys <- mapM ppTo tos
+            return (xs++ys)
+        return $ vDoc $+$ nest 4 tosDoc
+    ppTo (tolbl,toid) = do
+        tolblDoc <- ppB tolbl
+        let toDoc = pp toid
+        return $ text "-" <> tolblDoc <> text "->" <+> toDoc
+    ppFrom (fromlbl,fromid) = do
+        fromlblDoc <- ppB fromlbl
+        let fromDoc = pp fromid
+        return $ fromDoc <+> text "-" <> fromlblDoc <> text "->"
+
+instance (PP a,PP b) => PP (Gr a b) where
+    pp = ppGr pp pp
+        
+instance (Ord a,Ord b) => Ord (Gr a b) where
+    compare x y = compare (OrdGr x) (OrdGr y)
+    
+deriving instance Typeable (Gr a b)
+
+deriving instance (Typeable i,Data c,Typeable p) => Data (G.K1 i c p)
+deriving instance (Typeable i,Typeable c,Typeable p,Typeable f,Data (f p)) => Data (G.M1 i c f p)
+
+fromX :: G.Generic x => x -> G.Rep x x
+fromX = G.from
+toX :: G.Generic x => G.Rep x x -> x
+toX = G.to
+
+instance (Data a,Data b) => Data (Gr a b) where
+    gfoldl k z gr = z toX `k` (fromX gr)
+
 mapFoldlM :: Monad m => (a -> k -> v -> m a) -> a -> Map k v -> m a
 mapFoldlM f z m = foldlM (\x (y,z) -> f x y z) z $ Map.toList m
 
@@ -37,7 +125,10 @@ instance WeakKey (UniqRef a) where
 mconcatNe :: Monoid a => NeList a -> a
 mconcatNe = mconcat . toList
 
-mapSetM :: (Monad m,Ord a) => (a -> m a) -> Set a -> m (Set a)
+mapSet :: (Ord a,Ord b) => (a -> b) -> Set a -> Set b
+mapSet f xs = Set.fromList $ map f $ Set.toList xs
+
+mapSetM :: (Monad m,Ord a,Ord b) => (a -> m b) -> Set a -> m (Set b)
 mapSetM f xs = liftM Set.fromList $ mapM f $ Set.toList xs
 
 -- | Non-empty list
@@ -318,7 +409,7 @@ data EqT a b where
     NeqT :: EqT a b -- evidence that two types are not equal
 
 typeRep :: Typeable a => TypeOf a
-typeRep = typeOf undefined
+typeRep = typeOf (error "typeRep")
 
 typeOf :: Typeable a => a -> TypeOf a
 typeOf = typeOfProxy . proxyOf

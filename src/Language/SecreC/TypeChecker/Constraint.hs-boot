@@ -14,50 +14,47 @@ import Text.PrettyPrint
 import Control.Monad.IO.Class
 
 import Data.Data
+import Data.Set
 
 solveHypotheses :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m [ICond]
 
 tcTopCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
 
-proveWith :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
+proveWith :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
 
-prove :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m a
+prove :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
 
-tcProve :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m (a,TDict loc)
+tcProve :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (a,TDict loc)
 
-compares :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Ordering
-
-checkCstrM :: (MonadIO m,Location loc) => loc -> CheckCstr -> TcM loc m ()
+checkCstrM :: (MonadIO m,Location loc) => loc -> Set IOCstr -> CheckCstr -> TcM loc m ()
 
 coercesE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Type -> TcM loc m (Expression VarIdentifier Type)
 
-comparesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m Ordering
+tryResolveEVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m (Maybe (SExpr VarIdentifier (Typed loc)))
 
-comparesSCond :: (VarsIdTcM loc m,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc m Ordering
+compares :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Ordering
+
+comparesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m Ordering
 
 constraintList :: (VarsIdTcM loc m,Location loc,VarsId (TcM loc m) [a],VarsId (TcM loc m) [b]) =>
     (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr)
     -> (a -> b -> TcM loc m x) -> loc -> [a] -> [b] -> TcM loc m [x]
 
-unifies :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m ()
-
 unifiesSizes :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> Expression VarIdentifier Type -> [Expression VarIdentifier Type] -> TcM loc m ()
-
-equals :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m ()
 
 unifiesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m ()
 
-equalsExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
+tCstrM :: (MonadIO m,Location loc) => loc -> TCstr -> TcM loc m IOCstr
 
 tcCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
+
+tcCstrM' :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m IOCstr
 
 resolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m Type
 
 tryResolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m (Maybe Type)
 
-solve :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m ()
-
-unifiesExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
+solve :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m ()
 
 resolveCVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m ComplexType
 

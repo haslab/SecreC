@@ -23,6 +23,8 @@ typeToBaseType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Bas
 typeToComplexType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m ComplexType
 typeToDecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m DecType
 
+typeSize :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m IExpr
+
 tcTypeSpec :: (VarsIdTcM loc m,Location loc) => TypeSpecifier Identifier loc -> TcM loc m (TypeSpecifier VarIdentifier (Typed loc))
 
 tcSecTypeSpec :: (VarsIdTcM loc m,Location loc) => SecTypeSpecifier Identifier loc -> TcM loc m (SecTypeSpecifier VarIdentifier (Typed loc))
@@ -46,9 +48,5 @@ tcCastType :: (MonadIO m,Location loc) => CastType Identifier loc -> TcM loc m (
 tcTemplateTypeArgument :: (VarsIdTcM loc m,Location loc) => TemplateTypeArgument Identifier loc -> TcM loc m (TemplateTypeArgument VarIdentifier (Typed loc))
 
 tcTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe (Sizes Identifier loc) -> TcM loc m (ComplexType,Maybe (Sizes VarIdentifier (Typed loc)))
-
-checkIndex :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> TcM loc m ()
-
-checkArrayAccess :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
 
 typeToPrimType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Prim

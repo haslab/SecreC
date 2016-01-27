@@ -3,8 +3,8 @@
 module Language.SecreC.TypeChecker.Index where
 
 import Language.SecreC.TypeChecker.Base
-import Language.SecreC.TypeChecker.Semantics
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.Syntax
 import Language.SecreC.Location
 import Language.SecreC.Monad
@@ -68,13 +68,8 @@ expr2IExpr ce@(UnaryExpr _ (OpCast _ t) e) = do
             else genTcError (locpos l) $ text "Unsupported cast"
 expr2IExpr (ProcCallExpr l (ProcedureName _ ((==mkVarId "size") -> True)) Nothing [e]) = do
     let t = typed $ loc e
-    dim <- evaluateTypeSize (unTyped l) t
-    return $ IInt $ toInteger dim
-expr2IExpr e = do
-    res <- tryEvaluateIndexExpr e
-    case res of
-        Left err -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) $ Just err
-        Right i -> return $ IInt $ toInteger i
+    typeSize (unTyped l) t
+expr2IExpr e = tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) Nothing
 
 mapEOp :: (MonadIO m,PP id,Location loc) => Op id (Typed loc) -> IExpr -> IExpr -> TcM loc m (IExpr)
 mapEOp (OpAdd _) x y = return $ x .+. y
@@ -105,11 +100,7 @@ expr2ICond (BinaryExpr _ e1 op@(isBoolOp -> True) e2) = do
     i1 <- expr2ICond e1
     i2 <- expr2ICond e2
     mapBOp op i1 i2
-expr2ICond e = do
-    res <- tryEvaluateBoolExpr e
-    case res of
-        Left err -> tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) $ Just err
-        Right b -> return $ IBool b
+expr2ICond e = tcError (locpos $ unTyped $ loc e) $ NotSupportedIndexOp (pp e) Nothing
 
 mapCOp :: (MonadIO m,Location loc,PP id) => Op id (Typed loc) -> IExpr -> IExpr -> TcM loc m (ICond)
 mapCOp (OpEq _) x y = return $ x .==. y
@@ -134,6 +125,11 @@ tryExpr2ICond e = liftM Left (expr2ICond e) `catchError` (return . Right)
 
 --------------------------------------------------------------------------------
 -- * Syntactic sugar
+
+iProduct :: [IExpr] -> IExpr
+iProduct [] = IInt 0
+iProduct [x] = x
+iProduct (x:xs) = x .*. iProduct xs
 
 (.+.), (.-.), (.*.), (.**.), (./.), (.%.) :: IExpr -> IExpr -> IExpr
 (.+.)  x y = ISum [x,y]
@@ -585,10 +581,10 @@ decompose i                                  = (IInt 0, IInt 1, i)
 
 
 iExpr2Expr :: (VarsIdTcM loc m,Location loc) => IExpr -> TcM loc m (Expression VarIdentifier Type)
-iExpr2Expr = undefined
+iExpr2Expr = error "iExpr2Expr"
     
 iCond2Expr :: (VarsIdTcM loc m,Location loc) => ICond -> TcM loc m (Expression VarIdentifier Type)
-iCond2Expr = undefined
+iCond2Expr = error "iCond2Expr"
 
 
 

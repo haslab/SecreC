@@ -11,7 +11,6 @@ import Language.SecreC.Location
 import Language.SecreC.Position
 import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Base hiding (int)
-import Language.SecreC.TypeChecker.Semantics
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.SMT
@@ -63,7 +62,6 @@ typeToSecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ S
 
 typeToDecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m DecType
 typeToDecType l (DecT s) = return s
---typeToDecType l (BaseT (TyDec d)) = return d
 typeToDecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp DType)
 
 typeToPrimType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Prim
@@ -75,10 +73,9 @@ typeToPrimType l t = do
 
 typeToBaseType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m BaseType
 typeToBaseType l (BaseT s) = return s
---typeToBaseType l (DecT d) | isStruct d = return $ TyDec d
 typeToBaseType l t@(ComplexT ct) = case ct of
     (CType s b d sz) -> catchError
-        (newErrorM $ prove l True $ equals l t (ComplexT $ CType Public b (indexSExpr 0) []) >> return b)
+        (newErrorM $ prove l $ tcCstrM l (Equals t (ComplexT $ CType Public b (indexSExpr 0) [])) >> return b)
         (\err -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType))
     CVar _ -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
     otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
@@ -212,8 +209,7 @@ projectMatrixType l ct rngs = projectMatrixCType l ct rngs
   where
     projectMatrixCType :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> [ArrayProj] -> TcM loc m ComplexType
     projectMatrixCType l ct@(CType sec t dim szs) rngs = do
-        szs' <- resolveSizes l dim szs
-        szs'' <- projectSizes l ct 1 szs' rngs  
+        szs'' <- projectSizes l ct 1 szs rngs  
         return $ CType sec t (indexSExpr $ toEnum $ length szs'') szs''
     projectMatrixCType l (CVar v) rngs = do
         t <- resolveCVar l v
@@ -247,7 +243,8 @@ projectSize p ct i x y1 y2 = do
         --        then return (indexExpr (u - l))
         --        else tcError (locpos p) $ ArrayAccessOutOfBounds (pp ct) i (pp l <> char ':' <> pp u)
         (DynArrayIndex el,DynArrayIndex eu) -> do
-            checkCstrM p $ CheckArrayAccess ct i el eu x
+            deps <- getVarOutSet (ct,(el,(eu,x)))
+            checkCstrM p deps $ CheckArrayAccess ct i el eu x
             subtractIndexExprs p eupp elow
         otherwise -> do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp ct) i (pp elow <> char ':' <> pp eupp) arrerr
@@ -269,20 +266,21 @@ projectStructFieldDec l t@(StructType _ _ _ atts) (AttributeName _ a) = do -- pr
                 Just k -> tcCstrM l $ IsValid k
             return $ typeSpecifierLoc t
 
-resolveSizes :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> [SExpr VarIdentifier Type] -> TcM loc m [SExpr VarIdentifier Type]
-resolveSizes l d [] = do
-    i <- evaluateIndexExpr $ fmap (Typed l) d
-    replicateM (fromEnum i) newSizeVar
-resolveSizes l d xs = return xs
+--resolveSizes :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> [SExpr VarIdentifier Type] -> TcM loc m [SExpr VarIdentifier Type]
+--resolveSizes l d [] = do
+--    i <- evaluateIndexExpr $ fmap (Typed l) d
+--    replicateM (fromEnum i) newSizeVar
+--resolveSizes l d xs = return xs
+--
+--isZeroTypeExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> TcM loc m Bool
+--isZeroTypeExpr l e = do
+--    let e' = fmap (Typed l) e
+--    mb <- tryEvaluateIndexExpr e'
+--    case mb of
+--        Right 0 -> return True
+--        otherwise -> return False     
 
-isZeroTypeExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> TcM loc m Bool
-isZeroTypeExpr l e = do
-    let e' = fmap (Typed l) e
-    mb <- tryEvaluateIndexExpr e'
-    case mb of
-        Right 0 -> return True
-        otherwise -> return False     
-
+-- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Maybe (Sizes Identifier loc) -> TcM loc m (ComplexType,Maybe (Sizes VarIdentifier (Typed loc)))
 tcTypeSizes l ty v szs = do
     szs' <- mapM (tcSizes l ty v) szs
@@ -305,19 +303,12 @@ refineTypeSizes l ct@(CType s t d []) (Just (Sizes szs)) = do
     return $ CType s t d $ Foldable.toList szs
 refineTypeSizes l ct _ = genTcError (locpos l) $ text "Expected a complex type but found" <+> pp ct
     
-checkIndex :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> TcM loc m ()
-checkIndex l e = addErrorM l (TypecheckerError (locpos l) . NonPositiveIndexExpr (pp e)) $ orWarn_ $ do
-    ie <- expr2IExpr $ fmap (Typed l) e
-    isValid l $ ie .>=. IInt 0
-
-checkArrayAccess :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
-checkArrayAccess l t d low up sz = addErrorM l (TypecheckerError (locpos l) . UncheckedRangeSelection (pp t) d (pp low <> char ':' <> pp up)) $ orWarn_ $ do
-    il <- expr2IExpr $ fmap (Typed l) low
-    iu <- expr2IExpr $ fmap (Typed l) up
-    isz <- expr2IExpr $ fmap (Typed l) sz
-    isValid l $ IAnd [il .>=. IInt 0,iu .>=. IInt 0,isz .>=. il,iu .<=. isz]
-    
-
+typeSize :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m IExpr
+typeSize l (BaseT _) = return $ IInt 0
+typeSize l (ComplexT (CType _ _ _ szs)) | length szs > 0 = do
+    is <- mapM (expr2IExpr . fmap (Typed l)) szs
+    return $ iProduct is
+typeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
 
 
 

@@ -21,7 +21,7 @@ import Control.Monad.Catch as Catch
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Index
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
-import Language.SecreC.TypeChecker.Semantics
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint hiding (proveWith)
 import Language.SecreC.Pretty
 import Language.SecreC.Location
 import Language.SecreC.Error
@@ -49,7 +49,7 @@ proveWithTcM :: (MonadIO m,Location loc) => SMTConfig -> TcM loc Symbolic SBool 
 proveWithTcM cfg m = do
     arr <- Reader.ask
     env <- State.get
-    st <- liftIO $ newIORef undefined
+    st <- liftIO $ newIORef (error "proveWithTcM")
     opts <- TcM $ lift Reader.ask
     let sym = do
         e <- runSecrecMWith opts $ execTcM m arr env

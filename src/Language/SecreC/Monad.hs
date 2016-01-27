@@ -18,6 +18,7 @@ import qualified Control.Monad.Reader as Reader
 
 import Data.Generics
 import Data.Map as Map
+import Data.Set as Set
 
 import Text.PrettyPrint
 
@@ -64,7 +65,12 @@ defaultOptions = Opts
     , externalSMT = True
     }
 
-type SecrecWarnings = Map Int SecrecWarning
+newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Set SecrecWarning) }
+  deriving (Typeable)
+
+instance Monoid SecrecWarnings where
+    mempty = ScWarns Map.empty
+    mappend (ScWarns x) (ScWarns y) = ScWarns $ Map.unionWith (Set.union) x y
 
 -- | SecreC Monad
 data SecrecM m a = SecrecM { unSecrecM :: ReaderT Options m (Either SecrecError (a,SecrecWarnings)) }
@@ -81,12 +87,12 @@ runSecrecM opts m = flip runReaderT opts $ do
     e <- unSecrecM m
     case e of
         Left err -> liftIO $ throwError $ userError $ ppr err
-        Right (x,warns) -> do
-            forM_ warns $ \w -> liftIO $ hPutStrLn stderr (ppr w)
+        Right (x,ScWarns warns) -> do
+            forM_ warns $ \ws -> forM_ ws $ \w -> liftIO $ hPutStrLn stderr (ppr w)
             return x
 
 instance Monad m => MonadReader Options (SecrecM m) where
-    ask = SecrecM $ liftM (Right . (,Map.empty)) ask
+    ask = SecrecM $ liftM (Right . (,mempty)) ask
     local f (SecrecM m) = SecrecM $ local f m 
 
 instance Monad m => MonadWriter SecrecWarnings (SecrecM m) where
@@ -103,7 +109,7 @@ instance Monad m => MonadError SecrecError (SecrecM m) where
             otherwise -> return x
 
 instance MonadIO m => MonadIO (SecrecM m) where
-    liftIO io = SecrecM $ liftIO $ liftM (Right . (,Map.empty)) io
+    liftIO io = SecrecM $ liftIO $ liftM (Right . (,mempty)) io
 
 instance MonadThrow m => MonadThrow (SecrecM m) where
     throwM e = SecrecM $ lift $ throwM e
@@ -137,7 +143,7 @@ instance Monad m => Functor (SecrecM m) where
             Right (x,w) -> return (Right (f x,w))
             
 instance Monad m => Monad (SecrecM m) where
-    return x = SecrecM $ return $ Right (x,Map.empty)
+    return x = SecrecM $ return $ Right (x,mempty)
     (SecrecM m) >>= f = SecrecM $ do
         ex <- m
         case ex of
@@ -146,7 +152,7 @@ instance Monad m => Monad (SecrecM m) where
                 ey <- unSecrecM (f x)
                 case ey of
                     Left err -> return (Left err)
-                    Right (y,wsy) -> return (Right (y,wsx `Map.union` wsy))
+                    Right (y,wsy) -> return (Right (y,wsx `mappend` wsy))
 
 instance Monad m => Applicative (SecrecM m) where
     pure = return

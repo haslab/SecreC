@@ -164,7 +164,8 @@ data TypecheckerErr
         SecrecError -- ^ sub-error
     | MultipleTypeSubstitutions -- a variable can be resolved in multiple ways
         [Doc] -- list of different substitution options
-    | ConstraintStackSizeExceeded Int
+    | ConstraintStackSizeExceeded
+        Doc -- limit
     | TypeConversionError
         Doc -- conversion kind
         Doc -- type to convert
@@ -194,8 +195,7 @@ data TypecheckerErr
     | AssignConstVariable
         Doc -- variable name
     | DependencyErr
-        Doc -- constraint dependent
-        Doc -- constraint dependency
+        SecrecError -- dependency error
     | IndexConditionNotValid -- failed to prove mandatory index condition
         Doc -- condition
         SecrecError -- sub-error
@@ -205,8 +205,7 @@ instance PP TypecheckerErr where
     pp (IndexConditionNotValid c err) = text "Failed to satisfy index condition:" $+$ nest 4
         (text "Index condition:" <+> c
         $+$ text "Because of:" <+> pp err)
-    pp (DependencyErr k c) = text "Failed to solve constraint dependency" $+$ nest 4
-        (text "Dependent:" <+> k $+$ text "Dependency:" <+> pp c)
+    pp (DependencyErr c) = text "Failed to solve constraint dependency:" $+$ nest 4 (pp c)
     pp (AssignConstVariable n) = text "Cannot perform assignment on constant variable" <+> quotes (pp n)
     pp (FailAddHypothesis hyp err) = text "Failed to add hypothesis" <+> quotes hyp $+$ nest 4
         (text "Because of:" $+$ (nest 4 (pp err)))
@@ -297,7 +296,7 @@ instance PP TypecheckerErr where
         ((text "Type:" <+> t <> char '.' <> att) $+$ (text "Error:" $+$ nest 4 (pp err)))
     pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
         where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
-    pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes (pp i)
+    pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes i
     pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
     pp w@(UncheckedRangeSelection t i rng err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension can not be checked for type" <+> quotes t $+$ nest 4
         (text "Because of:" <+> pp err)
@@ -347,7 +346,7 @@ typecheckerError = TypecheckerError
 data SecrecWarning
     = TypecheckerWarning Position TypecheckerWarn
     | ErrWarn SecrecError
-  deriving (Show,Typeable)
+  deriving (Show,Typeable,Eq,Ord)
   
 instance PP SecrecWarning where
     pp (TypecheckerWarning p w) = text "Warning:" <+> pp p $+$ nest 4 (pp w)
@@ -384,7 +383,7 @@ data TypecheckerWarn
         Doc -- type
         String -- min range
         String -- max range
-  deriving (Data,Show,Typeable)
+  deriving (Data,Show,Typeable,Eq,Ord)
 
 instance PP TypecheckerWarn where
     pp w@(UnusedVariable v) = text "Unused variable" <+> quotes v

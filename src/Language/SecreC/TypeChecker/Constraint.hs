@@ -15,7 +15,6 @@ import Language.SecreC.Error
 import Language.SecreC.Syntax
 import Language.SecreC.Pretty
 import Language.SecreC.Utils
-import Language.SecreC.TypeChecker.Semantics
 import Language.SecreC.TypeChecker.Index
 import Language.SecreC.TypeChecker.SMT
 
@@ -26,6 +25,7 @@ import qualified Control.Monad.Reader as Reader
 import qualified Control.Monad.Writer as Writer
 import Control.Monad.RWS as RWS hiding ((<>))
 
+import Data.Word
 import Data.Bifunctor
 import Data.Either
 import Data.Monoid hiding ((<>))
@@ -39,6 +39,9 @@ import qualified Data.Map as Map
 import Data.Generics hiding (LT,GT,cast,typeOf)
 import qualified Data.Generics as Generics
 import Data.List as List
+import qualified Data.Graph.Inductive.Graph as Graph
+import qualified Data.Graph.Inductive.Query.DFS as Graph
+import qualified Data.Graph.Inductive.Query.TransClos as Graph
 
 import Text.PrettyPrint as PP hiding (equals)
 
@@ -46,55 +49,65 @@ import Safe
 
 -- * Constraint Engine
 
-solveVarId :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m ()
-solveVarId l v = do
-    cstrs <- liftM openedCstrs State.get
-    deps <- liftIO $ varIdDeps v
-    let deps' = Set.difference deps cstrs
-    mapM_ (trySolveIOCstr l) deps'
+hyspGraph :: (VarsIdTcM loc m,Location loc) => TcM loc m (IOCstrGraph loc)
+hyspGraph = do
+    hyps <- liftM Set.toList getHyps
+    gr <- liftM (Graph.trc . tCstrs . mconcatNe . tDict) State.get
+    return $ Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,ioCstrId $ unLoc h)) hyps) gr
+
+-- solves all hypotheses in the environment
+-- note that since we only solve hypotheses constraints, this should always suceed
+solveHypotheses :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m [ICond]
+solveHypotheses l = do
+    (hypsgr) <- hyspGraph
+    tcWith l $ do
+        addHeadTDict $ TDict hypsgr Set.empty Map.empty
+        solve l
+    let solved = Graph.labNodes hypsgr
+    let hyps = endsGr hypsgr
+
+    -- delete all solved constraints from the current graph
+    forM_ solved $ \(_,Loc _ iok) -> do
+        st <- liftIO $ readUniqRef $ kStatus iok
+        case st of
+            Evaluated _ -> updateHeadTDict $ \d -> return ((),d { tCstrs = Graph.delNode (ioCstrId iok) (tCstrs d) })
+            otherwise -> return ()
+    -- collect the result for the hypotheses
+    liftM concat $ forM hyps $ \(_,Loc _ iok) -> do
+        liftM maybeToList $ cstrResult l (kCstr iok) proxy =<< solveIOCstr l iok
+  where proxy = Proxy :: Proxy (Maybe (ICond))
 
 -- | solves all constraints in the top environment
-solve :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m ()
-solve l doGuess = newErrorM $ do
+solve :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m ()
+solve l = newErrorM $ do
     liftIO $ putStrLn $ "solving " ++ ppr l
     env <- State.get
     ss <- ppConstraints $ headNe $ tDict env
-    liftIO $ putStrLn $ "solve " ++ show doGuess ++ "[" ++ show ss ++ "\n]"
-    solveCstrs l doGuess
+    liftIO $ putStrLn $ "solve [" ++ show ss ++ "\n]"
+    solveCstrs l
 --    liftIO $ putStrLn $ "all solved " ++ ppr l
 
--- solves all head constraints
-solveCstrs :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m ()
-solveCstrs l doGuess = do
-    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
-    liftIO $ putStrLn $ "solveCstrs [" ++ show ss ++ "\n]"
-    doc <- liftM ppTSubsts getTSubsts
-    liftIO $ putStrLn $ show doc
-    cstrs <- liftM (Map.elems . tCstrs . headNe . tDict) State.get
-    let cs = filter (isTcCstr . kCstr . unLoc) cstrs
-    go <- trySolveSomeCstrs doGuess cs
-    case go of
-        Left True -> solveCstrs l doGuess -- new substitions have been found, try again
-        Left False -> when doGuess $ solveCheckCstrs -- run checks
-        Right errs -> guessCstrs l doGuess errs -- nothing has progressed, try guessing
+solveCstrs :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m ()
+solveCstrs l = do
+--    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
+--    liftIO $ putStrLn $ "solveCstrs [" ++ show ss ++ "\n]"
+--    doc <- liftM ppTSubsts getTSubsts
+--    liftIO $ putStrLn $ show doc
+    gr <- liftM (tCstrs . headNe . tDict) State.get
+    unless (Graph.isEmpty gr) $ do
+        let roots = rootsGr gr
+        liftIO $ putStrLn $ "solveCstrs [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
+        go <- trySolveSomeCstrs $ map snd roots
+        case go of
+            Left _ -> solveCstrs l
+            Right errs -> do
+                doAll <- liftM (not . inTemplate) State.get
+                guessCstrs l doAll errs >> return ()
 
 -- Left True = one constraint solved
 -- Left False = no remaining unsolved constraints
 -- Right err = failed
 type SolveRes = Either Bool [(Unique,TCstr,SecrecError)]
-
-solveGivenCstrs :: (VarsIdTcM loc m,Location loc) => [Loc loc IOCstr] -> TcM loc m ()
-solveGivenCstrs = mapM_ (\(Loc l iok) -> solveIOCstr l iok)
-
-solveCheckCstrs :: (VarsIdTcM loc m,Location loc) => TcM loc m ()
-solveCheckCstrs = do
---    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
---    liftIO $ putStrLn $ "solveCheckCstrs [" ++ show ss ++ "\n]"
---    doc <- liftM ppTSubsts getTSubsts
---    liftIO $ putStrLn $ show doc
-    cstrs <- liftM (Map.elems . tCstrs . headNe . tDict) State.get
-    let checks = filter (isCheckCstr . kCstr . unLoc) cstrs
-    solveGivenCstrs checks
 
 mergeSolveRes :: SolveRes -> SolveRes -> SolveRes
 mergeSolveRes (Left True) b = Left True
@@ -104,10 +117,11 @@ mergeSolveRes a (Left False) = a
 mergeSolveRes (Right a) (Right b) = Right (a ++ b)
 
 -- | tries to solve one or more constraints
-trySolveSomeCstrs :: (VarsIdTcM loc m,Location loc) => Bool -> [Loc loc IOCstr] -> TcM loc m SolveRes
-trySolveSomeCstrs doAll = foldrM solveBound (Left False)
+trySolveSomeCstrs :: (VarsIdTcM loc m,Location loc) => [Loc loc IOCstr] -> TcM loc m SolveRes
+trySolveSomeCstrs = foldrM solveBound (Left False)
     where
     solveBound x@(Loc l iok) b = do
+        doAll <- liftM (not . inTemplate) State.get
         ok <- trySolveCstr doAll x
         return (mergeSolveRes ok b)
 
@@ -135,30 +149,29 @@ errorOpts :: TCstr -> Maybe [TSubsts]
 errorOpts = everything append (mkQ Nothing aux)
     where
     aux :: TCstr -> Maybe [TSubsts]
-    aux (TcK _ (MultipleSubstitutions v opts)) = Just $ map (Map.singleton v . fst) opts
+    aux (TcK (MultipleSubstitutions v opts)) = Just $ map (Map.singleton v . fst) opts
     aux _ = Nothing
     append Nothing y = y
     append x y = x
     
-filterErrors :: (Monad m,Location loc) => Bool -> [(Unique,TCstr,SecrecError)] -> TcM loc m [(Unique,TCstr,SecrecError)]
+filterErrors :: (Monad m,Location loc) => Bool -> [(Unique,TCstr,SecrecError)] -> TcM loc m ([(Unique,TCstr,SecrecError)])
 filterErrors False errs = do
-    let errs1 = flattenErrors $ filter (not . isGlobalCstr . snd3) errs
-    let errs2 = filter (not . isHaltError . thr3) errs1
-    let errs3 = filter (not . isOrWarnError . thr3) errs2
-    return errs3
+    let errs1 = filter (not . isOrWarnError . thr3) errs
+    let errs2 = flattenErrors $ filter (not . isGlobalCstr . snd3) errs1
+    let errs3 = filter (not . isHaltError . thr3) errs2
+    return (errs3)
 filterErrors True errs = filterWarnings errs
 
 filterWarnings :: (Monad m,Location loc) => [(Unique,TCstr,SecrecError)] -> TcM loc m [(Unique,TCstr,SecrecError)]
 filterWarnings = filterM $ \x -> if isOrWarnError (thr3 x)
     then do
-        i <- getModuleCount
-        TcM $ lift $ tell $ Map.singleton i $ ErrWarn $ thr3 x
+        errWarn $ thr3 x
         return False
     else return True
 
 guessError :: (MonadIO m,Location loc) => Bool -> [(Unique,TCstr,SecrecError)] -> TcM loc m ()
 guessError doAll errs = do
-    errs' <- filterErrors doAll errs
+    (errs') <- filterErrors doAll errs
     unless (null errs') $ throwError $ MultipleErrors $ getErrors errs'
 
 guessCstrs :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> [(Unique,TCstr,SecrecError)] -> TcM loc m ()
@@ -182,208 +195,214 @@ guessCstrs l True errs = do
 --        ss <- ppConstraints =<< liftM (headNe . tDict) State.get
 --        liftIO $ putStrLn $ "guessStep [" ++ show ss ++ "\n]" ++ ppr o
         addSubstsM o
-        solveCstrs l True
+        solveCstrs l
         return Nothing) `catchError` \e -> return (Just $ tryStep o e)
 
+-- since templates are only resolved at instantiation time, we prevent solving of overloadable constraints
 trySolveCstr :: (VarsIdTcM loc m,Location loc) => Bool -> Loc loc IOCstr -> TcM loc m SolveRes
 trySolveCstr False (Loc l iok) | isGlobalCstr (kCstr iok) = do
     return $ Right [(uniqId $ kStatus iok,kCstr iok,GenericError (locpos l) $ text "Unsolved global constraint")]
-trySolveCstr doAll (Loc l iok) = do
-    (solveIOCstr l iok >> return (Left True)) `catchError` processError
-  where
-    processError e = return $ Right [(uniqId $ kStatus iok,kCstr iok,e)]
+trySolveCstr doAll (Loc l iok) = catchError
+    (solveIOCstr l iok >> return (Left True))
+    (\e -> return $ Right [(uniqId $ kStatus iok,kCstr iok,e)])
+
+solveIOCstr :: (VarsIdTcM loc m,Location loc) => loc -> IOCstr -> TcM loc m ShowOrdDyn
+solveIOCstr l iok = resolveIOCstr l iok $ \k -> do
+    size <- liftM (lengthNe . tDict) State.get
+    liftIO $ putStrLn $ "solveIOCstr " ++ show size ++ " " ++ ppr iok
+    gr <- liftM (tCstrs . headNe . tDict) State.get
+    let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) $ contextGr gr (ioCstrId iok)
+    (res,rest) <- tcWith l $ resolveTCstr l (ioCstrId iok) k
+    addHeadTDict $ rest { tCstrs = Graph.empty }
+    unless (Graph.isEmpty $ tCstrs rest) $ do
+        replaceCstrWithGraph l (ioCstrId iok) (Set.fromList $ map snd ins) (tCstrs rest) (Set.fromList $ map snd outs)
+    return res
 
 -- * Throwing Constraints
 
--- throws a constraint
-
-checkCstrM :: (MonadIO m,Location loc) => loc -> CheckCstr -> TcM loc m ()
-checkCstrM l k = do
-    hyps <- tcPos getHyps
-    tCstrM l $ CheckK hyps k
+checkCstrM :: (MonadIO m,Location loc) => loc -> Set IOCstr -> CheckCstr -> TcM loc m ()
+checkCstrM l deps k = do
+    hyps <- getHyps
+    iok <- tCstrM l $ CheckK k
+    addHypDependencies l hyps iok
+    addIOCstrDependenciesM (mapSet ioCstrId deps) (Loc l iok) Set.empty
 
 tCstrsM :: (MonadIO m,Location loc) => loc -> [TCstr] -> TcM loc m ()
 tCstrsM l = mapM_ (tCstrM l)
 
-tCstrM :: (MonadIO m,Location loc) => loc -> TCstr -> TcM loc m ()
+tCstrM :: (MonadIO m,Location loc) => loc -> TCstr -> TcM loc m IOCstr
 tCstrM l k = do
     (i,err) <- askErrorM'
     let k' = DelayedK k (i,err)
-    newTemplateConstraint l k'
-    return ()
+    iok <- newTemplateConstraint l k'
+    deps <- liftM constraintDeps State.get
+    addIOCstrDependenciesM (mapSet ioCstrId deps) (Loc l iok) Set.empty
+    return iok
 
 tcCstrsM :: (MonadIO m,Location loc) => loc -> [TcCstr] -> TcM loc m ()
 tcCstrsM l = mapM_ (tcCstrM l)
 
 tcCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
 tcCstrM l k = do
-    hyps <- tcPos getHyps
-    tCstrM l $ TcK hyps k
+    hyps <- getHyps
+    iok <- tCstrM l $ TcK k
+    addHypDependencies l hyps iok
+
+tcCstrM' :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m IOCstr
+tcCstrM' l k = do
+    hyps <- getHyps
+    iok <- tCstrM l $ TcK k
+    addHypDependencies l hyps iok
+    return iok
 
 tcTopCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
-tcTopCstrM l k = do
-    hyps <- tcPos getHyps
-    newErrorM $ addErrorM l (topCstrErr (locpos l) $ TcK hyps k) $ tcCstrM l k
+tcTopCstrM l k = newErrorM $ addErrorM l (topCstrErr (locpos l) $ TcK k) $ tcCstrM l k
 
 ppOf a b = a <+> text "::" <+> b
 ppTyped (a,b) = pp a `ppOf` pp b
 
 -- | error-handling for a top-level delayed constraint
 topCstrErr :: Position -> TCstr -> SecrecError -> SecrecError
-topCstrErr p (TcK _ (Unifies t1 t2)) err = TypecheckerError p $ UnificationException "type" (pp t1) (pp t2) $ Just err
-topCstrErr p (TcK _ (Coerces e1 t1 e2 t2)) err = TypecheckerError p $ CoercionException "type" (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
-topCstrErr p (TcK _ (Coerces2 e1 t1 e2 t2 v1 v2 x)) err = TypecheckerError p $ BiCoercionException "type" (Just $ pp v1 <> char ';' <> pp v2 `ppOf` pp x) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
-topCstrErr p (TcK _ (Equals t1 t2)) err = TypecheckerError p $ EqualityException "type" (pp t1) (pp t2) $ Just err
-topCstrErr p (TcK _ (CoercesSec e1 t1 e2 t2)) err = TypecheckerError p $ CoercionException "security type" (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
-topCstrErr p (TcK _ (Coerces2Sec e1 t1 e2 t2 v1 v2 x)) err = TypecheckerError p $ BiCoercionException "security type" (Just $ pp v1 <> char ',' <> pp v2 `ppOf` pp x) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
-topCstrErr p (TcK _ (PDec {})) err = err
-topCstrErr p (TcK _ (TRet {})) err = err
-topCstrErr p (TcK _ (TDec {})) err = err
-topCstrErr p t err = err
+topCstrErr p (TcK (Unifies t1 t2)) err = TypecheckerError p $ UnificationException "type" (pp t1) (pp t2) $ Just err
+topCstrErr p (TcK (Coerces e1 t1 e2 t2)) err = TypecheckerError p $ CoercionException "type" (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
+topCstrErr p (TcK (Coerces2 e1 t1 e2 t2 v1 v2 x)) err = TypecheckerError p $ BiCoercionException "type" (Just $ pp v1 <> char ';' <> pp v2 `ppOf` pp x) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
+topCstrErr p (TcK (Equals t1 t2)) err = TypecheckerError p $ EqualityException "type" (pp t1) (pp t2) $ Just err
+topCstrErr p (TcK (CoercesSec e1 t1 e2 t2)) err = TypecheckerError p $ CoercionException "security type" (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
+topCstrErr p (TcK (Coerces2Sec e1 t1 e2 t2 v1 v2 x)) err = TypecheckerError p $ BiCoercionException "security type" (Just $ pp v1 <> char ',' <> pp v2 `ppOf` pp x) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) $ Just err
+topCstrErr p (TcK (PDec {})) err = err
+topCstrErr p (TcK (TRet {})) err = err
+topCstrErr p (TcK (TDec {})) err = err
+topCstrErr p t err = err    
 
-resolveTCstr :: (VarsIdTcM loc m,Location loc) => loc -> TCstr -> TcM loc m ShowOrdDyn
-resolveTCstr l (TcK hyps k) = liftM ShowOrdDyn $ do
-    withHypotheses GlobalScope $ do
-        tcPos $ State.modify $ \env -> env { globalHyps = Set.empty, localHyps = hyps }
-        resolveTcCstr l k
-resolveTCstr l (HypK h) = liftM ShowOrdDyn $ resolveHypCstr l h
-resolveTCstr l (CheckK hyps c) = liftM ShowOrdDyn $ do
-    withHypotheses GlobalScope $ do
-        tcPos $ State.modify $ \env -> env { globalHyps = Set.empty, localHyps = hyps }
-        resolveCheckCstr l c
-resolveTCstr l (DelayedK k (i,err)) = addErrorM' l (i,err) $ resolveTCstr l k
-resolveTCstr l (DepK xs k) = do
-    opens <- liftM openedCstrs State.get
-    forM_ (xs `Set.difference` opens) $ \x -> do
-        st <- liftIO $ readUniqRef $ kStatus x
-        case st of
-            Evaluated _ -> return ()
-            otherwise -> tcError (locpos l) $ Halt $ DependencyErr (pp k) (pp x)
-    resolveTCstr l k
+resolveTCstr :: (VarsIdTcM loc m,Location loc) => loc -> Int -> TCstr -> TcM loc m ShowOrdDyn
+resolveTCstr l kid (TcK k) = liftM ShowOrdDyn $ withHypotheses GlobalScope $ do
+    resolveTcCstr l kid k
+resolveTCstr l kid (HypK h) = liftM ShowOrdDyn $ withHypotheses GlobalScope $ do
+    resolveHypCstr l kid h
+resolveTCstr l kid (CheckK c) = liftM ShowOrdDyn $ withHypotheses GlobalScope $ do
+    resolveCheckCstr l kid c
+resolveTCstr l kid (DelayedK k (i,err)) = addErrorM' l (i,err) $ resolveTCstr l kid k
 
-resolveTcCstr :: (VarsIdTcM loc m,Location loc) => loc -> TcCstr -> TcM loc m ()
-resolveTcCstr l k@(TRet t x) = do
-    res <- templateDecReturn l t
-    addErrorM l
-        (TypecheckerError (locpos l) . TemplateSolvingError (text "Return type of" <+> quotes (pp t)))
-        (tcCstrM l $ Unifies x res)
-resolveTcCstr l k@(TDec n args x) = do
-    (res,_) <- matchTemplate l True (Left n) (Just args) Nothing Nothing (checkTemplateType $ fmap (const l) n)
-    addErrorM l
-        (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args))))
-        (tcCstrM l $ Unifies (DecT x) (DecT res))
-resolveTcCstr l k@(PDec (Left n) specs args r x xs) = do
-    let doCoerce = isJust xs
-    (res,rs) <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) (checkProcedure $ fmap (const l) n)
-    addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
-        tcCstrM l $ Unifies (DecT x) (DecT res)
-        when doCoerce $ unifiesList l (map varIdxT $ fromJustNote "pdec1" xs) (map varIdxT rs)
-resolveTcCstr l k@(PDec (Right o) specs args r x xs) = do
-    let doCoerce = isJust xs
-    (res,rs) <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) (checkOperator $ fmap (const l) o)
-    addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args)))) $ do
-        tcCstrM l $ Unifies (DecT x) (DecT res)
-        when doCoerce $ unifiesList l (map varIdxT $ fromJustNote "pdec1" xs) (map varIdxT rs)
-resolveTcCstr l k@(Equals t1 t2) = do
-    equals l t1 t2
-resolveTcCstr l k@(Coerces e1 t1 x2 t2) = do
-    coerces l e1 t1 x2 t2
-resolveTcCstr l k@(Coerces2 e1 t1 e2 t2 x1 x2 t3) = do
-    res <- coerces2 l e1 t1 e2 t2 x1 x2
-    addErrorM l
-        (TypecheckerError (locpos l) . BiCoercionException "type" (Just $ pp x1 <> char ';' <> pp x2 `ppOf` pp t3) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) . Just)
-        (tcCstrM l $ Unifies t3 res)
-resolveTcCstr l k@(CoercesSec e1 t1 x2 t2) = do
-    coercesSec l e1 t1 x2 t2
-resolveTcCstr l k@(Coerces2Sec e1 t1 e2 t2 x1 x2 s3) = do
-    res <- coerces2Sec l e1 t1 e2 t2 x1 x2
-    addErrorM l
-        (TypecheckerError (locpos l) . BiCoercionException "security type" (Just $ pp x1 <> char ';' <> pp x2 `ppOf` pp s3) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) . Just)
-        (tcCstrM l $ Unifies (SecT s3) (SecT res))
-resolveTcCstr l k@(Unifies t1 t2) = do
-    unifies l t1 t2
-resolveTcCstr l k@(SupportedPrint t xs) = do
-    isSupportedPrint l t xs
-resolveTcCstr l k@(ProjectStruct t a x) = do
-    addErrorM l
-        (TypecheckerError (locpos l) . UnresolvedFieldProjection (pp t) (pp a <+> char '=' <+> pp x))
-        (projectStructField l t a >>= \res -> tcCstrM l $ Unifies x res)
-resolveTcCstr l k@(ProjectMatrix ct rngs x) = do
-    addErrorM l
-        (TypecheckerError (locpos l) . UnresolvedMatrixProjection (pp ct) (brackets (ppArrayRanges rngs) <+> char '=' <+> pp x))
-        (projectMatrixType l ct rngs >>= \res -> tcCstrM l $ Unifies (ComplexT x) (ComplexT res))
-resolveTcCstr l k@(IsReturnStmt cs ret dec) = do
-    isReturnStmt l cs ret dec
-resolveTcCstr l (MultipleSubstitutions v s) = do
-    multipleSubstitutions l v s
-resolveTcCstr l (MatchTypeDimension t d) = matchTypeDimension l t d
-resolveTcCstr l (IsValid c) = do
-    x <- ppM l c
-    addErrorM l (TypecheckerError (locpos l) . IndexConditionNotValid (pp x)) $ do
-        ic <- expr2ICond $ fmap (Typed l) c
-        isValid l ic
+-- tests of a constraint is only used as part of an hypothesis
+isHypInGraph :: Int -> IOCstrGraph loc -> Bool
+isHypInGraph kid gr = case Graph.match kid gr of
+    (Nothing,gr') -> False
+    (Just (_,_,(kCstr . unLoc) -> HypK {},_),gr') -> True
+    (Just (_,_,_,outs),gr') -> all (flip isHypInGraph gr' . snd) outs
 
-resolveHypCstr :: (VarsIdTcM loc m,Location loc) => loc -> HypCstr -> TcM loc m (Maybe (ICond))
-resolveHypCstr l hyp = newErrorM $ addErrorM l (TypecheckerError (locpos l) . FailAddHypothesis (pp hyp)) $ orWarn $ resolveHypCstr' hyp
-    where
+resolveTcCstr :: (VarsIdTcM loc m,Location loc) => loc -> Int -> TcCstr -> TcM loc m ()
+resolveTcCstr l kid k = do
+    gr <- liftM (tCstrs . headNe . tDict) State.get
+    let warn = isHypInGraph kid gr
+--    liftIO $ putStrLn $ "resolve " ++ show warn ++ " " ++ ppr k
+    if warn
+        then newErrorM $ orWarn_ $ resolveTcCstr' k
+        else resolveTcCstr' k
+  where
+    resolveTcCstr' k@(TRet t x) = do
+        res <- templateDecReturn l t
+        addErrorM l
+            (TypecheckerError (locpos l) . TemplateSolvingError (text "Return type of" <+> quotes (pp t)))
+            (tcCstrM l $ Unifies x res)
+    resolveTcCstr' k@(TDec n args x) = do
+        (res,_) <- matchTemplate l True (Left n) (Just args) Nothing Nothing (checkTemplateType $ fmap (const l) n)
+        addErrorM l
+            (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args))))
+            (tcCstrM l $ Unifies (DecT x) (DecT res))
+    resolveTcCstr' k@(PDec (Left n) specs args r x xs) = do
+        let doCoerce = isJust xs
+        (res,rs) <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) (checkProcedure $ fmap (const l) n)
+        addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
+            tcCstrM l $ Unifies (DecT x) (DecT res)
+            when doCoerce $ unifiesList l (map varIdxT $ fromJustNote "pdec1" xs) (map varIdxT rs)
+    resolveTcCstr' k@(PDec (Right o) specs args r x xs) = do
+        let doCoerce = isJust xs
+        (res,rs) <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) (checkOperator $ fmap (const l) o)
+        addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args)))) $ do
+            tcCstrM l $ Unifies (DecT x) (DecT res)
+            when doCoerce $ unifiesList l (map varIdxT $ fromJustNote "pdec1" xs) (map varIdxT rs)
+    resolveTcCstr' k@(Equals t1 t2) = do
+        equals l t1 t2
+    resolveTcCstr' k@(Coerces e1 t1 x2 t2) = do
+        coerces l e1 t1 x2 t2
+    resolveTcCstr' k@(Coerces2 e1 t1 e2 t2 x1 x2 t3) = do
+        res <- coerces2 l e1 t1 e2 t2 x1 x2
+        addErrorM l
+            (TypecheckerError (locpos l) . BiCoercionException "type" (Just $ pp x1 <> char ';' <> pp x2 `ppOf` pp t3) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) . Just)
+            (tcCstrM l $ Unifies t3 res)
+    resolveTcCstr' k@(CoercesSec e1 t1 x2 t2) = do
+        coercesSec l e1 t1 x2 t2
+    resolveTcCstr' k@(Coerces2Sec e1 t1 e2 t2 x1 x2 s3) = do
+        res <- coerces2Sec l e1 t1 e2 t2 x1 x2
+        addErrorM l
+            (TypecheckerError (locpos l) . BiCoercionException "security type" (Just $ pp x1 <> char ';' <> pp x2 `ppOf` pp s3) (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) . Just)
+            (tcCstrM l $ Unifies (SecT s3) (SecT res))
+    resolveTcCstr' k@(Unifies t1 t2) = do
+        unifies l t1 t2
+    resolveTcCstr' k@(SupportedPrint t xs) = do
+        isSupportedPrint l t xs
+    resolveTcCstr' k@(ProjectStruct t a x) = do
+        addErrorM l
+            (TypecheckerError (locpos l) . UnresolvedFieldProjection (pp t) (pp a <+> char '=' <+> pp x))
+            (projectStructField l t a >>= \res -> tcCstrM l $ Unifies x res)
+    resolveTcCstr' k@(ProjectMatrix ct rngs x) = do
+        addErrorM l
+            (TypecheckerError (locpos l) . UnresolvedMatrixProjection (pp ct) (brackets (ppArrayRanges rngs) <+> char '=' <+> pp x))
+            (projectMatrixType l ct rngs >>= \res -> tcCstrM l $ Unifies (ComplexT x) (ComplexT res))
+    resolveTcCstr' k@(IsReturnStmt cs ret dec) = do
+        isReturnStmt l cs ret dec
+    resolveTcCstr' (MultipleSubstitutions v s) = do
+        multipleSubstitutions l v s
+    resolveTcCstr' (MatchTypeDimension t d) = matchTypeDimension l t d
+    resolveTcCstr' (IsValid c) = do
+        x <- ppM l c
+        addErrorM l (TypecheckerError (locpos l) . IndexConditionNotValid (pp x)) $ do
+            ic <- expr2ICond $ fmap (Typed l) c
+            isValid l ic
+
+resolveHypCstr :: (VarsIdTcM loc m,Location loc) => loc -> Int -> HypCstr -> TcM loc m (Maybe (ICond))
+resolveHypCstr l kid hyp = newErrorM $ addErrorM l (TypecheckerError (locpos l) . FailAddHypothesis (pp hyp)) $ orWarn $ do
+    resolveHypCstr' hyp
+  where
     resolveHypCstr' (HypCondition c) = expr2ICond $ fmap (Typed l) c
     resolveHypCstr' (HypNotCondition c) = liftM INot $ expr2ICond $ fmap (Typed l) c
-    resolveHypCstr' (HypAssign (VarName t n) e) = do
-        i <- expr2IExprAs (fmap (Typed l) e) t
-        return $ IIdx (VarName (DatatypeUint64 ()) n) .==. i
     resolveHypCstr' (HypEqual e1 e2) = do
         i1 <- expr2IExpr $ fmap (Typed l) e1
         i2 <- expr2IExpr $ fmap (Typed l) e2
         return $ i1 .==. i2
     
-resolveCheckCstr :: (VarsIdTcM loc m,Location loc) => loc -> CheckCstr -> TcM loc m ()
-resolveCheckCstr l (CheckAssertion c) = checkAssertion l c
-resolveCheckCstr l (CheckEqual e1 e2) = checkEqual l e1 e2
-resolveCheckCstr l (CheckArrayAccess t d low up sz) = checkArrayAccess l t d low up sz
-
-solveIOCstr :: (VarsIdTcM loc m,Location loc) => loc -> IOCstr -> TcM loc m ShowOrdDyn
-solveIOCstr l iok = do
---    liftIO $ putStrLn $ "solving IOCstr " ++ ppr (kCstr iok)
-    x <- resolveIOCstr l iok resolveTCstr
---    liftIO $ putStrLn $ "solved IOCstr " ++ ppr (kCstr iok)
-    return x
-
-trySolveIOCstr :: (VarsIdTcM loc m,Location loc) => loc -> IOCstr -> TcM loc m (Maybe ShowOrdDyn)
-trySolveIOCstr l iok = (liftM Just $ solveIOCstr l iok) `mplus` return Nothing
+resolveCheckCstr :: (VarsIdTcM loc m,Location loc) => loc -> Int -> CheckCstr -> TcM loc m ()
+resolveCheckCstr l kid k = addErrorM l (TypecheckerError (locpos l) . StaticAssertionFailure (pp k)) $ orWarn_ $ do
+    resolveCheckCstr' k
+  where
+    resolveCheckCstr' (CheckAssertion c) = checkAssertion l c
+    resolveCheckCstr' (CheckEqual e1 e2) = checkEqual l e1 e2
+    resolveCheckCstr' (CheckArrayAccess t d low up sz) = checkArrayAccess l t d low up sz
 
 cstrResult :: (IsScVar a,Monad m,Location loc) => loc -> TCstr -> Proxy a -> ShowOrdDyn -> TcM loc m a
 cstrResult l k (Proxy::Proxy t) dyn = case fromShowOrdDyn dyn of
-    Nothing -> genError (locpos l) $ text "Wrong IOCstr output type" <+> text (show dyn) <+> text "::" <+> text (show $ applyShowOrdDyn Generics.typeOf dyn) <+> text "with type" <+> text (show $ Generics.typeOf (undefined::t)) <+> pp k
+    Nothing -> genError (locpos l) $ text "Wrong IOCstr output type" <+> text (show dyn) <+> text "::" <+> text (show $ applyShowOrdDyn Generics.typeOf dyn) <+> text "with type" <+> text (show $ Generics.typeOf (error "applyShowOrdDyn"::t)) <+> pp k
     Just x -> return x
 
-solveHypotheses :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m [ICond]
-solveHypotheses l = do
---    liftIO $ putStrLn $ "solving hypotheses " ++ ppr l
-    hyps <- liftM Set.toList getHyps
-    is <- liftM concat $ mapM (\(Loc l iok) -> liftM maybeToList $ cstrResult l (kCstr iok) proxy =<< solveIOCstr l iok) hyps
---    liftIO $ putStrLn $ "solved hypotheses " ++ ppr l
-    return is
-  where proxy = Proxy :: Proxy (Maybe (ICond))
-
-tcProve :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m (a,TDict loc)
-tcProve l doGuess m = do
+tcProve :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (a,TDict loc)
+tcProve l m = do
     newDict l
     x <- m
-    solve l doGuess
+    solve l
     d <- liftM (headNe . tDict) State.get
     State.modify $ \e -> e { tDict = dropDict (tDict e) }
     return (x,d)
   where
     dropDict (ConsNe x xs) = xs
 
-proveWith :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
-proveWith l doGuess proof = try `catchError` (return . Left)
+proveWith :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
+proveWith l proof = try `catchError` (return . Left)
     where
-    try = liftM Right $ tcProve l doGuess proof
+    try = liftM Right $ tcProve l proof
 
-prove :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TcM loc m a -> TcM loc m a
-prove l doGuess m = do
-    (a,dict) <- tcProve l doGuess m
+prove :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
+prove l m = do
+    (a,dict) <- tcProve l m
     addHeadTDict dict
     return a
 
@@ -451,7 +470,7 @@ equals l (SType k1) (SType k2) | k1 == k2 = return ()
 equals l (StmtType s1) (StmtType s2) | s1 == s2 = return ()
 equals l (CondType t1 c1) (CondType t2 c2) = do
     equals l t1 t2
-    equalsExpr l c1 c2
+    tcCstrM l $ Equals (IdxT c1) (IdxT c2)
 equals l t1 t2 = constraintError (EqualityException "type") l t1 pp t2 pp Nothing
 
 equalsSys :: (VarsIdTcM loc m,Location loc) => loc -> SysType -> SysType -> TcM loc m ()
@@ -558,8 +577,8 @@ expandCTypeVar l v = do
 coerces2 :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> VarName VarIdentifier Type -> TcM loc m Type
 coerces2 l e1 (BaseT t1) e2 (BaseT t2) x1 x2 = do
     unifiesBase l t1 t2
-    unifiesExpr l (varExpr x1) e1
-    unifiesExpr l (varExpr x2) e2
+    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
     return $ BaseT t1
 coerces2 l e1 (ComplexT t1) e2 (ComplexT t2) x1 x2 = liftM ComplexT $ coerces2Complex l e1 t1 e2 t2 x1 x2
 coerces2 l e1 (ComplexT c1) e2 (BaseT b2) x1 x2 = liftM ComplexT $ coerces2Complex l e1 c1 e2 (defCType b2) x1 x2
@@ -583,8 +602,8 @@ coerces2 l e1 t1 e2 t2 x1 x2 = addErrorM l
     (TypecheckerError (locpos l) . BiCoercionException "type" Nothing (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) . Just)
     (do
         equals l t1 t2
-        unifiesExpr l (varExpr x1) e1
-        unifiesExpr l (varExpr x2) e2
+        tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+        tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
         return t1)
 
 coerces2Complex :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> ComplexType -> Expression VarIdentifier Type -> ComplexType -> VarName VarIdentifier Type -> VarName VarIdentifier Type -> TcM loc m ComplexType
@@ -592,35 +611,35 @@ coerces2Complex l e1 t1 e2 t2 x1 x2 | isVoid t1 || isVoid t2 = addErrorM l
     (TypecheckerError (locpos l) . BiCoercionException "complex type" Nothing (pp e1 `ppOf` pp t1) (pp e2 `ppOf` pp t2) . Just)
     (do
         unifiesComplex l t1 t2
-        unifiesExpr l (varExpr x1) e1
-        unifiesExpr l (varExpr x2) e2
+        tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+        tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
         return t1)
 coerces2Complex l e1 t1@(isLitCType -> True) e2 t2@(isLitCType -> True) x1 x2 = do
     v@(ComplexT c) <- newTyVar
     tcCstrM l $ Coerces e1 (ComplexT t1) x1 v
     tcCstrM l $ Coerces e2 (ComplexT t2) x2 v
-    unifiesExpr l (varExpr x1) e1
-    unifiesExpr l (varExpr x2) e2
+    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
     return c
 coerces2Complex l e1 (TyLit lit) e2 t2 x1 x2 = do
     x <- coercesLitComplex l e1 lit t2 -- literals are never variables
-    unifiesExpr l (varExpr x1) x
-    unifiesExpr l (varExpr x2) e2
+    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT x)
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
     return t2
 coerces2Complex l e1 (ArrayLit lit) e2 t2 x1 x2 = do
     x <- coercesArrayLitComplex l e1 lit t2 -- literals are never variables
-    unifiesExpr l (varExpr x1) x
-    unifiesExpr l (varExpr x2) e2
+    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT x)
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
     return t2
 coerces2Complex l e1 t1 e2 (TyLit lit) x1 x2 = do
     x <- coercesLitComplex l e2 lit t1 -- literals are never variables
-    unifiesExpr l (varExpr x1) e1
-    unifiesExpr l (varExpr x2) x
+    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT x)
     return t1
 coerces2Complex l e1 t1 e2 (ArrayLit lit) x1 x2 = do
     x <- coercesArrayLitComplex l e2 lit t1 -- literals are never variables
-    unifiesExpr l (varExpr x1) e1
-    unifiesExpr l (varExpr x2) x
+    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT x)
     return t1
 coerces2Complex l e1 ct1@(CType s1 t1 d1 sz1) e2 ct2@(CType s2 t2 d2 sz2) x1 x2 = do
     tcCstrM l $ Unifies (BaseT t1) (BaseT t2) -- we unify base types, no coercions here
@@ -669,22 +688,22 @@ coerces2Sec l e1 ct1 e2 ct2 x1 x2 = do
     if implicitClassify opts
         then do
             let left = do
-                prove l False $ do
+                prove l $ do
                     coercesSec l e1 ct1 x1 s2
-                    unifiesExpr l (varExpr x2) e2
+                    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
                 return s2
             let right = do
-                prove l False $ do
+                prove l $ do
                     coercesSec l e2 ct2 x2 s1
-                    unifiesExpr l (varExpr x1) e1
+                    tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
                 return s1
             addErrorM l
                 (TypecheckerError (locpos l) . BiCoercionException "security type" Nothing (pp e1 `ppOf` pp ct1) (pp e2 `ppOf` pp ct2) . Just)
                 (left `mplus` right)
         else do
             unifiesComplex l ct1 ct2
-            unifiesExpr l (varExpr x1) e1
-            unifiesExpr l (varExpr x2) e2
+            tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+            tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
             return $ cSec ct1
 
 --coerces2Sys :: (VarsIdTcM loc m,Location loc) => loc -> SysType -> SysType -> TcM loc m SysType
@@ -709,7 +728,7 @@ coerces2Sec l e1 ct1 e2 ct2 x1 x2 = do
 coercesE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Type -> TcM loc m (Expression VarIdentifier Type)
 coercesE l e1 t1 t2 = do
     x2 <- newTypedVar "coerces" t2
-    coerces l e1 t1 x2 t2
+    tcCstrM l $ Coerces e1 t1 x2 t2
     return $ varExpr x2
 
 -- | Directed coercion, with implicit security type coercions and literal coercions
@@ -718,7 +737,7 @@ coercesE l e1 t1 t2 = do
 coerces :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> Type -> TcM loc m ()
 coerces l e1 t1@(BaseT b1) x2 t2@(BaseT b2) = addErrorM l (TypecheckerError (locpos l) . (CoercionException "base type") (pp e1 `ppOf` pp t1) (pp x2 `ppOf` pp t2) . Just) $ do
     unifiesBase l b1 b2
-    unifiesExpr l (varExpr x2) e1
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
 coerces l e1 t1@(ComplexT ct1) x2 t2@(ComplexT ct2) = coercesComplex l e1 ct1 x2 ct2
 coerces l e1 t1@(ComplexT c1) x2 t2@(BaseT b2) = coercesComplex l e1 c1 x2 (defCType b2)
 coerces l e1 t1@(BaseT b1) x2 t2@(ComplexT c2) = coercesComplex l e1 (defCType b1) x2 c2
@@ -735,7 +754,7 @@ coerces l e1 t1 x2 t2 = addErrorM l
     (TypecheckerError (locpos l) . (CoercionException "type") (pp e1 `ppOf` pp t1) (pp x2 `ppOf` pp t2) . Just)
     (do
         unifies l t1 t2
-        unifiesExpr l (varExpr x2) e1
+        tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
     )
 
 --coercesSys :: (VarsIdTcM loc m,Location loc) => loc -> SyscallParameter VarIdentifier Type -> SysType -> SysType -> TcM loc m (SyscallParameter VarIdentifier Type)
@@ -757,13 +776,13 @@ coercesComplexE l e1 ct1 ct2 = do
 coercesComplex :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> ComplexType -> VarName VarIdentifier Type -> ComplexType -> TcM loc m ()
 coercesComplex l e1 t1 x2 t2 | isVoid t1 || isVoid t2 = addErrorM l
     (TypecheckerError (locpos l) . (CoercionException "complex type") (pp e1 `ppOf` pp t1) (pp x2 `ppOf` pp t2) . Just)
-    (unifiesComplex l t1 t2 >> unifiesExpr l (varExpr x2) e1)
+    (unifiesComplex l t1 t2 >> tcCstrM l (Unifies (IdxT $ varExpr x2) (IdxT e1)))
 coercesComplex l e1 t1@(TyLit lit) x2 t2 = addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type") (pp e1 `ppOf` pp t1) (pp x2 `ppOf` pp t2) . Just) $ do
     e2 <- coercesLitComplex l e1 lit t2 -- literals are never variables
-    unifiesExpr l (varExpr x2) e2
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
 coercesComplex l e1 t1@(ArrayLit lit) x2 t2 = addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type") (pp e1 `ppOf` pp t1) (pp x2 `ppOf` pp t2) . Just) $ do
     e2 <- coercesArrayLitComplex l e1 lit t2 -- literals are never variables
-    unifiesExpr l (varExpr x2) e2
+    tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
 coercesComplex l e1 ct1@(CType s1 t1 d1 sz1) x2 ct2@(CType s2 t2 d2 sz2) = addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type") (pp e1 `ppOf` pp ct1) (pp x2 `ppOf` pp ct2) . Just) $ do
     tcCstrM l $ Unifies (BaseT t1) (BaseT t2) -- we unify base types, no coercions here
     tcCstrM l $ Unifies (IdxT d1) (IdxT d2)
@@ -813,11 +832,11 @@ coercesSec l e1 ct1 x2 s2 = do
         else addErrorM l (TypecheckerError (locpos l) . (CoercionException "security type") (pp e1 `ppOf` pp ct1) (pp x2 `ppOf` pp s2) . Just) $ do
             let t2 = ComplexT $ setCSec ct1 s2
             unifiesSec l (cSec ct1) s2
-            unifiesExpr l (varExpr x2) e1
+            tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
 
 coercesSec' :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> ComplexType -> VarName VarIdentifier Type -> SecType -> TcM loc m ()
-coercesSec' l e1 (cSec -> SVar v1 k1) x2 (SVar v2 k2) | v1 == v2 && k1 == k2 = unifiesExpr l (varExpr x2) e1
-coercesSec' l e1 (cSec -> Public) x2 Public = unifiesExpr l (varExpr x2) e1
+coercesSec' l e1 (cSec -> SVar v1 k1) x2 (SVar v2 k2) | v1 == v2 && k1 == k2 = tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
+coercesSec' l e1 (cSec -> Public) x2 Public = tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
 coercesSec' l e1 ct1@(cSec -> s1@Public) x2 s2@(SVar v AnyKind) = do
     mb <- tryResolveSVar l v
     case mb of
@@ -843,14 +862,14 @@ coercesSec' l e1 ct1@(cSec -> s1@(SVar v _)) x2 s2@(Public) = addErrorM l
     (TypecheckerError (locpos l) . (CoercionException "security type") (pp e1 `ppOf` pp ct1) (pp x2 `ppOf` pp s2) . Just)
     (do
         tcCstrM l $ Unifies (SecT s1) (SecT s2)
-        unifiesExpr l (varExpr x2) e1
+        tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
     )
-coercesSec' l e1 ct1@(cSec -> Private d1 k1) x2 (Private d2 k2) | d1 == d2 && k1 == k2 = unifiesExpr l (varExpr x2) e1
+coercesSec' l e1 ct1@(cSec -> Private d1 k1) x2 (Private d2 k2) | d1 == d2 && k1 == k2 = tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
 coercesSec' l e1 ct1@(cSec -> s1@(Private d1 k1)) x2 s2@(SVar v _) = addErrorM l
     (TypecheckerError (locpos l) . (CoercionException "security type") (pp e1 `ppOf` pp ct1) (pp x2 `ppOf` pp s2) . Just)
     (do
         tcCstrM l $ Unifies (SecT s1) (SecT s2)
-        unifiesExpr l (varExpr x2) e1
+        tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
     )
 coercesSec' l e1 ct1@(cSec -> s1@(SVar v1 AnyKind)) x2 s2@(Private d2 k2) = do
     mb <- tryResolveSVar l v1
@@ -870,7 +889,7 @@ coercesSec' l e1 ct1@(cSec -> s1@(SVar v _)) x2 s2@(Private d2 k2) = addErrorM l
     (TypecheckerError (locpos l) . (CoercionException "security type") (pp e1 `ppOf` pp ct1) (pp x2 `ppOf` pp s2) . Just)
     (do
         tcCstrM l $ Unifies (SecT s1) (SecT s2)
-        unifiesExpr l (varExpr x2) e1
+        tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
     )
 coercesSec' l e1 ct1@(cSec -> Public) x2 s2@(Private d2 k2) = do
     opts <- askOpts
@@ -902,7 +921,7 @@ classifiesCstrs l e1 ct1 x2 s2 = do
 coercesLitComplex :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Literal () -> ComplexType -> TcM loc m (Expression VarIdentifier Type)
 coercesLitComplex l e1 lit ct@(CType s t d sz) = do
     coercesLitBase l lit t
-    x <- newTypedVar "lit" $ ComplexT ct
+    x <- newTypedVar (elimSpaces $ "lit"++ppr lit) $ ComplexT ct
     tcCstrM l $ CoercesSec e1 (setCSec ct Public) x s  -- coerce the security type
     return $ varExpr x
 coercesLitComplex l e1 lit (CVar v) = do
@@ -985,18 +1004,18 @@ compares l (SysT t1) (SysT t2) = do
     comparesSys l t1 t2
 compares l (DecT d1) (DecT d2) = do
     comparesDec l d1 d2
-compares l (CondType t1 c1) (CondType t2 c2) = do
-    o1 <- compares l t1 t2
-    o2 <- comparesSCond l c1 c2
-    return $ o1 `mappend` o2
-compares l (CondType t1 c1) t2 = do
-    o1 <- compares l t1 t2
-    o2 <- comparesSCond l c1 trueSCond
-    return $ o1 `mappend` o2
-compares l t1 (CondType t2 c2) = do
-    o1 <- compares l t1 t2
-    o2 <- comparesSCond l trueSCond c2
-    return $ o1 `mappend` o2
+--compares l (CondType t1 c1) (CondType t2 c2) = do
+--    o1 <- compares l t1 t2
+--    o2 <- comparesSCond l c1 c2
+--    return $ o1 `mappend` o2
+--compares l (CondType t1 c1) t2 = do
+--    o1 <- compares l t1 t2
+--    o2 <- comparesSCond l c1 trueSCond
+--    return $ o1 `mappend` o2
+--compares l t1 (CondType t2 c2) = do
+--    o1 <- compares l t1 t2
+--    o2 <- comparesSCond l trueSCond c2
+--    return $ o1 `mappend` o2
 compares l t1 t2 = addErrorM l
     (TypecheckerError (locpos l) . (ComparisonException "type") (pp t1) (pp t2) . Just)
     (equals l t1 t2 >> return EQ)
@@ -1470,12 +1489,22 @@ tryResolveTVar l v = do
     mb <- substsFromMap s v
     return $ mb
 
+-- | tries to resolve an expression
+tryResolveEVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m (Maybe (SExpr VarIdentifier (Typed loc)))
+tryResolveEVar l v | varIdTok v = return Nothing
+tryResolveEVar l v = do
+    addVarDependencies v
+    ss <- liftM (tSubsts . mconcatNe . tDict) State.get
+    case Map.lookup v ss of
+        Just (IdxT (e)) -> return $ Just (fmap (Typed l) e)
+        otherwise -> return Nothing
+
 setCSec (CType _ t d sz) s = CType s t d sz
 
 isSupportedPrint :: (VarsIdTcM loc m,Location loc) => loc -> [Expression VarIdentifier Type] -> [VarName VarIdentifier Type] -> TcM loc m ()
 isSupportedPrint l ts xs = forM_ (zip ts xs) $ \(t,x) -> do
     (dec,[y]) <- tcTopPDecCstrM l True (Left $ ProcedureName () (mkVarId "tostring")) Nothing [t] (BaseT string)
-    unifiesExpr l (varExpr x) y
+    tcCstrM l $ Unifies (IdxT $ varExpr x) (IdxT y)
     return ()
 
 isReturnStmt :: (VarsIdTcM loc m,Location loc) => loc -> Set StmtClass -> Type -> ProcedureDeclaration VarIdentifier Position -> TcM loc m ()
@@ -1487,7 +1516,7 @@ isReturnStmt l cs ret dec = aux $ Set.toList cs
         (tcCstrM l (Unifies (ComplexT Void) ret) >> return ())
 
 unifiesSCond :: (VarsIdTcM loc m,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc m ()
-unifiesSCond l e1 e2 = unifiesExpr l e1 e2 `mplus` satisfiesSConds l [e1,e2]
+unifiesSCond l e1 e2 = tcCstrM l (Unifies (IdxT e1) (IdxT e2)) `mplus` satisfiesSConds l [e1,e2]
 
 satisfiesSConds :: (VarsIdTcM loc m,Location loc) => loc -> [SCond VarIdentifier Type] -> TcM loc m ()
 satisfiesSConds l is = do
@@ -1522,13 +1551,13 @@ unifiesTIdentifier l (Right (Right op1)) (Right (Right op2)) | funit op1 == funi
 unifiesTIdentifier l n1 n2 | n1 == n2 = return ()
 unifiesTIdentifier l t1 t2 = constraintError (UnificationException "identifier") l t1 pp t2 pp Nothing
     
-equalsExpr :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
-equalsExpr l e1 e2 = addErrorM l
-        (TypecheckerError (locpos l) . (EqualityException "expression") (pp e1) (pp e2) . Just)
-        (equalsEvalExpr l e1 e2 `mplus` equalsIExpr l e1 e2)
+--equalsExpr :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+--equalsExpr l e1 e2 = addErrorM l
+--        (TypecheckerError (locpos l) . (EqualityException "expression") (pp e1) (pp e2) . Just)
+--        (equalsEvalExpr l e1 e2 `mplus` equalsIExpr l e1 e2)
 
-equalsIExpr :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
-equalsIExpr l e1 e2 = do
+equalsExpr :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+equalsExpr l e1 e2 = do
     i1 <- expr2ICondOrExpr $ fmap (Typed l) e1
     i2 <- expr2ICondOrExpr $ fmap (Typed l) e2
     case (i1,i2) of
@@ -1538,22 +1567,22 @@ equalsIExpr l e1 e2 = do
         (Right ie1,Right ie2) -> isValid l (ie1 .==. ie2)
         otherwise -> genTcError (locpos l) $ text "mismatching expression types"
     
-equalsEvalExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
-equalsEvalExpr l e1 e2 | funit e1 == funit e2 = return ()
-equalsEvalExpr l e1 e2 = do
-    v1 <- evaluateExpr $ fmap (Typed l) e1
-    v2 <- evaluateExpr $ fmap (Typed l) e2
-    let ce1' = funit e1
-    let ce2' = funit e2
-    unless (v1 == v2) $ genTcError (locpos l) $ text "not the same"
+--equalsEvalExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
+--equalsEvalExpr l e1 e2 | funit e1 == funit e2 = return ()
+--equalsEvalExpr l e1 e2 = do
+--    v1 <- evaluateExpr $ fmap (Typed l) e1
+--    v2 <- evaluateExpr $ fmap (Typed l) e2
+--    let ce1' = funit e1
+--    let ce2' = funit e2
+--    unless (v1 == v2) $ genTcError (locpos l) $ text "not the same"
     
-comparesSCond :: (VarsIdTcM loc m,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc m Ordering
-comparesSCond l (e1) (e2) = mplus
-    (comparesExpr l e1 e2)
-    (do
-        i1 <- expr2ICond $ fmap (Typed l) e1
-        i2 <- expr2ICond $ fmap (Typed l) e2
-        compareICond l i1 i2)
+--comparesSCond :: (VarsIdTcM loc m,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc m Ordering
+--comparesSCond l e1 e2 = mplus
+--    (comparesExpr l e1 e2)
+--    (do
+--        i1 <- expr2ICond $ fmap (Typed l) e1
+--        i2 <- expr2ICond $ fmap (Typed l) e2
+--        compareICond l i1 i2)
     
 comparesExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m Ordering
 comparesExpr l e1@(RVariablePExpr _ v1@(VarName _ n)) e2@(RVariablePExpr _ v2) = do
@@ -1612,29 +1641,45 @@ constraintList err f l (x:xs) (y:ys) = do
 constraintList err f l xs ys = constraintError err l xs pp ys pp Nothing
 
 checkAssertion :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> TcM loc m ()
-checkAssertion l e = addErrorM l (TypecheckerError (locpos l) . StaticAssertionFailure (pp e)) $ orWarn_ $ do
+checkAssertion l e = do
     ic <- expr2ICond $ fmap (Typed l) e
     isValid l ic
     
 checkEqual :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
-checkEqual l e1 e2 = addErrorM l (TypecheckerError (locpos l) . StaticAssertionFailure (pp e1 <+> text "==" <+> pp e2)) $ orWarn_ $ do
+checkEqual l e1 e2 = do
     i1 <- expr2IExpr $ fmap (Typed l) e1
     i2 <- expr2IExpr $ fmap (Typed l) e2
     isValid l (i1 .==. i2)
 
+checkIndex :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> TcM loc m ()
+checkIndex l e = do
+    ie <- expr2IExpr $ fmap (Typed l) e
+    isValid l $ ie .>=. IInt 0
+
+checkArrayAccess :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+checkArrayAccess l t d low up sz = do
+    il <- expr2IExpr $ fmap (Typed l) low
+    iu <- expr2IExpr $ fmap (Typed l) up
+    isz <- expr2IExpr $ fmap (Typed l) sz
+    isValid l $ IAnd [il .>=. IInt 0,iu .>=. IInt 0,isz .>=. il,iu .<=. isz]
+
 tcTopCoercesCstrM :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> Type -> TcM loc m ()
 tcTopCoercesCstrM l e1 t1 x2 t2 = do
     opts <- askOpts
-    unless (implicitClassify opts) $ unifiesExpr l (varExpr x2) e1
-    tcTopCstrM l $ Coerces e1 t1 x2 t2
+    if (implicitClassify opts)
+        then tcTopCstrM l $ Coerces e1 t1 x2 t2
+        else do
+            tcCstrM l $ Unifies t1 t2
+            tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e1)
 
 tcTopCoerces2CstrM :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Expression VarIdentifier Type -> Type -> VarName VarIdentifier Type -> VarName VarIdentifier Type -> Type -> TcM loc m ()
 tcTopCoerces2CstrM l e1 t1 e2 t2 x1 x2 t3 = do
     opts <- askOpts
-    unless (implicitClassify opts) $ do
-        unifiesExpr l (varExpr x1) e1
-        unifiesExpr l (varExpr x2) e2
-    tcTopCstrM l $ Coerces2 e1 t1 e2 t2 x1 x2 t3
+    if (implicitClassify opts)
+        then tcTopCstrM l $ Coerces2 e1 t1 e2 t2 x1 x2 t3
+        else do
+            tcCstrM l $ Unifies (IdxT $ varExpr x1) (IdxT e1)
+            tcCstrM l $ Unifies (IdxT $ varExpr x2) (IdxT e2)
 
 tcTopPDecCstrM :: (MonadIO m,Location loc) => loc -> Bool -> PIdentifier -> (Maybe [Type]) -> [Expression VarIdentifier Type] -> Type -> TcM loc m (DecType,[Expression VarIdentifier Type])
 tcTopPDecCstrM l doCoerce pid targs es tret = do

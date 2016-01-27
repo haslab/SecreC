@@ -115,8 +115,10 @@ equalSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (EqualityE
 
 checkValiditySBV :: (VarsIdTcM loc m,Location loc) => loc -> SMTConfig -> ICond -> ICond -> TcM loc m ()
 checkValiditySBV l cfg hyp prop = do
-    let str = ppr hyp ++ " => " ++ ppr prop
-    r <- validitySBV l cfg str $ do
+    d1 <- ppM l hyp
+    d2 <- ppM l prop
+    let str = d1 <+> text " => " <+> d2
+    r <- validitySBV l cfg (show str) $ do
         h <- cond2SBV l hyp
         lift $ lift $ constrain h
         cond2SBV l prop

@@ -29,6 +29,9 @@ import qualified Data.Map as Map
 import Data.Bifunctor
 import Data.Hashable
 import Data.SBV (Symbolic)
+import Data.Graph.Inductive.PatriciaTree
+import Data.Graph.Inductive.Graph as Graph
+import Data.Graph.Inductive.Query as Graph
 
 import Control.Applicative
 import Control.Monad.State as State
@@ -63,7 +66,7 @@ instance Ord IOCstr where
     compare k1 k2 = compare (kStatus k1) (kStatus k2)
 
 instance PP IOCstr where
-    pp k = pp (kCstr k) <+> text (show $ uniqId $ kStatus k)
+    pp k = pp (ioCstrId k) <+> char '=' <+> pp (kCstr k)
 
 data TCstrStatus
     = Unevaluated -- has never been evaluated
@@ -100,7 +103,7 @@ resetGlobalEnv = do
 orWarn :: (Monad m,Location loc) => TcM loc m a -> TcM loc m (Maybe a)
 orWarn m = (liftM Just m) `catchError` \e -> do
     i <- getModuleCount
-    TcM $ lift $ tell $ Map.singleton i $ ErrWarn e
+    TcM $ lift $ tell $ ScWarns $ Map.singleton i $ Set.singleton $ ErrWarn e
     return Nothing
 
 orWarn_ :: (Monad m,Location loc) => TcM loc m a -> TcM loc m ()
@@ -126,11 +129,12 @@ getModuleCount :: (Monad m) => TcM loc m Int
 getModuleCount = liftM moduleCount State.get
 
 data TcEnv loc = TcEnv {
-      globalVars :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ global variables: name |-> type of the variable
-    , localVars  :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ local variables: name |-> type of the variable
+      globalVars :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ global variables: name |-> (isConst,type of the variable)
+    , localVars  :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ local variables: name |-> (isConst,type of the variable)
     , localFrees :: Set VarIdentifier -- ^ free internal const variables generated during typechecking
     , globalHyps :: Hyps loc -- ^ global hypotheses
     , localHyps :: Hyps loc -- ^ local hypotheses
+    , constraintDeps :: Set IOCstr -- general dependencies for new constraints
     , kinds :: Map VarIdentifier (EntryEnv loc) -- ^ defined kinds: name |-> type of the kind
     , domains :: Map VarIdentifier (EntryEnv loc) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
@@ -145,7 +149,21 @@ data TcEnv loc = TcEnv {
     , tDict :: NeList (TDict loc) -- ^ A stack of dictionaries
     , openedCstrs :: Set IOCstr -- constraints being resolved, for dependency tracking
     , moduleCount :: Int
+    , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     }
+
+withCstrDependencies :: Monad m => TcM loc m a -> TcM loc m a
+withCstrDependencies m = do
+    gr <- liftM (tCstrs . headNe . tDict) State.get
+    withDependencies (flattenIOCstrGraphSet gr) m
+
+withDependencies :: Monad m => Set IOCstr -> TcM loc m a -> TcM loc m a
+withDependencies deps m = do
+    env <- State.get
+    State.modify $ \env -> env { constraintDeps = deps `Set.union` constraintDeps env }
+    x <- m
+    State.modify $ \env -> env { constraintDeps = constraintDeps env }
+    return x
 
 tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv loc2 -> TcEnv loc1
 tcEnvMap f g env = TcEnv
@@ -154,6 +172,7 @@ tcEnvMap f g env = TcEnv
     , localFrees = localFrees env
     , globalHyps = Set.fromList $ map (mapLoc f) $ Set.toList $ globalHyps env
     , localHyps = Set.fromList $ map (mapLoc f) $ Set.toList $ localHyps env
+    , constraintDeps = constraintDeps env
     , kinds = fmap (fmap f) $ kinds env
     , domains = fmap (fmap f) $ domains env
     , operators = Map.map (Map.map (fmap f)) $ operators env
@@ -162,16 +181,14 @@ tcEnvMap f g env = TcEnv
     , tDict = fmap (fmap f) $ tDict env
     , openedCstrs = openedCstrs env
     , moduleCount = moduleCount env
+    , inTemplate = inTemplate env
     }
 
 type VarsId m a = Vars VarIdentifier m a
 type VarsIdTcM loc m = (Typeable m,MonadIO m,MonadBaseControl IO m,VarsId (TcM loc m) loc,VarsId (TcM loc Symbolic) loc)
 
---insideTemplate :: TcM loc m Bool
---insideTemplate = liftM inTemplate State.get
-
 emptyTcEnv :: TcEnv loc
-emptyTcEnv = TcEnv Map.empty Map.empty Set.empty Set.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty (WrapNe mempty) Set.empty 0
+emptyTcEnv = TcEnv Map.empty Map.empty Set.empty Set.empty Set.empty Set.empty Map.empty Map.empty Map.empty Map.empty Map.empty (WrapNe mempty) Set.empty 0 False
 
 data EntryEnv loc = EntryEnv {
       entryLoc :: loc -- ^ Location where the entry is defined
@@ -224,7 +241,7 @@ mapTcM :: (m (Either SecrecError ((a,TcEnv loc,()),SecrecWarnings)) -> n (Either
 mapTcM f (TcM m) = TcM $ RWS.mapRWST (mapSecrecM f) m
 
 instance MonadTrans (TcM loc) where
-    lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,Map.empty)) m
+    lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,mempty)) m
 
 askErrorM :: Monad m => TcM loc m SecrecErrArr
 askErrorM = liftM snd $ Reader.ask
@@ -243,11 +260,14 @@ addErrorM' l (j,err) (TcM m) = do
     size <- liftM fst Reader.ask
     opts <- askOpts
     if (size + j) > constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
         else TcM $ RWS.withRWST (\(i,f) s -> ((i + j,f . err),s)) m
 
 tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM loc m a
 tcPos = tcLocM (locpos) (updpos noloc)
+
+tcPosVarsM :: (Monad m,Location loc) => VarsM iden (TcM Position m) a -> VarsM iden (TcM loc m) a
+tcPosVarsM m = mapStateT (tcPos) m
 
 -- | Map different locations over @TcM@ monad.
 tcLocM :: Monad m => (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 m a -> TcM loc2 m a
@@ -259,14 +279,6 @@ tcLocM f g m = do
     tell w1
     return x
 
--- | Enters a template declaration
---tcTemplateBlock :: TcM loc m a -> TcM loc m a
---tcTemplateBlock m = do
---    State.modify (\env -> env { inTemplate = True })
---    x <- m
---    State.modify (\env -> env { inTemplate = False })
---    return x
-
 -- | Typechecks a code block, with local declarations only within its scope
 tcBlock :: Monad m => TcM loc m a -> TcM loc m a
 tcBlock m = do
@@ -276,11 +288,17 @@ tcBlock m = do
     Writer.tell w'
     return x
 
+tcLocal :: Monad m => TcM loc m a -> TcM loc m a
+tcLocal m = do
+    x <- m
+    State.modify $ \e -> e { localVars = Map.empty, localHyps = Set.empty }
+    return x
+
 newDict l = do
     opts <- TcM $ lift ask
     size <- liftM (lengthNe . tDict) State.get
     if size >= constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded (constraintStackSize opts)
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "dictionaries"
         else State.modify $ \e -> e { tDict = ConsNe mempty (tDict e) }
 
 tcWith :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (a,TDict loc)
@@ -304,6 +322,7 @@ runTcM m = liftM fst $ RWS.evalRWST (unTcM m) (0,id) emptyTcEnv
 type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op VarIdentifier Type)
 
 -- | Does a constraint depend on global template, procedure or struct definitions?
+-- I.e., can it be overloaded?
 isGlobalCstr :: TCstr -> Bool
 isGlobalCstr = everything (||) (mkQ False isOverloadedK)
     where
@@ -396,51 +415,53 @@ data HypCstr
         (SExpr VarIdentifier Type)
     | HypNotCondition -- c == False
         (SExpr VarIdentifier Type)
-    | HypAssign -- v == e
-        (VarName VarIdentifier Type)
-        (SExpr VarIdentifier Type)
     | HypEqual -- e1 == e2
         (SExpr VarIdentifier Type)
         (SExpr VarIdentifier Type)
   deriving (Data,Typeable,Show,Eq,Ord)
  
 isTcCstr :: TCstr -> Bool
-isTcCstr (TcK _ _) = True
+isTcCstr (TcK {}) = True
 isTcCstr (DelayedK k _) = isTcCstr k
-isTcCstr (DepK _ k) = isTcCstr k
+--isTcCstr (ClusterK xs) = any (isTcCstr . kCstr) xs
+--isTcCstr (GraphK xs) = any (isTcCstr . kCstr) $ flattenIOCstrGraphSet xs
 isTcCstr (CheckK {}) = False
 isTcCstr (HypK {}) = False
 
 isCheckCstr :: TCstr -> Bool
 isCheckCstr (CheckK {}) = True
 isCheckCstr (DelayedK k _) = isCheckCstr k
-isCheckCstr (DepK _ k) = isCheckCstr k
+--isCheckCstr (ClusterK xs) = all (isCheckCstr . kCstr) xs
+--isCheckCstr (GraphK xs) = all (isCheckCstr . kCstr) $ flattenIOCstrGraphSet xs
 isCheckCstr (HypK {}) = False
 
 data TCstr
-    = TcK (Hyps Position) TcCstr
+    = TcK TcCstr
     | DelayedK
         TCstr -- a constraint
         (Int,SecrecErrArr) -- an error message with updated context
-    | CheckK (Hyps Position) CheckCstr
+    | CheckK CheckCstr
     | HypK HypCstr
-    | DepK (Set IOCstr) TCstr
+--    | ClusterK (Set IOCstr)
+--    | GraphK (IOCstrGraph Position)
   deriving (Data,Typeable,Show)
  
 instance Eq TCstr where
     (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
-    (TcK hyps1 x) == (TcK hyps2 y) = hyps1 == hyps2 && x == y
+    (TcK x) == (TcK y) = x == y
     (HypK x) == (HypK y) = x == y
-    (CheckK hyps1 x) == (CheckK hyps2 y) = hyps1 == hyps2 && x == y
-    (DepK xs1 k1) == (DepK xs2 k2) = k1 == k2
+    (CheckK x) == (CheckK y) = x == y
+--    (ClusterK ios1) == (ClusterK ios2) = ios1 == ios2
+--    (GraphK ios1) == (GraphK ios2) = ios1 == ios2
     x == y = False
     
 instance Ord TCstr where
     compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
-    compare (TcK hyps1 c1) (TcK hyps2 c2) = mconcat [compare hyps1 hyps2,compare c1 c2]
+    compare (TcK c1) (TcK c2) = compare c1 c2
     compare (HypK x) (HypK y) = compare x y
-    compare (CheckK hyps1 x) (CheckK hyps2 y) = mconcat [compare hyps1 hyps2,compare x y]
-    compare (DepK _ k1) (DepK _ k2) = compare k1 k2
+    compare (CheckK x) (CheckK y) = compare x y
+--    compare (ClusterK k1) (ClusterK k2) = compare k1 k2
+--    compare (GraphK k1) (GraphK k2) = compare k1 k2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 
@@ -471,17 +492,17 @@ instance PP CheckCstr where
     pp (CheckArrayAccess t d l u sz) = text "checkArrayAccess" <+> pp t <+> pp d <+> pp l <+> pp u <+> pp sz
 
 instance PP HypCstr where
-    pp (HypCondition c) = pp c
-    pp (HypNotCondition c) = char '!' <> pp c
-    pp (HypAssign v e) = pp v <+> char '=' <+> pp e
-    pp (HypEqual e1 e2) = pp e1 <+> text "==" <+> pp e2
+    pp (HypCondition c) = text "hypothesis" <+> pp c
+    pp (HypNotCondition c) = text "hypothesis" <+> char '!' <> pp c
+    pp (HypEqual e1 e2) = text "hypothesis" <+> pp e1 <+> text "==" <+> pp e2
 
 instance PP TCstr where
     pp (DelayedK c f) = text "delayed" <+> pp c
-    pp (TcK hyps k) = sepBy (text "&&") (map pp $ Set.toList hyps) <+> text "=>" <+> pp k
-    pp (CheckK hyps c) = sepBy (text "&&") (map pp $ Set.toList hyps) <+> text "=>" <+> pp c
+    pp (TcK k) = pp k
+    pp (CheckK c) = pp c
     pp (HypK h) = pp h
-    pp (DepK xs k) = parens (sepBy comma $ map pp $ Set.toList xs) <+> text "=>" <+> pp k
+--    pp (ClusterK xs) = char 'C' <> braces (vcat $ map pp $ Set.toList xs)
+--    pp (GraphK xs) = char 'G' <> braces (pp xs)
 
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
@@ -659,10 +680,6 @@ instance MonadIO m => Vars VarIdentifier m CheckCstr where
         return $ CheckArrayAccess t' d' l' u' sz'
 
 instance MonadIO m => Vars VarIdentifier m HypCstr where
-    traverseVars f (HypAssign v e) = do
-        v' <- f v
-        e' <- f e
-        return $ HypAssign v' e'
     traverseVars f (HypCondition c) = do
         c' <- f c
         return $ HypCondition c'
@@ -678,40 +695,48 @@ instance MonadIO m => Vars VarIdentifier m TCstr where
     traverseVars f (DelayedK c err) = do
         c' <- f c
         return $ DelayedK c' err
-    traverseVars f (TcK hyps k) = do
-        hyps' <- f hyps
+    traverseVars f (TcK k) = do
         k' <- f k
-        return $ TcK hyps' k'
-    traverseVars f (CheckK hyps k) = do
-        hyps' <- f hyps
+        return $ TcK k'
+    traverseVars f (CheckK k) = do
         k' <- f k
-        return $ CheckK hyps' k'
+        return $ CheckK k'
     traverseVars f (HypK k) = do
         k' <- f k
         return $ HypK k'
-    traverseVars f (DepK xs k) = do
-        xs' <- liftM Set.fromList $ mapM f $ Set.toList xs
-        k' <- f k
-        return $ DepK xs' k'
+--    traverseVars f (ClusterK xs) = do
+--        xs' <- liftM Set.fromList $ mapM f $ Set.toList xs
+--        return $ ClusterK xs'
+--    traverseVars f (GraphK xs) = do
+--        xs' <- f xs
+--        return $ GraphK xs'
+
+type IOCstrGraph loc = Gr (Loc loc IOCstr) ()
 
 -- | Template constraint dictionary
 -- a dictionary with a set of inferred constraints and resolved constraints
 data TDict loc = TDict
-    { tCstrs :: Map Unique (Loc loc IOCstr) -- a list of constraints
-    , tChoices :: Set Unique -- set of choice constraints that have already been branched
+    { tCstrs :: IOCstrGraph loc -- a list of constraints
+    , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     }
   deriving (Typeable,Eq,Data,Ord,Show)
+
+flattenIOCstrGraph :: IOCstrGraph loc -> [Loc loc IOCstr]
+flattenIOCstrGraph = map snd . labNodes
+
+flattenIOCstrGraphSet :: IOCstrGraph loc -> Set IOCstr
+flattenIOCstrGraphSet = Set.fromList . map unLoc . flattenIOCstrGraph
 
 -- | mappings from variables to current substitution
 type TSubsts = Map VarIdentifier Type
 
 instance Functor TDict where
-    fmap f dict = dict { tCstrs = Map.map (mapLoc f) (tCstrs dict) }
+    fmap f dict = dict { tCstrs = nmap (mapLoc f) (tCstrs dict) }
 
 instance Monoid (TDict loc) where
-    mempty = TDict Map.empty Set.empty Map.empty
-    mappend (TDict u1 c1 ss1) (TDict u2 c2 ss2) = TDict (Map.union u1 u2) (Set.union c1 c2) (ss1 `Map.union` ss2)
+    mempty = TDict Graph.empty Set.empty Map.empty
+    mappend (TDict u1 c1 ss1) (TDict u2 c2 ss2) = TDict (unionGr u1 u2) (Set.union c1 c2) (ss1 `Map.union` ss2)
 
 addCstrDeps :: (MonadIO m,VarsId m TCstr) => IOCstr -> m ()
 addCstrDeps iok = do
@@ -726,16 +751,70 @@ addDeps vs iok = do
         m <- maybe (WeakMap.new >>= \m -> WeakHash.insertWithMkWeak g v m (MkWeak $ mkWeakKey m) >> return m) return mb
         WeakMap.insertWithMkWeak m (uniqId $ kStatus iok) iok (MkWeak $ mkWeakKey $ kStatus iok)
 
+ioCstrId :: IOCstr -> Int
+ioCstrId = hashUnique . uniqId . kStatus
+
+type IOCstrSubsts = Map Int IOCstr
+
+newIOCstrSubst :: MonadIO m => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstr -> VarsM VarIdentifier (StateT IOCstrSubsts m) IOCstr
+newIOCstrSubst f iok = do
+    xs <- lift State.get
+    case Map.lookup (ioCstrId iok) xs of
+        Nothing -> do
+            st <- liftIO $ readUniqRef $ kStatus iok
+            c' <- liftVarsM $ f (kCstr iok)
+            iok' <- liftM (IOCstr c') $ liftIO $ newUniqRef st
+            lift $ State.put $ Map.insert (ioCstrId iok) iok' xs
+            return iok'
+        Just iok' -> return iok'
+
+getIOCstrSubst :: Monad m => Int -> IOCstr -> StateT IOCstrSubsts m IOCstr
+getIOCstrSubst i def = do
+    xs <- State.get
+    return $ maybe def id $ Map.lookup i xs
+
+getIOCstrSubstId :: Monad m => Int -> StateT IOCstrSubsts m Int
+getIOCstrSubstId i = do
+    xs <- State.get
+    return $ maybe i ioCstrId $ Map.lookup i xs
+
+instance (Vars VarIdentifier m loc,MonadIO m) => Vars VarIdentifier m (IOCstrGraph loc) where
+    traverseVars f gr = flip evalVarsMState(Map.empty::IOCstrSubsts) $ traverseVarsIOCstrGraph f gr
+
+traverseVarsIOCstrGraph :: MonadIO m => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstrGraph loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (IOCstrGraph loc)
+traverseVarsIOCstrGraph f gr = do
+        forM_ (labNodes gr) $ \(i,x) -> newIOCstrSubst f (unLoc x)
+        mapGrM mapNode gr
+      where
+        mapNode ctx@(ins,nid,Loc l n,outs) = do
+            n' <- lift $ getIOCstrSubst nid n
+            ins' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) ins
+            outs' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) outs
+            return (ins',ioCstrId n',Loc l n',outs')      
+
+evalVarsMState :: Monad m => VarsM iden (StateT st m) a -> st -> VarsM iden m a
+evalVarsMState varsm st = mapStateT (\m -> evalStateT m st) varsm
+
+liftVarsM :: (Monad m,MonadTrans t,Vars iden m a) => VarsM iden m a -> VarsM iden (t m) a
+liftVarsM m = mapStateT (lift) m
+
 instance (Location loc,MonadIO m,Vars VarIdentifier m loc) => Vars VarIdentifier m (TDict loc) where
-    traverseVars f (TDict cstrs choices substs) = varsBlock $ do
-        let cstrsLst = Map.toList cstrs
-        cstrs' <- mapM (f . snd) $ cstrsLst
-        let cstrs'' = map (\x -> (uniqId $ kStatus $ unLoc x,x)) cstrs'
-        let keys = zip (map fst cstrsLst) (map fst cstrs'')
-        let choices' = Set.map (\x -> maybe x id $ lookup x keys) choices
-        lift $ mapM_ (addCstrDeps . unLoc . snd) cstrs''
-        substs' <- liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
-        return $ TDict (Map.fromList cstrs'') choices' substs'
+    traverseVars f (TDict cstrs choices substs) = flip evalVarsMState (Map.empty::IOCstrSubsts) $ do
+        cstrs' <- traverseVarsIOCstrGraph f cstrs
+        choices' <- lift $ mapSetM getIOCstrSubstId choices
+        substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
+        return $ TDict cstrs' choices' substs'
+        
+    
+--    traverseVars f (TDict cstrs choices substs) = varsBlock $ do
+--        let cstrsLst = Map.toList cstrs
+--        cstrs' <- mapM (f . snd) $ cstrsLst
+--        let cstrs'' = map (\x -> (uniqId $ kStatus $ unLoc x,x)) cstrs'
+--        let keys = zip (map fst cstrsLst) (map fst cstrs'')
+--        let choices' = Set.map (\x -> maybe x id $ lookup x keys) choices
+--        lift $ mapM_ (addCstrDeps . unLoc . snd) cstrs''
+--        substs' <- liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
+--        return $ TDict (Map.fromList cstrs'') choices' substs'
 
 instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier m (Loc loc a) where
     traverseVars f (Loc l a) = do
@@ -821,19 +900,19 @@ substsProxyFromTSubsts (l::loc) tys = \proxy x -> do
     eq x proxy = eqTypeOf x (typeOfProxy proxy)
 
 instance PP (TDict loc) where
-    pp dict = text "Constraints:" $+$ nest 4 (vcat $ map pp $ Map.elems $ tCstrs dict)
+    pp dict = text "Constraints:" $+$ nest 4 (ppGr pp (const PP.empty) $ tCstrs dict)
           $+$ text "Substitutions:" $+$ nest 4 (ppTSubsts (tSubsts dict))
 
 ppConstraints :: MonadIO m => TDict loc -> TcM loc m Doc
 ppConstraints d = do
     let ppK (Loc l c) = do
         s <- liftIO $ readUniqRef $ kStatus c
-        let pre = pp (kCstr c) <+> text (show $ hashUnique $ uniqId $ kStatus c)
+        let pre = pp c
         case s of
             Evaluated t -> return $ pre <+> text (show t)
             Unevaluated -> return $ pre
             Erroneous err -> return $ pre <> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
-    ss <- liftM vcat $ mapM ppK (Map.elems $ tCstrs d)
+    ss <- ppGrM ppK (const $ return PP.empty) (tCstrs d)
     return ss
 
 data VarIdentifier = VarIdentifier
@@ -888,8 +967,7 @@ data DecType
     | TpltType -- ^ Template type
         TyVarId -- ^ unique template declaration id
         [Cond (VarName VarIdentifier Type)] -- ^ template variables
-        (TDict Position) -- ^ constraints for the template's header
-        (TDict Position) -- ^ constraints for the template's body
+        (TDict Position) -- ^ constraints for the template
         [Type] -- ^ template specializations
         (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
         DecType -- ^ template's type
@@ -982,15 +1060,15 @@ instance PP SecType where
     pp (Private d k) = pp d
     pp (SVar v k) = parens (ppVarId v <+> text "::" <+> pp k)
 instance PP DecType where
-    pp (TpltType _ vars hdict dict specs frees body@(StructType _ _ n atts)) = ppFrees frees $+$ pp hdict $+$ text "=>" $+$
+    pp (TpltType _ vars dict specs frees body@(StructType _ _ n atts)) =
             text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
         $+$ pp dict
         $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
-    pp (TpltType _ vars hdict dict [] frees body@(ProcType _ _ (Left n) args ret stmts)) = ppFrees frees $+$ pp hdict <+> text "=>" $+$
+    pp (TpltType _ vars dict [] frees body@(ProcType _ _ (Left n) args ret stmts)) =
             text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
         $+$ pp dict
         $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isCond,Cond (VarName t n) c) -> ppConst isCond <+> pp t <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
-    pp (TpltType _ vars hdict dict [] frees body@(ProcType _ _ (Right n) args ret stmts)) = ppFrees frees $+$ pp hdict <+> text "=>" $+$
+    pp (TpltType _ vars dict [] frees body@(ProcType _ _ (Right n) args ret stmts)) =
             text "template" <> abrackets (sepBy comma $ map ppTpltArg vars)
         $+$ pp dict
         $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isCond,Cond (VarName t n) c) -> ppConst isCond <+> pp t <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
@@ -1070,12 +1148,12 @@ typeClass msg (BaseT _) = TypeC
 typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
 
 isStruct :: DecType -> Bool
-isStruct (TpltType _ _ _ _ _ _ (StructType {})) = True
+isStruct (TpltType _ _ _ _ _ (StructType {})) = True
 isStruct (StructType {}) = True
 isStruct _ = False
 
 isStructTemplate :: Type -> Bool
-isStructTemplate (DecT (TpltType _ _ _ _ _ _ (StructType {}))) = True
+isStructTemplate (DecT (TpltType _ _ _ _ _ (StructType {}))) = True
 isStructTemplate _ = False
 
 isVoid :: ComplexType -> Bool
@@ -1188,14 +1266,13 @@ instance MonadIO m => Vars VarIdentifier m DecType where
         n' <- f n
         as' <- inLHS $ mapM f as
         return $ StructType tid p n' as'
-    traverseVars f (TpltType tid vs hd d spes frees t) = varsBlock $ do
+    traverseVars f (TpltType tid vs d spes frees t) = varsBlock $ do
         vs' <- inLHS $ mapM f vs
         frees' <- inLHS $ liftM Set.fromList $ mapM f $ Set.toList frees
-        hd' <- f hd
         d' <- f d
         spes' <- mapM f spes
         t' <- f t
-        return $ TpltType tid vs' hd' d' spes' frees' t'
+        return $ TpltType tid vs' d' spes' frees' t'
     traverseVars f (DVar v) = do
         v' <- f v
         return $ DVar v'
@@ -1392,7 +1469,7 @@ isPublicSecType _ = False
 decTypeTyVarId :: DecType -> Maybe TyVarId
 decTypeTyVarId (StructType i _ _ _) = Just i
 decTypeTyVarId (ProcType i _ _ _ _ _) = Just i
-decTypeTyVarId (TpltType i _ _ _ _ _ _) = Just i
+decTypeTyVarId (TpltType i _ _ _ _ _) = Just i
 decTypeTyVarId (DVar _) = Nothing
 
 instance Location Type where
@@ -1785,4 +1862,26 @@ instance Monad m => Vars VarIdentifier m VarIdentifier where
         return n
     substL v = return $ Just v
     
-    
+varsCstrGraph :: (VarsIdTcM loc m,Location loc) => Set VarIdentifier -> IOCstrGraph loc -> TcM loc m (IOCstrGraph loc)
+varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
+    where
+    aux (i,x) = do
+        xvs <- fvs x
+        if Set.null (vs `Set.intersection` xvs)
+            then return False
+            else return True
+
+-- gets the terminal nodes in the constraint graph for all the variables in a given value
+getVarOutSet :: (VarsIdTcM loc m,VarsId (TcM loc m) a,Location loc) => a -> TcM loc m (Set IOCstr)
+getVarOutSet x = do
+    vs <- fvs x
+    gr <- liftM (tCstrs . headNe . tDict) State.get
+    gr' <- varsCstrGraph vs gr
+    return $ Set.fromList $ map (unLoc . snd) $ endsGr gr'
+
+
+
+
+
+
+

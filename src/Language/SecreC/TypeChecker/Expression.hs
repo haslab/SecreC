@@ -13,7 +13,6 @@ import {-# SOURCE #-} Language.SecreC.TypeChecker.Statement
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.Environment
-import Language.SecreC.TypeChecker.Semantics
 import Language.SecreC.TypeChecker.Index
 import Language.SecreC.Vars
 import Language.SecreC.Utils
@@ -72,13 +71,13 @@ tcExpr (QualExpr l e t) = do
     tcTopCstrM l $ Unifies (typed $ loc e') (typed $ loc t')
     return $ QualExpr (Typed l $ typed $ loc t') e' t'
 tcExpr (CondExpr l c e1 e2) = do
-    c' <- tcGuard c
+    (c',cstrsc) <- tcWithCstrs l $ tcGuard c
     e1' <- withHypotheses LocalScope $ do
-        tryAddHypothesis l LocalScope $ HypCondition $ fmap typed c'
+        tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed c'
         tcExpr e1
     let t1 = typed $ loc e1'
     e2' <- withHypotheses LocalScope $ do
-        tryAddHypothesis l LocalScope $ HypNotCondition $ fmap typed c'
+        tryAddHypothesis l LocalScope cstrsc $ HypNotCondition $ fmap typed c'
         tcExpr e2
     let t2 = typed $ loc e2'
     t3 <- newTyVar
@@ -251,38 +250,32 @@ binAssignOpToOp (BinaryAssignAnd _) = Just $ OpBand ()
 binAssignOpToOp (BinaryAssignOr _)  = Just $ OpBor ()
 binAssignOpToOp (BinaryAssignXor _) = Just $ OpXor ()
 
+-- | typechecks an index condition
 tcIndexCond :: (VarsIdTcM loc m,Location loc) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
-tcIndexCond e = tcExprTy (BaseT bool) e
+tcIndexCond e =
+    withoutImplicitClassify $ tcExprTy (BaseT bool) e
 
--- | typechecks an expression and tries to evaluate it to an index
+-- | typechecks an index expression
 tcIndexExpr :: (VarsIdTcM loc m,Location loc) => Expression Identifier loc -> TcM loc m (SExpr VarIdentifier (Typed loc))
-tcIndexExpr e = do
-    e' <- tcExprTy (BaseT index) e
-    return e'
+tcIndexExpr e = 
+    withoutImplicitClassify $ tcExprTy (BaseT index) e
 
 tcExprTy :: (VarsIdTcM loc m,Location loc) => Type -> Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
 tcExprTy ty e = do
     e' <- tcExpr e
     let Typed l ty' = loc e'
-    tcTopCstrM l $ Unifies ty' ty
-    return e'
+    x2 <- newTypedVar "ety" ty
+    tcTopCoercesCstrM l (fmap typed e') ty' x2 ty
+    return $ fmap (Typed l) $ varExpr x2
 
 tcDimExpr :: (VarsIdTcM loc m,Location loc) => Doc -> Maybe (VarName Identifier loc) -> Expression Identifier loc -> TcM loc m (SExpr VarIdentifier (Typed loc))
 tcDimExpr doc v sz = do
     sz' <- tcIndexExpr sz
-    -- check if size is static and if so evaluate it
---    case mb of
---        Left err -> tcWarn (locpos $ loc sz') $ DependentMatrixDimension doc (pp sz') (fmap pp v) err
---        Right _ -> return ()
     return sz'
     
 tcSizeExpr :: (VarsIdTcM loc m,Location loc) => ComplexType -> Word64 -> Maybe (VarName Identifier loc) -> Expression Identifier loc -> TcM loc m (SExpr VarIdentifier (Typed loc))
 tcSizeExpr t i v sz = do
     sz' <- tcIndexExpr sz
-    -- check if size is static and if so evaluate it
---    case mb of
---        Left err -> tcWarn (locpos $ loc sz') $ DependentMatrixSize (pp t) i (pp sz') (fmap pp v) err
---        Right _ -> return ()
     return sz'
 
 tcSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Maybe (VarName Identifier loc) -> Sizes Identifier loc -> TcM loc m (Sizes VarIdentifier (Typed loc))
@@ -309,11 +302,6 @@ eqExprs :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Typ
 eqExprs l e1 e2 = do
     (dec,[x1,x2]) <- tcTopPDecCstrM l True (Right $ OpEq $ NoType "eqExprs") Nothing [e1,e2] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpEq $ DecT dec) x2)
-
---landExprsLoc :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier (Typed loc) -> Expression VarIdentifier (Typed loc) -> TcM loc m (Expression VarIdentifier (Typed loc))
---landExprsLoc l e1 e2 = do
---    (dec,[x1,x2]) <- tcTopPDecCstrM l True (Right $ OpSub $ NoType "landExprs") Nothing [(fmap typed e1),(fmap typed e2)] (BaseT bool)
---    return (BinaryExpr (Typed l $ BaseT bool) (fmap (Typed l) x1) (OpLand $ Typed l $ DecT dec) (fmap (Typed l) x2))
 
 
 

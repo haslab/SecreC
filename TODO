@@ -20,6 +20,7 @@ o que acontece se uma operação leakar, por exemplo, uma comparação implicita
 applications for random ; sort: RSA exponentiation?
 
 most possibly controversial typechecker decisions:
+. consts
 . promote sizes to the type-level
 . literal coercions
 . template resolution algorithm:
@@ -27,9 +28,7 @@ most possibly controversial typechecker decisions:
     - regular procedures and structs solve constraints 
 
 TODO:
-. assignments must remove hypothesis over variables
-. index expression semantics is independent from expression semantics
-. delayed expr2IExpr conversion
+. index expression semantics is independent from expression semantics; invariants, dimensions and sizes are evaluated as index conditions and expressions, apart from the regular template-based semantics
 . procedure template parameters
 . size-dependent types
 

@@ -19,7 +19,7 @@ Cabal-Version:  >= 1.4
 Library
   GHC-Options: 
   Hs-Source-Dirs: .
-  Build-Depends: base >= 4.3 && < 5, hashable, strict, unordered-containers, weak
+  Build-Depends: base >= 4.3 && < 5, hashable, strict, unordered-containers, weak, transformers
   exposed-modules:
     System.Mem.Weak.Map
 

@@ -14,7 +14,6 @@ import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
-import Language.SecreC.TypeChecker.Semantics
 import Language.SecreC.TypeChecker.Environment
 import Language.SecreC.TypeChecker.Index
 
@@ -32,6 +31,7 @@ import Text.PrettyPrint
 
 import Control.Monad hiding (mapM)
 import Control.Monad.IO.Class
+import Control.Monad.State as State
 
 import Prelude hiding (mapM)
 
@@ -41,18 +41,15 @@ extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
 tcStmts :: (VarsIdTcM loc m,Location loc) => Type -> [Statement Identifier loc] -> TcM loc m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
-tcStmts ret [s] = do
-    (s,st) <- tcStmt ret s
-    return ([s],st)
 tcStmts ret (s:ss) = do
     (s',StmtType c) <- tcStmt ret s
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
         ss -> unless (hasStmtFallthru c) $ tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat $ map pp ss)
-    (ss',StmtType cs) <- tcStmts ret ss
     sBvs <- bvs $ bimap mkVarId id s
     ssFvs <- fvs $ map (bimap mkVarId id) ss
+    (ss',StmtType cs) <- tcStmts ret ss
     -- issue warning for unused variable declarations
     forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> tcWarn (locpos $ loc s) $ UnusedVariable (pp v)
     return (s':ss',StmtType $ extendStmtClasses c cs)
@@ -79,29 +76,29 @@ tcStmt :: (VarsIdTcM loc m,Location loc) => Type -- ^ return type
     -> Statement Identifier loc -- ^ input statement
     -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
 tcStmt ret (CompoundStatement l s) = do
-    (ss',t) <- tcBlock $ tcStmts ret s
+    (ss',t) <- tcLocal $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
 tcStmt ret (IfStatement l condE thenS Nothing) = do
     condE' <- tcGuard condE
-    (thenS',StmtType cs) <- tcBlock $ tcNonEmptyStmt ret thenS
+    (thenS',StmtType cs) <- tcLocal $ tcNonEmptyStmt ret thenS
     -- an if falls through if the condition is not satisfied
     let t = StmtType $ Set.insert (StmtFallthru) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     condE' <- tcGuard condE
-    (thenS',StmtType cs1) <- tcBlock $ tcNonEmptyStmt ret thenS
-    (elseS',StmtType cs2) <- tcBlock $ tcNonEmptyStmt ret elseS 
+    (thenS',StmtType cs1) <- tcLocal $ tcNonEmptyStmt ret thenS
+    (elseS',StmtType cs2) <- tcLocal $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
-tcStmt ret (ForStatement l startE whileE incE bodyS) = tcBlock $ do
+tcStmt ret (ForStatement l startE whileE incE bodyS) = tcLocal $ do
     startE' <- tcForInitializer startE
     whileE' <- mapM tcGuard whileE
     incE' <- mapM (tcExpr) incE
-    (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
+    (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' bodyS',t')
 tcStmt ret (WhileStatement l condE bodyS) = do
     condE' <- tcGuard condE
-    (bodyS',t') <- tcBlock $ tcLoopBodyStmt ret l bodyS
+    (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped "tcStmt" l) condE' bodyS',t')
 tcStmt ret (PrintStatement l argsE) = do
     argsE' <- mapM tcExpr argsE
@@ -113,14 +110,14 @@ tcStmt ret (PrintStatement l argsE) = do
     let exs = fromListNe $ map (fmap (Typed l)) $ map (\x -> RVariablePExpr (loc x) x) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (PrintStatement (Typed l t) exs,t)
-tcStmt ret (DowhileStatement l bodyS condE) = tcBlock $ do
+tcStmt ret (DowhileStatement l bodyS condE) = tcLocal $ do
     (bodyS',t') <- tcLoopBodyStmt ret l bodyS
     condE' <- tcGuard condE
     return (DowhileStatement (notTyped "tcStmt" l) bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
-    argE' <- tcGuard argE
-    checkCstrM l $ CheckAssertion $ fmap typed argE'
-    tryAddHypothesis l LocalScope $ HypCondition $ fmap typed argE'
+    (argE',cstrsargE) <- tcWithCstrs l $ tcGuard argE
+    checkCstrM l cstrsargE $ CheckAssertion $ fmap typed argE'
+    tryAddHypothesis l LocalScope cstrsargE $ HypCondition $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
 tcStmt ret (SyscallStatement l n args) = do
@@ -223,11 +220,11 @@ tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e c) = do
     -- add the array size to the type
     let v' = VarName (Typed vl $ ComplexT ty') $ mkVarId vn
     -- add variable to the environment
-    newVariable scope v' e' True
-    c' <- mapM tcIndexCond c
+    newVariable scope v' e' True -- add values to the environment
+    (c',cstrsc) <- tcWithCstrs l $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
-        Just x -> tryAddHypothesis l scope $ HypCondition $ fmap typed x
+        Just x -> tryAddHypothesis l scope cstrsc $ HypCondition $ fmap typed x
     return $ ConstInitialization (notTyped "tcVarInit" l) v' szs' e' c'
 
     
