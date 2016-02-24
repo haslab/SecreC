@@ -33,6 +33,7 @@ import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.Error
 import Language.SecreC.Parser
+import Language.SecreC.Utils
 
 type IdNodes = Map Identifier (FilePath -- ^ module's file
                               ,Node -- ^ module's node id
@@ -87,7 +88,9 @@ openModule parent g f n pos load = do
             ast <- lift load
             -- add new node and edge from parent
             State.put (Map.insert n (f,c,True) ns,succ c)
-            let g' = ([],c,ast,maybeToList parent) & g
+            let g' = case parent of
+                        Nothing -> insNode (c,ast) g
+                        Just (p,n) -> insEdge (c,n,p) $ insNode (c,ast) g
             -- open imports
             foldlM (openImport c) g' (moduleImports ast)
     closeModule n

@@ -114,6 +114,8 @@ data Token
     | SUB_ASSIGN
     | TYPE_QUAL
     | XOR_ASSIGN
+    | VARIADIC
+    | VSIZE
     | TokenEOF
     | TokenError
   deriving (Show,Read,Data,Typeable,Eq,Ord)
@@ -198,6 +200,8 @@ instance PP Token where
     pp SUB_ASSIGN = text "-="
     pp TYPE_QUAL = text "::"
     pp XOR_ASSIGN = text "^="
+    pp VARIADIC = text "..."
+    pp VSIZE = text "size..."
     pp TokenEOF = text "<EOF>"
     pp TokenError = text "error <unknown>"
 

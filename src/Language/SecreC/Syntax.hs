@@ -235,16 +235,16 @@ type Identifier = String
 instance PP String where
     pp s = text s
 
-data ConstInitialization iden loc = ConstInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
+data ConstInitialization iden loc = ConstInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (ConstInitialization iden loc) where
     type LocOf (ConstInitialization iden loc) = loc
-    loc (ConstInitialization l _ _ _ _) = l
-    updLoc (ConstInitialization _ x y z w) l = ConstInitialization l x y z w
+    loc (ConstInitialization l _ _ _) = l
+    updLoc (ConstInitialization _ x y z) l = ConstInitialization l x y z
  
 instance PP iden => PP (ConstInitialization iden loc) where
-    pp (ConstInitialization _ v dim ex c) = pp v <+> ppDim dim <+> ppExp ex <+> ppOpt c (braces . pp)
+    pp (ConstInitialization _ v dim ex) = pp v <+> ppDim dim <+> ppExp ex
         where
         ppDim Nothing = empty
         ppDim (Just dim) = parens (pp dim)
@@ -267,22 +267,22 @@ instance PP iden => PP (VariableInitialization iden loc) where
         ppExp Nothing = empty
         ppExp (Just e) = text "=" <+> pp e
 
-newtype Sizes iden loc = Sizes (NeList (Expression iden loc))
+newtype Sizes iden loc = Sizes (NeList (Expression iden loc,IsVariadic))
   deriving (Read,Show,Data,Typeable,Eq,Ord)
   
 unSizes (Sizes xs) = xs
 sizesList = Foldable.toList . unSizes
 
 instance Functor (Sizes iden) where
-    fmap f (Sizes xs) = Sizes $ fmap (fmap f) xs
+    fmap f (Sizes xs) = Sizes $ fmap (\(x,y) -> (fmap f x,y)) xs
 
 instance Location loc => Located (Sizes iden loc) where
     type LocOf (Sizes iden loc) = loc
-    loc (Sizes xs) = loc (headNe xs)
-    updLoc (Sizes xs) l = Sizes (updHeadNe (flip updLoc l) xs)
+    loc (Sizes xs) = loc (fst $ headNe xs)
+    updLoc (Sizes xs) l = Sizes (updHeadNe (\(x,y) -> (updLoc x l,y)) xs)
 
 instance PP iden => PP (Sizes iden loc) where
-    pp (Sizes es) = parens (sepBy comma $ fmap pp es)
+    pp (Sizes es) = parens (sepBy comma $ fmap (ppVariadicArg pp) es)
 
 data ConstDeclaration iden loc = ConstDeclaration loc (TypeSpecifier iden loc) (NeList (ConstInitialization iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
@@ -306,21 +306,23 @@ instance Location loc => Located (VariableDeclaration iden loc) where
 instance PP iden => PP (VariableDeclaration iden loc) where
     pp (VariableDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
 
+type IsVariadic = Bool
+
 data ProcedureParameter iden loc
-    = ProcedureParameter loc (TypeSpecifier iden loc) (VarName iden loc) (Maybe (Sizes iden loc))
-    | ConstProcedureParameter loc (TypeSpecifier iden loc) (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
+    = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc))
+    | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
 instance Location loc => Located (ProcedureParameter iden loc) where
     type LocOf (ProcedureParameter iden loc) = loc
-    loc (ProcedureParameter l _ _ _) = l
-    loc (ConstProcedureParameter l _ _ _ _) = l
-    updLoc (ProcedureParameter _ x y z) l = ProcedureParameter l x y z
-    updLoc (ConstProcedureParameter _ x y z w) l = ConstProcedureParameter l x y z w
+    loc (ProcedureParameter l _ _ _ _) = l
+    loc (ConstProcedureParameter l _ _ _ _ _) = l
+    updLoc (ProcedureParameter _ b x y z) l = ProcedureParameter l b x y z
+    updLoc (ConstProcedureParameter _ b x y z w) l = ConstProcedureParameter l b x y z w
 
 instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ t v sz) = pp t <+> pp v <> parens (pp sz)
-    pp (ConstProcedureParameter _ t v sz e) = text "const" <+> pp t <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
+    pp (ProcedureParameter _ t b v sz) = pp t <> ppVariadic b <+> pp v <> parens (pp sz)
+    pp (ConstProcedureParameter _ t b v sz e) = text "const" <+> pp t <> ppVariadic b <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
 
 -- Types:                                                                      
 
@@ -356,7 +358,7 @@ instance PP iden => PP (SecTypeSpecifier iden loc) where
 
 data DatatypeSpecifier iden loc
     = PrimitiveSpecifier loc (PrimitiveDatatype loc)
-    | TemplateSpecifier loc (TypeName iden loc) [TemplateTypeArgument iden loc]
+    | TemplateSpecifier loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
     | VariableSpecifier loc (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
@@ -371,7 +373,7 @@ instance Location loc => Located (DatatypeSpecifier iden loc) where
 
 instance PP iden => PP (DatatypeSpecifier iden loc) where
     pp (PrimitiveSpecifier _ prim) = pp prim
-    pp (TemplateSpecifier _ t args) = pp t <> abrackets (sepBy comma $ map pp args)
+    pp (TemplateSpecifier _ t args) = pp t <> abrackets (sepBy comma $ map (ppVariadicArg pp) args)
     pp (VariableSpecifier _ tn) = pp tn
 
 data PrimitiveDatatype loc
@@ -474,7 +476,7 @@ instance PP (PrimitiveDatatype loc) where
   
 data TemplateTypeArgument iden loc
     = GenericTemplateTypeArgument loc (TemplateArgName iden loc)
-    | TemplateTemplateTypeArgument loc (TypeName iden loc) [TemplateTypeArgument iden loc]
+    | TemplateTemplateTypeArgument loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
     | PrimitiveTemplateTypeArgument loc (PrimitiveDatatype loc)
     | ExprTemplateTypeArgument loc (Expression iden loc)
     | PublicTemplateTypeArgument loc
@@ -495,7 +497,7 @@ instance Location loc => Located (TemplateTypeArgument iden loc) where
 
 instance PP iden => PP (TemplateTypeArgument iden loc) where
     pp (GenericTemplateTypeArgument _ targ) = pp targ
-    pp (TemplateTemplateTypeArgument _ t args) = pp t <> abrackets (sepBy comma $ map pp args)
+    pp (TemplateTemplateTypeArgument _ t args) = pp t <> abrackets (sepBy comma $ map (ppVariadicArg pp) args)
     pp (PrimitiveTemplateTypeArgument _ prim) = pp prim
     pp (ExprTemplateTypeArgument _ e) = pp e
     pp (PublicTemplateTypeArgument _) = text "public"
@@ -516,7 +518,7 @@ instance PP iden => PP (DimtypeSpecifier iden loc) where
 
 data TemplateDeclaration iden loc
     = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
-    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [TemplateTypeArgument iden loc] (StructureDeclaration iden loc)
+    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
     | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
@@ -535,25 +537,27 @@ instance PP iden => PP (TemplateDeclaration iden loc) where
     pp (TemplateProcedureDeclaration _ qs proc) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> pp proc
   
 data TemplateQuantifier iden loc
-    = DomainQuantifier loc (DomainName iden loc) (Maybe (KindName iden loc))
-    | DimensionQuantifier loc (VarName iden loc) (Maybe (Expression iden loc))
-    | DataQuantifier loc (TypeName iden loc)
+    = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))
+    | DimensionQuantifier loc IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
+    | DataQuantifier loc IsVariadic (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
 instance Location loc => Located (TemplateQuantifier iden loc) where
     type LocOf (TemplateQuantifier iden loc) = loc
-    loc (DomainQuantifier l _ _) = l
-    loc (DimensionQuantifier l _ _) = l
-    loc (DataQuantifier l _) = l
-    updLoc (DomainQuantifier _ x y) l = DomainQuantifier l x y
-    updLoc (DimensionQuantifier _ x y) l = DimensionQuantifier l x y
-    updLoc (DataQuantifier _ x) l = DataQuantifier l x
+    loc (DomainQuantifier l _ _ _) = l
+    loc (DimensionQuantifier l _ _ _) = l
+    loc (DataQuantifier l _ _) = l
+    updLoc (DomainQuantifier _ b x y) l = DomainQuantifier l b x y
+    updLoc (DimensionQuantifier _ b x y) l = DimensionQuantifier l b x y
+    updLoc (DataQuantifier _ b x) l = DataQuantifier l b x
+
+ppVariadic b = if b then text "..." else PP.empty
 
 instance PP iden => PP (TemplateQuantifier iden loc) where
-    pp (DomainQuantifier _ d (Just k)) = text "domain" <+> pp d <+> char ':' <+> pp k
-    pp (DomainQuantifier _ d Nothing) = text "domain" <+> pp d
-    pp (DimensionQuantifier _ dim e) = text "dimensionality" <+> pp dim <+> ppOpt e (braces . pp)
-    pp (DataQuantifier _ t) = text "type" <+> pp t
+    pp (DomainQuantifier _ b d (Just k)) = text "domain" <> ppVariadic b <+> pp d <+> char ':' <+> pp k
+    pp (DomainQuantifier _ b d Nothing) = text "domain" <> ppVariadic b <+> pp d
+    pp (DimensionQuantifier _ b dim e) = text "dim" <> ppVariadic b <+> pp dim <+> ppOpt e (braces . pp)
+    pp (DataQuantifier _ b t) = text "type" <> ppVariadic b <+> pp t
   
  -- Structures:                                                                
 
@@ -571,9 +575,9 @@ instance Location loc => Located (StructureDeclaration iden loc) where
 instance PP iden => PP (StructureDeclaration iden loc) where
     pp s = ppStruct Nothing s
   
-ppStruct :: PP iden => Maybe [TemplateTypeArgument iden loc] -> StructureDeclaration iden loc -> Doc
+ppStruct :: PP iden => Maybe [(TemplateTypeArgument iden loc,IsVariadic)] -> StructureDeclaration iden loc -> Doc
 ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
-ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap pp specials)) <+> braces (vcat $ map pp as)
+ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap (ppVariadicArg pp) specials)) <+> braces (vcat $ map pp as)
   
 data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
@@ -588,7 +592,12 @@ instance PP iden => PP (Attribute iden loc) where
 
 -- Procedures:
 
-data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (TypeSpecifier iden loc,Maybe (Sizes iden loc)))
+type SizedTypeSpecifier iden loc = (TypeSpecifier iden loc,Maybe (Sizes iden loc))
+
+ppSizedTypeSpecifier (x,Nothing) = pp x
+ppSizedTypeSpecifier (x,Just s) = pp x <> parens (pp s)
+
+data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (SizedTypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
 
 instance Location loc => Located (ReturnTypeSpecifier iden loc) where
@@ -754,7 +763,7 @@ data Statement iden loc
     | IfStatement loc (Expression iden loc) (Statement iden loc) (Maybe (Statement iden loc))
     | ForStatement loc (ForInitializer iden loc) (Maybe (Expression iden loc)) (Maybe (Expression iden loc)) (Statement iden loc)
     | WhileStatement loc (Expression iden loc) (Statement iden loc)
-    | PrintStatement loc (NeList (Expression iden loc))
+    | PrintStatement loc [(Expression iden loc,IsVariadic)]
     | DowhileStatement loc (Statement iden loc) (Expression iden loc)
     | AssertStatement loc (Expression iden loc)
     | SyscallStatement loc String [SyscallParameter iden loc]
@@ -809,7 +818,7 @@ instance PP iden => PP (Statement iden loc) where
         ppElse (Just s) = text "else" <+> pp s
     pp (ForStatement _ i e1 e2 s) = text "for" <> parens (pp i <> semi <> ppMb e1 <> semi <> ppMb e2) <+> pp s
     pp (WhileStatement _ e s) = text "while" <> parens (pp e) <+> pp s
-    pp (PrintStatement _ es) = text "print" <> parens (sepBy comma $ fmap pp es) <> semi
+    pp (PrintStatement _ es) = text "print" <> parens (pp es) <> semi
     pp (DowhileStatement _ s e) = text "do" <+> pp s <+> text "while" <+> parens (pp e) <> semi
     pp (AssertStatement _ e) = text "assert" <> parens (pp e) <> semi
     pp (SyscallStatement _ n []) = text "__syscall" <> parens (text (show n)) <> semi
@@ -874,7 +883,7 @@ instance PP iden => PP (Index iden loc) where
 
 data Expression iden loc
     = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
-    | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
+    | QualExpr loc (Expression iden loc) (SizedTypeSpecifier iden loc)
     | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
     | BinaryExpr loc (Expression iden loc) (Op iden loc) (Expression iden loc)
     | UnaryExpr loc (Op iden loc) (Expression iden loc)
@@ -883,12 +892,13 @@ data Expression iden loc
     | DomainIdExpr loc (SecTypeSpecifier iden loc)
     | BytesFromStringExpr loc (Expression iden loc)
     | StringFromBytesExpr loc (Expression iden loc)
-    | ProcCallExpr loc (ProcedureName iden loc) (Maybe [TemplateTypeArgument iden loc]) [Expression iden loc]
+    | VArraySizeExpr loc (Expression iden loc)
+    | ProcCallExpr loc (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [(Expression iden loc,IsVariadic)]
     | PostIndexExpr loc (Expression iden loc) (Subscript iden loc)
     | SelectionExpr loc (Expression iden loc) (AttributeName iden loc)
     | RVariablePExpr loc (VarName iden loc)
     | LitPExpr loc (Literal loc)
-    | ArrayConstructorPExpr loc (NeList (Expression iden loc))
+    | ArrayConstructorPExpr loc [Expression iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
   
 instance Location loc => Located (Expression iden loc) where
@@ -903,6 +913,7 @@ instance Location loc => Located (Expression iden loc) where
     loc (DomainIdExpr l _) = l
     loc (BytesFromStringExpr l _) = l
     loc (StringFromBytesExpr l _) = l
+    loc (VArraySizeExpr l _) = l
     loc (ProcCallExpr l _ _ _) = l
     loc (PostIndexExpr l _ _) = l
     loc (SelectionExpr l _ _) = l
@@ -919,16 +930,20 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (DomainIdExpr _ x) l = DomainIdExpr l x
     updLoc (BytesFromStringExpr _ x) l = BytesFromStringExpr l x
     updLoc (StringFromBytesExpr _ x) l = StringFromBytesExpr l x
+    updLoc (VArraySizeExpr _ x) l = VArraySizeExpr l x
     updLoc (ProcCallExpr _ x y z) l = ProcCallExpr l x y z
     updLoc (PostIndexExpr _ x y) l = PostIndexExpr l x y
     updLoc (SelectionExpr _ x y) l = SelectionExpr l x y
     updLoc (ArrayConstructorPExpr _ x) l = ArrayConstructorPExpr l x
     updLoc (RVariablePExpr _ x) l = RVariablePExpr l x
     updLoc (LitPExpr _ x) l = LitPExpr l x
-  
+
+ppVariadicArg :: (a -> Doc) -> (a,IsVariadic) -> Doc
+ppVariadicArg ppA (e,v) = ppA e <> ppVariadic v
+ 
 instance PP iden => PP (Expression iden loc) where
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
-    pp (QualExpr _ e t) = pp e <+> text "::" <+> (pp t)
+    pp (QualExpr _ e t) = pp e <+> text "::" <+> ppSizedTypeSpecifier t
     pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
     pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
     pp (PreOp _ (OpAdd _) e) = text "++" <> pp e
@@ -939,7 +954,8 @@ instance PP iden => PP (Expression iden loc) where
     pp (DomainIdExpr _ t) = text "__domainid" <> parens (pp t)
     pp (BytesFromStringExpr _ t) = text "__bytes_from_string" <> parens (pp t)
     pp (StringFromBytesExpr _ t) = text "__string_from_bytes" <> parens (pp t)
-    pp (ProcCallExpr _ n ts es) = pp n <> ppOpt ts (\ts -> abrackets (sepBy comma $ map pp ts)) <> parens (sepBy comma $ map pp es)
+    pp (VArraySizeExpr _ e) = text "size..." <> parens (pp e)
+    pp (ProcCallExpr _ n ts es) = pp n <> ppOpt ts (\ts -> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)) <> parens (sepBy comma $ map (ppVariadicArg pp) es)
     pp (PostIndexExpr _ e s) = pp e <> pp s
     pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v
     pp (ArrayConstructorPExpr _ es) = braces (sepBy comma $ fmap pp es)
@@ -1073,5 +1089,11 @@ unaryLitExpr :: Expression iden loc -> Expression iden loc
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (FloatLit l1 f))) = LitPExpr l $ FloatLit l1 (-f)
 unaryLitExpr e = e
-
-
+    
+instance PP iden => PP [Expression iden loc] where
+    pp xs = parens $ sepBy comma $ map pp xs
+    
+instance PP iden => PP [(Expression iden loc, IsVariadic)] where
+    pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
+    
+    

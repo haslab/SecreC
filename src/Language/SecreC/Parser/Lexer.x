@@ -114,6 +114,7 @@ tokens :-
 <0>                     xor_uint8             { lexerTokenInfo XOR_UINT8 }
 
 -- built-in functions:
+<0>                     "size..."              { lexerTokenInfo VSIZE }
 <0>                     __bytes_from_string   { lexerTokenInfo BYTESFROMSTRING }
 <0>                     __cref                { lexerTokenInfo CREF }
 <0>                     __domainid            { lexerTokenInfo DOMAINID }
@@ -130,6 +131,7 @@ tokens :-
 <0>                     @scientificfloat        { lexerTokenInfoFunc (return . FLOAT_LITERAL . readFloat) }
 <0>                     @decimal                { lexerTokenInfoFunc (return . DEC_LITERAL . convert_to_base 10) }
 
+<0>                     "..."                { lexerTokenInfo VARIADIC }
 <0>                     \+=                   { lexerTokenInfo ADD_ASSIGN }
 <0>                     &=                   { lexerTokenInfo AND_ASSIGN }
 <0>                     \-\-                   { lexerTokenInfo DEC_OP }

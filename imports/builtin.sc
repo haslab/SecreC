@@ -498,10 +498,10 @@ float64 operator (float64) (float64 x) {
 }
 
 // array casts
-template <domain D,dim N { N > 0 },type X,type Y>
-D Y[[N]] operator (Y) (D X[[N]] x) {
+template <domain D, dim N { N > 0 }, type X, type Y, dim... n>
+D Y[[N]](n...) operator (Y) (D X[[N]] x (n...)) {
     //stub
-    D Y[[N]] ret;
+    D Y[[N]] ret (n...);
     D X y;
     D Y z;
     z = (Y) y;
@@ -509,18 +509,18 @@ D Y[[N]] operator (Y) (D X[[N]] x) {
 }
 
 // classify
-template <domain D,type T,dim N { N > 0} >
-D T[[N]] classify (public T[[N]] x) {
-    D T[[N]] ret;
+template <domain D,type T,dim N { N > 0}, dim... n >
+D T[[N]](n...) classify (public T[[N]] x (n...)) {
+    D T[[N]] ret (n...);
     public T x1;
     D T x2 = classify(x1);
     return ret;
 }
 
 // declassify
-template <domain D,type T,dim N { N > 0 } >
-public T[[N]] declassify (D T[[N]] x) {
-    public T[[N]] ret;
+template <domain D,type T,dim N { N > 0 }, dim... n>
+public T[[N]](n...) declassify (D T[[N]] x (n...)) {
+    public T[[N]] ret (n...);
     D T x1;
     public T x2 = declassify(x1);
     return ret;
@@ -546,9 +546,9 @@ string tostring (public T x) {
 // shape
 
 template <domain D, type T, dim N>
-uint[[1]] shape (D T[[N]] arr) {
+uint[[1]](N) shape (D T[[N]] arr) {
     //stub
-    uint[[1]] ret;
+    uint[[1]] ret (N);
     return ret;
 }
 
@@ -556,30 +556,33 @@ uint[[1]] shape (D T[[N]] arr) {
 
 template <domain D, type T, dim N>
 D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
-    D T[[N]] ret;
-    return ret;
+    return cat(x,y,0);
 }
 
-template <domain D, type T, dim N>
-D T[[N]] cat (D T[[N]] x, D T[[N]] y, uint n) {
-    D T[[N]] ret;
+template <domain D, type T, dim N, dim... nx, dim... ny, dim... nz>
+D T[[N]](nz...) cat (D T[[N]] x (nx...), D T[[N]] y (ny...), const uint n { n < N }) {
+    D T[[N]] ret (nz...);
+    
+    for (uint i = 0; i < N; i++) {
+        if (i == n) {
+            assert(nz[i] == nx[i] + ny[i]);
+        }
+        else {
+            assert(nx[i] == ny[i]);
+            assert(nz[i] == nx[i]);
+        }
+    }
+    
     return ret;
 }
 
 // reshape
-// TODO: make this a variadic function for an arbitrary number of dimensions?
 
 template <domain D, type T, dim N>
-D T[[1]](n) reshape (D T[[N]] arr,const uint n { n >= 0 && size(arr) == n }) {
-    // stub
-    D T[[1]] ret;
-    return ret;
-}
-
-template <domain D, type T, dim N>
-D T[[2]](n,m) reshape (D T[[N]] inp,const uint n { n >= 0 }, const uint m { m >= 0 && size(inp) == n * m }) {
-    // stub
-    D T[[2]] ret;
+D T[[size...(ns)]](ns...) reshape (D T[[N]] arr, uint... ns) {
+    //stub
+    D T[[size...(ns)]] ret;
+    assert(size(arr) == product(ns...));
     return ret;
 }
 
@@ -616,10 +619,10 @@ bool operator || (bool x,bool y) {
     return ret;
 }
 
-template <domain D, dim N { N > 0 } >
-D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y) {
+template <domain D, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator || (D bool[[N]] x (n...),D bool[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D bool z;
     // simply to enforce the T operator || (T,T) constraint
     z = z || z;
@@ -632,9 +635,9 @@ bool operator ! (bool x) {
     return ret;
 }
 
-template <domain D, dim N { N > 0 } >
-D bool[[N]] operator ! (D bool[[N]] x) {
-    D bool[[N]] ret;
+template <domain D, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator ! (D bool[[N]] x (n...)) {
+    D bool[[N]] ret (n...);
     D bool z;
     z = !z;
     return ret;
@@ -665,10 +668,10 @@ int64 operator - (int64 x) {
 
 // unary array subtraction
 
-template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator - (D T[[N]] x) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D T[[N]](n...) operator - (D T[[N]] x (n...)) {
     //stub
-    D T [[N]] ret;
+    D T [[N]] ret (n...);
     D T z;
     // simply to enforce the T operator - (T,T) constraint
     z = - z;
@@ -730,10 +733,10 @@ float64 operator - (float64 x,float64 y) {
 
 // array subtraction
 
-template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator - (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D T[[N]](n...) operator - (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D T [[N]] ret;
+    D T [[N]] ret (n...);
     D T z;
     // simply to enforce the T operator - (T,T) constraint
     z = z - z;
@@ -796,10 +799,10 @@ float64 operator + (float64 x,float64 y) {
 
 // array addition
 
-template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator + (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D T[[N]](n...) operator + (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D T [[N]] ret;
+    D T [[N]] ret (n...);
     D T z;
     // simply to enforce the T operator + (T,T) constraint
     z = z + z;
@@ -861,10 +864,10 @@ float64 operator * (float64 x,float64 y) {
 
 // array multiplication
 
-template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator * (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D T[[N]](n...) operator * (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D T [[N]] ret;
+    D T [[N]] ret (n...);
     D T z;
     // simply to enforce the T operator + (T,T) constraint
     z = z * z;
@@ -927,10 +930,10 @@ float64 operator / (float64 x,float64 y) {
 
 // array division
 
-template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator / (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D T[[N]](n...) operator / (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D T [[N]] ret;
+    D T [[N]] ret (n...);
     D T z;
     // simply to enforce the T operator + (T,T) constraint
     z = z / z;
@@ -992,10 +995,10 @@ float64 operator % (float64 x,float64 y) {
 
 // array modulo
 
-template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator % (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D T[[N]](n...) operator % (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D T [[N]] ret;
+    D T [[N]] ret (n...);
     D T z;
     // simply to enforce the T operator + (T,T) constraint
     z = z % z;
@@ -1062,10 +1065,10 @@ bool operator > (bool x,bool y) {
 
 // array greater
 
-template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator > (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator > (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D T z;
     D bool b;
     // simply to enforce the T operator + (T,T) constraint
@@ -1133,10 +1136,10 @@ bool operator < (bool x,bool y) {
 
 // array smaller
 
-template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator < (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator < (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D T z;
     D bool b;
     // simply to enforce the T operator < (T,T) constraint
@@ -1204,10 +1207,10 @@ bool operator >= (bool x,bool y) {
 
 // array greater or equal
 
-template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator >= (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D T z;
     D bool b;
     // simply to enforce the T operator + (T,T) constraint
@@ -1275,10 +1278,10 @@ bool operator <= (bool x,bool y) {
 
 // array greater
 
-template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator <= (D T[[N]] x (n...), D T[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D T z;
     D bool b;
     // simply to enforce the T operator + (T,T) constraint
@@ -1346,10 +1349,10 @@ bool operator == (bool x,bool y) {
 
 // array equal
 
-template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator == (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator == (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D T z;
     D bool b;
     // simply to enforce the T operator == (T,T) constraint
@@ -1417,13 +1420,23 @@ bool operator != (bool x,bool y) {
 
 // array not equal
 
-template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator != (D T[[N]] x,D T[[N]] y) {
+template <domain D, type T, dim N { N > 0 }, dim... n >
+D bool[[N]](n...) operator != (D T[[N]] x (n...),D T[[N]] y (n...)) {
     //stub
-    D bool [[N]] ret;
+    D bool [[N]] ret (n...);
     D T z;
     D bool b;
     // simply to enforce the T operator != (T,T) constraint
     b = z != z;
     return ret;
+}
+
+//variadic product
+
+template <domain D, type T, dim N, dim... n>
+D T[[N]](n...) product (D T[[N]]... xs (n...)) {
+    D T[[N]] p (n...) = 0;
+    for (uint i = 0; i <= size...(xs); i++)
+        p *= xs[i];
+    return p;
 }

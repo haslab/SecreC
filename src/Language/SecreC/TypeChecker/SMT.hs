@@ -79,20 +79,16 @@ compareSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (Compari
     let str1 = ppr (IAnd $ c1 : hyp) ++ " => " ++ ppr c2
     let str2 = ppr (IAnd $ c2 : hyp) ++ " => " ++ ppr c1
     lt <- tryValiditySBV l cfg str1 $ do
-        h <- cond2SBV l $ IAnd $ c1 : hyp
-        lift $ lift $ constrain h
+        hyp2SBV l $ IAnd $ c1 : hyp
         cond2SBV l c2
     nlt <- tryValiditySBV l cfg str1 $ do
-        h <- cond2SBV l $ IAnd hyp
-        lift $ lift $ constrain h
+        hyp2SBV l $ IAnd hyp
         cond2SBV l $ INot $ c1 `implies` c2
     gt <- tryValiditySBV l cfg str2 $ do
-        h <- cond2SBV l $ IAnd $ c2 : hyp
-        lift $ lift $ constrain h
+        hyp2SBV l $ IAnd $ c2 : hyp
         cond2SBV l c1
     ngt <- tryValiditySBV l cfg str1 $ do
-        h <- cond2SBV l $ IAnd hyp
-        lift $ lift $ constrain h
+        hyp2SBV l $ IAnd hyp
         cond2SBV l $ INot $ c2 `implies` c1
     case (lt,nlt,gt,ngt) of
         (Nothing,_,Nothing,_) -> return EQ
@@ -104,8 +100,7 @@ equalSBV :: (VarsIdTcM loc m,Location loc) => SMTConfig -> loc -> [ICond] -> ICo
 equalSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (EqualityException "index condition") (pp c1) (pp c2) . Just) $ do
     let str = show (pp c1 <+> text "==" <+> pp c2)
     mb <- tryValiditySBV l cfg str $ do
-        h <- cond2SBV l $ IAnd hyp
-        lift $ lift $ constrain h
+        hyp2SBV l $ IAnd hyp
         s1 <- cond2SBV l c1
         s2 <- cond2SBV l c2
         return (s1 .== s2)
@@ -119,8 +114,7 @@ checkValiditySBV l cfg hyp prop = do
     d2 <- ppM l prop
     let str = d1 <+> text " => " <+> d2
     r <- validitySBV l cfg (show str) $ do
-        h <- cond2SBV l hyp
-        lift $ lift $ constrain h
+        hyp2SBV l hyp
         cond2SBV l prop
     return r
 
@@ -131,7 +125,7 @@ validitySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV l
 validitySBV l cfg str sprop = do
     opts <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts) $
-        liftIO $ hPutStr stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
+        liftIO $ hPutStrLn stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
 --  smt <- compileToSMTLib True False sprop
 --  liftIO $ putStrLn smt
     r <- proveWithTcSBV cfg sprop

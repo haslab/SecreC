@@ -5,6 +5,7 @@ module Language.SecreC.Monad where
 import Language.SecreC.Error
 import Language.SecreC.Location
 import Language.SecreC.Pretty
+import Language.SecreC.Position
     
 import Control.Monad.IO.Class
 import Control.Monad.Except
@@ -65,12 +66,12 @@ defaultOptions = Opts
     , externalSMT = True
     }
 
-newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Set SecrecWarning) }
+newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Map Position (Set SecrecWarning)) }
   deriving (Typeable)
 
 instance Monoid SecrecWarnings where
     mempty = ScWarns Map.empty
-    mappend (ScWarns x) (ScWarns y) = ScWarns $ Map.unionWith (Set.union) x y
+    mappend (ScWarns x) (ScWarns y) = ScWarns $ Map.unionWith (Map.unionWith Set.union) x y
 
 -- | SecreC Monad
 data SecrecM m a = SecrecM { unSecrecM :: ReaderT Options m (Either SecrecError (a,SecrecWarnings)) }
@@ -88,7 +89,7 @@ runSecrecM opts m = flip runReaderT opts $ do
     case e of
         Left err -> liftIO $ throwError $ userError $ ppr err
         Right (x,ScWarns warns) -> do
-            forM_ warns $ \ws -> forM_ ws $ \w -> liftIO $ hPutStrLn stderr (ppr w)
+            forM_ warns $ \ws -> forM_ (Map.elems ws) $ \w -> forM_ w $ \x -> liftIO $ hPutStrLn stderr (ppr x)
             return x
 
 instance Monad m => MonadReader Options (SecrecM m) where

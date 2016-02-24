@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, FlexibleContexts #-}
+{-# LANGUAGE DeriveDataTypeable, TypeFamilies, FlexibleContexts #-}
 
 module Language.SecreC.Error where
 
@@ -7,6 +7,7 @@ import Language.SecreC.Syntax
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Pretty
 import Language.SecreC.Utils
+import Language.SecreC.Location
 
 import Data.Generics hiding (empty)
 import Data.Int
@@ -42,7 +43,21 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | TimedOut Int -- timed out after @x@ seconds
                  | OrWarn -- ^ optional constraint, just throw a warning
                      SecrecError
+                | Halt -- ^ an error because of lacking information
+                    SecrecError
   deriving (Show,Typeable,Data,Eq,Ord)
+
+instance Located SecrecError where
+     type LocOf SecrecError = Position
+     loc (TypecheckerError p _) = p
+     loc (ParserError _) = noloc
+     loc (ModuleError p _) = p
+     loc (GenericError p _) = p
+     loc (MultipleErrors es) = minimum (map loc es)
+     loc (TimedOut _) = noloc
+     loc (OrWarn e) = loc e
+     loc (Halt e) = loc e
+     updLoc = error "cannot update location in errors"
 
 instance PP SecrecError where
     pp (TypecheckerError p err) = pp p <> char ':' $+$ nest 4 (pp err)
@@ -52,6 +67,7 @@ instance PP SecrecError where
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
     pp (OrWarn err) = pp err
+    pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -61,7 +77,7 @@ data TypecheckerErr
         SecrecError -- ^ sub-error
     | MismatchingArrayDimension -- ^ array dimension does not match sizes
         Doc -- type
-        Word64 -- expected dimension
+        Doc -- expected dimension
         (Maybe SecrecError)
     | MultipleDefinedVariable Identifier
     | NoReturnStatement
@@ -169,8 +185,6 @@ data TypecheckerErr
     | TypeConversionError
         Doc -- conversion kind
         Doc -- type to convert
-    | Halt -- ^ an error because of lacking information
-        TypecheckerErr
     | NonPositiveIndexExpr
         Doc -- the index expression
         SecrecError -- sub-error
@@ -222,8 +236,8 @@ instance PP TypecheckerErr where
     pp e@(UnreachableDeadCode {}) = text (show e)
     pp e@(NonStaticDimension t err) = text "Array dimension must be statically known for type" <+> quotes t $+$ nest 4
         (text "Static evaluation error:" $+$ nest 4 (pp err))
-    pp e@(MismatchingArrayDimension t d Nothing) = text "Expecting dimension" <+> pp d <+> text "for type" <+> quotes t
-    pp e@(MismatchingArrayDimension t d (Just err)) = text "Expecting dimension" <+> pp d <+> text "for type" <+> quotes t <> char ':' $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
+    pp e@(MismatchingArrayDimension t d Nothing) = text "Expecting dimension" <+> d <+> text "for type" <+> quotes t
+    pp e@(MismatchingArrayDimension t d (Just err)) = text "Expecting dimension" <+> d <+> text "for type" <+> quotes t <> char ':' $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
     pp e@(MultipleDefinedVariable {}) = text (show e)
     pp e@(NoReturnStatement dec) = text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
     pp e@(NoTemplateType n p t) = text "Declaration" <+> quotes t <+> text "at" <+> pp p <+> text "is not a template type with name" <+> quotes n
@@ -288,7 +302,7 @@ instance PP TypecheckerErr where
         $+$ text "Conflict: " $+$ nest 4 (pp err))
     pp (TemplateSolvingError app err) = text "Failed to solve template instantiation:" <+> app
         $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
-    pp (StaticEvalError e env) = text "Unable to statically evaluate expression" <+> quotes e <> char ':' $+$ nest 4 (ppConstraintEnv env)
+    pp (StaticEvalError e env) = text "Unable to statically evaluate" <+> quotes e <> char ':' $+$ nest 4 (ppConstraintEnv env)
     pp (UnresolvedVariable v) = text "Unable to resolve variable: " <+> quotes v
     pp (UnresolvedMatrixProjection t rngs err) = text "Unable to resolve matrix projection:" $+$ nest 4
         ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
@@ -297,7 +311,6 @@ instance PP TypecheckerErr where
     pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
         where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
     pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes i
-    pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
     pp w@(UncheckedRangeSelection t i rng err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension can not be checked for type" <+> quotes t $+$ nest 4
         (text "Because of:" <+> pp err)
     
@@ -308,7 +321,7 @@ ppConstraintEnv (Just suberr) = text "Because of:" $+$ nest 4 (pp suberr)
 isHaltError :: SecrecError -> Bool
 isHaltError = everything (||) (mkQ False aux)
     where
-    aux :: TypecheckerErr -> Bool
+    aux :: SecrecError -> Bool
     aux (Halt _) = True
     aux _ = False
 
@@ -347,7 +360,13 @@ data SecrecWarning
     = TypecheckerWarning Position TypecheckerWarn
     | ErrWarn SecrecError
   deriving (Show,Typeable,Eq,Ord)
-  
+
+instance Located SecrecWarning where
+    type LocOf SecrecWarning = Position
+    loc (TypecheckerWarning p _) = p
+    loc (ErrWarn e) = loc e
+    updLoc = error "no updLoc for errors"
+
 instance PP SecrecWarning where
     pp (TypecheckerWarning p w) = text "Warning:" <+> pp p $+$ nest 4 (pp w)
     pp (ErrWarn err) = text "Warning:" <+> pp err

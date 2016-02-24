@@ -27,6 +27,7 @@ import System.IO
 import Safe
 
 import qualified Data.Foldable as Foldable
+import Data.Maybe
 
 type ScParserT u m a = ParsecT [TokenInfo] u m a
 
@@ -243,17 +244,16 @@ scDomainDeclaration = apA3 (scTok DOMAIN) scDomainId scKindId (\x1 x2 x3 -> Doma
 scVariableInitialization :: Monad m => ScParserT u m (VariableInitialization Identifier Position)
 scVariableInitialization = apA3
     scVarId
-    (optionMaybe scDimensions)
+    (optionMaybe scSizes)
     (optionMaybe (scChar '=' *> scExpression))
     (\x1 x2 x3 -> VariableInitialization (loc x1) x1 x2 x3) <?> "variable initialization"
 
 scConstInitialization :: Monad m => ScParserT u m (ConstInitialization Identifier Position)
-scConstInitialization = apA4
+scConstInitialization = apA3
     scVarId
-    (optionMaybe scDimensions)
+    (optionMaybe scSizes)
     (optionMaybe (scChar '=' *> scExpression))
-    (optionMaybe (scBraces scExpression))
-    (\x1 x2 x3 x4 -> ConstInitialization (loc x1) x1 x2 x3 x4) <?> "const initialization"
+    (\x1 x2 x3 -> ConstInitialization (loc x1) x1 x2 x3) <?> "const initialization"
 
 scVariableInitializations :: Monad m => ScParserT u m (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = apA (sepBy1 scVariableInitialization (scChar ',')) fromListNe <?> "variable initializations"
@@ -271,23 +271,23 @@ scConstDeclaration = do
 
 scProcedureParameter :: Monad m => ScParserT u m (ProcedureParameter Identifier Position)
 scProcedureParameter =
-    (scTok CONST >>= \x0 -> (scTypeSpecifier $ \x1 -> apA3 scVarId (optionMaybe scDimensions) scInvariant (\x2 x3 x4 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4) <?> "const procedure parameter"))
-    <|> (scTypeSpecifier $ \x1 -> apA2 scVarId (optionMaybe scDimensions) (\x2 x3 -> ProcedureParameter (loc x1) x1 x2 x3) <?> "procedure parameter")
+    (scTok CONST >>= \x0 -> (scVariadicTypeSpecifier $ \(x1,x2) -> apA3 scVarId (optionMaybe scSizes) scInvariant (\x3 x4 x5 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4 x5) <?> "const procedure parameter"))
+    <|> (scVariadicTypeSpecifier $ \(x1,x2) -> apA2 scVarId (optionMaybe scSizes) (\x3 x4 -> ProcedureParameter (loc x1) x1 x2 x3 x4) <?> "procedure parameter")
 
-scDimensions :: Monad m => ScParserT u m (Sizes Identifier Position)
-scDimensions = apA (scParens scDimensionList) Sizes <?> "dimensions"
+scSizes :: Monad m => ScParserT u m (Sizes Identifier Position)
+scSizes = apA (scParens scVariadicExpressionList1) Sizes <?> "dimensions"
 
 scInvariant :: Monad m => ScParserT u m (Maybe (Expression Identifier Position))
 scInvariant = optionMaybe (scBraces scExpression) <?> "dimensions"
 
-scExpressionList0 :: Monad m => ScParserT u m [Expression Identifier Position]
-scExpressionList0 = sepBy scExpression (scChar ',') <?> "expression list"
+scExpressionList :: Monad m => ScParserT u m [Expression Identifier Position]
+scExpressionList = sepBy scExpression (scChar ',') <?> "expression list"
 
-scExpressionList :: Monad m => ScParserT u m (NeList (Expression Identifier Position))
-scExpressionList = apA (sepBy1 scExpression (scChar ',')) fromListNe <?> "expression list"
+scVariadicExpressionList :: Monad m => ScParserT u m [(Expression Identifier Position,IsVariadic)]
+scVariadicExpressionList = (sepBy scVariadicExpression (scChar ',')) <?> "variadic expression list"
 
-scDimensionList :: Monad m => ScParserT u m (NeList (Expression Identifier Position))
-scDimensionList = scExpressionList <?> "dimension list"
+scVariadicExpressionList1 :: Monad m => ScParserT u m (NeList (Expression Identifier Position,IsVariadic))
+scVariadicExpressionList1 = apA (sepBy1 scVariadicExpression (scChar ',')) fromListNe <?> "variadic expression list"
 
 -- ** Types                                                                     
 
@@ -297,6 +297,10 @@ scTypeSpecifier cont = (scMaybeCont scSecTypeSpecifier $ \x1 -> do
     x3 <- optionMaybe scDimtypeSpecifier
     let t = TypeSpecifier (maybe (loc x2) loc x1) x1 x2 x3
     cont t) <?> "type specifier"
+
+scVariadicTypeSpecifier :: Monad m => ((TypeSpecifier Identifier Position,IsVariadic) -> ScParserT u m a) -> ScParserT u m a
+scVariadicTypeSpecifier cont = scTypeSpecifier $ \t -> do
+    scMaybeCont (scTok VARIADIC) $ \b -> cont (t,isJust b)
 
 scSecTypeSpecifier :: Monad m => ScParserT u m (SecTypeSpecifier Identifier Position)
 scSecTypeSpecifier = (apA (scTok PUBLIC) (\x1 -> PublicSpecifier (loc x1)) <?> "public security type")
@@ -332,8 +336,8 @@ scPrimitiveDatatype = (apA (scTok BOOL) (DatatypeBool . loc)
 scTemplateStructDatatypeSpecifier :: Monad m => ScParserT u m (DatatypeSpecifier Identifier Position)
 scTemplateStructDatatypeSpecifier = apA2 scTypeId (scABrackets scTemplateTypeArguments) (\x1 x2 -> TemplateSpecifier (loc x1) x1 x2) <?> "template struct specifier"
 
-scTemplateTypeArguments :: Monad m => ScParserT u m [TemplateTypeArgument Identifier Position]
-scTemplateTypeArguments = sepBy1 scTemplateTypeArgument (scChar ',') <?> "template type arguments"
+scTemplateTypeArguments :: Monad m => ScParserT u m [(TemplateTypeArgument Identifier Position,IsVariadic)]
+scTemplateTypeArguments = sepBy (apA2 scTemplateTypeArgument scVariadic (,)) (scChar ',') <?> "template type arguments"
 
 scTemplateTypeArgument :: Monad m => ScParserT u m (TemplateTypeArgument Identifier Position)
 scTemplateTypeArgument = (apA (scTok PUBLIC) (PublicTemplateTypeArgument . loc) <?> "public template type argument")
@@ -363,13 +367,16 @@ scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?
 
 scTemplateQuantifier :: Monad m => ScParserT u m (TemplateQuantifier Identifier Position)
 scTemplateQuantifier =
-        (apA3 (scTok DOMAIN) scDomainId (optionMaybe (scChar ':' *> scKindId)) (\x1 x2 x3 -> DomainQuantifier (loc x1) x2 x3)
-    <|> apA3 (scTok DIMENSIONALITY) scVarId scInvariant (\x1 x2 x3 -> DimensionQuantifier (loc x1) x2 x3)
-    <|> apA2 (scTok TYPE) scTypeId (\x1 x2 -> DataQuantifier (loc x1) x2)) <?> "template quantifier"
+        (apA4 (scTok DOMAIN) scVariadic scDomainId (optionMaybe (scChar ':' *> scKindId)) (\x1 x2 x3 x4 -> DomainQuantifier (loc x1) x2 x3 x4)
+    <|> apA4 (scTok DIMENSIONALITY) scVariadic scVarId scInvariant (\x1 x2 x3 x4 -> DimensionQuantifier (loc x1) x2 x3 x4)
+    <|> apA3 (scTok TYPE) scVariadic scTypeId (\x1 x2 x3 -> DataQuantifier (loc x1) x2 x3)) <?> "template quantifier"
+
+scVariadic :: Monad m => ScParserT u m IsVariadic
+scVariadic = apA (optionMaybe (scTok VARIADIC)) isJust
 
 -- ** Structures                                                                 
 
-scStructure :: Monad m => ScParserT u m (Maybe [TemplateTypeArgument Identifier Position],StructureDeclaration Identifier Position)
+scStructure :: Monad m => ScParserT u m (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
 scStructure = apA4 (scTok STRUCT) scTypeId (optionMaybe $ scABrackets scTemplateTypeArguments) (scCBrackets scAttributeList) (\x1 x2 x3 x4 -> (x3,StructureDeclaration (loc x1) x2 x4)) <?> "structure declaration"
 
 scStructureDeclaration :: Monad m => ScParserT u m (StructureDeclaration Identifier Position)
@@ -385,10 +392,13 @@ scAttribute = scTypeSpecifier $ \x1 -> apA2 scAttributeId (scChar ';') (\x2 x3 -
 
 scReturnTypeSpecifier :: Monad m => (ReturnTypeSpecifier Identifier Position -> ScParserT u m a) -> ScParserT u m a
 scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Nothing) >>= cont)
-                         <|> scTypeSpecifier (\x1 -> do
-                                 x2 <- optionMaybe scDimensions
-                                 let s = ReturnType (loc x1) (Just (x1,x2))
-                                 cont s))
+                         <|> scSizedTypeSpecifier (\x1 -> cont (ReturnType (loc $ fst x1) (Just x1))))
+                          <?> "return type specifier"
+
+scSizedTypeSpecifier :: Monad m => (SizedTypeSpecifier Identifier Position -> ScParserT u m a) -> ScParserT u m a
+scSizedTypeSpecifier cont = scTypeSpecifier (\x1 -> do
+                                 x2 <- optionMaybe scSizes
+                                 cont (x1,x2))
                           <?> "return type specifier"
 
 scProcedureDeclaration :: Monad m => ScParserT u m (ProcedureDeclaration Identifier Position)
@@ -469,7 +479,7 @@ scWhileStatement = apA3 (scTok WHILE) (scParens scExpression) scStatement (\x1 x
     <?> "while statement"
 
 scPrintStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scPrintStatement = apA3 (scTok PRINT) (scParens scExpressionList) (scChar ';') (\x1 x2 x3 -> PrintStatement (loc x1) x2)
+scPrintStatement = apA3 (scTok PRINT) (scParens scVariadicExpressionList) (scChar ';') (\x1 x2 x3 -> PrintStatement (loc x1) x2)
     <?> "print statement"
 
 scDowhileStatement :: Monad m => ScParserT u m (Statement Identifier Position)
@@ -516,13 +526,16 @@ scLvalue = scPostfixExpression <?> "lvalue"
 scExpression :: Monad m => ScParserT u m (Expression Identifier Position)
 scExpression = scAssignmentExpression <?> "expression"
 
+scVariadicExpression :: Monad m => ScParserT u m (Expression Identifier Position,IsVariadic)
+scVariadicExpression  = apA2 scExpression scVariadic (,)
+
 scAssignmentExpression :: Monad m => ScParserT u m (Expression Identifier Position)
 scAssignmentExpression = (apA3 scLvalue op scAssignmentExpression (\x1 x2 x3 -> BinaryAssign (loc x1) x1 x2 x3)
                       <||> scQualifiedExpression
                      ) <?> "assignment expression"
     where
     op = apA (scChar '=') (BinaryAssignEqual . loc)
-     <|> apA (scTok MUL_ASSIGN) (BinaryAssignDiv . loc)
+     <|> apA (scTok MUL_ASSIGN) (BinaryAssignMul . loc)
      <|> apA (scTok DIV_ASSIGN) (BinaryAssignDiv . loc)
      <|> apA (scTok MOD_ASSIGN) (BinaryAssignMod . loc)
      <|> apA (scTok ADD_ASSIGN) (BinaryAssignAdd . loc)                                                                                
@@ -535,7 +548,7 @@ scQualifiedExpression :: Monad m => ScParserT u m (Expression Identifier Positio
 scQualifiedExpression = scFoldl
     (\qe t -> return $ QualExpr (loc qe) qe t)
     scConditionalExpression
-    (scTok TYPE_QUAL *> scTypeSpecifier return) <?> "qualified expression"
+    (scTok TYPE_QUAL *> scSizedTypeSpecifier return) <?> "qualified expression"
 
 scConditionalExpression :: Monad m => ScParserT u m (Expression Identifier Position)
 scConditionalExpression = (do
@@ -669,10 +682,11 @@ scPostfixExpression' :: Monad m => ScParserT u m (Expression Identifier Position
 scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1 x2 -> DomainIdExpr (loc x1) x2)
                   <|> apA2 (scTok STRINGFROMBYTES) (scParens scExpression) (\x1 x2 -> StringFromBytesExpr (loc x1) x2)
                   <|> apA2 (scTok BYTESFROMSTRING) (scParens scExpression) (\x1 x2 -> BytesFromStringExpr (loc x1) x2)
+                  <|> apA2 (scTok VSIZE) (scParens scExpression) (\x1 x2 -> VArraySizeExpr (loc x1) x2)
                   <|> apA3 scProcedureId
                       (optionMaybe $ scABrackets scTemplateTypeArguments)
-                      (scParens (optionMaybe scExpressionList))
-                      (\x1 x2 x3 -> ProcCallExpr (loc x1) x1 x2 (maybe [] Foldable.toList x3))
+                      (scParens (optionMaybe scVariadicExpressionList))
+                      (\x1 x2 x3 -> ProcCallExpr (loc x1) x1 x2 (maybe [] id x3))
                   <||> scPrimaryExpression) <?> "postfix expression"
 
 scPrimaryExpression :: Monad m => ScParserT u m (Expression Identifier Position)

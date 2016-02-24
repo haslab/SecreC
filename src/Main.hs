@@ -132,7 +132,7 @@ secrec opts = do
         let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . modulePosId) modules) <+> text str <> char '.'
         if (typeCheck opts)
             then runTcM $ do
-                typedModulesO <- mapFstM tcModule moduleso
+                typedModulesO <- fmapFstM tcModule moduleso
                 printMsg "are well-typed"
             else printMsg "parsed OK"
         

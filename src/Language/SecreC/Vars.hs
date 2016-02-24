@@ -77,12 +77,6 @@ class (IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
     
     substProxy :: SubstsProxy iden m -> a -> m a
     substProxy f x = subst (f Proxy) x
-    
-    --substFromMap :: (IsScVar l,Vars iden m r) => Map l  -> a -> m a
-    --substFromMap xs = subst (substsFromMap xs)
-    --
-    --substFromList :: (IsScVar l,Vars iden m r) => [(l,r)] -> a -> m a
-    --substFromList xs = subst (substsFromList xs)
         
     fvs :: a -> m (Set iden)
     fvs a = do
@@ -169,7 +163,7 @@ instance (PP a,PP b) => PP (Map a b) where
     pp xs = vcat $ map (\(k,v) -> pp k <+> char '=' <+> pp v) $ Map.toList xs
 
 instance PP a => PP (Set a) where
-    pp xs = vcat $ map pp $ Set.toList xs
+    pp xs = sepBy space $ map pp $ Set.toList xs
 
 instance (Vars iden m a,Vars iden m b) => Vars iden m (Map a b) where
     traverseVars f xs = liftM Map.fromList $ aux $ Map.toList xs
@@ -235,19 +229,21 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             return $ ProcedureDeclaration l' t' n' args' s'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
-    traverseVars f (ProcedureParameter l t v sz) = do
+    traverseVars f (ProcedureParameter l b t v sz) = do
         l' <- f l
+        b' <- f b
         t' <- f t
         v' <- f v
         sz' <- f sz
-        return $ ProcedureParameter l' t' v' sz'
-    traverseVars f (ConstProcedureParameter l t v sz e) = do
+        return $ ProcedureParameter l' b' t' v' sz'
+    traverseVars f (ConstProcedureParameter l b t v sz e) = do
         l' <- f l
+        b' <- f b
         t' <- f t
         v' <- f v
         sz' <- f sz
         e' <- f e
-        return $ ConstProcedureParameter l' t' v' sz' e'
+        return $ ConstProcedureParameter l' b' t' v' sz' e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
     traverseVars f (ReturnType l mb) = do
@@ -426,6 +422,12 @@ instance (Location loc,Vars iden m loc) => Vars iden m (BinaryAssignOp loc) wher
         l' <- f (loc o)
         return $ updLoc o l'
 
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [Expression iden loc] where
+    traverseVars f = mapM f
+
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [(Expression iden loc,IsVariadic)] where
+    traverseVars f = mapM (mapFstM f)
+
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Expression iden loc) where
     traverseVars f (BinaryAssign l e1 o e2) = do
         l' <- f l
@@ -469,6 +471,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         t' <- f t
         return $ DomainIdExpr l' t'
+    traverseVars f (VArraySizeExpr l e) = do
+        l' <- f l
+        e' <- f e
+        return $ VArraySizeExpr l' e'
     traverseVars f (BytesFromStringExpr l e) = do
         l' <- f l
         e' <- f e
@@ -601,13 +607,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         return $ ConstDeclaration l' t' is'
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ConstInitialization iden loc) where
-    traverseVars f (ConstInitialization l v sz e c) = do
+    traverseVars f (ConstInitialization l v sz e) = do
         l' <- f l
         v' <- inLHS $ f v
         sz' <- mapM f sz
         e' <- mapM f e
-        c' <- mapM f c
-        return $ ConstInitialization l' v' sz' e' c'
+        return $ ConstInitialization l' v' sz' e'
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Sizes iden loc) where
     traverseVars f (Sizes es) = do
@@ -717,20 +722,23 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         return $ Attribute l' t' a'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateQuantifier iden loc) where
-    traverseVars f (DomainQuantifier l d k) = do
+    traverseVars f (DomainQuantifier l b d k) = do
         l' <- f l
+        b' <- f b
         d' <- inLHS $ f d
         k' <- mapM f k
-        return $ DomainQuantifier l' d' k'
-    traverseVars f (DimensionQuantifier l d e) = do
+        return $ DomainQuantifier l' b' d' k'
+    traverseVars f (DimensionQuantifier l b d e) = do
         l' <- f l
+        b' <- f b
         d' <- inLHS $ f d
         e' <- f e
-        return $ DimensionQuantifier l' d' e'
-    traverseVars f (DataQuantifier l t) = do
+        return $ DimensionQuantifier l' b' d' e'
+    traverseVars f (DataQuantifier l b t) = do
         l' <- f l
+        b' <- f b
         t' <- inLHS $ f t
-        return $ DataQuantifier l' t'
+        return $ DataQuantifier l' b' t'
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (KindDeclaration iden loc) where
     traverseVars f (Kind l n) = do
@@ -774,7 +782,6 @@ instance (IsScVar iden,Monad m) => Vars iden m Ordering where
 
 instance (IsScVar iden,Monad m) => Vars iden m SecrecError where
     traverseVars f x = return x
-
-
+    
 
 

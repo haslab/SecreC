@@ -42,8 +42,16 @@ instance MonadBaseControl IO Symbolic where
     liftBaseWith f = liftIO $ f return
     restoreM       = id
 
+hyp2SBV :: (VarsIdTcM loc Symbolic,Location loc) => loc -> ICond -> TcSBV loc ()
+hyp2SBV l c = do
+    (inHyp,_) <- State.get
+    State.modify $ \(_,st) -> (True,st)
+    h <- cond2SBV l c
+    State.modify $ \(_,st) -> (inHyp,st)
+    lift $ lift $ constrain h
+
 proveWithTcSBV :: (MonadIO m,Location loc) => SMTConfig -> TcSBV loc SBool -> TcM loc m ThmResult
-proveWithTcSBV cfg m = proveWithTcM cfg $ evalStateT m Map.empty
+proveWithTcSBV cfg m = proveWithTcM cfg $ evalStateT m (False,Map.empty)
 
 proveWithTcM :: (MonadIO m,Location loc) => SMTConfig -> TcM loc Symbolic SBool -> TcM loc m ThmResult
 proveWithTcM cfg m = do
@@ -69,7 +77,7 @@ proveWithTcM cfg m = do
             TcM $ lift $ tell warns
     return res
 
-type TcSBV loc = StateT SBVals (TcM loc Symbolic)
+type TcSBV loc = StateT (Bool,SBVals) (TcM loc Symbolic)
 
 data SBVal where
     SBool :: SBool -> SBVal
@@ -89,6 +97,7 @@ data SBVal where
 instance PP SBVal where
     pp = text . show
 
+unifiesSBVal :: Monad m => loc -> SBVal -> SBVal -> m (SBVal,SBVal)
 unifiesSBVal l (SLit (BoolLit _ b1)) (SBool b2) = return (SBool $ fromBool b1,SBool b2)
 unifiesSBVal l (SBool b1) (SLit (BoolLit _ b2)) = return (SBool b1,SBool $ fromBool b2)
 unifiesSBVal l (SBool b1) (SBool b2) = return (SBool b1,SBool b2)
@@ -115,7 +124,7 @@ unifiesSBVal l (SWord32 b1) (SWord32 b2) = return (SWord32 b1,SWord32 b2)
 unifiesSBVal l (SLit (IntLit _ b1)) (SWord64 b2) = return (SWord64 $ literal $ fromInteger b1,SWord64 b2)
 unifiesSBVal l (SWord64 b1) (SLit (IntLit _ b2)) = return (SWord64 b1,SWord64 $ literal $ fromInteger b2)
 unifiesSBVal l (SWord64 b1) (SWord64 b2) = return (SWord64 b1,SWord64 b2)
-unifiesSBVal l x y = lift $ genTcError (locpos l) $ text "can't unify" <+> pp x <+> pp y
+unifiesSBVal l x y = return (x,y)
 
 type SBVals = Map VarIdentifier SBVal
 
@@ -129,14 +138,14 @@ cond2SBV l ex = case ex of
         b1 <- cond2SBV l e1
         b2 <- cond2SBV l e2
         return $ bOp2SBV op b1 b2
-    ILeq e -> do
-        let x = SLit $ IntLit () 0
-        y <- expr2SBV l e
+    ILeq e1 e2 -> do
+        x <- expr2SBV l e1
+        y <- expr2SBV l e2
         (x',y') <- unifiesSBVal l x y
         sbvLe l x' y'
-    IEq e -> do
-        let x = SLit $ IntLit () 0
-        y <- expr2SBV l e
+    IEq e1 e2 -> do
+        x <- expr2SBV l e1
+        y <- expr2SBV l e2
         (x',y') <- unifiesSBVal l x y
         sbvEq l x' y'
 
@@ -144,7 +153,6 @@ expr2SBV :: (VarsIdTcM loc Symbolic,Location loc) => loc -> IExpr -> TcSBV loc S
 expr2SBV l ex = case ex of 
     IInt n -> return $ SLit $ IntLit () n
     IIdx v -> tryResolveIExprVar l v
-    ISum e -> aux e
     IArith op e1 e2 -> do
         x1 <- expr2SBV l e1
         x2 <- expr2SBV l e2
@@ -175,6 +183,9 @@ sbvEq l (SWord32 x) (SWord32 y) = return $ (x .== y)
 sbvEq l (SWord64 x) (SWord64 y) = return $ (x .== y)
 sbvEq l (SFloat x)  (SFloat y)  = return $  (x .== y)
 sbvEq l (SDouble x) (SDouble y) = return $ (x .== y)
+sbvEq l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ fromBool $ i1 == i2
+sbvEq l (SLit (BoolLit _ i1)) (SLit (BoolLit _ i2)) = return $ fromBool $ i1 == i2
+sbvEq l (SLit (FloatLit _ i1)) (SLit (FloatLit _ i2)) = return $ fromBool $ i1 == i2
 sbvEq l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> text "==" <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvEq>"
 
 sbvLe :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBool
@@ -188,6 +199,9 @@ sbvLe l (SWord32 x) (SWord32 y) = return $ (x .<= y)
 sbvLe l (SWord64 x) (SWord64 y) = return $ (x .<= y)
 sbvLe l (SFloat x)  (SFloat y)  = return $  (x .<= y)
 sbvLe l (SDouble x) (SDouble y) = return $ (x .<= y)
+sbvLe l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ fromBool $ i1 <= i2
+sbvLe l (SLit (BoolLit _ i1)) (SLit (BoolLit _ i2)) = return $ fromBool $ i1 <= i2
+sbvLe l (SLit (FloatLit _ i1)) (SLit (FloatLit _ i2)) = return $ fromBool $ i1 <= i2
 sbvLe l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> text "<=" <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvLe>"
 
 sbvPlus :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBVal
@@ -201,54 +215,109 @@ sbvPlus l (SWord32 x) (SWord32 y) = return $ SWord32 (x + y)
 sbvPlus l (SWord64 x) (SWord64 y) = return $ SWord64 (x + y)
 sbvPlus l (SFloat x)  (SFloat y)  = return $ SFloat  (x + y)
 sbvPlus l (SDouble x) (SDouble y) = return $ SDouble (x + y)
+sbvPlus l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ IntLit () $ i1 + i2
+sbvPlus l (SLit (FloatLit _ i1)) (SLit (FloatLit _ i2)) = return $ SLit $ FloatLit () $ i1 + i2
+sbvPlus l (SLit (IntLit _ i1)) (SLit (FloatLit _ i2)) = return $ SLit $ FloatLit () $ realToFrac i1 + i2
+sbvPlus l (SLit (FloatLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ FloatLit () $ i1 + realToFrac i2
 sbvPlus l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> char '+' <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvPlus>"
 
+sbvMinus :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBVal
+sbvMinus l (SInt8 x)   (SInt8 y)   = return $ SInt8   (x - y)
+sbvMinus l (SInt16 x)  (SInt16 y)  = return $ SInt16  (x - y)
+sbvMinus l (SInt32 x)  (SInt32 y)  = return $ SInt32  (x - y)
+sbvMinus l (SInt64 x)  (SInt64 y)  = return $ SInt64  (x - y)
+sbvMinus l (SWord8 x)  (SWord8 y)  = return $ SWord8  (x - y)
+sbvMinus l (SWord16 x) (SWord16 y) = return $ SWord16 (x - y)
+sbvMinus l (SWord32 x) (SWord32 y) = return $ SWord32 (x - y)
+sbvMinus l (SWord64 x) (SWord64 y) = return $ SWord64 (x - y)
+sbvMinus l (SFloat x)  (SFloat y)  = return $ SFloat  (x - y)
+sbvMinus l (SDouble x) (SDouble y) = return $ SDouble (x - y)
+sbvMinus l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ IntLit () $ i1 - i2
+sbvMinus l (SLit (FloatLit _ i1)) (SLit (FloatLit _ i2)) = return $ SLit $ FloatLit () $ i1 - i2
+sbvMinus l (SLit (IntLit _ i1)) (SLit (FloatLit _ i2)) = return $ SLit $ FloatLit () $ realToFrac i1 - i2
+sbvMinus l (SLit (FloatLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ FloatLit () $ i1 - realToFrac i2
+sbvMinus l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> char '+' <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvMinus>"
+
+sbvTimes :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBVal
+sbvTimes l (SInt8 x)   (SInt8 y)   = return $ SInt8   (x * y)
+sbvTimes l (SInt16 x)  (SInt16 y)  = return $ SInt16  (x * y)
+sbvTimes l (SInt32 x)  (SInt32 y)  = return $ SInt32  (x * y)
+sbvTimes l (SInt64 x)  (SInt64 y)  = return $ SInt64  (x * y)
+sbvTimes l (SWord8 x)  (SWord8 y)  = return $ SWord8  (x * y)
+sbvTimes l (SWord16 x) (SWord16 y) = return $ SWord16 (x * y)
+sbvTimes l (SWord32 x) (SWord32 y) = return $ SWord32 (x * y)
+sbvTimes l (SWord64 x) (SWord64 y) = return $ SWord64 (x * y)
+sbvTimes l (SFloat x)  (SFloat y)  = return $ SFloat  (x * y)
+sbvTimes l (SDouble x) (SDouble y) = return $ SDouble (x * y)
+sbvTimes l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ IntLit () $ i1 * i2
+sbvTimes l (SLit (FloatLit _ i1)) (SLit (FloatLit _ i2)) = return $ SLit $ FloatLit () $ i1 * i2
+sbvTimes l (SLit (IntLit _ i1)) (SLit (FloatLit _ i2)) = return $ SLit $ FloatLit () $ realToFrac i1 * i2
+sbvTimes l (SLit (FloatLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ FloatLit () $ i1 * realToFrac i2
+sbvTimes l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> char '+' <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvTimes>"
+
+sbvPower :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBVal
+sbvPower l (SInt8 x)   (SInt8 y)   = return $ SInt8   (x .^ y)
+sbvPower l (SInt16 x)  (SInt16 y)  = return $ SInt16  (x .^ y)
+sbvPower l (SInt32 x)  (SInt32 y)  = return $ SInt32  (x .^ y)
+sbvPower l (SInt64 x)  (SInt64 y)  = return $ SInt64  (x .^ y)
+sbvPower l (SWord8 x)  (SWord8 y)  = return $ SWord8  (x .^ y)
+sbvPower l (SWord16 x) (SWord16 y) = return $ SWord16 (x .^ y)
+sbvPower l (SWord32 x) (SWord32 y) = return $ SWord32 (x .^ y)
+sbvPower l (SWord64 x) (SWord64 y) = return $ SWord64 (x .^ y)
+sbvPower l (SFloat x)  (SInt8 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SInt16 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SInt32 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SInt64 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SWord8 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SWord16 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SWord32 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SWord64 y)  = return $ SFloat  (x .^ y)
+sbvPower l (SFloat x)  (SLit (IntLit _ i2))  = return $ SFloat  (x .^ (fromInteger i2::SInteger))
+sbvPower l (SDouble x)  (SInt8 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SInt16 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SInt32 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SInt64 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SWord8 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SWord16 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SWord32 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SWord64 y)  = return $ SDouble  (x .^ y)
+sbvPower l (SDouble x)  (SLit (IntLit _ i2))  = return $ SDouble  (x .^ (fromInteger i2::SInteger))
+sbvPower l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ IntLit () $ i1 ^ i2
+sbvPower l (SLit (FloatLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ FloatLit () $ i1 ^^ i2
+sbvPower l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> char '+' <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvPower>"
+
+sbvDiv :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBVal
+sbvDiv l (SInt8 x)   (SInt8 y)   = return $ SInt8   (x `sDiv` y)
+sbvDiv l (SInt16 x)  (SInt16 y)  = return $ SInt16  (x `sDiv` y)
+sbvDiv l (SInt32 x)  (SInt32 y)  = return $ SInt32  (x `sDiv` y)
+sbvDiv l (SInt64 x)  (SInt64 y)  = return $ SInt64  (x `sDiv` y)
+sbvDiv l (SWord8 x)  (SWord8 y)  = return $ SWord8  (x `sDiv` y)
+sbvDiv l (SWord16 x) (SWord16 y) = return $ SWord16 (x `sDiv` y)
+sbvDiv l (SWord32 x) (SWord32 y) = return $ SWord32 (x `sDiv` y)
+sbvDiv l (SWord64 x) (SWord64 y) = return $ SWord64 (x `sDiv` y)
+sbvDiv l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ IntLit () $ i1 `div` i2
+sbvDiv l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> char '+' <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvDiv>"
+
+sbvMod :: Location loc => loc -> SBVal -> SBVal -> TcSBV loc SBVal
+sbvMod l (SInt8 x)   (SInt8 y)   = return $ SInt8   (x `sMod` y)
+sbvMod l (SInt16 x)  (SInt16 y)  = return $ SInt16  (x `sMod` y)
+sbvMod l (SInt32 x)  (SInt32 y)  = return $ SInt32  (x `sMod` y)
+sbvMod l (SInt64 x)  (SInt64 y)  = return $ SInt64  (x `sMod` y)
+sbvMod l (SWord8 x)  (SWord8 y)  = return $ SWord8  (x `sMod` y)
+sbvMod l (SWord16 x) (SWord16 y) = return $ SWord16 (x `sMod` y)
+sbvMod l (SWord32 x) (SWord32 y) = return $ SWord32 (x `sMod` y)
+sbvMod l (SWord64 x) (SWord64 y) = return $ SWord64 (x `sMod` y)
+sbvMod l (SLit (IntLit _ i1)) (SLit (IntLit _ i2)) = return $ SLit $ IntLit () $ i1 `mod` i2
+sbvMod l x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp x <+> char '+' <+> pp y) $ Just $ GenericError (locpos l) $ text "<sbvMod>"
+
 aOp2SBV :: Location loc => loc -> IAOp -> SBVal -> SBVal -> TcSBV loc SBVal
-aOp2SBV l IMinus (SInt8 x)   (SInt8 y)   = return $ SInt8   (x - y)
-aOp2SBV l IMinus (SInt16 x)  (SInt16 y)  = return $ SInt16  (x - y)
-aOp2SBV l IMinus (SInt32 x)  (SInt32 y)  = return $ SInt32  (x - y)
-aOp2SBV l IMinus (SInt64 x)  (SInt64 y)  = return $ SInt64  (x - y)
-aOp2SBV l IMinus (SWord8 x)  (SWord8 y)  = return $ SWord8  (x - y)
-aOp2SBV l IMinus (SWord16 x) (SWord16 y) = return $ SWord16 (x - y)
-aOp2SBV l IMinus (SWord32 x) (SWord32 y) = return $ SWord32 (x - y)
-aOp2SBV l IMinus (SWord64 x) (SWord64 y) = return $ SWord64 (x - y)
-aOp2SBV l IMinus (SFloat x)  (SFloat y)  = return $ SFloat  (x - y)
-aOp2SBV l IMinus (SDouble x) (SDouble y) = return $ SDouble (x - y)
-aOp2SBV l ITimes (SInt8 x)   (SInt8 y)   = return $ SInt8   (x * y)
-aOp2SBV l ITimes (SInt16 x)  (SInt16 y)  = return $ SInt16  (x * y)
-aOp2SBV l ITimes (SInt32 x)  (SInt32 y)  = return $ SInt32  (x * y)
-aOp2SBV l ITimes (SInt64 x)  (SInt64 y)  = return $ SInt64  (x * y)
-aOp2SBV l ITimes (SWord8 x)  (SWord8 y)  = return $ SWord8  (x * y)
-aOp2SBV l ITimes (SWord16 x) (SWord16 y) = return $ SWord16 (x * y)
-aOp2SBV l ITimes (SWord32 x) (SWord32 y) = return $ SWord32 (x * y)
-aOp2SBV l ITimes (SWord64 x) (SWord64 y) = return $ SWord64 (x * y)
-aOp2SBV l ITimes (SFloat x)  (SFloat y)  = return $ SFloat  (x * y)
-aOp2SBV l ITimes (SDouble x) (SDouble y) = return $ SDouble (x * y)
-aOp2SBV l IPower (SInt8 x)   (SInt8 y)   = return $ SInt8   (x .^ y)
-aOp2SBV l IPower (SInt16 x)  (SInt16 y)  = return $ SInt16  (x .^ y)
-aOp2SBV l IPower (SInt32 x)  (SInt32 y)  = return $ SInt32  (x .^ y)
-aOp2SBV l IPower (SInt64 x)  (SInt64 y)  = return $ SInt64  (x .^ y)
-aOp2SBV l IPower (SWord8 x)  (SWord8 y)  = return $ SWord8  (x .^ y)
-aOp2SBV l IPower (SWord16 x) (SWord16 y) = return $ SWord16 (x .^ y)
-aOp2SBV l IPower (SWord32 x) (SWord32 y) = return $ SWord32 (x .^ y)
-aOp2SBV l IPower (SWord64 x) (SWord64 y) = return $ SWord64 (x .^ y)
-aOp2SBV l IDiv (SInt8 x)   (SInt8 y)   = return $ SInt8   (x `sDiv` y)
-aOp2SBV l IDiv (SInt16 x)  (SInt16 y)  = return $ SInt16  (x `sDiv` y)
-aOp2SBV l IDiv (SInt32 x)  (SInt32 y)  = return $ SInt32  (x `sDiv` y)
-aOp2SBV l IDiv (SInt64 x)  (SInt64 y)  = return $ SInt64  (x `sDiv` y)
-aOp2SBV l IDiv (SWord8 x)  (SWord8 y)  = return $ SWord8  (x `sDiv` y)
-aOp2SBV l IDiv (SWord16 x) (SWord16 y) = return $ SWord16 (x `sDiv` y)
-aOp2SBV l IDiv (SWord32 x) (SWord32 y) = return $ SWord32 (x `sDiv` y)
-aOp2SBV l IDiv (SWord64 x) (SWord64 y) = return $ SWord64 (x `sDiv` y)
-aOp2SBV l IModOp (SInt8 x)   (SInt8 y)   = return $ SInt8   (x `sMod` y)
-aOp2SBV l IModOp (SInt16 x)  (SInt16 y)  = return $ SInt16  (x `sMod` y)
-aOp2SBV l IModOp (SInt32 x)  (SInt32 y)  = return $ SInt32  (x `sMod` y)
-aOp2SBV l IModOp (SInt64 x)  (SInt64 y)  = return $ SInt64  (x `sMod` y)
-aOp2SBV l IModOp (SWord8 x)  (SWord8 y)  = return $ SWord8  (x `sMod` y)
-aOp2SBV l IModOp (SWord16 x) (SWord16 y) = return $ SWord16 (x `sMod` y)
-aOp2SBV l IModOp (SWord32 x) (SWord32 y) = return $ SWord32 (x `sMod` y)
-aOp2SBV l IModOp (SWord64 x) (SWord64 y) = return $ SWord64 (x `sMod` y)
-aOp2SBV l op x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp op <+> pp x <+> pp y) $ Just $ GenericError (locpos l) $ text "<aOp2SBV>"
+aOp2SBV l IPlus x y = sbvPlus l x y
+aOp2SBV l IMinus x y = sbvMinus l x y
+aOp2SBV l ITimes x y = sbvTimes l x y
+aOp2SBV l IPower x y = sbvPower l x y
+aOp2SBV l IDiv x y = sbvDiv l x y
+aOp2SBV l IModOp x y = sbvMod l x y
+--aOp2SBV l op x y = lift $ tcError (locpos l) $ NotSupportedIndexOp (pp op <+> pp x <+> pp y) $ Just $ GenericError (locpos l) $ text "<aOp2SBV>"
 
 bOp2SBV :: Boolean b => IBOp -> b -> b -> b
 bOp2SBV IOr = (|||)
@@ -273,29 +342,31 @@ sbVal v (DatatypeFloat64   _) = liftM SDouble $ sDouble v
 
 tryResolveIExprVar :: (VarsIdTcM loc Symbolic,Location loc) => loc -> VarName VarIdentifier Prim -> TcSBV loc SBVal
 tryResolveIExprVar l v@(VarName t n) = do
-    mb <- lift $ tryResolveEVar l n
+    mb <- lift $ tryResolveEVar l n (BaseT $ TyPrim t)
     case mb of
         Just e -> lift (expr2IExpr e) >>= expr2SBV l
         Nothing -> do
-            sbvs <- State.get
+            (inHyp,sbvs) <- State.get
             case Map.lookup n sbvs of
                 Just i -> return i
                 Nothing -> do
+                    unless inHyp $ lift $ addErrorM l Halt $ tcError (locpos l) $ UnresolvedVariable (pp n)
                     i <- lift $ lift $ sbVal (ppr v) t
-                    State.modify $ \sbvs -> Map.insert n i sbvs
+                    State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n i sbvs)
                     return i
 
 tryResolveICondVar :: (VarsIdTcM loc Symbolic,Location loc) => loc -> VarIdentifier -> TcSBV loc SBool
 tryResolveICondVar l n = do
-    mb <- lift $ tryResolveEVar l n
+    mb <- lift $ tryResolveEVar l n (BaseT bool)
     case mb of
         Just e -> lift (expr2ICond e) >>= cond2SBV l
         Nothing -> do
-            sbvs <- State.get
+            (inHyp,sbvs) <- State.get
             case Map.lookup n sbvs of
                 Just (SBool b) -> return b
                 Just x -> lift $ genTcError (locpos l) $ text "not a SBool" <+> pp x
                 Nothing -> do
+                    unless inHyp $ lift $ addErrorM l Halt $ tcError (locpos l) $ UnresolvedVariable (pp n)
                     b <- lift $ lift $ sBool (ppr n)
-                    State.modify $ \sbvs -> Map.insert n (SBool b) sbvs
+                    State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n (SBool b) sbvs)
                     return b

@@ -14,7 +14,7 @@ leakage analysis
 probabilistic knowledge inference?
 
 
-o que acontece se uma operação leakar, por exemplo, uma comparação implicitamente mas essa comparação não surgir como uma variável?? Talvez um passo de simplificação prévio resolva isto...
+o que acontece se uma operação leakar, por exemplo, uma comparação implicitamente mas essa comparação não surgir como uma variável?? Talvez um passo de simplificação prévio resolva isto... assumindo que a informação leakável é aquela que pode ser deduzida a partir das operações primitivas. Por exemplo, se uma variável for conhecida em todos os traces menos um, essa informação conhecida não é considerada leakada.
 
 
 applications for random ; sort: RSA exponentiation?
@@ -26,9 +26,12 @@ most possibly controversial typechecker decisions:
 . template resolution algorithm:
     - templates raise constraints that are only solved on instantiation (akin to Haskell typeclass constraints)
     - regular procedures and structs solve constraints 
+. variadic arguments
 
 TODO:
+. SMT overflow semantics versus sharemind primitive operations?
 . index expression semantics is independent from expression semantics; invariants, dimensions and sizes are evaluated as index conditions and expressions, apart from the regular template-based semantics
+. idea: simplify expressions and convert canonical SecreC into index expressions
 . procedure template parameters
 . size-dependent types
 

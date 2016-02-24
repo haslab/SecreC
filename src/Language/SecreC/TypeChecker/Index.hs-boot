@@ -21,9 +21,6 @@ tryExpr2IExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typ
 
 tryExpr2ICond :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m (Either (ICond) SecrecError)
 
-iExpr2Expr :: (VarsIdTcM loc m,Location loc) => IExpr -> TcM loc m (Expression VarIdentifier Type)
-iCond2Expr :: (VarsIdTcM loc m,Location loc) => ICond -> TcM loc m (Expression VarIdentifier Type)
-
 (.+.), (.-.), (.*.), (.**.), (./.), (.%.) :: IExpr -> IExpr -> IExpr
 
 (.==.), (./=.), (.<.), (.<=.), (.>.), (.>=.) :: IExpr -> IExpr -> ICond

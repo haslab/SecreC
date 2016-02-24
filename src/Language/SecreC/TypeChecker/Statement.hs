@@ -41,8 +41,11 @@ extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
 tcStmts :: (VarsIdTcM loc m,Location loc) => Type -> [Statement Identifier loc] -> TcM loc m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
+tcStmts ret [s] = do
+    (s',StmtType c) <- tcAddDeps (loc s) $ tcStmt ret s
+    return ([s'],StmtType c)
 tcStmts ret (s:ss) = do
-    (s',StmtType c) <- tcStmt ret s
+    (s',StmtType c) <- tcAddDeps (loc s) $ tcStmt ret s
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
@@ -57,14 +60,14 @@ tcStmts ret (s:ss) = do
 -- | Typecheck a non-empty statement
 tcNonEmptyStmt :: (VarsIdTcM loc m,Location loc) => Type -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
-    r@(s',StmtType cs) <- tcStmt ret s
+    r@(s',StmtType cs) <- tcAddDeps (loc s) $ tcStmt ret s
     when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
 tcLoopBodyStmt :: (VarsIdTcM loc m,Location loc) => Type -> loc -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
-    (s',StmtType cs) <- tcStmt ret s
+    (s',StmtType cs) <- tcAddDeps l $ tcStmt ret s
     -- check that the body can perform more than iteration
     when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop (pp s)
     -- return the @StmtClass@ for the whole loop
@@ -81,7 +84,7 @@ tcStmt ret (CompoundStatement l s) = do
 tcStmt ret (IfStatement l condE thenS Nothing) = do
     condE' <- tcGuard condE
     (thenS',StmtType cs) <- tcLocal $ tcNonEmptyStmt ret thenS
-    -- an if falls through if the condition is not satisfied
+    -- an if statement falls through if the condition is not satisfied
     let t = StmtType $ Set.insert (StmtFallthru) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
@@ -100,16 +103,16 @@ tcStmt ret (WhileStatement l condE bodyS) = do
     condE' <- tcGuard condE
     (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped "tcStmt" l) condE' bodyS',t')
-tcStmt ret (PrintStatement l argsE) = do
-    argsE' <- mapM tcExpr argsE
-    let targs = map (typed . loc) $ Foldable.toList argsE'
+tcStmt ret (PrintStatement (l::loc) argsE) = do
+    argsE' <- mapM (tcVariadicArg tcExpr) argsE
+    let targs = map (typed . loc . fst) argsE'
     xs <- replicateM (length targs) $ do
         tx <- newTyVar
         newTypedVar "print" tx
-    tcTopCstrM l $ SupportedPrint (map (fmap typed) $ Foldable.toList argsE') xs
-    let exs = fromListNe $ map (fmap (Typed l)) $ map (\x -> RVariablePExpr (loc x) x) xs
+    tcTopCstrM l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
+    let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
-    return (PrintStatement (Typed l t) exs,t)
+    return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
 tcStmt ret (DowhileStatement l bodyS condE) = tcLocal $ do
     (bodyS',t') <- tcLoopBodyStmt ret l bodyS
     condE' <- tcGuard condE
@@ -141,7 +144,7 @@ tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
     x <- newTypedVar "ret" ret
-    tcTopCoercesCstrM l (fmap typed e') et' x ret
+    tcTopCstrM l $ Coerces (fmap typed e') et' x ret
     let t = StmtType (Set.singleton StmtReturn)
     let ex = fmap (Typed l) $ RVariablePExpr ret x
     return (ReturnStatement (Typed l t) (Just ex),t)
@@ -189,43 +192,38 @@ tcForInitializer (InitializerVariable vd) = do
 
 tcVarDecl :: (VarsIdTcM loc m,Location loc) => Scope -> VariableDeclaration Identifier loc -> TcM loc m (VariableDeclaration VarIdentifier (Typed loc))
 tcVarDecl scope (VariableDeclaration l tyspec vars) = do
-    tyspec' <- tcTypeSpec tyspec
+    tyspec' <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
-    cty <- typeToComplexType l ty
-    vars' <- mapM (tcVarInit scope cty) vars
+    vars' <- mapM (tcVarInit scope ty) vars
     return $ VariableDeclaration (notTyped "tcVarDecl" l) tyspec' vars'
 
-tcVarInit :: (VarsIdTcM loc m,Location loc) => Scope -> ComplexType -> VariableInitialization Identifier loc -> TcM loc m (VariableInitialization VarIdentifier (Typed loc))
+tcVarInit :: (VarsIdTcM loc m,Location loc) => Scope -> Type -> VariableInitialization Identifier loc -> TcM loc m (VariableInitialization VarIdentifier (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
-    (ty',szs') <- tcTypeSizes l ty (Just v) szs
-    e' <- mapM (tcExprTy $ ComplexT ty') e
+    (ty',szs') <- tcTypeSizes l ty szs
+    e' <- mapM (tcExprTy ty') e
     -- add the array size to the type
-    let v' = VarName (Typed vl $ ComplexT ty') $ mkVarId vn
+    let v' = VarName (Typed vl ty') $ mkVarId vn
     -- add variable to the environment
     newVariable scope v' Nothing False -- don't add values to the environment
     return $ VariableInitialization (notTyped "tcVarInit" l) v' szs' e'
 
 tcConstDecl :: (VarsIdTcM loc m,Location loc) => Scope -> ConstDeclaration Identifier loc -> TcM loc m (ConstDeclaration VarIdentifier (Typed loc))
 tcConstDecl scope (ConstDeclaration l tyspec vars) = do
-    tyspec' <- tcTypeSpec tyspec
+    tyspec' <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
-    cty <- typeToComplexType l ty
-    vars' <- mapM (tcConstInit scope cty) vars
+    vars' <- mapM (tcConstInit scope ty) vars
     return $ ConstDeclaration (notTyped "tcVarDecl" l) tyspec' vars'
 
-tcConstInit :: (VarsIdTcM loc m,Location loc) => Scope -> ComplexType -> ConstInitialization Identifier loc -> TcM loc m (ConstInitialization VarIdentifier (Typed loc))
-tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e c) = do
-    (ty',szs') <- tcTypeSizes l ty (Just v) szs
-    e' <- mapM (tcExprTy $ ComplexT ty') e
+tcConstInit :: (VarsIdTcM loc m,Location loc) => Scope -> Type -> ConstInitialization Identifier loc -> TcM loc m (ConstInitialization VarIdentifier (Typed loc))
+tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e) = do
+    (ty',szs') <- tcTypeSizes l ty szs
+    e' <- mapM (tcExprTy ty') e
     -- add the array size to the type
-    let v' = VarName (Typed vl $ ComplexT ty') $ mkVarId vn
+    vn' <- addConst scope vn
+    let v' = VarName (Typed vl ty') vn'
     -- add variable to the environment
     newVariable scope v' e' True -- add values to the environment
-    (c',cstrsc) <- tcWithCstrs l $ mapM tcIndexCond c
-    case c' of
-        Nothing -> return ()
-        Just x -> tryAddHypothesis l scope cstrsc $ HypCondition $ fmap typed x
-    return $ ConstInitialization (notTyped "tcVarInit" l) v' szs' e' c'
+    return $ ConstInitialization (notTyped "tcVarInit" l) v' szs' e'
 
     
 

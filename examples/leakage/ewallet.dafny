@@ -1,0 +1,14 @@
+method debit(balance: int, amount: int) returns (ret: int)
+requires amount > 0;
+{
+  var bal: int := balance;
+  var count: int := 0;
+  while (bal >= amount)
+  decreases bal
+  invariant balance == bal + amount * count
+  {
+    bal := bal-amount;
+    count := count+1;
+  }
+  return count;
+}

@@ -30,6 +30,7 @@ import Text.Derp.Combinator as Derp
 
 import Data.Set (Set(..))
 import qualified Data.Set as Set
+import Data.Maybe
 
 import Safe
 
@@ -171,10 +172,10 @@ scDomainDeclaration :: ScParser (DomainDeclaration Identifier Position)
 scDomainDeclaration = scTok DOMAIN <~> scDomainId <~> scKindId ==> (\(x1,(x2,x3)) -> Domain (loc x1) x2 x3)
 
 scVariableInitialization :: ScParser (VariableInitialization Identifier Position)
-scVariableInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) ==> (\(x1,(x2,x3)) -> VariableInitialization (loc x1) x1 x2 x3)
+scVariableInitialization = scVarId <~> optionMaybe scSizes <~> optionMaybe (scChar '=' ~> scExpression) ==> (\(x1,(x2,x3)) -> VariableInitialization (loc x1) x1 x2 x3)
 
 scConstInitialization :: ScParser (ConstInitialization Identifier Position)
-scConstInitialization = scVarId <~> optionMaybe scDimensions <~> optionMaybe (scChar '=' ~> scExpression) <~> optionMaybe (scBraces scExpression) ==> (\(x1,(x2,(x3,x4))) -> ConstInitialization (loc x1) x1 x2 x3 x4)
+scConstInitialization = scVarId <~> optionMaybe scSizes <~> optionMaybe (scChar '=' ~> scExpression) ==> (\(x1,(x2,x3)) -> ConstInitialization (loc x1) x1 x2 x3)
 
 scVariableInitializations :: ScParser (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = sepBy1 scVariableInitialization (scChar ',') ==> fromListNe
@@ -190,20 +191,29 @@ scConstDeclaration = scTok CONST <~> scTypeSpecifier <~> scConstInitializations 
 
 scProcedureParameter :: ScParser (ProcedureParameter Identifier Position)
 scProcedureParameter =
-    (scTok CONST ~> scTypeSpecifier <~> scVarId <~> optionMaybe scDimensions <~> scInvariant ==> (\(x1,(x2,(x3,x4))) -> ConstProcedureParameter (loc x1) x1 x2 x3 x4))
-    <|> (scTypeSpecifier <~> scVarId <~> optionMaybe scDimensions ==> (\(x1,(x2,x3)) -> ProcedureParameter (loc x1) x1 x2 x3))
+    (scTok CONST ~> scTypeSpecifier <~> scVariadic <~> scVarId <~> optionMaybe scSizes <~> scInvariant ==> (\(x1,(x2,(x3,(x4,x5)))) -> ConstProcedureParameter (loc x1) x1 x2 x3 x4 x5))
+    <|> (scTypeSpecifier <~> scVariadic <~> scVarId <~> optionMaybe scSizes ==> (\(x1,(x2,(x3,x4))) -> ProcedureParameter (loc x1) x1 x2 x3 x4))
+
+scVariadic :: ScParser IsVariadic
+scVariadic = optionMaybe (scTok VARIADIC) ==> isJust
+
+scVariadicExpression :: ScParser (Expression Identifier Position,IsVariadic)
+scVariadicExpression = scExpression <~> scVariadic
 
 scInvariant :: ScParser (Maybe (Expression Identifier Position))
 scInvariant = optionMaybe (scBraces scExpression) 
 
-scDimensions :: ScParser (Sizes Identifier Position)
-scDimensions = scParens scDimensionList ==> Sizes 
+scSizes :: ScParser (Sizes Identifier Position)
+scSizes = scParens scVariadicExpressionList1 ==> Sizes 
 
-scExpressionList :: ScParser (NeList (Expression Identifier Position))
-scExpressionList = sepBy1 scExpression (scChar ',') ==> fromListNe
+scExpressionList :: ScParser [Expression Identifier Position]
+scExpressionList = sepBy scExpression (scChar ',')
 
-scDimensionList :: ScParser (NeList (Expression Identifier Position))
-scDimensionList = scExpressionList
+scVariadicExpressionList :: ScParser [(Expression Identifier Position,IsVariadic)]
+scVariadicExpressionList = sepBy scVariadicExpression (scChar ',')
+
+scVariadicExpressionList1 :: ScParser (NeList (Expression Identifier Position,IsVariadic))
+scVariadicExpressionList1 = sepBy1 scVariadicExpression (scChar ',') ==> fromListNe
 
 -- ** Types                                                                     
 
@@ -244,8 +254,8 @@ scPrimitiveDatatype = scTok BOOL ==> (DatatypeBool . loc)
 scTemplateStructDatatypeSpecifier :: ScParser (DatatypeSpecifier Identifier Position)
 scTemplateStructDatatypeSpecifier = scTypeId <~> scABrackets scTemplateTypeArguments ==> (\(x1,x2) -> TemplateSpecifier (loc x1) x1 x2)
 
-scTemplateTypeArguments :: ScParser [TemplateTypeArgument Identifier Position]
-scTemplateTypeArguments = sepBy1 scTemplateTypeArgument (scChar ',')
+scTemplateTypeArguments :: ScParser [(TemplateTypeArgument Identifier Position,IsVariadic)]
+scTemplateTypeArguments = sepBy (scTemplateTypeArgument <~> scVariadic) (scChar ',')
 
 scTemplateTypeArgument :: ScParser (TemplateTypeArgument Identifier Position)
 scTemplateTypeArgument = scTok PUBLIC ==> (PublicTemplateTypeArgument . loc)
@@ -272,13 +282,13 @@ scTemplateQuantifiers :: ScParser [TemplateQuantifier Identifier Position]
 scTemplateQuantifiers = Derp.sepBy scTemplateQuantifier (scChar ',')
 
 scTemplateQuantifier :: ScParser (TemplateQuantifier Identifier Position)
-scTemplateQuantifier = scTok DOMAIN <~> scDomainId <~> optionMaybe (scChar ':' ~> scKindId) ==> (\(x1,(x2,x3)) -> DomainQuantifier (loc x1) x2 x3)
-                   <|> scTok DIMENSIONALITY <~> scVarId <~> scInvariant ==> (\(x1,(x2,x3)) -> DimensionQuantifier (loc x1) x2 x3)
-                   <|> scTok TYPE <~> scTypeId ==> (\(x1,x2) -> DataQuantifier (loc x1) x2)
+scTemplateQuantifier = scTok DOMAIN <~> scVariadic <~> scDomainId <~> optionMaybe (scChar ':' ~> scKindId) ==> (\(x1,(x2,(x3,x4))) -> DomainQuantifier (loc x1) x2 x3 x4)
+                   <|> scTok DIMENSIONALITY <~> scVariadic <~> scVarId <~> scInvariant ==> (\(x1,(x2,(x3,x4))) -> DimensionQuantifier (loc x1) x2 x3 x4)
+                   <|> scTok TYPE <~> scVariadic <~> scTypeId ==> (\(x1,(x2,x3)) -> DataQuantifier (loc x1) x2 x3)
 
 -- ** Structures                                                                 
 
-scStructure :: ScParser (Maybe [TemplateTypeArgument Identifier Position],StructureDeclaration Identifier Position)
+scStructure :: ScParser (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
 scStructure = scTok STRUCT <~> scTypeId <~> optionMaybe (scABrackets scTemplateTypeArguments) <~> scCBrackets scAttributeList ==> (\(x1,(x2,(x3,x4))) -> (x3,StructureDeclaration (loc x1) x2 x4))
 
 scStructureDeclaration :: ScParser (StructureDeclaration Identifier Position)
@@ -294,7 +304,10 @@ scAttribute = scTypeSpecifier <~> (scAttributeId <~ (scChar ';')) ==> (\(x1,x2) 
 
 scReturnTypeSpecifier :: ScParser (ReturnTypeSpecifier Identifier Position)
 scReturnTypeSpecifier = scTok VOID ==> (\x1 -> ReturnType (loc x1) Nothing)
-                    <|> scTypeSpecifier <~> optionMaybe scDimensions ==> (\(x1,x2) -> ReturnType (loc x1) (Just (x1,x2)))
+                    <|> scSizedTypeSpecifier ==> (\(x1) -> ReturnType (loc $ fst x1) (Just x1))
+
+scSizedTypeSpecifier :: ScParser (SizedTypeSpecifier Identifier Position)
+scSizedTypeSpecifier = scTypeSpecifier <~> optionMaybe scSizes ==> (\(x1,x2) -> (x1,x2))
 
 scProcedureDeclaration :: ScParser (ProcedureDeclaration Identifier Position)
 scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOp) <+> scProcedureId) <~> scParens scProcedureParameterList <~> scCompoundStatement ==> f
@@ -363,7 +376,7 @@ scWhileStatement :: ScParser (Statement Identifier Position)
 scWhileStatement = scTok WHILE <~> scParens scExpression <~> scStatement ==> (\(x1,(x2,x3)) -> WhileStatement (loc x1) x2 x3)
 
 scPrintStatement :: ScParser (Statement Identifier Position)
-scPrintStatement = scTok PRINT <~> scParens scExpressionList <~ scChar ';' ==> (\(x1,x2) -> PrintStatement (loc x1) x2)
+scPrintStatement = scTok PRINT <~> scParens scVariadicExpressionList <~ scChar ';' ==> (\(x1,x2) -> PrintStatement (loc x1) x2)
 
 scDowhileStatement :: ScParser (Statement Identifier Position)
 scDowhileStatement = scTok DO <~> scStatement <~ scTok WHILE <~> scParens scExpression <~ scChar ';' ==> (\(x1,(x2,x3)) -> DowhileStatement (loc x1) x2 x3)
@@ -411,7 +424,7 @@ scAssignmentExpression = scLvalue <~> op <~> scAssignmentExpression ==> (\(x1,(x
                       <|> scQualifiedExpression
     where
     op = scChar '=' ==> (BinaryAssignEqual . loc)
-     <|> scTok MUL_ASSIGN ==> (BinaryAssignDiv . loc)
+     <|> scTok MUL_ASSIGN ==> (BinaryAssignMul . loc)
      <|> scTok DIV_ASSIGN ==> (BinaryAssignDiv . loc)
      <|> scTok MOD_ASSIGN ==> (BinaryAssignMod . loc)
      <|> scTok ADD_ASSIGN ==> (BinaryAssignAdd . loc)                                                                                
@@ -424,7 +437,7 @@ scQualifiedExpression :: ScParser (Expression Identifier Position)
 scQualifiedExpression = scFoldl
     (\qe t -> QualExpr (loc qe) qe t)
     scConditionalExpression
-    (scTok TYPE_QUAL ~> scTypeSpecifier)
+    (scTok TYPE_QUAL ~> scSizedTypeSpecifier)
 
 scConditionalExpression :: ScParser (Expression Identifier Position)
 scConditionalExpression = scLogicalOrExpression
@@ -556,7 +569,8 @@ scPostfixExpression' :: ScParser (Expression Identifier Position)
 scPostfixExpression' = scTok DOMAINID <~> scParens scSecTypeSpecifier ==> (\(x1,x2) -> DomainIdExpr (loc x1) x2)
                   <|> scTok BYTESFROMSTRING <~> scParens scExpression ==> (\(x1,x2) -> BytesFromStringExpr (loc x1) x2)
                   <|> scTok STRINGFROMBYTES <~> scParens scExpression ==> (\(x1,x2) -> StringFromBytesExpr (loc x1) x2)
-                  <|> scProcedureId <~> (optionMaybe $ scABrackets scTemplateTypeArguments) <~> scParens (optionMaybe scExpressionList) ==> (\(x1,(x2,x3)) -> ProcCallExpr (loc x1) x1 x2 (maybe [] Foldable.toList x3))
+                  <|> scTok VSIZE <~> scParens scExpression ==> (\(x1,x2) -> VArraySizeExpr (loc x1) x2)
+                  <|> scProcedureId <~> (optionMaybe $ scABrackets scTemplateTypeArguments) <~> scParens (optionMaybe scVariadicExpressionList) ==> (\(x1,(x2,x3)) -> ProcCallExpr (loc x1) x1 x2 (maybe [] Foldable.toList x3))
                   <|> scPrimaryExpression
 
 scPrimaryExpression :: ScParser (Expression Identifier Position)

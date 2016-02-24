@@ -16,9 +16,9 @@ import Data.Maybe
 import Data.Unique
 import Data.IORef
 import Data.Hashable
-import Data.Graph.Inductive.PatriciaTree
-import Data.Graph.Inductive.Graph as Gr
-import Data.Graph.Inductive.Monad as Gr
+import Data.Graph.Inductive.PatriciaTree as Graph
+import Data.Graph.Inductive.Graph as Graph
+import Data.Graph.Inductive.Monad as Graph
 import Data.Char
 import Data.List as List
 
@@ -37,29 +37,43 @@ import System.Mem.Weak.Exts as Weak
 
 import Safe
 
+insLabEdges :: DynGraph gr => [(LNode a,LNode a,b)] -> gr a b -> gr a b
+insLabEdges [] gr = gr
+insLabEdges (x:xs) gr = insLabEdges xs (insLabEdge x gr)
+
+insLabEdge :: DynGraph gr => (LNode a,LNode a,b) -> gr a b -> gr a b
+insLabEdge ((x1,x2),(y1,y2),b) gr = insEdge (x1,y1,b) $ tryInsNode (x1,x2) $ tryInsNode (y1,y2) gr
+
+tryInsNode :: DynGraph gr => LNode a -> gr a b -> gr a b
+tryInsNode (n,v) gr = if gelem n gr then gr else insNode (n,v) gr
+
 -- find all roots in a directed graph
-rootsGr :: Gr a b -> [LNode a]
-rootsGr gr = filter (\(n,_) -> List.null $ filter (/= n) $ pre' $ context gr n) $ labNodes gr
+rootsGr :: DynGraph gr => gr a b -> [LNode a]
+rootsGr gr = labNodes $ subgraph ins gr
+    where
+    ins = nodes gr \\ (map snd $ filter (\(x,y) -> x /= y) $ edges gr)
 
 -- find all terminals in a directed graph
-endsGr :: Gr a b -> [LNode a]
-endsGr gr = filter (\(n,_) -> List.null $ filter (/= n) $ suc' $ context gr n) $ labNodes gr
+endsGr :: DynGraph gr => gr a b -> [LNode a]
+endsGr gr = labNodes $ subgraph ins gr
+    where
+    ins = nodes gr \\ (map fst $ filter (\(x,y) -> x /= y) $ edges gr)
 
 elimSpaces :: String -> String
 elimSpaces = filter (not . isSpace)
 
 contextGr :: (Graph gr) => gr a b -> Node -> Maybe (Context a b)
-contextGr g v = fst (Gr.match v g)
+contextGr g v = fst (Graph.match v g)
 
 mapGrM :: (Monad m,DynGraph gr) => (Context a b -> m (Context c d)) -> gr a b -> m (gr c d)
-mapGrM f gr = ufold g (return Gr.empty) gr
+mapGrM f gr = ufold g (return Graph.empty) gr
     where
     g ctx m = do
         ctx' <- f ctx
         liftM (ctx' &) m
 
 labnfilterM :: (Monad m,DynGraph gr) => (LNode a -> m Bool) -> gr a b -> m (gr a b)
-labnfilterM p gr = ufold aux (return Gr.empty) gr
+labnfilterM p gr = ufold aux (return Graph.empty) gr
     where
     aux ctx@(_,n,i,_) m = do
         ok <- p (n,i)
@@ -69,7 +83,7 @@ grToList :: Gr a b -> [Context a b]
 grToList = ufold (:) []
 
 unionGr :: Gr a b -> Gr a b -> Gr a b
-unionGr x y = ufold (&) x y
+unionGr x y = insEdges (labEdges x ++ labEdges y) $ insNodes (labNodes x ++ labNodes y) Graph.empty
 
 ppGr :: (a -> Doc) -> (b -> Doc) -> Gr a b -> Doc
 ppGr ppA ppB gr = vcat $ map ppNode $ grToList gr
@@ -229,17 +243,33 @@ spanM p (x:xs) = do
     ok <- p x
     if ok then do { (l,r) <- spanM p xs; return (x:l,r) } else return ([],x:xs)
 
-mapFst :: (Functor t) => (a -> b) -> t (a,c) -> t (b,c)
-mapFst f = fmap (\(a,c) -> (,c) $ f a)
+mapFst :: (a -> b) -> (a,c) -> (b,c)
+mapFst f (x,y) = (f x,y)
 
-mapSnd :: (Functor t) => (b -> c) -> t (a,b) -> t (a,c)
-mapSnd f = fmap (\(a,c) -> (a,) $ f c)
+mapSnd :: (c -> b) -> (a,c) -> (a,b)
+mapSnd f (x,y) = (x,f y)
 
-mapFstM :: (Traversable t,Monad m) => (a -> m b) -> t (a,c) -> m (t (b,c))
-mapFstM f = Traversable.mapM (\(a,c) -> liftM (,c) $ f a)
+mapFstM :: Monad m => (a -> m b) -> (a,c) -> m (b,c)
+mapFstM f (x,y) = do
+    x' <- f x
+    return (x',y)
 
-mapSndM :: (Traversable t,Monad m) => (c -> m b) -> t (a,c) -> m (t (a,b))
-mapSndM f = Traversable.mapM (\(a,c) -> liftM (a,) $ f c)
+mapSndM :: Monad m => (c -> m b) -> (a,c) -> m (a,b)
+mapSndM f (x,y) = do
+    y' <- f y
+    return (x,y')
+
+fmapFst :: (Functor t) => (a -> b) -> t (a,c) -> t (b,c)
+fmapFst f = fmap (\(a,c) -> (,c) $ f a)
+
+fmapSnd :: (Functor t) => (b -> c) -> t (a,b) -> t (a,c)
+fmapSnd f = fmap (\(a,c) -> (a,) $ f c)
+
+fmapFstM :: (Traversable t,Monad m) => (a -> m b) -> t (a,c) -> m (t (b,c))
+fmapFstM f = Traversable.mapM (\(a,c) -> liftM (,c) $ f a)
+
+fmapSndM :: (Traversable t,Monad m) => (c -> m b) -> t (a,c) -> m (t (a,b))
+fmapSndM f = Traversable.mapM (\(a,c) -> liftM (a,) $ f c)
 
 funzip :: Traversable t => t (a,b) -> (t a,t b)
 funzip xs = (fmap fst xs,fmap snd xs)
@@ -473,6 +503,7 @@ instance Hashable Unique where
 funit :: Functor f => f a -> f ()
 funit = fmap (const ())
 
-
+concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
+concatMapM f = liftM concat . mapM f
 
 
