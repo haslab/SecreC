@@ -80,8 +80,8 @@ evaluate l doc m = do
     opts <- TcM $ lift Reader.ask
     mb <- lift $ timeout (evalTimeOut opts * 10^6) $ runSecrecMWith opts $ execTcM m arr env
     case mb of
-        Nothing -> addErrorM l Halt $ tcError (locpos l) $ StaticEvalError doc $ Just $ TimedOut $ evalTimeOut opts
-        Just (Left err) -> throwError $ Halt $ TypecheckerError (locpos l) $ StaticEvalError doc $ Just err
+        Nothing -> tcError (locpos l) $ Halt $ StaticEvalError doc $ Just $ TimedOut $ evalTimeOut opts
+        Just (Left err) -> tcError (locpos l) $ Halt $ StaticEvalError doc $ Just err
         Just (Right ((x,env'),warns)) -> do
             State.put env'
             TcM (lift $ Writer.tell warns) >> return x

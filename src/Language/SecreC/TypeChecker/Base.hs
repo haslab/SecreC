@@ -1839,7 +1839,7 @@ tcError :: (MonadIO m,Location loc) => Position -> TypecheckerErr -> TcM loc m a
 tcError pos msg = throwTcError $ TypecheckerError pos msg  
 
 genTcError :: (MonadIO m,Location loc) => Position -> Doc -> TcM loc m a
-genTcError pos msg = throwTcError $ GenericError pos msg  
+genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg  
 
 throwTcError :: (MonadIO m,Location loc) => SecrecError -> TcM loc m a
 throwTcError err = do

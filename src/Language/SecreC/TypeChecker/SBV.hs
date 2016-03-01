@@ -350,7 +350,7 @@ tryResolveIExprVar l v@(VarName t n) = do
             case Map.lookup n sbvs of
                 Just i -> return i
                 Nothing -> do
-                    unless inHyp $ lift $ addErrorM l Halt $ tcError (locpos l) $ UnresolvedVariable (pp n)
+                    unless inHyp $ lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (pp n)
                     i <- lift $ lift $ sbVal (ppr v) t
                     State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n i sbvs)
                     return i
@@ -366,7 +366,7 @@ tryResolveICondVar l n = do
                 Just (SBool b) -> return b
                 Just x -> lift $ genTcError (locpos l) $ text "not a SBool" <+> pp x
                 Nothing -> do
-                    unless inHyp $ lift $ addErrorM l Halt $ tcError (locpos l) $ UnresolvedVariable (pp n)
+                    unless inHyp $ lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (pp n)
                     b <- lift $ lift $ sBool (ppr n)
                     State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n (SBool b) sbvs)
                     return b

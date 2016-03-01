@@ -43,8 +43,6 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | TimedOut Int -- timed out after @x@ seconds
                  | OrWarn -- ^ optional constraint, just throw a warning
                      SecrecError
-                | Halt -- ^ an error because of lacking information
-                    SecrecError
   deriving (Show,Typeable,Data,Eq,Ord)
 
 instance Located SecrecError where
@@ -56,7 +54,6 @@ instance Located SecrecError where
      loc (MultipleErrors es) = minimum (map loc es)
      loc (TimedOut _) = noloc
      loc (OrWarn e) = loc e
-     loc (Halt e) = loc e
      updLoc = error "cannot update location in errors"
 
 instance PP SecrecError where
@@ -67,11 +64,14 @@ instance PP SecrecError where
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
     pp (OrWarn err) = pp err
-    pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
 
 data TypecheckerErr
     = UnreachableDeadCode
         Doc -- unreachable statements
+    | GenTcError -- generic typechecker error
+        Doc -- message
+    | Halt -- ^ an error because of lacking information
+        TypecheckerErr
     | NonStaticDimension -- ^ array dimension is not known statically
         Doc -- ^ array type
         SecrecError -- ^ sub-error
@@ -219,6 +219,8 @@ data TypecheckerErr
   deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP TypecheckerErr where
+    pp (GenTcError doc) = doc
+    pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
     pp (IndexConditionNotValid c err) = text "Failed to satisfy index condition:" $+$ nest 4
         (text "Index condition:" <+> c
         $+$ text "Because of:" <+> pp err)
@@ -325,7 +327,7 @@ ppConstraintEnv (Just suberr) = text "Because of:" $+$ nest 4 (pp suberr)
 isHaltError :: SecrecError -> Bool
 isHaltError = everything (||) (mkQ False aux)
     where
-    aux :: SecrecError -> Bool
+    aux :: TypecheckerErr -> Bool
     aux (Halt vs) = True
     aux _ = False
 

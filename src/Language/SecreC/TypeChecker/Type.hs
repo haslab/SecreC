@@ -299,7 +299,7 @@ projectSize p t i x y1 y2 = do
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
 projectStructField :: (VarsIdTcM loc m,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc m Type
 projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
-projectStructField l t@(BVar _) a = addErrorM l Halt $ tcError (locpos l) $ FieldNotFound (pp t) (pp a)
+projectStructField l t@(BVar _) a = tcError (locpos l) $ Halt $ FieldNotFound (pp t) (pp a)
 projectStructField l (TyDec d) a = projectStructFieldDec l d a
     
 projectStructFieldDec :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc m Type
@@ -343,10 +343,10 @@ evalVarExprs l = mapM_ (evalVarExpr l)
         mapM_ (evaluateIndexExpr . fmap (Typed l)) es
 
 matchTypeDimension :: (VarsIdTcM loc m,Location loc) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
-matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . MismatchingArrayDimension (pp t) (pp es) . Just) $ do
+matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp t) (pp es) . Just) $ do
     td <- typeDim l t
     d <- variadicExprsLength l es
-    addErrorM l Halt $ tcCstrM l $ Unifies (IdxT td) (IdxT d)
+    tcCstrM l $ Unifies (IdxT td) (IdxT d)
 
 -- | Update the size of a compound type
 -- for variadic arrays, we set the size of each base type and not of the array itself

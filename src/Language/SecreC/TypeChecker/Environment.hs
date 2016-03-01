@@ -334,7 +334,7 @@ checkOperator op = do
     ps <- liftM operators State.get
     let cop = funit op
     case Map.lookup cop ps of
-        Nothing -> addErrorM (loc op) Halt $ tcError (locpos $ loc op) $ NotDefinedOperator $ pp cop
+        Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
         Just es -> return $ Map.elems es
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
@@ -371,7 +371,7 @@ checkProcedure :: (MonadIO m,Location loc) => ProcedureName VarIdentifier loc ->
 checkProcedure (ProcedureName l n) = do
     ps <- liftM procedures State.get
     case Map.lookup n ps of
-        Nothing -> addErrorM l Halt $ tcError (locpos l) $ NotDefinedProcedure (ppVarId n)
+        Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (ppVarId n)
         Just es -> return $ Map.elems es
     
 buildCstrGraph :: MonadIO m => Set (Loc loc IOCstr) -> TcM loc m (IOCstrGraph loc)

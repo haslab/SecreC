@@ -47,7 +47,7 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
             defs <- forM errs $ \(e,err) -> do
                 t' <- ppM l $ entryType e
                 return (locpos $ entryLoc e,t',err)
-            addErrorM l Halt $ tcError (locpos l) $ NoMatchingTemplateOrProcedure def defs
+            tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure def defs
         [(e,subst)] -> do
             dec <- resolveTemplateEntry l n targs pargs ret e subst
             return (dec)
@@ -123,7 +123,7 @@ compareTemplateDecls def l n (e1,_) (e2,_) = tcBlock $ do
     (targs1,pargs1,ret1) <- templateArgs n e1'
     (targs2,pargs2,ret2) <- templateArgs n e2'
     let defs = map (\e -> (locpos $ entryLoc e,pp (entryType e))) [e1,e2]
-    let err = Halt . TypecheckerError (locpos l) . ConflictingTemplateInstances def defs
+    let err = TypecheckerError (locpos l) . Halt . ConflictingTemplateInstances def defs
     ord <- addErrorM l err $ do
         ord2 <- compareProcedureArgs l (concat pargs1) (concat pargs2)
         ord3 <- comparesList l (maybeToList ret1) (maybeToList ret2)

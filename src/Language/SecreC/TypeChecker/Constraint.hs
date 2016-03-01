@@ -201,7 +201,7 @@ guessError doAll errs = do
 -- since templates are only resolved at instantiation time, we prevent solving of overloadable constraints
 trySolveCstr :: (VarsIdTcM loc m,Location loc) => Bool -> Loc loc IOCstr -> TcM loc m SolveRes
 trySolveCstr False (Loc l iok) | isGlobalCstr (kCstr iok) = do
-    return $ Right [(uniqId $ kStatus iok,kCstr iok,Halt $ GenericError (locpos l) $ text "Unsolved global constraint")]
+    return $ Right [(uniqId $ kStatus iok,kCstr iok,TypecheckerError (locpos l) $ Halt $ GenTcError $ text "Unsolved global constraint")]
 trySolveCstr doAll (Loc l iok) = catchError
     (solveIOCstr l iok >> return (Left True))
     (\e -> return $ Right [(uniqId $ kStatus iok,kCstr iok,e)])
@@ -413,7 +413,7 @@ multipleSubstitutions l v ss = do
     ok <- matchAll l (SecT $ SVar v AnyKind) ss []
     case ok of
         [] -> return ()
-        errs -> addErrorM l Halt $ tcError (locpos l) $ MultipleTypeSubstitutions $ map pp errs
+        errs -> tcError (locpos l) $ Halt $ MultipleTypeSubstitutions $ map pp errs
 
 matchAll :: (VarsIdTcM loc m,Location loc) => loc -> Type -> [(Type,[TcCstr])] -> [SecrecError] -> TcM loc m [SecrecError]
 matchAll l t [] errs = return errs
@@ -857,7 +857,7 @@ coercesSec' l e1 ct1@(cSec -> SVar v1 _) x2 s2@(SVar v2 _) = do
         (Just t1',Just t2') -> coercesSec' l e1 (setCSec ct1 t1') x2 t2'
         (Just t1',Nothing) -> coercesSec' l e1 (setCSec ct1 t1') x2 s2
         (Nothing,Just t2') -> coercesSec' l e1 ct1 x2 t2'
-        (Nothing,Nothing) -> addErrorM l Halt $ constraintError (\x y -> CoercionException "security type" x y) l e1 ppExprTy x2 ppVarTy Nothing
+        (Nothing,Nothing) -> constraintError (\x y -> Halt . CoercionException "security type" x y) l e1 ppExprTy x2 ppVarTy Nothing
 coercesSec' l e1 t1 x2 t2 = constraintError (CoercionException "security type") l e1 ppExprTy x2 ppVarTy Nothing
 
 classifiesCstrs :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> ComplexType -> VarName VarIdentifier Type -> SecType -> TcM loc m [TcCstr]
@@ -927,7 +927,7 @@ coercesLitBase l lit t2@(BVar v) = do
            b <- case lit of
                 StringLit _ s -> return $ TyPrim $ DatatypeString ()
                 BoolLit _ b -> return $ TyPrim $ DatatypeBool ()
-                otherwise -> addErrorM l Halt $ constraintError (\x y e -> CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+                otherwise -> constraintError (\x y e -> Halt $ CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
            addSubstM l (VarName BType v) (BaseT b)
 coercesLitBase l (IntLit _ i) (TyPrim (t@(primIntBounds -> Just (min,max)))) = do
     unless (min <= i && i <= max) $ tcWarn (locpos l) $ LiteralOutOfRange (show i) (pp t) (show min) (show max)
@@ -1552,8 +1552,7 @@ resolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m Typ
 resolveTVar l v = do
     mb <- tryResolveTVar l v
     case mb of
-        Nothing -> do
-            addErrorM l Halt $ tcError (locpos l) $ UnresolvedVariable (pp v)
+        Nothing -> tcError (locpos l) $ Halt $ UnresolvedVariable (pp v)
         Just t -> return t
 
 tryResolveSVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m (Maybe SecType)
