@@ -151,6 +151,10 @@ evalProc :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> [(Expression Var
 evalProc l (DVar v) args = do
     d <- resolveDVar l v
     evalProc l d args
+evalProc l (TpltType _ [] d1 d2 [] _ proc) args = tcBlock $ do
+    addHeadTDict $ fmap (updpos l) d1
+    addHeadTDict $ fmap (updpos l) d2
+    evalProc l proc args
 evalProc l (ProcType _ _ n vars ret stmts) args = tcBlock $ do
     if (length vars == length args)
         then do
@@ -160,7 +164,7 @@ evalProc l (ProcType _ _ n vars ret stmts) args = tcBlock $ do
   where
     evalProcParam ((isConst,v@(VarName t n),False),(arg,False)) = do
         addVar LocalScope n isConst (EntryEnv l t)
-        tcCstrM l $ Unifies (IdxT $ varExpr v) (IdxT $ fmap typed arg)
+        unifiesExprTy l (varExpr v) (fmap typed arg)
 evalProc l t args = genTcError (locpos l) (text "can't evaluate procedure" <+> pp t <+> parens (sepBy comma $ List.map pp args))
 
 evalStmts :: (VarsIdTcM loc m,Location loc) => [Statement VarIdentifier (Typed loc)] -> TcM loc m HsVal
@@ -217,7 +221,7 @@ evalStmt s@(SyscallStatement l n ps) = do
             val <- hsValToSExpr (unTyped l) res
             let Typed lret tret = loc ret
             addVar LocalScope (varNameId ret) False (EntryEnv lret tret) 
-            tcCstrM (unTyped l) $ Unifies (IdxT $ fmap typed $ varExpr ret) (IdxT $ fmap typed val)
+            unifiesExprTy (unTyped l) (fmap typed $ varExpr ret) (fmap typed val)
             return HsVoid
         ("core.size",[SyscallPush _ e,SyscallReturn _ ret]) -> do
             let t = typed $ loc e
@@ -258,7 +262,7 @@ evalVarInit t (VariableInitialization l n _ e) = do
     addVar LocalScope (varNameId n) False (EntryEnv (unTyped l) t)
     case e of
         Nothing -> return ()
-        Just x -> tcCstrM (unTyped l) $ Unifies (IdxT $ fmap typed $ varExpr n) (IdxT $ fmap typed x)
+        Just x -> unifiesExprTy (unTyped l) (fmap typed $ varExpr n) (fmap typed x)
 
 evalConstDecl :: (VarsIdTcM loc m,Location loc) => ConstDeclaration VarIdentifier (Typed loc) -> TcM loc m ()
 evalConstDecl (ConstDeclaration _ t is) = mapM_ (evalConstInit $ typed $ loc t) is
@@ -268,7 +272,7 @@ evalConstInit t (ConstInitialization l n _ e) = do
     addVar LocalScope (varNameId n) True (EntryEnv (unTyped l) t)
     case e of
         Nothing -> return ()
-        Just x -> tcCstrM (unTyped l) $ Unifies (IdxT $ fmap typed $ varExpr n) (IdxT $ fmap typed x)
+        Just x -> unifiesExprTy (unTyped l) (fmap typed $ varExpr n) (fmap typed x)
 
 add_int8 (HsInt8 i1) (HsInt8 i2) = HsInt8 (i1 + i2)
 add_int16 (HsInt16 i1) (HsInt16 i2) = HsInt16 (i1 + i2)
@@ -347,6 +351,16 @@ haskellSyscall l "add_uint32" [isHsUint32 -> Just i1,isHsUint32 -> Just i2] = re
 haskellSyscall l "add_uint64" [isHsUint64 -> Just i1,isHsUint64 -> Just i2] = return $ HsUint64 (i1 + i2)
 haskellSyscall l "add_float32" [isHsFloat32 -> Just i1,isHsFloat32 -> Just i2] = return $ HsFloat32 (i1 + i2)
 haskellSyscall l "add_float64" [isHsFloat64 -> Just i1,isHsFloat64 -> Just i2] = return $ HsFloat64 (i1 + i2)
+haskellSyscall l "mul_int8" [isHsInt8 -> Just i1,isHsInt8 -> Just i2] = return $ HsInt8 (i1 * i2)
+haskellSyscall l "mul_int16" [isHsInt16 -> Just i1,isHsInt16 -> Just i2] = return $ HsInt16 (i1 * i2)
+haskellSyscall l "mul_int32" [isHsInt32 -> Just i1,isHsInt32 -> Just i2] = return $ HsInt32 (i1 * i2)
+haskellSyscall l "mul_int64" [isHsInt64 -> Just i1,isHsInt64 -> Just i2] = return $ HsInt64 (i1 * i2)
+haskellSyscall l "mul_uint8" [isHsUint8 -> Just i1,isHsUint8 -> Just i2] = return $ HsUint8 (i1 * i2)
+haskellSyscall l "mul_uint16" [isHsUint16 -> Just i1,isHsUint16 -> Just i2] = return $ HsUint16 (i1 * i2)
+haskellSyscall l "mul_uint32" [isHsUint32 -> Just i1,isHsUint32 -> Just i2] = return $ HsUint32 (i1 * i2)
+haskellSyscall l "mul_uint64" [isHsUint64 -> Just i1,isHsUint64 -> Just i2] = return $ HsUint64 (i1 * i2)
+haskellSyscall l "mul_float32" [isHsFloat32 -> Just i1,isHsFloat32 -> Just i2] = return $ HsFloat32 (i1 * i2)
+haskellSyscall l "mul_float64" [isHsFloat64 -> Just i1,isHsFloat64 -> Just i2] = return $ HsFloat64 (i1 * i2)
 haskellSyscall l str args = genTcError (locpos l) $ text (show str) <+> parens (sepBy comma (List.map pp args))
 
 hsValToSExpr :: (MonadIO m,Location loc) => loc -> HsVal -> TcM loc m (SExpr VarIdentifier (Typed loc))
@@ -364,17 +378,17 @@ hsValToExpr l (HsInt32 i) = return $ LitPExpr t $ IntLit t $ toInteger i
 hsValToExpr l (HsInt64 i) = return $ LitPExpr t $ IntLit t $ toInteger i
     where t = (Typed l $ BaseT int64)
 hsValToExpr l (HsUint8 i) = return $ LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l $ BaseT int8)
+    where t = (Typed l $ BaseT uint8)
 hsValToExpr l (HsUint16 i) = return $ LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l $ BaseT int16)
+    where t = (Typed l $ BaseT uint16)
 hsValToExpr l (HsUint32 i) = return $ LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l $ BaseT int32)
+    where t = (Typed l $ BaseT uint32)
 hsValToExpr l (HsUint64 i) = return $ LitPExpr t $ IntLit t $ toInteger i
-    where t = (Typed l $ BaseT int64)
+    where t = (Typed l $ BaseT uint64)
 hsValToExpr l (HsFloat32 i) = return $ LitPExpr t $ FloatLit t $ realToFrac i
-    where t = (Typed l $ BaseT int32)
+    where t = (Typed l $ BaseT float32)
 hsValToExpr l (HsFloat64 i) = return $ LitPExpr t $ FloatLit t $ realToFrac i
-    where t = (Typed l $ BaseT int64)
+    where t = (Typed l $ BaseT float64)
 hsValToExpr l (HsLit lit) = return $ LitPExpr t $ fmap (const t) lit
     where t = (Typed l $ ComplexT $ TyLit lit)
 hsValToExpr l v = genTcError (locpos l) $ text "Cannot convert Haskell value" <+> quotes (pp v) <+> text "to an expression."

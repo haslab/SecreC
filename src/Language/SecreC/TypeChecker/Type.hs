@@ -67,7 +67,7 @@ typeToDecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp DTy
 
 typeToVArrayType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> SExpr VarIdentifier Type -> TcM loc m VArrayType
 typeToVArrayType l (VArrayT a) sz = do
-    prove l $ tcCstrM l $ Unifies (IdxT sz) (IdxT $ vArraySize a)
+    prove l "typeToVArrayType" $ unifiesExprTy l sz (vArraySize a)
     return a
 typeToVArrayType l t sz = ppM l t >>= tcError (locpos l) . TypeConversionError (pp (NoType $ "array of size " ++ ppr sz))
 
@@ -82,7 +82,7 @@ typeToBaseType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Bas
 typeToBaseType l (BaseT s) = return s
 typeToBaseType l t@(ComplexT ct) = case ct of
     (CType s b d sz) -> catchError
-        (newErrorM $ prove l $ tcCstrM l (Equals t (ComplexT $ CType Public b (indexSExpr 0) [])) >> return b)
+        (newErrorM $ prove l "typeToBaseType" $ tcCstrM l (Equals t (ComplexT $ CType Public b (indexSExpr 0) [])) >> return b)
         (\err -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType))
     CVar v -> resolveBVar l v
     otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
@@ -130,7 +130,7 @@ buildTypeSpec l tsec tdta dim False = do
     ts <- typeToSecType l tsec
     td <- typeToBaseType l tdta
     x <- newTypedVar "dim" (BaseT index)
-    tcCstrM l $ Coerces dim (loc dim) x (BaseT index)
+    tcCstrM l $ Coerces dim x
     let dim' = varExpr x
     szs <- newSizesVar dim'
     return $ ComplexT $ CType ts td dim' szs
@@ -320,17 +320,18 @@ tcTypeSizes l ty szs = do
     ty' <- refineTypeSizes l ty tszs'
     return (ty',szs')
 
-variadicExprsLength :: (VarsIdTcM loc m,Location loc) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m IExpr
-variadicExprsLength l es = foldrM (\e i -> liftM (i .+.) $ variadicExprLength l e) (IInt 0) es
+variadicExprsLength :: (VarsIdTcM loc m,Location loc) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m (SExpr VarIdentifier Type)
+variadicExprsLength l [] = return $ indexSExpr 0
+variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr1M (sumIndexExprs l)
     where
-    variadicExprLength :: (VarsIdTcM loc m,Location loc) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m IExpr
-    variadicExprLength l (e,False) = return (IInt 1)
+    variadicExprLength :: (VarsIdTcM loc m,Location loc) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m (SExpr VarIdentifier Type)
+    variadicExprLength l (e,False) = return $ indexSExpr 1
     variadicExprLength l (e,True) = do
         let t = loc e
         case t of
-            VAType _ sz -> expr2IExpr $ fmap (Typed l) sz
-            VArrayT (VAVal ts _) -> return $ IInt $ toInteger $ length ts
-            VArrayT (VAVar v _ sz) -> expr2IExpr $ fmap (Typed l) sz
+            VAType _ sz -> return sz
+            VArrayT (VAVal ts _) -> return $ indexSExpr $ toEnum $ length ts
+            VArrayT (VAVar v _ sz) -> return sz
             otherwise -> genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (pp t)
 
 evalVarExprs :: (VarsIdTcM loc m,Location loc) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
@@ -344,9 +345,8 @@ evalVarExprs l = mapM_ (evalVarExpr l)
 matchTypeDimension :: (VarsIdTcM loc m,Location loc) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
 matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . MismatchingArrayDimension (pp t) (pp es) . Just) $ do
     td <- typeDim l t
-    i <- expr2IExpr $ fmap (Typed l) td
     d <- variadicExprsLength l es
-    addErrorM l Halt $ isValid l $ i .==. d
+    addErrorM l Halt $ tcCstrM l $ Unifies (IdxT td) (IdxT d)
 
 -- | Update the size of a compound type
 -- for variadic arrays, we set the size of each base type and not of the array itself

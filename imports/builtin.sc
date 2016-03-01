@@ -600,6 +600,7 @@ uint size (D T[[N]] x) {
 bool operator && (bool x,bool y) {
     // stub
     bool ret;
+    __syscall("haskel.band",x,y,__return ret);
     return ret;
 }
 
@@ -812,28 +813,28 @@ D T[[N]](n...) operator + (D T[[N]] x (n...),D T[[N]] y (n...)) {
 // multiplication
 
 int8 operator * (int8 x,int8 y) {
-    //stub
     int8 ret;
+     __syscall("haskell.mul_int8",x,y,__return ret);
     return ret;
 } 
 int16 operator * (int16 x,int16 y) {
-    //stub
     int16 ret;
+     __syscall("haskell.mul_int16",x,y,__return ret);
     return ret;
 } 
 int32 operator * (int32 x,int32 y) {
-    //stub
     int32 ret;
+     __syscall("haskell.mul_int32",x,y,__return ret);
     return ret;
 } 
 int64 operator * (int64 x,int64 y) {
-    //stub
     int64 ret;
+     __syscall("haskell.mul_int64",x,y,__return ret);
     return ret;
 }
 uint8 operator * (uint8 x,uint8 y) {
-    //stub
     uint8 ret;
+     __syscall("haskell.mul_uint8",x,y,__return ret);
     return ret;
 } 
 uint16 operator * (uint16 x,uint16 y) {
@@ -842,23 +843,23 @@ uint16 operator * (uint16 x,uint16 y) {
     return ret;
 } 
 uint32 operator * (uint32 x,uint32 y) {
-    //stub
     uint32 ret;
+     __syscall("haskell.mul_uint32",x,y,__return ret);
     return ret;
 } 
 uint64 operator * (uint64 x,uint64 y) {
-    //stub
     uint64 ret;
+     __syscall("haskell.mul_uint64",x,y,__return ret);
     return ret;
 } 
 float32 operator * (float32 x,float32 y) {
-    //stub
     float32 ret;
+     __syscall("haskell.mul_float32",x,y,__return ret);
     return ret;
 } 
 float64 operator * (float64 x,float64 y) {
-    //stub
     float64 ret;
+     __syscall("haskell.mul_float64",x,y,__return ret);
     return ret;
 } 
 

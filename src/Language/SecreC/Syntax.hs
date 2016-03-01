@@ -29,6 +29,9 @@ moduleId (Module _ (Just (ModuleName _ n)) _) = Just n
 modulePosId :: Module Identifier Position -> Identifier
 modulePosId = maybe "main" id . moduleId
 
+addModuleImport :: ImportDeclaration iden loc -> Module iden loc -> Module iden loc
+addModuleImport i (Module l n p) = Module l n (addProgramImport i p)
+
 moduleImports :: Module iden loc -> [ImportDeclaration iden loc]
 moduleImports (Module _ _ p) = programImports p
 
@@ -79,7 +82,10 @@ instance PP iden => PP (TemplateArgName iden loc) where
 
 data Program iden loc = Program loc [ImportDeclaration iden loc] [GlobalDeclaration iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
-  
+
+addProgramImport :: ImportDeclaration iden loc -> Program iden loc -> Program iden loc
+addProgramImport i (Program l is gs) = Program l (i:is) gs
+
 programImports :: Program iden loc -> [ImportDeclaration iden loc]
 programImports (Program _ is _) = is
   

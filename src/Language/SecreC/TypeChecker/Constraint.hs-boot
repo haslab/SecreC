@@ -18,17 +18,15 @@ import Data.Set
 
 solveHypotheses :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m [ICond]
 
-tcTopCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
+tcTopCstrM :: (VarsIdTcM loc m,Location loc) => loc -> TcCstr -> TcM loc m ()
 
-proveWith :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
+proveWith :: (VarsIdTcM loc m,Location loc) => loc -> String -> TcM loc m a -> TcM loc m (Either SecrecError (a,TDict loc))
 
-prove :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
+prove :: (VarsIdTcM loc m,Location loc) => loc -> String -> TcM loc m a -> TcM loc m a
 
-tcProve :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (a,TDict loc)
+tcProve :: (VarsIdTcM loc m,Location loc) => loc -> String -> TcM loc m a -> TcM loc m (a,TDict loc)
 
-checkCstrM :: (MonadIO m,Location loc) => loc -> Set (Loc loc IOCstr) -> CheckCstr -> TcM loc m ()
-
-coercesE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> Type -> TcM loc m (Expression VarIdentifier Type)
+checkCstrM :: (VarsIdTcM loc m,Location loc) => loc -> Set (Loc loc IOCstr) -> CheckCstr -> TcM loc m ()
 
 tryResolveEVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> Type -> TcM loc m (Maybe (SExpr VarIdentifier (Typed loc)))
 
@@ -52,19 +50,17 @@ appendComparisons :: (VarsIdTcM loc m,Location loc) => loc -> [Comparison (TcM l
 
 constraintError :: (VarsIdTcM loc m,VarsId (TcM loc m) a,VarsId (TcM loc m) b,Location loc) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> Doc) -> b -> (b -> Doc) -> Maybe SecrecError -> TcM loc m res
 
+unifiesSCond :: (VarsIdTcM loc m,Location loc) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM loc m ()
+
 unifiesSizes :: (VarsIdTcM loc m,Location loc) => loc -> [(Expression VarIdentifier Type,IsVariadic)] -> [(Expression VarIdentifier Type,IsVariadic)] -> TcM loc m ()
 
 tryUnifiesBool :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Bool
 
 unifiesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m ()
 
-tCstrM :: (MonadIO m,Location loc) => loc -> TCstr -> TcM loc m IOCstr
-
 isTyOf :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Bool
 
-tcCstrM :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m ()
-
-tcCstrM' :: (MonadIO m,Location loc) => loc -> TcCstr -> TcM loc m IOCstr
+tcCstrM :: (VarsIdTcM loc m,Location loc) => loc -> TcCstr -> TcM loc m ()
 
 resolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m Type
 
@@ -78,10 +74,12 @@ resolveDVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc
 
 unifiesTIdentifier :: (VarsIdTcM loc m,Location loc) => loc -> TIdentifier -> TIdentifier -> TcM loc m ()
 
-tcTopPDecCstrM :: (MonadIO m,Location loc) => loc -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expression VarIdentifier Type,IsVariadic)] -> Type -> TcM loc m (DecType,[(Expression VarIdentifier Type,IsVariadic)])
+tcTopPDecCstrM :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expression VarIdentifier Type,IsVariadic)] -> Type -> TcM loc m (DecType,[(Expression VarIdentifier Type,IsVariadic)])
 
 expandVariadicExpr :: (VarsIdTcM loc m,Location loc) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m [SExpr VarIdentifier Type]
 
 expandVariadicType :: (VarsIdTcM loc m,Location loc) => loc -> (Type,IsVariadic) -> TcM loc m [Type]
 
 resolveBVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m BaseType
+
+unifiesExprTy :: (VarsIdTcM loc m,Location loc) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()

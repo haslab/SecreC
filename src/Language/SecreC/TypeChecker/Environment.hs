@@ -17,6 +17,7 @@ import {-# SOURCE #-} Language.SecreC.TypeChecker.Index
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 
 import Data.IORef
+import Data.Either
 import Data.Int
 import Data.Word
 import Data.Unique
@@ -73,7 +74,7 @@ addVar :: (MonadIO m,Location loc) => Scope -> VarIdentifier -> Bool -> EntryEnv
 addVar GlobalScope n b e = modify $ \env -> env { globalVars = Map.insert n (b,e) (globalVars env) }
 addVar LocalScope n b e = modify $ \env -> env { localVars = Map.insert n (b,e) (localVars env) }
 
-addFree n = modify $ \env -> env { localFrees = Set.insert n (localFrees env) }
+
 
 getFrees :: (Monad m,Location loc) => TcM loc m (Set VarIdentifier)
 getFrees = liftM localFrees State.get
@@ -88,14 +89,14 @@ replaceCstrWithGraph l kid ins gr outs = do
 --    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
 --    liftIO $ putStrLn $ "replaceCstrWithGraph2 [" ++ show ss ++ "\n]"
 
-withHypotheses :: MonadIO m => Scope -> TcM loc m a -> TcM loc m a
-withHypotheses LocalScope m = do
+withDeps :: MonadIO m => Scope -> TcM loc m a -> TcM loc m a
+withDeps LocalScope m = do
     env <- State.get
     let l = localDeps env
     x <- m
     State.modify $ \env -> env { localDeps = l }
     return x
-withHypotheses GlobalScope m = do
+withDeps GlobalScope m = do
     env <- State.get
     let l = localDeps env
     let g = globalDeps env
@@ -129,13 +130,16 @@ newVariable scope v@(VarName (Typed l t) n) val isConst = do
         Just (_,e) -> tcWarn (locpos l) $ ShadowedVariable (ppVarId n) (locpos $ entryLoc e)
         Nothing -> return ()
     addVar scope n isConst (EntryEnv l t)
-    case scope of
-        LocalScope -> addFree n
-        otherwise -> return ()
+--    case scope of
+--        LocalScope -> addFree n
+--        otherwise -> return ()
     case val of
         Just e -> do
-            tcCstrM l $ Unifies (IdxT $ fmap typed $ varExpr v) (IdxT $ fmap typed e)
+            unifiesExprTy l (fmap typed $ varExpr v) (fmap typed e)
         Nothing -> return ()
+
+addDeps :: (MonadIO m,Location loc) => Scope -> Set (Loc loc IOCstr) -> TcM loc m ()
+addDeps scope xs = forM_ xs $ \x -> addDep scope x
 
 addDep :: (MonadIO m,Location loc) => Scope -> Loc loc IOCstr -> TcM loc m ()
 addDep GlobalScope hyp = modify $ \env -> env { globalDeps = Set.insert hyp (globalDeps env) }
@@ -151,16 +155,15 @@ tcNoDeps m = do
     State.modify $ \env -> env { globalDeps = g, localDeps = l }
     return x
 
-tcAddDeps :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
-tcAddDeps l m = do
-    (x,ks) <- tcWithCstrs l m
+tcAddDeps :: (VarsIdTcM loc m,Location loc) => loc -> String -> TcM loc m a -> TcM loc m a
+tcAddDeps l msg m = do
+    (x,ks) <- tcWithCstrs l msg m
     forM_ ks $ addDep LocalScope
     return x
     
 tryAddHypothesis :: (MonadIO m,Location loc) => loc -> Scope -> Set (Loc loc IOCstr) -> HypCstr -> TcM loc m ()
 tryAddHypothesis l scope deps hyp = do
     iok <- updateHeadTDict $ \d -> insertTDictCstr l (HypK hyp) Unevaluated d
---    iok <- liftIO $ newIOCstr (HypK hyp) Unevaluated
     addDep scope $ Loc l iok
     addIOCstrDependenciesM deps (Loc l iok) Set.empty
 
@@ -376,7 +379,7 @@ buildCstrGraph cstrs = do
     gr <- liftM (tCstrs . mconcatNe . tDict) State.get
     let tgr = Graph.trc gr 
     opens <- liftM openedCstrs State.get
-    let cs = Set.difference (mapSet unLoc cstrs) opens
+    let cs = Set.difference (mapSet unLoc cstrs) (Set.fromList opens)
     let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,ioCstrId h)) cs) tgr
     return gr'
     
@@ -384,7 +387,7 @@ splitHeadTDict :: Monad m => Set (Loc loc IOCstr) -> TcM loc m (TDict loc,TDict 
 splitHeadTDict deps = do
     d <- liftM (headNe . tDict) State.get
     opens <- liftM openedCstrs State.get
-    let cs = Set.difference (mapSet unLoc deps) opens
+    let cs = Set.difference (mapSet unLoc deps) (Set.fromList opens)
     let gr = Graph.trc $ tCstrs d
     let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,ioCstrId h)) cs) gr
     let bgr = Graph.nfilter (\n -> not $ any (\h -> Graph.hasEdge gr (n,ioCstrId h)) cs) gr
@@ -439,27 +442,29 @@ newStruct tn@(TypeName (Typed l t) n) = do
             modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
             return $ updLoc tn (Typed (unTyped $ loc tn) dt)
 
-addSubstsM :: (MonadIO m,Location loc) => TSubsts -> TcM loc m ()
-addSubstsM ss = do
---    liftIO $ putStrLn $ "addSubstsM " ++ ppr ss
-    updateHeadTDict $ \d -> return ((),mappend d (TDict Graph.empty Set.empty ss))
-    mapM_ (dirtyVarDependencies . fst) $ Map.toList ss
-
 addSubst :: (MonadIO m,Location loc) => loc -> VarIdentifier -> Type -> TcM loc m ()
 addSubst l v t = do
 --    liftIO $ putStrLn $ "addSubst " ++ ppr v ++ " = " ++ ppr t
     updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert v t (tSubsts d) })
 
-addSubstM :: (MonadIO m,Location loc) => loc -> VarName VarIdentifier Type -> Type -> TcM loc m ()
-addSubstM l v t | varNameToType v == t = return ()
-                | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
-                    addSubst l (varNameId v) t
-                    dirtyVarDependencies (varNameId v)
-                | otherwise = genTcError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
+addSubsts :: (MonadIO m,Location loc) => TSubsts -> TcM loc m ()
+addSubsts ss = do
+--    liftIO $ putStrLn $ "addSubstsM " ++ ppr ss
+    updateHeadTDict $ \d -> return ((),mappend d (TDict Graph.empty Set.empty ss))
+    mapM_ (dirtyVarDependencies . fst) $ Map.toList ss
 
-newTyVarId :: MonadIO m => TcM loc m TyVarId
-newTyVarId = do
-    liftIO $ atomicModifyIORef' globalEnv $ \g -> (g { tyVarId = succ (tyVarId g) },tyVarId g)
+addSubstM :: (VarsIdTcM loc m,Location loc) => loc -> VarName VarIdentifier Type -> Type -> TcM loc m ()
+addSubstM l v t | varNameToType v == t = return ()
+addSubstM l v t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
+    tcCstrM l $ Unifies (loc v) (tyOf t)
+    addSubst l (varNameId v) t
+    dirtyVarDependencies (varNameId v)
+    
+--addSubstM l v t | varNameToType v == t = return ()
+--                | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
+--                    addSubst l (varNameId v) t
+--                    dirtyVarDependencies (varNameId v)
+--                | otherwise = genTcError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
 
 newDomainTyVar :: (MonadIO m,Location loc) => SVarKind -> TcM loc m SecType
 newDomainTyVar k = do
@@ -472,7 +477,7 @@ newDimVar = do
     let v = VarName (BaseT index) n
     return (RVariablePExpr (BaseT index) v)
 
-newTypedVar :: (MonadIO m,Location loc) => String -> Type -> TcM loc m (VarName VarIdentifier Type)
+newTypedVar :: (MonadIO m,Location loc) => String -> a -> TcM loc m (VarName VarIdentifier a)
 newTypedVar s t = liftM (VarName t) $ uniqVarId s
 
 newVarOf :: (MonadIO m,Location loc) => String -> Type -> TcM loc m Type
@@ -496,13 +501,6 @@ newDecVar :: (MonadIO m,Location loc) => TcM loc m DecType
 newDecVar = do
     n <- uniqVarId "dec"
     return $ DVar n
-    
-uniqVarId :: MonadIO m => Identifier -> TcM loc m VarIdentifier
-uniqVarId n = do
-    i <- newTyVarId
-    let v = VarIdentifier n (Just i) False 
-    addFree v
-    return v
     
 newBaseTyVar :: (MonadIO m,Location loc) => TcM loc m BaseType
 newBaseTyVar = do
@@ -534,25 +532,30 @@ mkVariadicTyArray True t = do
     sz <- newSizeVar
     return $ VAType t sz
     
-addValue :: (MonadIO m,Location loc) => loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
-addValue l v@(VarName t _) (e) = do
+addValue :: (MonadIO m,Location loc) => loc -> VarIdentifier -> SExpr VarIdentifier Type -> TcM loc m ()
+addValue l v e = do
 --    liftIO $ putStrLn $ "addValue " ++ ppr v ++ " " ++ ppr e
-    updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert (varNameId v) (IdxT $ updLoc e t) (tSubsts d) })
+    updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert v (IdxT e) (tSubsts d) })
 
-addValueM :: (MonadIO m,Location loc) => loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+addValueM :: (VarsIdTcM loc m,Location loc) => loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
 addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
-addValueM l v@(VarName t n) (e) | typeClass "addValueL" t == typeClass "addValueR" (loc e) = do
-    addValue l v e
+addValueM l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
+    tcCstrM l $ Unifies t (loc e)
+    addValue l n e
     addVarDependencies n
     dirtyVarDependencies n
-addValueM l v e = genTcError (locpos l) $ text "unification: mismatching expression types"
 
-openCstr l iok = do
+openCstr :: (MonadIO m,Location loc) => loc -> IOCstr -> TcM loc m ()
+openCstr l o = do
     opts <- TcM $ lift ask
     size <- liftM (length . openedCstrs) State.get
     if size >= constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "opened constraints"
-        else State.modify $ \e -> e { openedCstrs = Set.insert iok $ openedCstrs e }
+        else State.modify $ \e -> e { openedCstrs = o : openedCstrs e }
+
+closeCstr :: (MonadIO m,Location loc) => TcM loc m ()
+closeCstr = do
+    State.modify $ \e -> e { openedCstrs = tail (openedCstrs e) }
 
 resolveIOCstr :: (MonadIO m,Location loc) => loc -> IOCstr -> (TCstr -> TcM loc m ShowOrdDyn) -> TcM loc m ShowOrdDyn
 resolveIOCstr l iok resolve = do
@@ -568,7 +571,7 @@ resolveIOCstr l iok resolve = do
         openCstr l iok
         t <- resolve $ kCstr iok
         liftIO $ writeUniqRef (kStatus iok) $ Evaluated t
-        State.modify $ \e -> e { openedCstrs = Set.delete iok (openedCstrs e) } 
+        closeCstr
         -- register constraints dependencies from the dictionary into the global state
         registerIOCstrDependencies iok
         remove
@@ -590,7 +593,7 @@ addVarDependencies v = do
     cstrs <- liftM openedCstrs State.get
     addVarDependency v cstrs
     
-addVarDependency :: (MonadIO m,Location loc) => VarIdentifier -> Set IOCstr -> TcM loc m ()
+addVarDependency :: (MonadIO m,Location loc) => VarIdentifier -> [IOCstr] -> TcM loc m ()
 addVarDependency v cstrs = do
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
@@ -598,7 +601,6 @@ addVarDependency v cstrs = do
         Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps v m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
     liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
---    liftIO $ modifyIORef' globalEnv $ \g -> g { tDeps = Map.insertWith (Set.union) v cstrs (tDeps g) }
 
 addIODependency :: (MonadIO m,Location loc) => IOCstr -> Set IOCstr -> TcM loc m ()
 addIODependency v cstrs = do
@@ -635,9 +637,9 @@ getDeps = do
     env <- State.get
     return $ globalDeps env `Set.union` localDeps env
 
-tcWithCstrs :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (a,Set (Loc loc IOCstr))
-tcWithCstrs l m = do
-    (x,d) <- tcWith l m
+tcWithCstrs :: (VarsIdTcM loc m,Location loc) => loc -> String -> TcM loc m a -> TcM loc m (a,Set (Loc loc IOCstr))
+tcWithCstrs l msg m = do
+    (x,d) <- tcWith l msg m
     addHeadTDict d
     return (x,flattenIOCstrGraphSet $ tCstrs d)
 
@@ -653,14 +655,16 @@ cstrSetToGraph l xs = foldr (\x gr -> insNode (ioCstrId x,Loc l x) gr) Graph.emp
 insertTDictCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TCstrStatus -> TDict loc -> TcM loc m (IOCstr,TDict loc)
 insertTDictCstr l c res dict = do
     iok <- liftIO $ newIOCstr c res
---    vs <- fvIds c
---    forM_ vs $ \v -> addVarDependency v $ Set.singleton io
     return (iok,dict { tCstrs = insNode (ioCstrId iok,Loc l iok) (tCstrs dict) })
 
 ---- | Adds a new template constraint to the environment
 newTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> TcM loc m IOCstr
 newTemplateConstraint l c = do
     updateHeadTDict (insertTDictCstr l c Unevaluated)
+
+erroneousTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> SecrecError -> TcM loc m IOCstr
+erroneousTemplateConstraint l c err = do
+    updateHeadTDict (insertTDictCstr l c $ Erroneous err)
 
 updateHeadTDict :: (Monad m,Location loc) => (TDict loc -> TcM loc m (a,TDict loc)) -> TcM loc m a
 updateHeadTDict upd = do

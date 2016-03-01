@@ -42,10 +42,10 @@ extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 tcStmts :: (VarsIdTcM loc m,Location loc) => Type -> [Statement Identifier loc] -> TcM loc m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
 tcStmts ret [s] = do
-    (s',StmtType c) <- tcAddDeps (loc s) $ tcStmt ret s
+    (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
     return ([s'],StmtType c)
 tcStmts ret (s:ss) = do
-    (s',StmtType c) <- tcAddDeps (loc s) $ tcStmt ret s
+    (s',StmtType c) <- tcAddDeps (loc s) "stmts" $ tcStmt ret s
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
@@ -60,14 +60,14 @@ tcStmts ret (s:ss) = do
 -- | Typecheck a non-empty statement
 tcNonEmptyStmt :: (VarsIdTcM loc m,Location loc) => Type -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
-    r@(s',StmtType cs) <- tcAddDeps (loc s) $ tcStmt ret s
+    r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
     when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
 tcLoopBodyStmt :: (VarsIdTcM loc m,Location loc) => Type -> loc -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
-    (s',StmtType cs) <- tcAddDeps l $ tcStmt ret s
+    (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
     when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop (pp s)
     -- return the @StmtClass@ for the whole loop
@@ -118,7 +118,7 @@ tcStmt ret (DowhileStatement l bodyS condE) = tcLocal $ do
     condE' <- tcGuard condE
     return (DowhileStatement (notTyped "tcStmt" l) bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
-    (argE',cstrsargE) <- tcWithCstrs l $ tcGuard argE
+    (argE',cstrsargE) <- tcWithCstrs l "assert" $ tcGuard argE
     checkCstrM l cstrsargE $ CheckAssertion $ fmap typed argE'
     tryAddHypothesis l LocalScope cstrsargE $ HypCondition $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
@@ -144,7 +144,7 @@ tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
     x <- newTypedVar "ret" ret
-    tcTopCstrM l $ Coerces (fmap typed e') et' x ret
+    tcTopCstrM l $ Coerces (fmap typed e') x
     let t = StmtType (Set.singleton StmtReturn)
     let ex = fmap (Typed l) $ RVariablePExpr ret x
     return (ReturnStatement (Typed l t) (Just ex),t)

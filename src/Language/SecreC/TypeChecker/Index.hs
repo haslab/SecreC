@@ -52,6 +52,7 @@ expr2IExpr e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
                 then return $ IIdx $ VarName p n
                 else genTcError noloc $ text "Not an index type:" <+> pp t
 expr2IExpr (LitPExpr _ (IntLit _ i)) = return $ IInt i
+expr2IExpr (QualExpr l e t) = expr2IExpr $ updLoc e (flip Typed (typed $ loc $ fst t) $ unTyped $ loc e)
 expr2IExpr (UnaryExpr _ (OpSub _) e) = liftM ISym $ expr2IExpr e
 expr2IExpr (BinaryExpr _ e1 op e2) = do
     i1 <- expr2IExpr e1
@@ -69,7 +70,7 @@ expr2IExpr ce@(UnaryExpr _ (OpCast _ t) e) = do
 expr2IExpr (ProcCallExpr l (ProcedureName _ ((==mkVarId "size") -> True)) Nothing [(e,False)]) = do
     let t = typed $ loc e
     let ll = unTyped l
-    sz <- prove ll $ typeSize ll t
+    sz <- prove ll "expr2IExpr size" $ typeSize ll t
     expr2IExpr $ fmap (Typed ll) sz
 expr2IExpr pe@(ProcCallExpr l pn@(ProcedureName _ ((==mkVarId "product") -> True)) Nothing [(RVariablePExpr t v,isVariadic)]) = do
     let ll = unTyped l
@@ -102,6 +103,7 @@ expr2ICond e@(RVariablePExpr _ (VarName (Typed l t) n)) = do
                 then return $ IBInd n
                 else genTcError noloc $ text "Not an index condition type:" <+> pp t
 expr2ICond (LitPExpr _ (BoolLit _ b)) = return $ IBool b
+expr2ICond (QualExpr l e t) = expr2ICond $ updLoc e (flip Typed (typed $ loc $ fst t) $ unTyped $ loc e)
 expr2ICond (UnaryExpr _ (OpNot _) e) = liftM INot $ expr2ICond e
 expr2ICond (BinaryExpr _ e1 op@(isCmpOp -> True) e2) = do
     i1 <- expr2IExpr e1

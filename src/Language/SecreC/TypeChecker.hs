@@ -103,7 +103,7 @@ tcKindName (KindName kl kn) = return $ KindName (Typed kl KType) $ mkVarId kn
 tcProcedureDecl :: (VarsIdTcM loc m,Location loc) => (Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))) -> (Deps loc -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc)))
                 -> ProcedureDeclaration Identifier loc -> TcM loc m (ProcedureDeclaration VarIdentifier (Typed loc))
 tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
-    (ps',ret',vars,top,tret) <- tcAddDeps l $ do
+    (ps',ret',vars,top,tret) <- tcAddDeps l "tcProcedureDecl" $ do
         top <- tcOp op
         (ps',vars) <- mapAndUnzipM tcProcedureParam ps
         ret' <- tcRetTypeSpec ret
@@ -119,7 +119,7 @@ tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
     let dec' = OperatorDeclaration (notTyped "tcProcedureDecl" l) ret' op'' ps' s'
     return dec'
 tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureName pl pn) ps s) = do
-    (ps',ret',vars,tret) <- tcAddDeps l $ do
+    (ps',ret',vars,tret) <- tcAddDeps l "tcProcedureDecl" $ do
         (ps',vars) <- mapAndUnzipM tcProcedureParam ps
         ret' <- tcRetTypeSpec ret
         let tret = typed $ loc ret'
@@ -151,7 +151,7 @@ tcProcedureParam (ConstProcedureParameter l s isVariadic v@(VarName vl vi) sz c)
     let vv = VarName vl vi'
     let v' = fmap (flip Typed ty') vv
     newVariable LocalScope v' Nothing True
-    (c',cstrsc) <- tcWithCstrs l $ mapM tcIndexCond c
+    (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
         Just x -> do
@@ -178,19 +178,19 @@ tcAttribute (Attribute l ty v@(AttributeName vl vn)) = do
 
 tcTemplateDecl :: (VarsIdTcM loc m,Location loc) => TemplateDeclaration Identifier loc -> TcM loc m (TemplateDeclaration VarIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate $ do
-    (targs',tvars) <- tcAddDeps l $ mapAndUnzipM tcTemplateQuantifier targs
+    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
     s' <- tcStructureDecl (addTemplateStruct tvars') s
     return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate $ do
-    (targs',tvars) <- tcAddDeps l $ mapAndUnzipM tcTemplateQuantifier targs
+    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
-    tspecials' <- tcAddDeps l $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
+    tspecials' <- tcAddDeps l "tcTemplateDecl" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
     let tspecs = map (mapFst (typed . loc)) tspecials'
     s' <- tcStructureDecl (addTemplateStructSpecialization tvars' tspecs) s
     return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate $ do
-    (targs',tvars) <- tcAddDeps l $ mapAndUnzipM tcTemplateQuantifier targs
+    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
     p' <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedure tvars') p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
@@ -218,7 +218,7 @@ tcTemplateQuantifier (DimensionQuantifier l isVariadic v@(VarName dl dn) c) = do
     let tl = Typed dl t'
     let v' = VarName tl vdn
     newVariable LocalScope v' Nothing True
-    (c',cstrsc) <- tcWithCstrs l $ mapM tcIndexCond c
+    (c',cstrsc) <- tcWithCstrs l "tcTemplateQuantifier" $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
         Just x -> tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
@@ -242,7 +242,7 @@ tcTemplate m = do
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
 tcGlobal :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
 tcGlobal l m = do
-    newDict l
+    newDict l "tcGlobal"
     x <- m
     solve l
     State.modify $ \e -> e { localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = updDict (tDict e) }

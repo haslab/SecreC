@@ -44,13 +44,9 @@ type ModuleGraph = Gr (Module Identifier Position) Position
 -- | Parses and resolves imports, returning all the modules to be loaded, in evaluation order 
 parseModuleFiles :: MonadIO m => [FilePath] -> SecrecM m [Module Identifier Position]
 parseModuleFiles files = do
-    opts <- ask
-    addBuiltin <- if implicitBuiltin opts
-        then resolveModule "builtin.sc" >>= parseFile >>= \builtin -> return (builtin:)
-        else return id
-    g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles (files) empty
+    g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles files empty
     let modules = topsort' g
-    return $ addBuiltin modules
+    return modules
 
 resolveModule :: MonadIO m => FilePath -> SecrecM m FilePath
 resolveModule file = do
@@ -65,7 +61,11 @@ openModuleFiles fs g = foldlM open g fs
     open g f = do
         f' <- lift $ resolveModule f
         ast <- lift $ parseFile f'
-        openModule Nothing g f' (modulePosId ast) (loc ast) (return ast)
+        opts <- ask
+        let ast' = if (implicitBuiltin opts && moduleId ast /= Just "builtin")
+            then addModuleImport (Import noloc $ ModuleName noloc "builtin") ast
+            else ast
+        openModule Nothing g f' (modulePosId ast') (loc ast') (return ast')
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter

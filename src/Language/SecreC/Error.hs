@@ -170,6 +170,9 @@ data TypecheckerErr
         (Maybe SecrecError) -- sub-error
     | UnresolvedVariable
         Doc -- variable name
+    | MismatchingVariableType
+        Doc -- variable
+        SecrecError -- sub-error
     | UnresolvedMatrixProjection
         Doc -- ^ type
         Doc -- ^ ranges
@@ -257,6 +260,7 @@ instance PP TypecheckerErr where
     pp e@(MultipleDefinedDomain {}) = text (show e)
     pp e@(MultipleDefinedField {}) = text (show e)
     pp e@(AmbiguousName {}) = text (show e)
+    pp e@(MismatchingVariableType v err) = text "Type of variable" <+> quotes v <+> text "does not match expected type" $+$ nest 4 (text "Sub-error:" <+> pp err)
     pp e@(MultipleDefinedStructTemplate i p) = text (show e)
 --        text "Overloaded templates for struct" <+> quotes (text i) <+> text "not supported:"
 --        $+$ nest 4 (error "TODO")
@@ -322,7 +326,7 @@ isHaltError :: SecrecError -> Bool
 isHaltError = everything (||) (mkQ False aux)
     where
     aux :: SecrecError -> Bool
-    aux (Halt _) = True
+    aux (Halt vs) = True
     aux _ = False
 
 isOrWarnError :: SecrecError -> Bool

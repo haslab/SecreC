@@ -39,7 +39,7 @@ tcGuard e = tcExprTy (BaseT bool) e
 
 tcLValue :: (VarsIdTcM loc m,Location loc) => Bool -> Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
 tcLValue isConst (PostIndexExpr l e s) = tcNoDeps $ do
-    e' <- tcAddDeps l $ tcLValue False e
+    e' <- tcAddDeps l "lvalue" $ tcLValue False e
     let t = typed $ loc e'
     (s',t') <- tcSubscript t s
     return $ PostIndexExpr (Typed l t') e' s'
@@ -78,24 +78,24 @@ tcExpr (QualExpr l e t) = do
     t' <- tcSizedTypeSpec t
     let ty = typed $ loc $ fst t'
     x <- newTypedVar "qex" ty
-    tcTopCstrM l $ Coerces (fmap typed e') (typed $ loc e') x ty
+    tcTopCstrM l $ Coerces (fmap typed e') x
     return $ QualExpr (Typed l ty) (fmap (Typed l) $ varExpr x) t'
 tcExpr (CondExpr l c e1 e2) = do
-    (c',cstrsc) <- tcWithCstrs l $ tcGuard c
-    e1' <- withHypotheses LocalScope $ do
+    (c',cstrsc) <- tcWithCstrs l "condexpr" $ tcGuard c
+    e1' <- withDeps LocalScope $ do
         tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed c'
         tcExpr e1
     let t1 = typed $ loc e1'
-    e2' <- withHypotheses LocalScope $ do
+    e2' <- withDeps LocalScope $ do
         tryAddHypothesis l LocalScope cstrsc $ HypNotCondition $ fmap typed c'
         tcExpr e2
     let t2 = typed $ loc e2'
     t3 <- newTyVar
     x1 <- newTypedVar "then" t3
     x2 <- newTypedVar "else" t3
-    tcTopCstrM l $ Coerces2 (fmap typed e1') t1 (fmap typed e2') t2 x1 x2 t3
-    let ex1 = fmap (Typed l) $ RVariablePExpr t3 x1
-    let ex2 = fmap (Typed l) $ RVariablePExpr t3 x2
+    tcTopCstrM l $ Coerces2 (fmap typed e1') (fmap typed e2') x1 x2
+    let ex1 = fmap (Typed l) $ varExpr x1
+    let ex2 = fmap (Typed l) $ varExpr x2
     return $ CondExpr (Typed l t3) c' ex1 ex2
 tcExpr (BinaryExpr l e1 op e2) = do
     e1' <- tcExpr e1
@@ -130,7 +130,7 @@ tcExpr (UnaryExpr l op e) = do
             szs <- newSizesVar dim
             let ct = ComplexT $ CType s b dim szs
             x <- newTypedVar "cast" ct
-            tcTopCstrM l $ Coerces (fmap typed e') t x ct
+            tcTopCstrM l $ Coerces (fmap typed e') x
             let ex = fmap (Typed l) $ RVariablePExpr ct x
             return $ UnaryExpr (Typed l ct) top ex
         otherwise -> do
@@ -166,7 +166,7 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
 tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
-    e' <- tcAddDeps l $ tcExpr e
+    e' <- tcAddDeps l "postindex" $ tcExpr e
     let t = typed $ loc e'
     (s',t') <- tcSubscript t s
     return $ PostIndexExpr (Typed l t') e' s'
@@ -201,7 +201,7 @@ tcBinaryAssignOp l bop lv1 e2 = do
             return (ex2,DecT dec)
         Nothing -> do
             x1 <- newTypedVar "assign" t1
-            tcTopCstrM l $ Coerces (fmap typed e2) t2 x1 t1
+            tcTopCstrM l $ Coerces (fmap typed e2) x1
             let ex1 = fmap (Typed l) $ RVariablePExpr t1 x1
             return (ex1,NoType "tcBinaryAssignOp")
     return (eres,fmap (flip Typed dec) bop)
@@ -226,7 +226,7 @@ tcOp op = return $ bimap (mkVarId) (notTyped "tcOp") op
 tcSubscript :: (VarsIdTcM loc m,Location loc) => Type -> Subscript Identifier loc -> TcM loc m (Subscript VarIdentifier (Typed loc),Type)
 tcSubscript t s = do
     let l = loc s
-    ((s',rngs),ks) <- tcWithCstrs l $ mapAndUnzipM tcIndex s
+    ((s',rngs),ks) <- tcWithCstrs l "subscript" $ mapAndUnzipM tcIndex s
     ret <- newTyVar
     withDependencies ks $ tcTopCstrM l $ ProjectMatrix t (Foldable.toList rngs) ret
     return (s',ret)
@@ -284,7 +284,7 @@ tcExprTy ty e = do
     e' <- tcExpr e
     let Typed l ty' = loc e'
     x2 <- newTypedVar "ety" ty
-    tcTopCstrM l $ Coerces (fmap typed e') ty' x2 ty
+    tcTopCstrM l $ Coerces (fmap typed e') x2
     return $ fmap (Typed l) $ varExpr x2
 
 tcSizes :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Sizes Identifier loc -> TcM loc m (Sizes VarIdentifier (Typed loc))

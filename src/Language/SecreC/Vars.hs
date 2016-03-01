@@ -32,18 +32,21 @@ import Control.Monad.IO.Class
 import Control.Monad.State (StateT(..),State(..),execState,evalState)
 import qualified Control.Monad.State as State
 
-type Substs iden m = forall b . (IsScVar iden,IsScVar b) => iden -> m (Maybe b)
-type SubstsProxy iden m = forall b . (IsScVar iden,IsScVar b) => Proxy b -> iden -> m (Maybe b)
+type Substs iden m = forall b . (GenVar iden m,IsScVar iden,IsScVar b) => iden -> m (Maybe b)
+newtype SubstsProxy iden m = SubstsProxy { unSubstsProxy :: forall b . (GenVar iden m,IsScVar iden,IsScVar b) => Proxy b -> iden -> m (Maybe b) }
 
 emptySubstsProxy :: Monad m => SubstsProxy iden m
-emptySubstsProxy = \proxy b -> return Nothing
+emptySubstsProxy = SubstsProxy $ \proxy b -> return Nothing
 
 appendSubstsProxy :: Monad m => SubstsProxy iden m -> SubstsProxy iden m -> SubstsProxy iden m
-appendSubstsProxy f g proxy i = do
-    mb <- f proxy i
-    maybe (g proxy i) (return . Just) mb
+appendSubstsProxy f g = SubstsProxy (\proxy i -> do
+    mb <- (unSubstsProxy f) proxy i
+    maybe ((unSubstsProxy g) proxy i) (return . Just) mb)
 
-class (IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
+class Monad m => GenVar v m where
+    genVar :: v -> m v
+
+class (GenVar iden m,IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
     
     traverseVars :: (forall b . Vars iden m b => b -> VarsM iden m b) -> a -> VarsM iden m a
     
@@ -56,62 +59,73 @@ class (IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
             EqT -> return $ Just a
             NeqT -> return Nothing
     
-    substVarsM :: Substs iden m -> a -> VarsM iden m a
+    substR :: Typeable a => a -> iden -> m a
+    substR a iden = case eqTypeOf (typeOfProxy $ proxyOf iden) (typeOfProxy $ proxyOf a) of
+            EqT -> return iden
+            NeqT -> return a
+    
+    substVarsM :: Vars iden m iden => Substs iden m -> a -> VarsM iden m a
     substVarsM f x = do
         mbiden <- State.lift $ substL x
         x' <- case mbiden of -- try to substitute first
             Nothing -> return x
-            Just v -> isBound v >>= \b -> if b -- we don't substitute bound variables
-                then return x
-                else do
-                    r <- State.lift $ f v
-                    case r of
-                        Nothing -> return x
-                        Just s -> do
-                            s' <- substVarsM f s -- recursive case on substitution
-                            return s'
+            Just v -> do
+                b <- isBound v
+                if b 
+                    then do
+                        (_,(_,ss),_,_) <- State.get
+                        let v' = maybe v id (Map.lookup v ss)
+                        State.lift $ substR x v'
+                    else do
+                        r <- State.lift $ f v
+                        case r of
+                            Nothing -> return x
+                            Just s -> do
+                                s' <- substVarsM f s -- recursive case on substitution
+                                return s'
         traverseVars (substVarsM f) x' -- go recursively
     
-    subst :: Substs iden m -> a -> m a
-    subst f x = State.evalStateT (substVarsM f x) (False,Set.empty,Set.empty)
+    subst :: Vars iden m iden => Substs iden m -> Bool -> a -> m a
+    subst f substBounds x = State.evalStateT (substVarsM f x) (False,(substBounds,Map.empty),Set.empty,Set.empty)
     
-    substProxy :: SubstsProxy iden m -> a -> m a
-    substProxy f x = subst (f Proxy) x
+    substProxy :: Vars iden m iden => SubstsProxy iden m -> Bool -> a -> m a
+    substProxy (SubstsProxy f) substBounds x = subst (f Proxy) substBounds x
         
     fvs :: a -> m (Set iden)
     fvs a = do
-        (x,y,z) <- State.execStateT (varsM a) (False,Set.empty,Set.empty)
+        (x,s,y,z) <- State.execStateT (varsM a) (False,(False,Map.empty),Set.empty,Set.empty)
         return y
     bvs :: a -> m (Set iden)
     bvs a = do
-        (x,y,z) <- State.execStateT (varsM a) (False,Set.empty,Set.empty)
+        (x,s,y,z) <- State.execStateT (varsM a) (False,(False,Map.empty),Set.empty,Set.empty)
         return z
     
     varsM :: a -> VarsM iden m a
     varsM x = traverseVars varsM x
 
 substsFromMap :: (Vars iden m r) => Map iden r -> Substs iden m
-substsFromMap xs = let f = substsProxyFromMap xs in f Proxy
+substsFromMap xs = let f = unSubstsProxy (substsProxyFromMap xs) in f Proxy
 
 substsProxyFromMap :: (Vars iden m r) => Map iden r -> SubstsProxy iden m
 substsProxyFromMap = substsProxyFromList . Map.toList
 
 substsFromList :: (Vars iden m r) => [(iden,r)] -> Substs iden m
-substsFromList xs = let f = substsProxyFromList xs in f Proxy
+substsFromList xs = let f = unSubstsProxy (substsProxyFromList xs) in f Proxy
 
 substsProxyFromList :: (Vars iden m r) => [(iden,r)] -> SubstsProxy iden m
-substsProxyFromList [] = \proxy iden -> return Nothing
-substsProxyFromList ((x,y):xs) = \proxy iden -> case (eqTypeOf (typeOf y) (typeOfProxy proxy)) of
-    EqT -> if x==iden then return (Just y) else substsProxyFromList xs proxy iden
-    otherwise -> return Nothing
+substsProxyFromList [] = SubstsProxy (\proxy iden -> return Nothing)
+substsProxyFromList ((x,y):xs) = SubstsProxy (\proxy iden -> case (eqTypeOf (typeOf y) (typeOfProxy proxy)) of
+    EqT -> if x==iden then return (Just y) else (unSubstsProxy $ substsProxyFromList xs) proxy iden
+    otherwise -> return Nothing)
 
-isBound :: (IsScVar iden,Monad m) => iden -> VarsM iden m Bool
+isBound :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m Bool
 isBound v = do
-    (_,fvs,bvs) <- State.get
+    (_,ss,fvs,bvs) <- State.get
     return $ v `Set.member` bvs
 
 type VarsM iden m = StateT
     (Bool -- is left-hand side
+    ,(Bool,Map iden iden) -- substitutions
     ,Set iden -- free vars
     ,Set iden)-- bound vars
     m
@@ -119,44 +133,47 @@ type VarsM iden m = StateT
 type IsScVar a = (Data a,Show a,PP a,Eq a,Ord a,Typeable a)
 
 getLHS :: Monad m => VarsM iden m Bool
-getLHS = liftM (\(x,y,z) -> x) State.get
+getLHS = liftM (\(x,ss,y,z) -> x) State.get
 
 inLHS :: Monad m => VarsM iden m a -> VarsM iden m a
 inLHS m = do
-    (lhs,fvs,bvs) <- State.get
-    (x,(_,fvs',bvs')) <- State.lift $ State.runStateT m (True,fvs,bvs)
-    State.put (lhs,fvs',bvs')
+    (lhs,ss,fvs,bvs) <- State.get
+    (x,(_,ss',fvs',bvs')) <- State.lift $ State.runStateT m (True,ss,fvs,bvs)
+    State.put (lhs,ss',fvs',bvs')
     return x
 
 inRHS :: Monad m => VarsM iden m a -> VarsM iden m a
 inRHS m = do
-    (lhs,fvs,bvs) <- State.get
-    (x,(_,fvs',bvs')) <- State.lift $ State.runStateT m (False,fvs,bvs)
-    State.put (lhs,fvs',bvs')
+    (lhs,ss,fvs,bvs) <- State.get
+    (x,(_,ss',fvs',bvs')) <- State.lift $ State.runStateT m (False,ss,fvs,bvs)
+    State.put (lhs,ss',fvs',bvs')
     return x
 
-varsBlock :: (IsScVar iden,Monad m) => VarsM iden m a -> VarsM iden m a
+varsBlock :: (GenVar iden m,IsScVar iden,Monad m) => VarsM iden m a -> VarsM iden m a
 varsBlock m = do
-    (lhs,fvs,bvs) <- State.get
-    (x,(lhs',fvs',bvs')) <- State.lift $ State.runStateT m (lhs,fvs,bvs)
-    State.put (lhs',fvs',bvs) -- forget bound variables
+    (lhs,ss,fvs,bvs) <- State.get
+    (x,(lhs',ss',fvs',bvs')) <- State.lift $ State.runStateT m (lhs,ss,fvs,bvs)
+    State.put (lhs',ss,fvs',bvs) -- forget bound substitutions and bound variables
     return x
 
-addFV :: (IsScVar iden,Monad m) => iden -> VarsM iden m ()
-addFV x = State.modify $ \(lhs,fvs,bvs) -> if Set.member x bvs
-    then (lhs,fvs,bvs) -- don't add an already bound variable to the free variables
-    else (lhs,Set.insert x fvs,bvs)
+addFV :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m ()
+addFV x = State.modify $ \(lhs,ss,fvs,bvs) -> if Set.member x bvs
+    then (lhs,ss,fvs,bvs) -- don't add an already bound variable to the free variables
+    else (lhs,ss,Set.insert x fvs,bvs)
  
-addBV :: (IsScVar iden,Monad m) => iden -> VarsM iden m ()
-addBV x = State.modify $ \(lhs,fvs,bvs) -> (lhs,fvs,Set.insert x bvs)
+addBV :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m ()
+addBV x = do
+    (lhs,(b,ss),fvs,bvs) <- State.get
+    ss' <- if b then liftM (\x' -> Map.insert x x' ss) (State.lift $ genVar x) else return ss
+    State.put (lhs,(b,ss'),fvs,Set.insert x bvs)
 
-instance (IsScVar iden,Monad m) => Vars iden m Integer where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Integer where
     traverseVars f i = return i
 
-instance (IsScVar iden,Monad m) => Vars iden m Int64 where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Int64 where
     traverseVars f i = return i
 
-instance (IsScVar iden,Monad m) => Vars iden m Word64 where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Word64 where
     traverseVars f i = return i
 
 instance (PP a,PP b) => PP (Map a b) where
@@ -207,7 +224,7 @@ instance (Vars iden m a,Vars iden m b) => Vars iden m (Either a b) where
     traverseVars f (Left x) = liftM Left $ f x
     traverseVars f (Right y) = liftM Right $ f y
 
-instance (IsScVar iden,Monad m) => Vars iden m () where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m () where
     traverseVars f () = return ()
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureDeclaration iden loc) where
@@ -765,10 +782,10 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ImportD
         m' <- f m
         return $ Import l' m'
 
-instance (IsScVar iden,Monad m) => Vars iden m Position where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Position where
     traverseVars f p = return p
 
-instance (IsScVar iden,Monad m) => Vars iden m Bool where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Bool where
     traverseVars f b = return b
 
 instance (Vars iden m a,MonadIO m) => Vars iden m (UniqRef a) where
@@ -777,10 +794,10 @@ instance (Vars iden m a,MonadIO m) => Vars iden m (UniqRef a) where
         x' <- f x
         liftIO $ newUniqRef x'
 
-instance (IsScVar iden,Monad m) => Vars iden m Ordering where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Ordering where
     traverseVars f x = return x
 
-instance (IsScVar iden,Monad m) => Vars iden m SecrecError where
+instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m SecrecError where
     traverseVars f x = return x
     
 
