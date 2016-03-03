@@ -46,6 +46,7 @@ tokens :-
 
 
 <0>       "//".*            ;
+<0>       "#".*             ;
 <0>       \/\*              { enterNewComment }
 <comment> \/\*              { embedComment    }
 <comment> \*\/              { unembedComment  }

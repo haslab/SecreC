@@ -34,6 +34,7 @@ TODO:
 . idea: simplify expressions and convert canonical SecreC into index expressions
 . procedure template parameters
 . size-dependent types
+. pre-processor options in SecreC files with hyphens are not recognized. no idea why
 
 template <domain D, type T, dim N>
 D T[[1]](n) reshape (D T[[N]] arr ,uint n) {

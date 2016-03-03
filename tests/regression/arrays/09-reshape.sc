@@ -11,7 +11,4 @@ void main () {
   assert (size(shape(m)) == 2);
   assert (t[0] == 1);
 
-  t = reshape (42, 1);
-  assert (size(t) == 1);
-  assert (t[0] == 42);
 }

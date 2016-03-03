@@ -165,8 +165,12 @@ foldSepM f g (ConsSep x sep xs) = do
     y <- foldSepM f g xs
     f x sep y
 
+foldr0M :: (Monad m) => a -> (a -> a -> m a) -> [a] -> m a
+foldr0M x f [] = return x
+foldr0M x f xs = foldr1M f xs
+
 foldr1M :: (Monad m,Foldable t) => (a -> a -> m a) -> t a -> m a
-foldr1M f xs = liftM (fromMaybe (error "foldr1: empty structure"))
+foldr1M f xs = liftM (fromMaybe (error "foldr1M: empty structure"))
                     (foldrM mf Nothing xs)
       where
         mf x m = liftM Just (case m of
@@ -236,6 +240,16 @@ trailingM :: Monad m => (a -> m Bool) -> [a] -> m ([a], [a])
 trailingM p xs = do
     (l,r) <- spanM p (reverse xs)
     return (reverse r,reverse l)
+
+spanMaybeM :: Monad m => (a -> m (Maybe c)) -> [a] -> m ([c],[a])
+spanMaybeM p [] = return ([],[])
+spanMaybeM p (x:xs) = do
+    ok <- p x
+    case ok of
+        Just c -> do
+            (l,r) <- spanMaybeM p xs
+            return (c:l,r)
+        Nothing -> return ([],x:xs)
 
 spanM :: Monad m => (a -> m Bool) -> [a] -> m ([a],[a])
 spanM p [] = return ([],[])

@@ -70,11 +70,11 @@ solve l = do
     let dict = headNe $ tDict env
     let gr = tCstrs dict
     unless (Graph.isEmpty gr) $ newErrorM $ tcNoDeps $ do
-        liftIO $ putStrLn $ "solving " ++ " " ++ ppr l
+--        liftIO $ putStrLn $ "solving " ++ " " ++ ppr l
         gr' <- buildCstrGraph $ flattenIOCstrGraphSet gr
         updateHeadTDict $ \d -> return ((),d { tCstrs = gr' })
-        ss <- ppConstraints =<< liftM (headNe . tDict) State.get
-        liftIO $ putStrLn $ "solve " ++ show (inTemplate env) ++ " [" ++ show ss ++ "\n]"
+--        ss <- ppConstraints =<< liftM (headNe . tDict) State.get
+--        liftIO $ putStrLn $ "solve " ++ show (inTemplate env) ++ " [" ++ show ss ++ "\n]"
         solveCstrs l
         updateHeadTDict $ \d -> return ((),d { tCstrs = Graph.nfilter (`elem` Graph.nodes gr) (tCstrs d) })
 
@@ -84,15 +84,15 @@ priorityRoots x y = priorityTCstr (kCstr $ unLoc $ snd x) (kCstr $ unLoc $ snd y
 solveCstrs :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m ()
 solveCstrs l = do
     dict <- liftM (headNe . tDict) State.get
-    ss <- ppConstraints dict
-    liftIO $ putStrLn $ "solveCstrs [" ++ show ss ++ "\n]"
+--    ss <- ppConstraints dict
+--    liftIO $ putStrLn $ "solveCstrs [" ++ show ss ++ "\n]"
 --    doc <- liftM ppTSubsts getTSubsts
 --    liftIO $ putStrLn $ show doc
     let gr = tCstrs dict
     unless (Graph.isEmpty gr) $ do
         let roots = sortBy priorityRoots $ rootsGr gr -- sort by constraint priority
         when (List.null roots) $ error $ "solveCstrs: no root constraints to proceed"
-        liftIO $ putStrLn $ "solveCstrsG [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
+--        liftIO $ putStrLn $ "solveCstrsG [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
         go <- trySolveSomeCstrs $ map snd roots
         case go of
             Left _ -> solveCstrs l
@@ -442,21 +442,26 @@ matchOne l t1 (t,deps) = do
 --    conc (Left x:xs) = fmap (x:) (conc xs)
 --    conc (Right x:xs) = fmap (pp x:) (conc xs)
         
-tryUnifies :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m (Maybe SecrecError)
-tryUnifies l t1 t2 = (prove l "tryUnifies" $ unifies l t1 t2 >> return Nothing) `catchError` (return . Just)
+tryCstr :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (Either SecrecError a)
+tryCstr l m = (liftM Right $ prove l "tryCstr" $ m) `catchError` (return . Left)
 
-tryUnifiesBool :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Bool
-tryUnifiesBool l t1 t2 = do
-    mb <- tryUnifies l t1 t2
+tryCstrBool :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m Bool
+tryCstrBool l m = liftM (maybe False (const True)) $ tryCstrMaybe l m
+
+tryCstrMaybe :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (Maybe a)
+tryCstrMaybe l m = do
+    mb <- tryCstr l m
     case mb of
-        Nothing -> return True
-        Just err -> if isHaltError err
+        Right x -> return $ Just x
+        Left err -> if isHaltError err
             then throwError err
-            else return False
+            else do
+--                liftIO $ putStrLn $ "tryCstrMaybe " ++ ppr err
+                return Nothing
 
 -- can the second argument be given the first type?
 isTyOf :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Bool
-isTyOf l tt t = tryUnifiesBool l (tyOf t) tt
+isTyOf l tt t = tryCstrBool l $ unifies l (tyOf t) tt
 
 --tryNotUnifies :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m (Either Doc SecrecError)
 --tryNotUnifies l t1 t2 = (prove l True (unifies l t1 t2) >> return (Right err)) `catchError` handleErr
@@ -876,7 +881,7 @@ coercesLitComplex l e1@(loc -> ComplexT (TyLit lit)) x2@(loc -> ComplexT ct@(CTy
     coercesLitBase l lit t
     tcCstrM l $ CoercesSec (updLoc e1 $ ComplexT $ setCSec ct Public) x2  -- coerce the security type
     -- we need to know the fixed size of arrays of literals
-    tcCstrM l $ EvalVarExprs ((d,False):sz)
+--    tcCstrM l $ EvalVarExprs ((d,False):sz)
 coercesLitComplex l e1@(loc -> ComplexT (TyLit lit)) x2@(loc -> ComplexT (CVar v)) = do
     mb <- tryResolveCVar l v
     case mb of
@@ -894,7 +899,7 @@ coercesArrayLitComplex l e1@(loc -> ComplexT (ArrayLit es)) x2@(loc -> ComplexT 
     mapM_ (\e -> tcCstrM l $ Unifies (loc e) (BaseT t)) es
     let e1' = updLoc e1 $ ComplexT $ setCSec ct Public
     tcCstrM l $ CoercesSec e1' x2 -- coerce the security type
-    tcCstrM l $ MatchTypeDimension (ComplexT ct) [(indexSExpr 1,False)]
+    tcCstrM l $ Unifies (IdxT d) (IdxT $ indexSExpr 1) -- dimension 1
     tcCstrM l $ UnifiesSizes sz [(indexSExpr $ toEnum $ length es,False)]
     unifiesExprTy l (varExpr x2) e1'
 coercesArrayLitComplex l e1@(loc -> ComplexT (ArrayLit es)) x2@(loc -> ComplexT (CVar v)) = do
@@ -1268,7 +1273,7 @@ appendComparison l (Comparison x1 x2 GT) y@(Comparison y1 y2 GT) = return y
 appendComparison l c1 c2 = constraintError (ComparisonException "comparison") l c1 pp c2 pp Nothing
 
 appendComparisons :: (VarsIdTcM loc m,Location loc) => loc -> [Comparison (TcM loc m)] -> TcM loc m (Comparison (TcM loc m))
-appendComparisons l xs = foldr1M (appendComparison l) xs
+appendComparisons l xs = foldr0M (Comparison () () EQ) (appendComparison l) xs
 
 -- | Non-directed unification, without implicit security coercions.
 -- applies substitutions

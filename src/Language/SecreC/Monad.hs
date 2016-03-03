@@ -20,10 +20,12 @@ import qualified Control.Monad.Reader as Reader
 import Data.Generics
 import Data.Map as Map
 import Data.Set as Set
+import Data.List as List
 
 import Text.PrettyPrint
 
 import System.IO
+import System.Exit
 
 -- | SecreC options
 data Options
@@ -40,10 +42,31 @@ data Options
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitClassify      :: Bool
+        , failTypechecker       :: Bool
         , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
         }
     deriving (Show, Data, Typeable)
+
+instance Monoid Options where
+    mempty = defaultOptions
+    mappend x y = Opts
+        { inputs = inputs x ++ inputs y
+        , outputs = outputs x ++ outputs y
+        , paths = List.nub $ paths x ++ paths y
+        , parser = parser y
+        , knowledgeInference = knowledgeInference x || knowledgeInference y
+        , typeCheck = typeCheck x || typeCheck y
+        , debugLexer = debugLexer x || debugLexer y
+        , debugParser = debugParser x || debugParser y
+        , debugTypechecker = debugTypechecker x || debugTypechecker y
+        , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
+        , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
+        , implicitClassify = implicitClassify x && implicitClassify y
+        , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
+        , failTypechecker = failTypechecker x || failTypechecker y
+        , externalSMT = externalSMT x && externalSMT y
+        }
 
 data ParserOpt = Parsec | Derp
   deriving (Data,Typeable,Read,Show)
@@ -63,6 +86,7 @@ defaultOptions = Opts
     , evalTimeOut = 5
     , implicitClassify = True
     , implicitBuiltin = True
+    , failTypechecker = False
     , externalSMT = True
     }
 
@@ -77,6 +101,9 @@ instance Monoid SecrecWarnings where
 data SecrecM m a = SecrecM { unSecrecM :: ReaderT Options m (Either SecrecError (a,SecrecWarnings)) }
   deriving (Typeable)
 
+instance MonadTrans SecrecM where
+    lift m = SecrecM $ lift $ liftM (Right . (,mempty)) m
+
 mapSecrecM :: (m (Either SecrecError (a,SecrecWarnings)) -> n (Either SecrecError (b,SecrecWarnings))) -> SecrecM m a -> SecrecM n b
 mapSecrecM f (SecrecM m) = SecrecM $ Reader.mapReaderT f m
 
@@ -87,7 +114,7 @@ runSecrecM :: MonadIO m => Options -> SecrecM m a -> m a
 runSecrecM opts m = flip runReaderT opts $ do
     e <- unSecrecM m
     case e of
-        Left err -> liftIO $ throwError $ userError $ ppr err
+        Left err -> liftIO $ die $ ppr err
         Right (x,ScWarns warns) -> do
             forM_ warns $ \ws -> forM_ (Map.elems ws) $ \w -> forM_ w $ \x -> liftIO $ hPutStrLn stderr (ppr x)
             return x

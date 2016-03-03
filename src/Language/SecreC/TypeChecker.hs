@@ -21,6 +21,7 @@ import Language.SecreC.Utils
 import Language.SecreC.Vars
 import Language.SecreC.Pretty
 import Language.SecreC.TypeChecker.SMT
+import Language.SecreC.Parser.PreProcessor
 
 import Prelude hiding (mapM)
 
@@ -43,8 +44,11 @@ import Text.PrettyPrint
 
 import System.IO
 
+tcModuleWithPPArgs :: (VarsIdTcM loc m,Location loc) => (PPArgs,Module Identifier loc) -> TcM loc m (Module VarIdentifier (Typed loc))
+tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) (tcModule x)
+
 tcModule :: (VarsIdTcM loc m,Location loc) => Module Identifier loc -> TcM loc m (Module VarIdentifier (Typed loc))
-tcModule m@(Module l name prog) = do
+tcModule m@(Module l name prog) = failTcM l $ do
     opts <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts) $
         liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr (modulePosId $ fmap locpos m) ++ "...")

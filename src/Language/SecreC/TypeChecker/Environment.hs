@@ -74,8 +74,6 @@ addVar :: (MonadIO m,Location loc) => Scope -> VarIdentifier -> Bool -> EntryEnv
 addVar GlobalScope n b e = modify $ \env -> env { globalVars = Map.insert n (b,e) (globalVars env) }
 addVar LocalScope n b e = modify $ \env -> env { localVars = Map.insert n (b,e) (localVars env) }
 
-
-
 getFrees :: (Monad m,Location loc) => TcM loc m (Set VarIdentifier)
 getFrees = liftM localFrees State.get
 
@@ -318,7 +316,7 @@ newOperator op = do
     dict <- liftM (headNe . tDict) State.get
     let td = DecT $ TpltType i [] (fmap locpos dict) mempty [] frees d
     let e = EntryEnv l td
-    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
+--    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) td)
   
@@ -348,7 +346,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     frees <- getFrees
     let dt = DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees d
     let e = EntryEnv l dt
-    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
+--    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
     return $ updLoc pn (Typed (unTyped $ loc pn) dt)
 
@@ -362,7 +360,7 @@ newProcedure pn@(ProcedureName (Typed l t) n) = do
     dict <- liftM (headNe . tDict) State.get
     let dt = DecT $ TpltType i [] (fmap locpos dict) mempty [] frees d
     let e = EntryEnv l dt
-    liftIO $ putStrLn $ "addProc " ++ ppr (entryType e)
+--    liftIO $ putStrLn $ "addProc " ++ ppr (entryType e)
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
     return $ updLoc pn (Typed (unTyped $ loc pn) dt)
   

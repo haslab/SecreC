@@ -23,12 +23,14 @@ data ParserException
     = LexicalException String
     | ParsecException String 
     | DerpException String
+    | PreProcessorException String
     deriving (Show,Typeable,Data,Eq,Ord)
 
 instance PP ParserException where
     pp (LexicalException s) = text "Lexical error:" <+> text s
     pp (ParsecException err) = text "Parser error:" <+> text err
     pp (DerpException msg) = text "Parser error:" <+> text msg
+    pp (PreProcessorException msg) = text "Preprocessor error:" <+> text msg
 
 parserError :: ParserException -> SecrecError
 parserError = ParserError

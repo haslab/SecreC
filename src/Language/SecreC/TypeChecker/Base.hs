@@ -42,15 +42,18 @@ import qualified Control.Monad.Trans.RWS as RWS
 import Control.Monad.Except
 import Control.Monad.Trans.Control
 
-import System.IO.Unsafe
 import Unsafe.Coerce
 
 import Text.PrettyPrint as PP hiding (float,int)
 import qualified Text.PrettyPrint as Pretty
 
 import qualified Data.HashTable.Weak.IO as WeakHash
+
+import System.IO.Unsafe
 import qualified System.Mem.Weak.Map as WeakMap
 import System.Mem.Weak.Exts as Weak
+import System.Exit
+import System.IO
 
 -- warn for unused local variables
 
@@ -256,6 +259,9 @@ type SecrecErrArr = SecrecError -> SecrecError
 newtype TcM loc m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv loc) (SecrecM m) a }
     deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv loc),MonadReader (Int,SecrecErrArr),MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
 
+localOptsTcM :: Monad m => (Options -> Options) -> TcM loc m a -> TcM loc m a
+localOptsTcM f (TcM m) = TcM $ RWS.mapRWST (local f) m
+
 mapTcM :: (m (Either SecrecError ((a,TcEnv loc,()),SecrecWarnings)) -> n (Either SecrecError ((b,TcEnv loc,()),SecrecWarnings)))
     -> TcM loc m a -> TcM loc n b
 mapTcM f (TcM m) = TcM $ RWS.mapRWST (mapSecrecM f) m
@@ -342,6 +348,16 @@ execTcM m arr env = do
 
 runTcM :: (MonadIO m,Location loc) => TcM loc m a -> SecrecM m a
 runTcM m = liftM fst $ RWS.evalRWST (unTcM m) (0,id) emptyTcEnv
+
+-- flips errors whenever typechecking is expected to fail
+failTcM :: (MonadIO m,Location loc) => loc -> TcM loc m a -> TcM loc m a
+failTcM l m = do
+    opts <- TcM $ lift Reader.ask
+    if failTypechecker opts
+        then catchError
+            (m >> liftIO (die $ ppr $ GenericError (locpos l) $ text "Typechecking should have failed"))
+            (\e -> liftIO (hPutStrLn stderr (ppr e) >> exitSuccess))
+        else m
 
 type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op VarIdentifier Type)
 

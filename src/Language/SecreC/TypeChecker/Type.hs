@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, ViewPatterns #-}
+{-# LANGUAGE TupleSections, FlexibleContexts, ViewPatterns #-}
 
 module Language.SecreC.TypeChecker.Type where
 
@@ -263,18 +263,21 @@ projectMatrixType l (VAType t sz) [rng] = projectSizeTyArray l t sz rng
 projectMatrixType l t rngs = genTcError (locpos l) $ text "Cannot project type " <+> quotes (pp t <> brackets (sepBy comma $ map pp rngs))
 
 projectSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> [ArrayProj] -> TcM loc m (SExpr VarIdentifier Type,[(SExpr VarIdentifier Type,IsVariadic)])
-projectSizes p ct i dim xs [] = return (dim,xs)
-projectSizes p ct i dim [] ys = tcError (locpos p) $ MismatchingArrayDimension (pp ct) (pp $ pred i + toEnum (length ys)) Nothing
-projectSizes p ct i dim ((x,False):xs) (ArrayIdx y:ys) = do -- project the dimension
-    projectSize p (ComplexT ct) i x y y
-    dim' <- subtractIndexExprs p dim (indexSExpr 1)
-    projectSizes p ct (succ i) dim' xs ys
-projectSizes p ct i dim ((x,False):xs) (ArraySlice y1 y2:ys) = do -- narrow the dimension
-    z <- projectSize p (ComplexT ct) i x y1 y2
-    (dim',zs) <- projectSizes p ct (succ i) dim xs ys
-    return (dim',(z,False):zs)
-projectSizes p ct i dim ((x,True):xs) (ArrayIdx y:ys) = undefined -- TODO
-projectSizes p ct i dim ((x,True):xs) (ArraySlice y1 y2:ys) = undefined -- TODO
+projectSizes p ct i dim xs ys = do
+    xs' <- concatMapM (expandVariadicExpr p) xs
+    (r,rs) <- projectSizes' p ct i dim xs' ys
+    return (r,map (,False) rs)
+  where
+    projectSizes' p ct i dim xs [] = return (dim,xs)
+    projectSizes' p ct i dim [] ys = tcError (locpos p) $ MismatchingArrayDimension (pp ct) (pp $ pred i + toEnum (length ys)) Nothing
+    projectSizes' p ct i dim (x:xs) (ArrayIdx y:ys) = do -- project the dimension
+        projectSize p (ComplexT ct) i x y y
+        dim' <- subtractIndexExprs p dim (indexSExpr 1)
+        projectSizes' p ct (succ i) dim' xs ys
+    projectSizes' p ct i dim (x:xs) (ArraySlice y1 y2:ys) = do -- narrow the dimension
+        z <- projectSize p (ComplexT ct) i x y1 y2
+        (dim',zs) <- projectSizes' p ct (succ i) dim xs ys
+        return (dim',z:zs)
 
 projectSize :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Word64 -> SExpr VarIdentifier Type -> ArrayIndex -> ArrayIndex -> TcM loc m (SExpr VarIdentifier Type)
 projectSize p t i x y1 y2 = do
@@ -322,7 +325,7 @@ tcTypeSizes l ty szs = do
 
 variadicExprsLength :: (VarsIdTcM loc m,Location loc) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m (SExpr VarIdentifier Type)
 variadicExprsLength l [] = return $ indexSExpr 0
-variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr1M (sumIndexExprs l)
+variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr0M (indexSExpr 0) (sumIndexExprs l)
     where
     variadicExprLength :: (VarsIdTcM loc m,Location loc) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m (SExpr VarIdentifier Type)
     variadicExprLength l (e,False) = return $ indexSExpr 1
@@ -344,7 +347,8 @@ evalVarExprs l = mapM_ (evalVarExpr l)
 
 matchTypeDimension :: (VarsIdTcM loc m,Location loc) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
 matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp t) (pp es) . Just) $ do
-    td <- typeDim l t
+    t' <- if isVATy t then typeBase l t else return t
+    td <- typeDim l t'
     d <- variadicExprsLength l es
     tcCstrM l $ Unifies (IdxT td) (IdxT d)
 
@@ -381,7 +385,7 @@ typeSize l (BaseT _) = return $ indexSExpr 1
 typeSize l (ComplexT (CType _ _ _ [])) = return $ indexSExpr 1
 typeSize l (ComplexT (CType _ _ _ szs)) | length szs > 0 = do
     is <- concatMapM (expandVariadicExpr l) szs
-    foldr1M (multiplyIndexExprs l) is
+    foldr0M (indexSExpr 1) (multiplyIndexExprs l) is
 typeSize l (ComplexT (CVar v)) = do
     t <- resolveCVar l v
     typeSize l (ComplexT t)

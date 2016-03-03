@@ -33,16 +33,17 @@ import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.Error
 import Language.SecreC.Parser
+import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Utils
 
 type IdNodes = Map Identifier (FilePath -- ^ module's file
                               ,Node -- ^ module's node id
                               ,Bool) -- ^ opened (@True@) or closed (@False@) module
 
-type ModuleGraph = Gr (Module Identifier Position) Position
+type ModuleGraph = Gr (PPArgs,Module Identifier Position) Position
 
 -- | Parses and resolves imports, returning all the modules to be loaded, in evaluation order 
-parseModuleFiles :: MonadIO m => [FilePath] -> SecrecM m [Module Identifier Position]
+parseModuleFiles :: MonadIO m => [FilePath] -> SecrecM m [(PPArgs,Module Identifier Position)]
 parseModuleFiles files = do
     g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles files empty
     let modules = topsort' g
@@ -60,16 +61,16 @@ openModuleFiles fs g = foldlM open g fs
     where
     open g f = do
         f' <- lift $ resolveModule f
-        ast <- lift $ parseFile f'
+        (ppargs,ast) <- lift $ parseFile f'
         opts <- ask
         let ast' = if (implicitBuiltin opts && moduleId ast /= Just "builtin")
             then addModuleImport (Import noloc $ ModuleName noloc "builtin") ast
             else ast
-        openModule Nothing g f' (modulePosId ast') (loc ast') (return ast')
+        openModule Nothing g f' (modulePosId ast') (loc ast') (return (ppargs,ast'))
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter
-openModule :: MonadIO m => Maybe (Position,Node) -> ModuleGraph -> FilePath -> Identifier -> Position -> SecrecM m (Module Identifier Position) -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
+openModule :: MonadIO m => Maybe (Position,Node) -> ModuleGraph -> FilePath -> Identifier -> Position -> SecrecM m (PPArgs,Module Identifier Position) -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
 openModule parent g f n pos load = do
     (ns,c) <- State.get
     g' <- case Map.lookup n ns of
@@ -85,12 +86,12 @@ openModule parent g f n pos load = do
             modError pos $ CircularModuleDependency cycle
         Nothing -> do
             -- parse the module
-            ast <- lift load
+            (ppargs,ast) <- lift load
             -- add new node and edge from parent
             State.put (Map.insert n (f,c,True) ns,succ c)
             let g' = case parent of
-                        Nothing -> insNode (c,ast) g
-                        Just (p,n) -> insEdge (c,n,p) $ insNode (c,ast) g
+                        Nothing -> insNode (c,(ppargs,ast)) g
+                        Just (p,n) -> insEdge (c,n,p) $ insNode (c,(ppargs,ast)) g
             -- open imports
             foldlM (openImport c) g' (moduleImports ast)
     closeModule n
@@ -122,7 +123,7 @@ findModuleCycle i g = do
     let ns = fromJust $ Foldable.find (i `elem`) (scc g)
     let g' = nfilter (`elem` ns) g
     let es = labEdges g'
-    let label = modulePosId . fromJust . lab g'
+    let label = modulePosId . snd . fromJust . lab g'
     let xs = map (\(from,to,lab) -> (label from,label to,lab)) es
     return xs
 

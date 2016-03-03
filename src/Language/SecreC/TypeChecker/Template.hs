@@ -190,7 +190,7 @@ matchVariadicPArg doCoerce l (v,False) ((e,x):exs) = do
 matchVariadicPArg doCoerce l (v,True) exs = do
     let t = loc v
     case t of
-        VArrayT (VAVal ts b) -> do
+        VArrayT (VAVal ts b) -> do -- constant array
             let (exs1,exs2) = splitAt (length ts) exs
             vs <- expandVariadicExpr l (v,True)
             matchVariadicPArgs doCoerce l (map (,False) vs) exs1
@@ -198,25 +198,23 @@ matchVariadicPArg doCoerce l (v,True) exs = do
         otherwise -> do
             sz <- typeSize l t
             b <- typeBase l t
-            (exs1,exs2) <- spanM (tryUnifiesBool l b . loc . fst) exs
-            vs <- replicateM (length exs1) $ newTypedVar "varr" b
+            (unzip -> (vs,exs1),exs2) <- spanMaybeM (\ex -> newTypedVar "varr" b >>= \v -> tryCstrMaybe l (coercePArg doCoerce l (varExpr v) ex >> return (v,ex))) exs
             -- match the array content
             unifiesExprTy l v (ArrayConstructorPExpr t $ map varExpr vs)
-            mapM_ (uncurry (coercePArg doCoerce l)) $ zip (map varExpr vs) exs1
             -- match the array size
             unifiesExprTy l sz (indexSExpr $ toEnum $ length exs1)
             return exs2
 
 coercePArg :: (VarsIdTcM loc m,Location loc) => Bool -> loc -> SExpr VarIdentifier Type -> (Expression VarIdentifier Type,VarName VarIdentifier Type) -> TcM loc m ()
 coercePArg doCoerce l v2 (e,x2) = do
+--    liftIO $ putStrLn $ show $ text "coercePArg" <+> ppExprTy v2 <+> ppExprTy e <+> ppExprTy x2
     let tt = loc v2
     let t = loc e
     let tx2 = loc x2
     tcCstrM l $ Unifies tx2 tt
     if doCoerce
         then tcCstrM l $ Coerces e x2
-        else do
-            unifiesExprTy l (varExpr x2) e
+        else unifiesExprTy l (varExpr x2) e
     unifiesExprTy l v2 (varExpr x2)
     
 matchVariadicPArgs :: (VarsIdTcM loc m,Location loc) => Bool -> loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> [(Expression VarIdentifier Type,VarName VarIdentifier Type)] -> TcM loc m ()
@@ -263,7 +261,7 @@ instantiateTemplateEntry doCoerce n targs pargs ret rets e = do
     e' <- localTemplate e
 --    doc <- liftM ppTSubsts getTSubsts
 --    liftIO $ putStrLn $ "inst " ++ show doc
-    liftIO $ putStrLn $ "instantiating " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr (entryType e')
+--    liftIO $ putStrLn $ "instantiating " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr (entryType e')
     (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs n e'
     let (hdict,bdict) = templateTDict e'
     let addDicts = do
