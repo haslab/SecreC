@@ -241,13 +241,15 @@ tcTemplate m = do
     return x
 
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
-tcGlobal :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
+tcGlobal :: (Vars VarIdentifier (TcM loc m) a,VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m a
 tcGlobal l m = do
     newDict l "tcGlobal"
     x <- m
     solve l
+    dict <- liftM (headNe . tDict) State.get
+    x' <- substFromTDict l dict False Map.empty x
     State.modify $ \e -> e { localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = updDict (tDict e) }
     liftIO resetGlobalEnv
-    return x
+    return x'
   where
       updDict (ConsNe x xs) = xs
