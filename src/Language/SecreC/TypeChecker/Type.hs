@@ -306,7 +306,7 @@ projectStructField l t@(BVar _) a = tcError (locpos l) $ Halt $ FieldNotFound (p
 projectStructField l (TyDec d) a = projectStructFieldDec l d a
     
 projectStructFieldDec :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc m Type
-projectStructFieldDec l t@(StructType _ _ _ atts) (AttributeName _ a) = do -- project the field
+projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field
     case List.find (\(Cond (Attribute _ t f) c) -> attributeNameId f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
         Just (Cond (Attribute _ t f) c) -> do

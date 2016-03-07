@@ -35,6 +35,7 @@ data Options
         , paths                 :: [FilePath]
         , parser                :: ParserOpt
         , knowledgeInference    :: Bool
+        , inlineTemplates        :: Bool
         , typeCheck             :: Bool
         , debugLexer            :: Bool
         , debugParser           :: Bool
@@ -56,6 +57,7 @@ instance Monoid Options where
         , paths = List.nub $ paths x ++ paths y
         , parser = parser y
         , knowledgeInference = knowledgeInference x || knowledgeInference y
+        , inlineTemplates = inlineTemplates x || inlineTemplates y
         , typeCheck = typeCheck x || typeCheck y
         , debugLexer = debugLexer x || debugLexer y
         , debugParser = debugParser x || debugParser y
@@ -78,6 +80,7 @@ defaultOptions = Opts
     , paths = []
     , parser = Parsec
     , knowledgeInference = False
+    , inlineTemplates = False
     , typeCheck = True
     , debugLexer = False
     , debugParser = False

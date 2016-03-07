@@ -1,13 +1,16 @@
-{-# LANGUAGE TemplateHaskell, TypeFamilies, DeriveFoldable, DeriveTraversable, DeriveFunctor, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE DeriveGeneric, TemplateHaskell, TypeFamilies, DeriveFoldable, DeriveTraversable, DeriveFunctor, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, FlexibleInstances #-}
 
 module Language.SecreC.Syntax where
 
 import Data.Traversable
 import Data.Foldable as Foldable
-import Data.Generics hiding (empty)
+import Data.Generics hiding (empty,Generic)
 import Data.Bifunctor.TH
+import Data.Hashable
 
 import Text.PrettyPrint as PP
+
+import GHC.Generics (Generic)
 
 import Language.SecreC.Pretty
 import Language.SecreC.Location
@@ -17,7 +20,9 @@ import Language.SecreC.Utils
 -- Program and variable declarations:                                          
 
 data Module iden loc = Module loc (Maybe (ModuleName iden loc)) (Program iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Module iden loc)
 
 moduleFile :: Location loc => Module iden loc -> String
 moduleFile (Module l _ _) = posFileName $ locpos l
@@ -45,7 +50,9 @@ instance PP iden => PP (Module iden loc) where
     pp (Module _ Nothing prog) = pp prog
 
 data AttributeName iden loc = AttributeName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (AttributeName iden loc)
   
 attributeNameId :: AttributeName iden loc -> iden
 attributeNameId (AttributeName _ i) = i
@@ -59,7 +66,9 @@ instance PP iden => PP (AttributeName iden loc) where
     pp (AttributeName _ iden) = pp iden
 
 data ModuleName iden loc = ModuleName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (ModuleName iden loc)
   
 instance Location loc => Located (ModuleName iden loc) where
     type LocOf (ModuleName iden loc) = loc
@@ -70,7 +79,9 @@ instance PP iden => PP (ModuleName iden loc) where
     pp (ModuleName _ iden) = pp iden
 
 data TemplateArgName iden loc = TemplateArgName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (TemplateArgName iden loc)
   
 instance Location loc => Located (TemplateArgName iden loc) where
     type LocOf (TemplateArgName iden loc) = loc
@@ -81,7 +92,9 @@ instance PP iden => PP (TemplateArgName iden loc) where
     pp (TemplateArgName _ iden) = pp iden
 
 data Program iden loc = Program loc [ImportDeclaration iden loc] [GlobalDeclaration iden loc]
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Program iden loc)
 
 addProgramImport :: ImportDeclaration iden loc -> Program iden loc -> Program iden loc
 addProgramImport i (Program l is gs) = Program l (i:is) gs
@@ -104,7 +117,9 @@ instance PP iden => PP [GlobalDeclaration iden loc] where
     pp gs = vcat $ map pp gs
 
 data ImportDeclaration iden loc = Import loc (ModuleName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (ImportDeclaration iden loc)
   
 instance Location loc => Located (ImportDeclaration iden loc) where
     type LocOf (ImportDeclaration iden loc) = loc
@@ -122,7 +137,9 @@ data GlobalDeclaration iden loc
     | GlobalProcedure loc (ProcedureDeclaration iden loc)
     | GlobalStructure loc (StructureDeclaration iden loc)
     | GlobalTemplate loc (TemplateDeclaration iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (GlobalDeclaration iden loc)
 
 instance Location loc => Located (GlobalDeclaration iden loc) where
     type LocOf (GlobalDeclaration iden loc) = loc
@@ -151,7 +168,9 @@ instance PP iden => PP (GlobalDeclaration iden loc) where
     pp (GlobalTemplate _ td) = pp td
 
 data KindDeclaration iden loc = Kind loc (KindName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (KindDeclaration iden loc)
  
 instance Location loc => Located (KindDeclaration iden loc) where
     type LocOf (KindDeclaration iden loc) = loc
@@ -162,7 +181,9 @@ instance PP iden => PP (KindDeclaration iden loc) where
     pp (Kind _ kname) = text "kind" <+> pp kname
   
 data KindName iden loc = KindName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (KindName iden loc)
 
 kindId :: KindName iden loc -> iden
 kindId (KindName _ n) = n
@@ -176,7 +197,9 @@ instance PP iden => PP (KindName iden loc) where
     pp (KindName _ iden) = pp iden
 
 data DomainDeclaration iden loc = Domain loc (DomainName iden loc) (KindName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (DomainDeclaration iden loc)
 
 instance Location loc => Located (DomainDeclaration iden loc) where
     type LocOf (DomainDeclaration iden loc) = loc
@@ -187,7 +210,9 @@ instance PP iden => PP (DomainDeclaration iden loc) where
     pp (Domain _ dom kind) = text "domain" <+> pp dom <+> pp kind
  
 data DomainName iden loc = DomainName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (DomainName iden loc)
 
 instance Location loc => Located (DomainName iden loc) where
     type LocOf (DomainName iden loc) = loc
@@ -198,7 +223,9 @@ instance PP iden => PP (DomainName iden loc) where
     pp (DomainName _ iden) = pp iden
 
 data ProcedureName iden loc = ProcedureName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (ProcedureName iden loc)
   
 instance Location loc => Located (ProcedureName iden loc) where
     type LocOf (ProcedureName iden loc) = loc
@@ -209,7 +236,9 @@ instance PP iden => PP (ProcedureName iden loc) where
     pp (ProcedureName _ iden) = pp iden
 
 data VarName iden loc = VarName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (VarName iden loc)
 
 varNameId :: VarName iden loc -> iden
 varNameId (VarName _ i) = i
@@ -223,7 +252,9 @@ instance PP iden => PP (VarName iden loc) where
     pp (VarName _ iden) = pp iden
 
 data TypeName iden loc = TypeName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (TypeName iden loc)
 
 typeId :: TypeName iden loc -> iden
 typeId (TypeName _ i) = i
@@ -242,7 +273,9 @@ instance PP String where
     pp s = text s
 
 data ConstInitialization iden loc = ConstInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (ConstInitialization iden loc)
   
 instance Location loc => Located (ConstInitialization iden loc) where
     type LocOf (ConstInitialization iden loc) = loc
@@ -258,7 +291,9 @@ instance PP iden => PP (ConstInitialization iden loc) where
         ppExp (Just e) = text "=" <+> pp e
 
 data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (VariableInitialization iden loc)
   
 instance Location loc => Located (VariableInitialization iden loc) where
     type LocOf (VariableInitialization iden loc) = loc
@@ -274,7 +309,9 @@ instance PP iden => PP (VariableInitialization iden loc) where
         ppExp (Just e) = text "=" <+> pp e
 
 newtype Sizes iden loc = Sizes (NeList (Expression iden loc,IsVariadic))
-  deriving (Read,Show,Data,Typeable,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Sizes iden loc)
   
 unSizes (Sizes xs) = xs
 sizesList = Foldable.toList . unSizes
@@ -291,7 +328,9 @@ instance PP iden => PP (Sizes iden loc) where
     pp (Sizes es) = parens (sepBy comma $ fmap (ppVariadicArg pp) es)
 
 data ConstDeclaration iden loc = ConstDeclaration loc (TypeSpecifier iden loc) (NeList (ConstInitialization iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (ConstDeclaration iden loc)
 
 instance Location loc => Located (ConstDeclaration iden loc) where
     type LocOf (ConstDeclaration iden loc) = loc
@@ -302,7 +341,9 @@ instance PP iden => PP (ConstDeclaration iden loc) where
     pp (ConstDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
 
 data VariableDeclaration iden loc = VariableDeclaration loc (TypeSpecifier iden loc) (NeList (VariableInitialization iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (VariableDeclaration iden loc)
 
 instance Location loc => Located (VariableDeclaration iden loc) where
     type LocOf (VariableDeclaration iden loc) = loc
@@ -317,7 +358,9 @@ type IsVariadic = Bool
 data ProcedureParameter iden loc
     = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc))
     | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (ProcedureParameter iden loc)
 
 instance Location loc => Located (ProcedureParameter iden loc) where
     type LocOf (ProcedureParameter iden loc) = loc
@@ -333,7 +376,9 @@ instance PP iden => PP (ProcedureParameter iden loc) where
 -- Types:                                                                      
 
 data TypeSpecifier iden loc = TypeSpecifier loc (Maybe (SecTypeSpecifier iden loc)) (DatatypeSpecifier iden loc) (Maybe (DimtypeSpecifier iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (TypeSpecifier iden loc)
   
 typeSpecifierLoc :: TypeSpecifier iden loc -> loc
 typeSpecifierLoc (TypeSpecifier l _ _ _) = l
@@ -349,7 +394,9 @@ instance PP iden => PP (TypeSpecifier iden loc) where
 data SecTypeSpecifier iden loc
     = PublicSpecifier loc
     | PrivateSpecifier loc (DomainName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (SecTypeSpecifier iden loc)
 
 instance Location loc => Located (SecTypeSpecifier iden loc) where
     type LocOf (SecTypeSpecifier iden loc) = loc
@@ -366,7 +413,9 @@ data DatatypeSpecifier iden loc
     = PrimitiveSpecifier loc (PrimitiveDatatype loc)
     | TemplateSpecifier loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
     | VariableSpecifier loc (TypeName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (DatatypeSpecifier iden loc)
 
 instance Location loc => Located (DatatypeSpecifier iden loc) where
     type LocOf (DatatypeSpecifier iden loc) = loc
@@ -399,7 +448,9 @@ data PrimitiveDatatype loc
     | DatatypeXorUint64  loc
     | DatatypeFloat32    loc
     | DatatypeFloat64    loc
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance Hashable loc => Hashable (PrimitiveDatatype loc)
 
 isPrimInt :: PrimitiveDatatype loc -> Bool
 isPrimInt (DatatypeInt8       loc) = True
@@ -486,7 +537,9 @@ data TemplateTypeArgument iden loc
     | PrimitiveTemplateTypeArgument loc (PrimitiveDatatype loc)
     | ExprTemplateTypeArgument loc (Expression iden loc)
     | PublicTemplateTypeArgument loc
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (TemplateTypeArgument iden loc)
 
 instance Location loc => Located (TemplateTypeArgument iden loc) where
     type LocOf (TemplateTypeArgument iden loc) = loc
@@ -510,7 +563,9 @@ instance PP iden => PP (TemplateTypeArgument iden loc) where
   
 data DimtypeSpecifier iden loc
     = DimSpecifier loc (Expression iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (DimtypeSpecifier iden loc)
   
 instance Location loc => Located (DimtypeSpecifier iden loc) where
     type LocOf (DimtypeSpecifier iden loc) = loc
@@ -526,7 +581,9 @@ data TemplateDeclaration iden loc
     = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
     | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
     | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (TemplateDeclaration iden loc)
   
 instance Location loc => Located (TemplateDeclaration iden loc) where
     type LocOf (TemplateDeclaration iden loc) = loc
@@ -546,7 +603,9 @@ data TemplateQuantifier iden loc
     = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))
     | DimensionQuantifier loc IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
     | DataQuantifier loc IsVariadic (TypeName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (TemplateQuantifier iden loc)
 
 instance Location loc => Located (TemplateQuantifier iden loc) where
     type LocOf (TemplateQuantifier iden loc) = loc
@@ -568,7 +627,9 @@ instance PP iden => PP (TemplateQuantifier iden loc) where
  -- Structures:                                                                
 
 data StructureDeclaration iden loc = StructureDeclaration loc (TypeName iden loc) [Attribute iden loc]
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (StructureDeclaration iden loc)
 
 structureDeclarationId :: StructureDeclaration iden loc -> iden
 structureDeclarationId (StructureDeclaration _ tn _) = typeId tn
@@ -586,7 +647,9 @@ ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> brac
 ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap (ppVariadicArg pp) specials)) <+> braces (vcat $ map pp as)
   
 data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Attribute iden loc)
  
 instance Location loc => Located (Attribute iden loc) where
     type LocOf (Attribute iden loc) = loc
@@ -604,7 +667,9 @@ ppSizedTypeSpecifier (x,Nothing) = pp x
 ppSizedTypeSpecifier (x,Just s) = pp x <> parens (pp s)
 
 data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (SizedTypeSpecifier iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (ReturnTypeSpecifier iden loc)
 
 instance Location loc => Located (ReturnTypeSpecifier iden loc) where
     type LocOf (ReturnTypeSpecifier iden loc) = loc
@@ -628,7 +693,9 @@ data ProcedureDeclaration iden loc
         (ProcedureName iden loc)
         [ProcedureParameter iden loc]
         [Statement iden loc]
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (ProcedureDeclaration iden loc)
 
 instance Location loc => Located (ProcedureDeclaration iden loc) where
     type LocOf (ProcedureDeclaration iden loc) = loc
@@ -663,7 +730,9 @@ data Op iden loc
     | OpNot      loc
     | OpCast     loc (CastType iden loc)
     | OpInv      loc
-  deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Functor,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Op iden loc)
 
 isBoolOp :: Op iden loc -> Bool
 isBoolOp (OpLor _) = True
@@ -758,7 +827,9 @@ instance Location loc => Located (Op iden loc) where
 data ForInitializer iden loc
     = InitializerExpression (Maybe (Expression iden loc))
     | InitializerVariable (VariableDeclaration iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (ForInitializer iden loc)
  
 instance PP iden => PP (ForInitializer iden loc) where
     pp (InitializerExpression e) = ppMb e
@@ -779,7 +850,9 @@ data Statement iden loc
     | ContinueStatement loc
     | BreakStatement loc
     | ExpressionStatement loc (Expression iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Statement iden loc)
 
 instance Location loc => Located (Statement iden loc) where
     type (LocOf (Statement iden loc)) = loc
@@ -843,7 +916,9 @@ data SyscallParameter iden loc
     | SyscallReturn loc (VarName iden loc)
     | SyscallPushRef loc (VarName iden loc)
     | SyscallPushCRef loc (Expression iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (SyscallParameter iden loc)
     
 instance Location loc => Located (SyscallParameter iden loc) where
     type LocOf (SyscallParameter iden loc) = loc
@@ -872,7 +947,9 @@ instance PP iden => PP (Subscript iden loc) where
 data Index iden loc
     = IndexSlice loc (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
     | IndexInt loc (Expression iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Hashable iden,Hashable loc) => Hashable (Index iden loc)
 
 instance Location loc => Located (Index iden loc) where
     type LocOf (Index iden loc) = loc
@@ -905,8 +982,10 @@ data Expression iden loc
     | RVariablePExpr loc (VarName iden loc)
     | LitPExpr loc (Literal loc)
     | ArrayConstructorPExpr loc [Expression iden loc]
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
+instance (Hashable iden,Hashable loc) => Hashable (Expression iden loc)
+
 instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
     loc (BinaryAssign l _ _ _) = l
@@ -971,7 +1050,9 @@ instance PP iden => PP (Expression iden loc) where
 data CastType iden loc
     = CastPrim (PrimitiveDatatype loc)
     | CastTy (TypeName iden loc)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable iden,Hashable loc) => Hashable (CastType iden loc)
 
 instance Location loc => Located (CastType iden loc) where
     type LocOf (CastType iden loc) = loc
@@ -994,7 +1075,9 @@ data BinaryAssignOp loc
     | BinaryAssignAnd   loc
     | BinaryAssignOr    loc
     | BinaryAssignXor   loc
-  deriving (Read,Show,Data,Typeable,Eq,Ord,Functor)
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Functor,Generic)
+  
+instance (Hashable loc) => Hashable (BinaryAssignOp loc)
   
 instance Location loc => Located (BinaryAssignOp loc) where
     type LocOf (BinaryAssignOp loc) = loc
@@ -1033,7 +1116,9 @@ data Literal loc
     | StringLit loc String
     | BoolLit loc Bool
     | FloatLit loc Double
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Hashable loc) => Hashable (Literal loc)
   
 instance Location loc => Located (Literal loc) where
     type LocOf (Literal loc) = loc

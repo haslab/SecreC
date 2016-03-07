@@ -29,6 +29,7 @@ import Control.Monad.RWS as RWS hiding ((<>))
 import Data.Word
 import Data.Bifunctor
 import Data.Either
+import Data.Hashable
 import Data.Monoid hiding ((<>))
 import Data.Unique
 import Data.Maybe
@@ -363,7 +364,7 @@ resolveCheckCstr l k = addErrorM l (TypecheckerError (locpos l) . StaticAssertio
     resolveCheckCstr' (CheckEqual e1 e2) = checkEqual l e1 e2
     resolveCheckCstr' (CheckArrayAccess t d low up sz) = checkArrayAccess l t d low up sz
 
-ioCstrResult :: (IsScVar a,MonadIO m,Location loc) => loc -> IOCstr -> Proxy a -> TcM loc m (Maybe a)
+ioCstrResult :: (Hashable a,IsScVar a,MonadIO m,Location loc) => loc -> IOCstr -> Proxy a -> TcM loc m (Maybe a)
 ioCstrResult l iok proxy = do
     st <- liftIO $ readUniqRef (kStatus iok)
     case st of
@@ -371,7 +372,7 @@ ioCstrResult l iok proxy = do
         Erroneous err -> return Nothing
         Unevaluated -> return Nothing
     where
-    cstrResult :: (IsScVar a,Monad m,Location loc) => loc -> TCstr -> Proxy a -> ShowOrdDyn -> TcM loc m a
+    cstrResult :: (Hashable a,IsScVar a,Monad m,Location loc) => loc -> TCstr -> Proxy a -> ShowOrdDyn -> TcM loc m a
     cstrResult l k (Proxy::Proxy t) dyn = case fromShowOrdDyn dyn of
         Nothing -> genError (locpos l) $ text "Wrong IOCstr output type" <+> text (show dyn) <+> text "::" <+> text (show $     applyShowOrdDyn Generics.typeOf dyn) <+> text "with type" <+> text (show $ Generics.typeOf (error "applyShowOrdDyn"::t)) <+> pp k
         Just x -> return x
@@ -1579,7 +1580,7 @@ tryResolveDVar l v = tryResolveTVar l v >>= mapM (typeToDecType l)
 tryResolveTVar :: (MonadIO m,Location loc) => loc -> VarIdentifier -> TcM loc m (Maybe Type)
 tryResolveTVar l v | varIdTok v = return Nothing
 tryResolveTVar l v = do
-    addVarDependencies v
+    addGDependencies $ Left v
     -- lookup in the substitution environment
     s <- getTSubsts
     mb <- substsFromMap s v
@@ -1589,7 +1590,7 @@ tryResolveTVar l v = do
 tryResolveEVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> Type -> TcM loc m (Maybe (SExpr VarIdentifier (Typed loc)))
 tryResolveEVar l v t | varIdTok v = return Nothing
 tryResolveEVar l v t = do
-    addVarDependencies v
+    addGDependencies $ Left v
     ss <- getTSubsts
     case Map.lookup v ss of
         Just (IdxT e) -> do

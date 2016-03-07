@@ -220,6 +220,7 @@ tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e) = do
     e' <- mapM (tcExprTy ty') e
     -- add the array size to the type
     vn' <- addConst scope vn
+    -- we issue new uniq variables for consts, since they are used in typechecking
     let v' = VarName (Typed vl ty') vn'
     -- add variable to the environment
     newVariable scope v' e' True -- add values to the environment

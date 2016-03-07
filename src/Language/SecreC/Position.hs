@@ -1,7 +1,7 @@
 
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveGeneric #-}
 
 module Language.SecreC.Position where
 
@@ -10,6 +10,9 @@ import Control.Monad
 import Data.Foldable
 import Data.Traversable
 import Data.Generics (Data, Typeable)
+import Data.Hashable
+
+import GHC.Generics (Generic)
 
 import Text.Parsec.Pos
 import Text.PrettyPrint
@@ -26,7 +29,9 @@ data Position
              !Int     -- offset
     -- | General information
     | UnhelpfulPos String
-    deriving (Read, Eq, Ord, Data, Typeable)
+    deriving (Read, Eq, Ord, Data, Typeable,Generic)
+
+instance Hashable Position
 
 instance PP Position where
     pp (Pos file line col off) = text file <> char ':' <> int line <> char ':' <> int col

@@ -85,11 +85,11 @@ class (GenVar iden m,IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
                                 return s'
         traverseVars (substVarsM f) x' -- go recursively
     
-    subst :: Vars iden m iden => Substs iden m -> Bool -> a -> m a
-    subst f substBounds x = State.evalStateT (substVarsM f x) (False,(substBounds,Map.empty),Set.empty,Set.empty)
+    subst :: Vars iden m iden => Substs iden m -> Bool -> Map iden iden -> a -> m a
+    subst f substBounds ss x = State.evalStateT (substVarsM f x) (False,(substBounds,ss),Set.empty,Set.empty)
     
-    substProxy :: Vars iden m iden => SubstsProxy iden m -> Bool -> a -> m a
-    substProxy (SubstsProxy f) substBounds x = subst (f Proxy) substBounds x
+    substProxy :: Vars iden m iden => SubstsProxy iden m -> Bool -> Map iden iden -> a -> m a
+    substProxy (SubstsProxy f) substBounds ss x = subst (f Proxy) substBounds ss x
         
     fvs :: a -> m (Set iden)
     fvs a = do
@@ -125,7 +125,7 @@ isBound v = do
 
 type VarsM iden m = StateT
     (Bool -- is left-hand side
-    ,(Bool,Map iden iden) -- substitutions
+    ,(Bool,Map iden iden) -- bound substitutions
     ,Set iden -- free vars
     ,Set iden)-- bound vars
     m
@@ -163,9 +163,9 @@ addFV x = State.modify $ \(lhs,ss,fvs,bvs) -> if Set.member x bvs
  
 addBV :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m ()
 addBV x = do
-    (lhs,(b,ss),fvs,bvs) <- State.get
-    ss' <- if b then liftM (\x' -> Map.insert x x' ss) (State.lift $ genVar x) else return ss
-    State.put (lhs,(b,ss'),fvs,Set.insert x bvs)
+    (lhs,(substBounds,ss),fvs,bvs) <- State.get
+    ss' <- if substBounds then liftM (\x' -> Map.insert x x' ss) (State.lift $ genVar x) else return ss
+    State.put (lhs,(substBounds,ss'),fvs,Set.insert x bvs)
 
 instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Integer where
     traverseVars f i = return i

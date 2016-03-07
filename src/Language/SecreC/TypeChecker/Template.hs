@@ -33,6 +33,12 @@ import qualified Control.Monad.State as State
 
 import Text.PrettyPrint
 
+instance (MonadIO m) => Vars VarIdentifier (TcM loc m) [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] where
+    traverseVars f = mapM f
+
+instance PP [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] where
+    pp = sepBy comma . map (\(x,y,z) -> ppConst x <+> ppVariadicArg pp (y,z))
+
 -- Procedure arguments are maybe provided with index expressions
 -- | Matches a list of template arguments against a list of template declarations
 matchTemplate :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> Maybe [VarName VarIdentifier Type] -> TcM loc m [EntryEnv loc] -> TcM loc m (DecType)
@@ -50,13 +56,13 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
             tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure def defs
         [(e,subst)] -> do
             dec <- resolveTemplateEntry l n targs pargs ret e subst
-            return (dec)
+            return dec
         otherwise -> do
             -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
             ((e,subst):_) <- sortByM (compareTemplateDecls def l n) oks
             -- return the instantiated body of the most specific declaration
             dec <- resolveTemplateEntry l n targs pargs ret e subst
-            return (dec)
+            return dec
 
 templateCstrs :: Location loc => (Int,SecrecErrArr) -> Doc -> loc -> TDict loc -> TDict loc
 templateCstrs (i,arr) doc p d = d { tCstrs = Graph.nmap upd (tCstrs d) }
@@ -77,10 +83,10 @@ resolveTemplateEntry p n targs pargs ret e dict = do
 ppTpltAppM :: (VarsIdTcM loc m,Location loc) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> TcM loc m Doc
 ppTpltAppM l pid args es ret = do
     ss <- getTSubsts
-    pid' <- substFromTSubsts l ss False pid
-    args' <- mapM (mapM (mapFstM (substFromTSubsts l ss False))) args
-    es' <- mapM (mapM (mapFstM (substFromTSubsts l ss False))) es
-    ret' <- substFromTSubsts l ss False ret
+    pid' <- substFromTSubsts l ss False Map.empty pid
+    args' <- mapM (mapM (mapFstM (substFromTSubsts l ss False Map.empty))) args
+    es' <- mapM (mapM (mapFstM (substFromTSubsts l ss False Map.empty))) es
+    ret' <- substFromTSubsts l ss False Map.empty ret
     return $ ppTpltApp pid' args' es' ret'
 
 ppTpltApp :: TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> Doc
@@ -89,14 +95,15 @@ ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets 
 ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> pp (loc e) <> ppVariadic b) $ concat args)
 
 templateDecReturn :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> TcM loc m Type
-templateDecReturn l (TpltType _ _ _ _ _ _ b) = templateDecReturn l b
-templateDecReturn l (ProcType _ _ _ _ r _) = return r
+templateDecReturn l (DecType _ _ _ _ _ _ b) = templateDecReturn l b
+templateDecReturn l (ProcType _ _ _ r _) = return r
 templateDecReturn l s@(StructType {}) = return $ BaseT $ TyDec s
 templateDecReturn l (DVar v) = do
     d <- resolveDVar l v
     templateDecReturn l d
 
 compareProcedureArgs :: (VarsIdTcM loc m,Location loc) => loc -> [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -> [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -> TcM loc m (Comparison (TcM loc m))
+compareProcedureArgs l xs@[] ys@[] = return (Comparison xs ys EQ)
 compareProcedureArgs l ((_,Cond v1@(VarName t1 n1) c1,isVariadic1):xs) ((_,Cond v2@(VarName t2 n2) c2,isVariadic2):ys) = do
     let e1 = varExpr v1
     let e2 = varExpr v2
@@ -105,6 +112,7 @@ compareProcedureArgs l ((_,Cond v1@(VarName t1 n1) c1,isVariadic1):xs) ((_,Cond 
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
     o2 <- compareProcedureArgs l xs ys
     appendComparison l o1 o2
+compareProcedureArgs l xs ys = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
 
 -- | Tells if one declaration is strictly more specific than another, and if not it fails.
 -- Since we are unifying base types during instantiation, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
@@ -304,27 +312,25 @@ templateIdentifier :: Type -> TIdentifier
 templateIdentifier (DecT t) = templateIdentifier' t
     where
     templateIdentifier' :: DecType -> TIdentifier
-    templateIdentifier' (TpltType _ _ _ _ _ _ t) = templateIdentifier' t
-    templateIdentifier' (ProcType _ _ n _ _ _) = Right n
-    templateIdentifier' (StructType _ _ n _) = Left n
+    templateIdentifier' (DecType _ _ _ _ _ _ t) = templateIdentifier' t
+    templateIdentifier' (ProcType _ n _ _ _) = Right n
+    templateIdentifier' (StructType _ n _) = Left n
         
 -- | Extracts a head signature from a template type declaration (template arguments,procedure arguments, procedure return type)
 templateArgs :: (MonadIO m,Location loc) => TIdentifier -> EntryEnv loc -> TcM loc m (Maybe [(Cond Type,IsVariadic)],Maybe [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)],Maybe Type)
 templateArgs (Left name) e = case entryType e of
-    DecT (TpltType _ args hcstrs cstrs [] frees body) -> do -- a base template uses the base arguments
+    DecT (DecType _ args hcstrs cstrs [] frees body) -> do -- a base template uses the base arguments
         return (Just $ map (mapFst (fmap varNameToType)) args,Nothing,Nothing)
-    DecT (TpltType _ args hcstrs cstrs specials frees body) -> do -- a specialization uses the specialized arguments
+    DecT (DecType _ args hcstrs cstrs specials frees body) -> do -- a specialization uses the specialized arguments
         return (Just $ map (mapFst (flip Cond Nothing)) specials,Nothing,Nothing)
 templateArgs (Right name) e = case entryType e of
-    DecT (TpltType _ args hcstrs cstrs [] frees (ProcType _ _ n vars ret stmts)) -> do -- include the return type
+    DecT (DecType _ args hcstrs cstrs [] frees (ProcType _ n vars ret stmts)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
-    DecT (ProcType _ _ n vars ret stmts) -> do -- include the return type
-        return (Nothing,Just vars,Just ret)
     otherwise -> genTcError (locpos $ entryLoc e) $ text "Invalid type for procedure template"
 
 templateTDict :: Location loc => EntryEnv loc -> (TDict loc,TDict loc)
 templateTDict e = case entryType e of
-    DecT (TpltType _ _ hd d _ _ _) -> (fmap (updpos l) hd,fmap (updpos l) d)
+    DecT (DecType _ _ hd d _ _ _) -> (fmap (updpos l) hd,fmap (updpos l) d)
     otherwise -> (mempty,mempty)
   where l = entryLoc e
 
@@ -336,46 +342,47 @@ condT (Cond t c) = condType t c
 localTemplate :: (VarsIdTcM loc m,Location loc) => EntryEnv loc -> TcM loc m (EntryEnv loc)
 localTemplate e = case entryType e of
     DecT t -> do
-        (t',_) <- localTemplateType emptySubstsProxy (entryLoc e) t
+        (t',_) <- localTemplateType emptySubstsProxy Map.empty (entryLoc e) t
         return $ EntryEnv (entryLoc e) $ DecT t'
 
-localTemplateType :: (VarsIdTcM loc m,Location loc) => SubstsProxy VarIdentifier (TcM loc m) -> loc -> DecType -> TcM loc m (DecType,SubstsProxy VarIdentifier (TcM loc m))
-localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) (l::loc) et = case et of
-    TpltType tpltid (unzip -> (args,isVariadics)) hcstrs cstrs (unzip -> (specials,isVariadics2)) frees body -> do
+localTemplateType :: (VarsIdTcM loc m,Location loc) => SubstsProxy VarIdentifier (TcM loc m) -> Map VarIdentifier VarIdentifier -> loc -> DecType -> TcM loc m (DecType,SubstsProxy VarIdentifier (TcM loc m))
+localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) ssBounds (l::loc) et = case et of
+    DecType tpltid (unzip -> (args,isVariadics)) hcstrs cstrs (unzip -> (specials,isVariadics2)) frees body -> do
         (frees',freelst) <- Utils.mapAndUnzipM freeVar $ Set.toList frees
         let freess :: SubstsProxy VarIdentifier (TcM loc m)
             freess = substsProxyFromList freelst `appendSubstsProxy` ss0
-        (args',ss) <- uniqueVars l freess args
-        specials' <- substProxy ss False specials
-        (body',ss') <- localTemplateType ss l body
-        hcstrs' <- substProxy ss' False hcstrs
-        cstrs' <- substProxy ss' False cstrs
-        return (TpltType tpltid (zip args' isVariadics) hcstrs' cstrs' (zip specials' isVariadics2) (Set.fromList frees') body',ss')
-    ProcType tpltid p pid (unzip3 -> (isConsts,args,isVariadics)) ret stmts -> do
-        (args',ss) <- uniqueVars l ss0 args
-        ret' <- substProxy ss False ret
-        stmts' <- substProxy ss False stmts
-        return (ProcType tpltid p pid (zip3 isConsts args' isVariadics) ret' stmts',ss)
+        let ssBounds' = ssBounds `Map.union` Map.fromList freelst
+        (args',ss) <- uniqueVars l freess ssBounds' args
+        specials' <- substProxy ss False ssBounds' specials
+        (body',ss') <- localTemplateType ss ssBounds' l body
+        hcstrs' <- substProxy ss' False ssBounds' hcstrs
+        cstrs' <- substProxy ss' False ssBounds' cstrs
+        return (DecType tpltid (zip args' isVariadics) hcstrs' cstrs' (zip specials' isVariadics2) (Set.fromList frees') body',ss')
+    ProcType p pid (unzip3 -> (isConsts,args,isVariadics)) ret stmts -> do
+        (args',ss) <- uniqueVars l ss0 ssBounds args
+        ret' <- substProxy ss False ssBounds ret
+        stmts' <- substProxy ss False ssBounds stmts
+        return (ProcType p pid (zip3 isConsts args' isVariadics) ret' stmts',ss)
     otherwise -> return (et,ss0)
   where
     freeVar v = do
         j <- newTyVarId
         let v' = v { varIdUniq = Just j }
         return (v',(v,v'))
-    uniqueVar :: loc -> SubstsProxy VarIdentifier (TcM loc m) -> Cond (VarName VarIdentifier Type) -> TcM loc m (Cond (VarName VarIdentifier Type),SubstsProxy VarIdentifier (TcM loc m))
-    uniqueVar (l::loc) ss (Cond i@(VarName t v) c) = do
+    uniqueVar :: loc -> SubstsProxy VarIdentifier (TcM loc m) -> Map VarIdentifier VarIdentifier -> Cond (VarName VarIdentifier Type) -> TcM loc m (Cond (VarName VarIdentifier Type),SubstsProxy VarIdentifier (TcM loc m))
+    uniqueVar (l::loc) ss ssBounds (Cond i@(VarName t v) c) = do
         j <- newTyVarId
-        t' <- substProxy ss False t
+        t' <- substProxy ss False ssBounds t
         let i' = VarName t' (VarIdentifier (varIdBase v) (Just j) False)
         let ss' :: SubstsProxy VarIdentifier (TcM loc m)
             ss' = substsProxyFromTSubsts l (Map.singleton v (varNameToType i')) `appendSubstsProxy` ss
-        c' <- substProxy ss' False c
+        c' <- substProxy ss' False ssBounds c
         return (Cond i' c',ss')
-    uniqueVars :: loc -> SubstsProxy VarIdentifier (TcM loc m) -> [Cond (VarName VarIdentifier Type)] -> TcM loc m ([Cond (VarName VarIdentifier Type)],SubstsProxy VarIdentifier (TcM loc m))
-    uniqueVars l ss [] = return ([],ss)
-    uniqueVars l ss (x:xs) = do
-        (x',ss') <- uniqueVar l ss x
-        (xs',ss'') <- uniqueVars l ss' xs
+    uniqueVars :: loc -> SubstsProxy VarIdentifier (TcM loc m) -> Map VarIdentifier VarIdentifier -> [Cond (VarName VarIdentifier Type)] -> TcM loc m ([Cond (VarName VarIdentifier Type)],SubstsProxy VarIdentifier (TcM loc m))
+    uniqueVars l ss ssBounds [] = return ([],ss)
+    uniqueVars l ss ssBounds (x:xs) = do
+        (x',ss') <- uniqueVar l ss ssBounds x
+        (xs',ss'') <- uniqueVars l ss' ssBounds xs
         return (x' : xs',ss'')
 
 

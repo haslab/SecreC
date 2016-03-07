@@ -7,7 +7,7 @@ import Language.SecreC.Pretty
 import Data.Generics as Generics hiding (GT,typeOf)
 import qualified Data.Generics as Generics
 import Data.Traversable as Traversable
-import Data.Foldable
+import Data.Foldable as Foldable
 import Data.Map (Map(..))
 import qualified Data.Map as Map
 import Data.Set (Set(..))
@@ -373,8 +373,11 @@ fromOrdDyn (OrdDyn v) = case unsafeCoerce v of
       | otherwise     -> Nothing
       
 data ShowOrdDyn where
-    ShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
+    ShowOrdDyn :: (Hashable a,Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
   deriving Typeable
+
+instance Hashable ShowOrdDyn where
+    hashWithSalt i (ShowOrdDyn x) = hashWithSalt i x
   
 instance Data ShowOrdDyn where
     gfoldl k z (ShowOrdDyn x) = z ShowOrdDyn `k` x
@@ -396,13 +399,13 @@ instance Ord ShowOrdDyn where
         EQ -> compare a (unsafeCoerce b)
         c -> c
 
-applyShowOrdDyn :: (forall a . (Data a,Typeable a,Eq a,Ord a,Show a) => a -> b) -> ShowOrdDyn -> b
+applyShowOrdDyn :: (forall a . (Hashable a,Data a,Typeable a,Eq a,Ord a,Show a) => a -> b) -> ShowOrdDyn -> b
 applyShowOrdDyn f (ShowOrdDyn x) = f x
 
-toShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
+toShowOrdDyn :: (Hashable a,Data a,Typeable a,Eq a,Ord a,Show a) => a -> ShowOrdDyn
 toShowOrdDyn v = ShowOrdDyn v
 
-fromShowOrdDyn :: (Data a,Typeable a,Eq a,Ord a,Show a) => ShowOrdDyn -> Maybe a
+fromShowOrdDyn :: (Hashable a,Data a,Typeable a,Eq a,Ord a,Show a) => ShowOrdDyn -> Maybe a
 fromShowOrdDyn (ShowOrdDyn v) = case unsafeCoerce v of 
     r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
@@ -520,3 +523,14 @@ funit = fmap (const ())
 concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
 concatMapM f = liftM concat . mapM f
 
+instance Hashable a => Hashable (Set a) where
+    hashWithSalt i x = hashWithSalt i (Set.toList x)
+
+instance Hashable a => Hashable (NeList a) where
+    hashWithSalt i x = hashWithSalt i (Foldable.toList x)
+
+instance (Hashable a,Hashable b) => Hashable (Map a b) where
+    hashWithSalt i x = hashWithSalt i (Map.toList x)
+
+instance (Hashable a,Hashable b) => Hashable (Gr a b) where
+    hashWithSalt i x = hashWithSalt i (grToList x)

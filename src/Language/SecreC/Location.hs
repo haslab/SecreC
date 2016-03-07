@@ -1,12 +1,15 @@
-{-# LANGUAGE DeriveFunctor, UndecidableInstances, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric, DeriveFunctor, UndecidableInstances, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, DeriveDataTypeable #-}
 
 module Language.SecreC.Location where
     
-import Data.Generics
+import Data.Generics hiding (Generic)
+import Data.Hashable
     
 import Language.SecreC.Pretty
 import Language.SecreC.Position
 import Language.SecreC.Utils
+
+import GHC.Generics (Generic)
 
 import Safe
 
@@ -34,7 +37,9 @@ instance Location () where
     updpos _ p = ()
     
 data Loc loc a = Loc loc a
-  deriving (Read,Show,Data,Typeable,Functor)
+  deriving (Read,Show,Data,Typeable,Functor,Generic)
+
+instance (Hashable loc,Hashable a) => Hashable (Loc loc a)
  
 instance Eq a => Eq (Loc loc a) where
     (Loc _ x) == (Loc _ y) = x == y

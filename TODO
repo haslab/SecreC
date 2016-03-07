@@ -27,6 +27,8 @@ most possibly controversial typechecker decisions:
     - templates raise constraints that are only solved on instantiation (akin to Haskell typeclass constraints)
     - regular procedures and structs solve constraints 
 . variadic arguments
+. templates work like type classes, e.g., mutually recursive type classes may loop indefinitely
+. non-template procedure and structs  may be recursive, but not mutually recursive, since they require all declarations to be defined above.
 
 TODO:
 . SMT overflow semantics versus sharemind primitive operations?

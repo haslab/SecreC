@@ -298,23 +298,31 @@ addTemplateOperator vars hdeps op = do
     (hdict,bdict) <- splitHeadTDict hdeps
     i <- newTyVarId
     frees <- getFrees
-    let td = DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees d
+    let td = DecT $ DecType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees d
     let e = EntryEnv l td
 --    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) td)
 
 -- | Adds a new (possibly overloaded) operator to the environment.
-newOperator :: (VarsIdTcM loc m,Location loc) => Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
-newOperator op = do
+newOperator :: (VarsIdTcM loc m,Location loc) => Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
+newOperator hdeps op = do
     let Typed l t = loc op
+    let o = funit op
+    d <- typeToDecType l t
+    (_,recdict) <- tcProve l "newOp head" $ addHeadTCstrs hdeps
+    addHeadTDict recdict
+    i <- newTyVarId
+    recfrees <- getFrees
+    let recdt = DecT $ DecType i [] (fmap locpos recdict) mempty [] recfrees d
+    let rece = EntryEnv l recdt
+    modify $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
+    dirtyGDependencies $ Right $ Left $ Right o
+    
     solve l
     frees <- getFrees
-    d <- typeToDecType l t
-    i <- newTyVarId
-    let o = funit op
     dict <- liftM (headNe . tDict) State.get
-    let td = DecT $ TpltType i [] (fmap locpos dict) mempty [] frees d
+    let td = DecT $ DecType i [] (fmap locpos dict) mempty [] frees d
     let e = EntryEnv l td
 --    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
@@ -323,12 +331,14 @@ newOperator op = do
  -- | Checks that an operator exists.
 checkOperator :: (VarsIdTcM loc m,Location loc) => Op VarIdentifier loc -> TcM loc m [EntryEnv loc]
 checkOperator op@(OpCast l t) = do
+    addGDependencies $ Right $ Left $ Right $ funit op
     ps <- liftM operators State.get
     let cop = funit op
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCast k) ps
     return casts
 checkOperator op = do
+    addGDependencies $ Right $ Left $ Right $ funit op
     ps <- liftM operators State.get
     let cop = funit op
     case Map.lookup cop ps of
@@ -344,21 +354,29 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     (hdict,bdict) <- splitHeadTDict hdeps
     i <- newTyVarId
     frees <- getFrees
-    let dt = DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees d
+    let dt = DecT $ DecType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees d
     let e = EntryEnv l dt
 --    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
     return $ updLoc pn (Typed (unTyped $ loc pn) dt)
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
-newProcedure :: (VarsIdTcM loc m,Location loc) => ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc))
-newProcedure pn@(ProcedureName (Typed l t) n) = do
+newProcedure :: (VarsIdTcM loc m,Location loc) => Deps loc -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc))
+newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
+    (_,recdict) <- tcProve l "newProc head" $ addHeadTCstrs hdeps
+    addHeadTDict recdict
+    i <- newTyVarId
+    recfrees <- getFrees
+    let recdt = DecT $ DecType i [] (fmap locpos recdict) mempty [] recfrees d
+    let rece = EntryEnv l recdt
+    modify $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
+    dirtyGDependencies $ Right $ Left $ Left $ funit pn
+    
     solve l
     frees <- getFrees
-    i <- newTyVarId
     dict <- liftM (headNe . tDict) State.get
-    let dt = DecT $ TpltType i [] (fmap locpos dict) mempty [] frees d
+    let dt = DecT $ DecType i [] (fmap locpos dict) mempty [] frees d
     let e = EntryEnv l dt
 --    liftIO $ putStrLn $ "addProc " ++ ppr (entryType e)
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
@@ -366,7 +384,8 @@ newProcedure pn@(ProcedureName (Typed l t) n) = do
   
  -- | Checks that a procedure exists.
 checkProcedure :: (MonadIO m,Location loc) => ProcedureName VarIdentifier loc -> TcM loc m [EntryEnv loc]
-checkProcedure (ProcedureName l n) = do
+checkProcedure pn@(ProcedureName l n) = do
+    addGDependencies $ Right $ Left $ Left $ funit pn
     ps <- liftM procedures State.get
     case Map.lookup n ps of
         Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (ppVarId n)
@@ -400,7 +419,7 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     (hdict,bdict) <- splitHeadTDict hdeps
     i <- newTyVarId
     frees <- getFrees
-    let dt = DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees struct
+    let dt = DecT $ DecType i vars (fmap locpos hdict) (fmap locpos bdict) [] frees struct
     let e = EntryEnv l dt
     ss <- liftM structs get
     case Map.lookup n ss of
@@ -417,16 +436,29 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
     (hdict,bdict) <- splitHeadTDict hdeps
     i <- newTyVarId
     frees <- getFrees
-    let dt = DecT $ TpltType i vars (fmap locpos hdict) (fmap locpos bdict) specials frees struct
+    let dt = DecT $ DecType i vars (fmap locpos hdict) (fmap locpos bdict) specials frees struct
     let e = EntryEnv l dt
     let mergeStructs (b1,s1) (b2,s2) = (b2,s1 `Map.union` s2)
     modify $ \env -> env { structs = Map.update (\(b,s) -> Just (b,Map.insert i e s)) n (structs env) }
     return $ updLoc tn (Typed (unTyped $ loc tn) dt)
 
 -- | Defines a new struct type
-newStruct :: (VarsIdTcM loc m,Location loc) => TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
-newStruct tn@(TypeName (Typed l t) n) = do
+newStruct :: (VarsIdTcM loc m,Location loc) => Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
+newStruct hdeps tn@(TypeName (Typed l t) n) = do
+    addGDependencies $ Right $ Right $ funit tn
     d <- typeToDecType l t
+    -- solve head constraints
+    (_,recdict) <- tcProve l "newStruct head" $ addHeadTCstrs hdeps
+    addHeadTDict recdict
+    i <- newTyVarId
+    -- add a temporary declaration for recursive invocations
+    recfrees <- getFrees
+    let recdt = DecT $ DecType i [] (fmap locpos recdict) mempty [] recfrees d
+    let rece = EntryEnv l recdt
+    modify $ \env -> env { structs = Map.insert n (rece,Map.empty) (structs env) }
+    dirtyGDependencies $ Right $ Right $ funit tn
+    
+    -- solve the body
     solve l
     frees <- getFrees
     dict <- liftM (headNe . tDict) State.get
@@ -435,7 +467,7 @@ newStruct tn@(TypeName (Typed l t) n) = do
         Just (base,es) -> tcError (locpos l) $ MultipleDefinedStruct (ppVarId n) (locpos $ entryLoc base)
         Nothing -> do
             i <- newTyVarId
-            let dt = DecT $ TpltType i [] (fmap locpos dict) mempty [] frees d
+            let dt = DecT $ DecType i [] (fmap locpos dict) mempty [] frees d
             let e = EntryEnv l dt
             modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
             return $ updLoc tn (Typed (unTyped $ loc tn) dt)
@@ -449,14 +481,14 @@ addSubsts :: (MonadIO m,Location loc) => TSubsts -> TcM loc m ()
 addSubsts ss = do
 --    liftIO $ putStrLn $ "addSubstsM " ++ ppr ss
     updateHeadTDict $ \d -> return ((),mappend d (TDict Graph.empty Set.empty ss))
-    mapM_ (dirtyVarDependencies . fst) $ Map.toList ss
+    mapM_ (dirtyGDependencies . Left . fst) $ Map.toList ss
 
 addSubstM :: (VarsIdTcM loc m,Location loc) => loc -> VarName VarIdentifier Type -> Type -> TcM loc m ()
 addSubstM l v t | varNameToType v == t = return ()
 addSubstM l v t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
     tcCstrM l $ Unifies (loc v) (tyOf t)
     addSubst l (varNameId v) t
-    dirtyVarDependencies (varNameId v)
+    dirtyGDependencies $ Left $ varNameId v
     
 --addSubstM l v t | varNameToType v == t = return ()
 --                | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
@@ -540,8 +572,8 @@ addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = retur
 addValueM l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
     tcCstrM l $ Unifies t (loc e)
     addValue l n e
-    addVarDependencies n
-    dirtyVarDependencies n
+    addGDependencies $ Left n
+    dirtyGDependencies $ Left n
 
 openCstr :: (MonadIO m,Location loc) => loc -> IOCstr -> TcM loc m ()
 openCstr l o = do
@@ -586,13 +618,13 @@ registerIOCstrDependencies iok = do
             Just x -> addIODependency (unLoc x) (Set.singleton iok)
 
 -- | adds a dependency on the given variable for all the opened constraints
-addVarDependencies :: (MonadIO m,Location loc) => VarIdentifier -> TcM loc m ()
-addVarDependencies v = do
+addGDependencies :: (MonadIO m,Location loc) => GIdentifier -> TcM loc m ()
+addGDependencies v = do
     cstrs <- liftM openedCstrs State.get
-    addVarDependency v cstrs
+    addGDependency v cstrs
     
-addVarDependency :: (MonadIO m,Location loc) => VarIdentifier -> [IOCstr] -> TcM loc m ()
-addVarDependency v cstrs = do
+addGDependency :: (MonadIO m,Location loc) => GIdentifier -> [IOCstr] -> TcM loc m ()
+addGDependency v cstrs = do
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
     m <- case mb of
@@ -624,6 +656,10 @@ addIOCstrDependenciesM froms iok tos = do
     
 addHeadTDict :: (Monad m,Location loc) => TDict loc -> TcM loc m ()
 addHeadTDict d = updateHeadTDict $ \x -> return ((),mappend x d)
+
+addHeadTCstrs :: (Monad m,Location loc) => Set (Loc loc IOCstr) -> TcM loc m ()
+addHeadTCstrs ks = addHeadTDict $ TDict (Graph.mkGraph nodes []) Set.empty Map.empty
+    where nodes = map (\n -> (ioCstrId $ unLoc n,n)) $ Set.toList ks
 
 getHyps :: (MonadIO m,Location loc) => TcM loc m (Deps loc)
 getHyps = do
@@ -673,8 +709,8 @@ updateHeadTDict upd = do
     return x
 
 -- | forget the result for a constraint when the value of a variable it depends on changes
-dirtyVarDependencies :: (MonadIO m,Location loc) => VarIdentifier -> TcM loc m ()
-dirtyVarDependencies v = do
+dirtyGDependencies :: (MonadIO m,Location loc) => GIdentifier -> TcM loc m ()
+dirtyGDependencies v = do
     cstrs <- liftM openedCstrs State.get
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v

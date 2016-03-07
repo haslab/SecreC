@@ -6,6 +6,7 @@ import Text.Ordinal
 import Data.Foldable
 import Data.Int
 import Data.Word
+import Data.Hashable
 import Data.Generics hiding (empty,GT)
 
 class PP a where
@@ -66,3 +67,6 @@ instance Ord Doc where
 
 instance PP Bool where
     pp b = text (show b)
+
+instance Hashable Doc where
+    hashWithSalt i x = hashWithSalt i (show x)

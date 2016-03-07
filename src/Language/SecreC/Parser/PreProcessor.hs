@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, DeriveDataTypeable, TupleSections, TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances, TypeSynonymInstances, FlexibleContexts, DeriveDataTypeable, TupleSections, TypeFamilies #-}
 
 module Language.SecreC.Parser.PreProcessor where
 
@@ -9,9 +9,12 @@ import Language.SecreC.Syntax
 import Language.SecreC.Error
 import Language.SecreC.Monad
 import Language.SecreC.Pretty hiding (sepBy)
+import qualified Language.SecreC.Pretty as PP
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Parser.Lexer
 
+import Text.PrettyPrint ((<+>),(<>),text)
+import qualified Text.PrettyPrint as PP
 import Text.Parsec
 import Text.Parsec.Pos
 
@@ -48,6 +51,12 @@ data PPArg
     = SecrecOpts Options
   deriving (Data,Show,Typeable)
 
+instance PP PPArgs where
+    pp args = PP.vcat $ map pp args
+
+instance PP PPArg where
+    pp (SecrecOpts opts) = text "#OPTIONS_SECREC" <+> pp opts
+
 type PPParserT u m a = ParsecT [Char] u m a
     
 runPP :: (MonadIO m) => FilePath -> SecrecM m PPArgs
@@ -82,6 +91,28 @@ cmdArgsRunPP m xs = do
             Right x -> return x
     liftIO $ cmdArgsApply args
 
+instance PP ParserOpt where
+    pp Parsec = text "parsec"
+    pp Derp = text "derp"
+
+instance PP Options where
+    pp opts = PP.sepBy PP.space (map pp $ inputs opts)
+          <+> text "--outputs=" <> PP.sepBy (PP.char ':') (map pp $ outputs opts)
+          <+> text "--paths=" <> PP.sepBy (PP.char ':') (map pp $ paths opts)
+          <+> text "--parser=" <> pp (parser opts)
+          <+> text "--knowledgeinference=" <> pp (knowledgeInference opts)
+          <+> text "--inlinetemplates=" <> pp (inlineTemplates opts)
+          <+> text "--typecheck=" <> pp (typeCheck opts)
+          <+> text "--debuglexer=" <> pp (debugLexer opts)
+          <+> text "--debugparser=" <> pp (debugParser opts)
+          <+> text "--debugtypechecker=" <> pp (debugTypechecker opts)
+          <+> text "--implicitclassify=" <> pp (implicitClassify opts)
+          <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
+          <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
+          <+> text "--evaltimeout=" <> pp (evalTimeOut opts)
+          <+> text "--failtypechecker=" <> pp (failTypechecker opts)
+          <+> text "--externalsmt=" <> pp (externalSMT opts)
+
 opts  :: Options
 opts  = Opts { 
       inputs                = inputs defaultOptions &= args &= typ "FILE.sc"
@@ -90,22 +121,23 @@ opts  = Opts {
     , parser                = parser defaultOptions &= typ "parsec OR derp" &= help "backend Parser type"
     , implicitBuiltin       = implicitBuiltin defaultOptions &= name "builtin" &= help "Implicitly import the builtin module"
     
-    -- Optimization
-    , knowledgeInference    = knowledgeInference defaultOptions &= name "ki" &= help "Infer private data from public data" &= groupname "Optimization"
+    -- Transformation
+    , knowledgeInference    = knowledgeInference defaultOptions &= name "ki" &= help "Infer private data from public data" &= groupname "Transformation"
+    , inlineTemplates        = inlineTemplates defaultOptions &= help "Inline all template applications" &= groupname "Transformation"
     
     -- Verification
     , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
 
     -- Debugging
-    , debugLexer            = debugLexer defaultOptions &= name "debug-lexer" &= explicit &= help "Print lexer tokens to stderr" &= groupname "Debugging"
-    , debugParser           = debugParser defaultOptions &= name "debug-parser" &= explicit &= help "Print parser result to stderr" &= groupname "Debugging"
-    , debugTypechecker           = debugTypechecker defaultOptions &= name "debug-typechecker" &= explicit &= help "Print typechecker result to stderr" &= groupname "Debugging"
+    , debugLexer            = debugLexer defaultOptions &= help "Print lexer tokens to stderr" &= groupname "Debugging"
+    , debugParser           = debugParser defaultOptions &= help "Print parser result to stderr" &= groupname "Debugging"
+    , debugTypechecker           = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"
     
     -- Typechecker
     , implicitClassify   = implicitClassify defaultOptions &= name "implicit" &= help "Enables implicit classification of public data" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
-    , evalTimeOut           = evalTimeOut defaultOptions &= name "eval-timeout" &= explicit &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
+    , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
     , failTypechecker = failTypechecker defaultOptions &= name "fail-tc" &= help "Typechecker should fail" &= groupname "Verification:Typechecker"
     }
     &= help "SecreC analyser"

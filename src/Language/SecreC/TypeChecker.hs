@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
+{-# LANGUAGE TupleSections, FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
 
 -- We delay resolution of all possible constraints inside the  body of templates, even those that do not depend on template variables, to better match C++ templates that are only typechecked on full instantiation.
 
@@ -44,8 +44,8 @@ import Text.PrettyPrint
 
 import System.IO
 
-tcModuleWithPPArgs :: (VarsIdTcM loc m,Location loc) => (PPArgs,Module Identifier loc) -> TcM loc m (Module VarIdentifier (Typed loc))
-tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) (tcModule x)
+tcModuleWithPPArgs :: (VarsIdTcM loc m,Location loc) => (PPArgs,Module Identifier loc) -> TcM loc m (PPArgs,Module VarIdentifier (Typed loc))
+tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) (liftM (ppargs,) $ tcModule x)
 
 tcModule :: (VarsIdTcM loc m,Location loc) => Module Identifier loc -> TcM loc m (Module VarIdentifier (Typed loc))
 tcModule m@(Module l name prog) = failTcM l $ do
@@ -77,10 +77,10 @@ tcGlobalDeclaration (GlobalKind l kd) = do
     kd' <- tcKindDecl kd
     return $ GlobalKind (notTyped "tcGlobalDeclaration" l) kd'
 tcGlobalDeclaration (GlobalProcedure l pd) = do
-    pd' <- tcProcedureDecl (const newOperator) (const newProcedure) pd
+    pd' <- tcProcedureDecl (newOperator) (newProcedure) pd
     return $ GlobalProcedure (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalStructure l sd) = do
-    sd' <- tcStructureDecl (const newStruct) sd
+    sd' <- tcStructureDecl (newStruct) sd
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
 tcGlobalDeclaration (GlobalTemplate l td) = do
     td' <- tcTemplateDecl td
@@ -115,8 +115,7 @@ tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
         return (ps',ret',vars,top,tret)
     hdeps <- getDeps
     (s',StmtType st) <- tcStmts tret s
-    i <- newTyVarId
-    let tproc = DecT $ ProcType i (locpos l) (Right $ fmap typed top) vars tret $ map (fmap (fmap locpos)) s'
+    let tproc = DecT $ ProcType (locpos l) (Right $ fmap typed top) vars tret $ map (fmap (fmap locpos)) s'
     let op' = updLoc top (Typed l tproc)
     tcTopCstrM l $ IsReturnStmt st tret
     op'' <- addOp hdeps op'
@@ -130,8 +129,7 @@ tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureNam
         return (ps',ret',vars,tret)
     hdeps <- getDeps
     (s',StmtType st) <- tcStmts tret s
-    i <- newTyVarId
-    let tproc = DecT $ ProcType i (locpos l) (Left $ ProcedureName () $ mkVarId pn) vars tret $ map (fmap (fmap locpos)) s'
+    let tproc = DecT $ ProcType (locpos l) (Left $ ProcedureName () $ mkVarId pn) vars tret $ map (fmap (fmap locpos)) s'
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     tcTopCstrM l $ IsReturnStmt st tret
     proc'' <- addProc hdeps proc'
@@ -167,8 +165,7 @@ tcStructureDecl :: (VarsIdTcM loc m,Location loc) => (Deps loc -> TypeName VarId
 tcStructureDecl addStruct (StructureDeclaration l ty@(TypeName tl tn) atts) = do
     hdeps <- getDeps
     atts' <- mapM tcAttribute atts
-    i <- newTyVarId
-    let t = DecT $ StructType i (locpos l) (TypeName () $ mkVarId tn) $ map (flip Cond Nothing . fmap typed) atts'
+    let t = DecT $ StructType (locpos l) (TypeName () $ mkVarId tn) $ map (flip Cond Nothing . fmap typed) atts'
     let ty' = TypeName (Typed tl t) $ mkVarId tn
     ty'' <- addStruct hdeps ty'
     return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'

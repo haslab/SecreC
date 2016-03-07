@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, TypeFamilies, FlexibleContexts #-}
+{-# LANGUAGE DeriveDataTypeable, TypeFamilies, FlexibleContexts, DeriveGeneric #-}
 
 module Language.SecreC.Error where
 
@@ -9,9 +9,12 @@ import Language.SecreC.Pretty
 import Language.SecreC.Utils
 import Language.SecreC.Location
 
-import Data.Generics hiding (empty)
+import Data.Generics hiding (empty,Generic)
 import Data.Int
 import Data.Word
+import Data.Hashable
+
+import GHC.Generics (Generic)
 
 import Control.Monad.Except
 import Control.Monad.Writer (tell,MonadWriter(..))
@@ -24,7 +27,9 @@ data ParserException
     | ParsecException String 
     | DerpException String
     | PreProcessorException String
-    deriving (Show,Typeable,Data,Eq,Ord)
+    deriving (Show,Typeable,Data,Eq,Ord,Generic)
+
+instance Hashable ParserException
 
 instance PP ParserException where
     pp (LexicalException s) = text "Lexical error:" <+> text s
@@ -45,7 +50,9 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | TimedOut Int -- timed out after @x@ seconds
                  | OrWarn -- ^ optional constraint, just throw a warning
                      SecrecError
-  deriving (Show,Typeable,Data,Eq,Ord)
+  deriving (Show,Typeable,Data,Eq,Ord,Generic)
+  
+instance Hashable SecrecError
 
 instance Located SecrecError where
      type LocOf SecrecError = Position
@@ -218,7 +225,9 @@ data TypecheckerErr
     | IndexConditionNotValid -- failed to prove mandatory index condition
         Doc -- condition
         SecrecError -- sub-error
-  deriving (Show,Typeable,Data,Eq,Ord)
+  deriving (Show,Typeable,Data,Eq,Ord,Generic)
+
+instance Hashable TypecheckerErr
 
 instance PP TypecheckerErr where
     pp (GenTcError doc) = doc
@@ -344,7 +353,9 @@ data ModuleErr
     = DuplicateModuleName Identifier FilePath FilePath
     | ModuleNotFound Identifier
     | CircularModuleDependency [(Identifier,Identifier,Position)]
-  deriving (Show,Read,Data,Typeable,Eq,Ord)
+  deriving (Show,Read,Data,Typeable,Eq,Ord,Generic)
+
+instance Hashable ModuleErr
 
 instance PP ModuleErr where
     pp (DuplicateModuleName i f1 f2) = text "Duplicate module" <+> quotes (text i) <> char ':' $+$ nest 4 (text f1 $+$ text f2)
@@ -367,7 +378,9 @@ typecheckerError = TypecheckerError
 data SecrecWarning
     = TypecheckerWarning Position TypecheckerWarn
     | ErrWarn SecrecError
-  deriving (Show,Typeable,Eq,Ord)
+  deriving (Show,Typeable,Eq,Ord,Generic)
+
+instance Hashable SecrecWarning
 
 instance Located SecrecWarning where
     type LocOf SecrecWarning = Position
@@ -410,7 +423,9 @@ data TypecheckerWarn
         Doc -- type
         String -- min range
         String -- max range
-  deriving (Data,Show,Typeable,Eq,Ord)
+  deriving (Data,Show,Typeable,Eq,Ord,Generic)
+ 
+instance Hashable TypecheckerWarn
 
 instance PP TypecheckerWarn where
     pp w@(UnusedVariable v) = text "Unused variable" <+> quotes v

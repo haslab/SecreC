@@ -26,7 +26,7 @@ import System.FilePath
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Except
-import Control.Monad.Reader
+import Control.Monad.Reader as Reader
 
 import Text.PrettyPrint hiding (mode,Mode(..))
 
@@ -89,6 +89,36 @@ resolveOutput inputs outputs modules = map res modules
         Just Nothing -> ((ppargs,m),OutputStdout) -- intput without matching output
         Nothing -> ((ppargs,m),NoOutput) -- non-input loaded module
 
+passes :: [((PPArgs,Module Identifier Position),OutputType)] -> SecrecM IO ()
+passes modules = do
+    tc <- typecheck modules
+    case tc of
+        Nothing -> return ()
+        Just typedModules -> do
+            liftIO $ output typedModules
+        
+
+typecheck :: [((PPArgs,Module Identifier Position),OutputType)] -> SecrecM IO (Maybe [((PPArgs,Module VarIdentifier (Typed Position)),OutputType)])
+typecheck modules = do
+    opts <- Reader.ask
+    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . modulePosId . snd . fst) modules) <+> text str <> char '.'
+    if (typeCheck opts)
+        then runTcM $ failTcM noloc $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
+            typedModules <- fmapFstM tcModuleWithPPArgs modules
+            printMsg "are well-typed"
+            return $ Just typedModules
+        else do
+            printMsg "parsed OK" 
+            return Nothing
+
+output :: [((PPArgs,Module VarIdentifier (Typed Position)),OutputType)] -> IO () 
+output modules = forM_ modules $ \((ppargs,m),o) -> case o of
+    NoOutput -> return ()
+    OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
+    OutputStdout -> do
+        putStrLn $ show (moduleFile m) ++ ":"
+        putStrLn $ show $ pp ppargs $+$ pp m
+
 secrec :: Options -> IO ()
 secrec opts = do
     let secrecFiles = inputs opts
@@ -97,11 +127,6 @@ secrec opts = do
     runSecrecM opts $ do
         modules <- parseModuleFiles secrecFiles
         let moduleso = resolveOutput secrecFiles secrecOuts modules
-        let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . modulePosId . snd) modules) <+> text str <> char '.'
-        if (typeCheck opts)
-            then runTcM $ failTcM noloc $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
-                typedModulesO <- fmapFstM tcModuleWithPPArgs moduleso
-                printMsg "are well-typed"
-            else printMsg "parsed OK"
+        passes moduleso
         
 
