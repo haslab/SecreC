@@ -1187,4 +1187,5 @@ instance PP iden => PP [Expression iden loc] where
 instance PP iden => PP [(Expression iden loc, IsVariadic)] where
     pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
     
-    
+varExpr :: Location loc => VarName iden loc -> Expression iden loc
+varExpr v = RVariablePExpr (loc v) v

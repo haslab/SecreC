@@ -123,16 +123,16 @@ buildTypeSpec l tsec tdta tdim True = do
     ts <- forM tzips $ \(s,b,dim) -> buildTypeSpec l s b dim False
     case ts of
         [t] -> do
-            sz <- newSizeVar
+            sz <- newSizeVar Nothing
             return $ VAType t sz
         otherwise -> return $ VArrayT $ VAVal ts TType
 buildTypeSpec l tsec tdta dim False = do
     ts <- typeToSecType l tsec
     td <- typeToBaseType l tdta
-    x <- newTypedVar "dim" (BaseT index)
+    x <- newTypedVar "dim" (BaseT index) $ Just $ pp dim
     tcCstrM l $ Coerces dim x
     let dim' = varExpr x
-    szs <- newSizesVar dim'
+    szs <- newSizesVar dim' Nothing
     return $ ComplexT $ CType ts td dim' szs
     
 zipCTypeArgs l [s] [b] [d] = return [(s,b,d)]
@@ -170,9 +170,9 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM (tcVariadicArg tcTemplateTypeArgument) args
     let ts = map (mapFst (typed . loc)) args'
     let vn = bimap mkVarId id n
-    dec <- newDecVar
+    dec <- newDecVar Nothing
     tcTopCstrM l $ TDec (funit vn) ts dec
-    ret <- newBaseTyVar
+    ret <- newBaseTyVar Nothing
     tcTopCstrM l $ TRet dec (BaseT ret)
     let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'

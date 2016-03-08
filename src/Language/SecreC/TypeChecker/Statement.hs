@@ -105,10 +105,9 @@ tcStmt ret (WhileStatement l condE bodyS) = do
     return (WhileStatement (notTyped "tcStmt" l) condE' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- mapM (tcVariadicArg tcExpr) argsE
-    let targs = map (typed . loc . fst) argsE'
-    xs <- replicateM (length targs) $ do
-        tx <- newTyVar
-        newTypedVar "print" tx
+    xs <- forM argsE' $ \argE' -> do
+        tx <- newTyVar Nothing
+        newTypedVar "print" tx $ Just $ ppVariadicArg pp argE'
     tcTopCstrM l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
@@ -143,7 +142,7 @@ tcStmt ret (ReturnStatement l Nothing) = do
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
-    x <- newTypedVar "ret" ret
+    x <- newTypedVar "ret" ret $ Just $ pp e
     tcTopCstrM l $ Coerces (fmap typed e') x
     let t = StmtType (Set.singleton StmtReturn)
     let ex = fmap (Typed l) $ RVariablePExpr ret x

@@ -75,10 +75,11 @@ resolveTemplateEntry p n targs pargs ret e dict = do
     def <- ppTpltAppM p n targs pargs ret
     -- guarantee that the most specific template can be fully instantiated
     arr <- askErrorM'
-    prove p "resolveTemplateEntry" $ addHeadTDict $ templateCstrs arr def p dict
-    case entryType e of
-        DecT dec -> return dec
-        t -> genTcError (locpos p) $ text "resolveTemplateEntry: not a declaration type" <+> pp t
+    dec <- typeToDecType p (entryType e)
+    -- prove the body (with a recursive declaration)
+    withTpltDecRec dec $ do
+        prove p "resolveTemplateEntry" $ addHeadTDict $ templateCstrs arr def p dict
+    return dec
 
 ppTpltAppM :: (VarsIdTcM loc m,Location loc) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> TcM loc m Doc
 ppTpltAppM l pid args es ret = do
@@ -95,7 +96,7 @@ ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets 
 ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> pp (loc e) <> ppVariadic b) $ concat args)
 
 templateDecReturn :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> TcM loc m Type
-templateDecReturn l (DecType _ _ _ _ _ _ b) = templateDecReturn l b
+templateDecReturn l (DecType _ _ _ _ _ _ _ b) = templateDecReturn l b
 templateDecReturn l (ProcType _ _ _ r _) = return r
 templateDecReturn l s@(StructType {}) = return $ BaseT $ TyDec s
 templateDecReturn l (DVar v) = do
@@ -206,7 +207,7 @@ matchVariadicPArg doCoerce l (v,True) exs = do
         otherwise -> do
             sz <- typeSize l t
             b <- typeBase l t
-            (unzip -> (vs,exs1),exs2) <- spanMaybeM (\ex -> newTypedVar "varr" b >>= \v -> tryCstrMaybe l (coercePArg doCoerce l (varExpr v) ex >> return (v,ex))) exs
+            (unzip -> (vs,exs1),exs2) <- spanMaybeM (\ex -> newTypedVar "varr" b Nothing >>= \v -> tryCstrMaybe l (coercePArg doCoerce l (varExpr v) ex >> return (v,ex))) exs
             -- match the array content
             unifiesExprTy l v (ArrayConstructorPExpr t $ map varExpr vs)
             -- match the array size
@@ -236,11 +237,11 @@ expandPArgExpr :: (VarsIdTcM loc m,Location loc) => loc -> ((Expression VarIdent
 expandPArgExpr l ((e,False),x) = return [(e,x)]
 expandPArgExpr l ((e,True),x) = do
     vs <- expandVariadicExpr l (e,True)
-    news <- newDomainTyVar AnyKind
-    newb <- newBaseTyVar
+    news <- newDomainTyVar AnyKind Nothing
+    newb <- newBaseTyVar Nothing
     let ct = ComplexT $ CType news newb (indexSExpr 1) [(indexSExpr $ toEnum $ length vs,False)]
     let ct0 = ComplexT $ CType news newb (indexSExpr 0) []
-    xs <- forM vs $ \v -> newTypedVar "xi" ct0
+    xs <- forM vs $ \v -> newTypedVar "xi" ct0 Nothing
     -- match array content
     unifiesExprTy l (varExpr x) (ArrayConstructorPExpr ct $ map varExpr xs)
     -- match array type
@@ -312,25 +313,25 @@ templateIdentifier :: Type -> TIdentifier
 templateIdentifier (DecT t) = templateIdentifier' t
     where
     templateIdentifier' :: DecType -> TIdentifier
-    templateIdentifier' (DecType _ _ _ _ _ _ t) = templateIdentifier' t
+    templateIdentifier' (DecType _ _ _ _ _ _ _ t) = templateIdentifier' t
     templateIdentifier' (ProcType _ n _ _ _) = Right n
     templateIdentifier' (StructType _ n _) = Left n
         
 -- | Extracts a head signature from a template type declaration (template arguments,procedure arguments, procedure return type)
 templateArgs :: (MonadIO m,Location loc) => TIdentifier -> EntryEnv loc -> TcM loc m (Maybe [(Cond Type,IsVariadic)],Maybe [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)],Maybe Type)
 templateArgs (Left name) e = case entryType e of
-    DecT (DecType _ args hcstrs cstrs [] frees body) -> do -- a base template uses the base arguments
+    DecT (DecType _ _ args hcstrs cstrs [] frees body) -> do -- a base template uses the base arguments
         return (Just $ map (mapFst (fmap varNameToType)) args,Nothing,Nothing)
-    DecT (DecType _ args hcstrs cstrs specials frees body) -> do -- a specialization uses the specialized arguments
+    DecT (DecType _ _ args hcstrs cstrs specials frees body) -> do -- a specialization uses the specialized arguments
         return (Just $ map (mapFst (flip Cond Nothing)) specials,Nothing,Nothing)
 templateArgs (Right name) e = case entryType e of
-    DecT (DecType _ args hcstrs cstrs [] frees (ProcType _ n vars ret stmts)) -> do -- include the return type
+    DecT (DecType _ _ args hcstrs cstrs [] frees (ProcType _ n vars ret stmts)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
     otherwise -> genTcError (locpos $ entryLoc e) $ text "Invalid type for procedure template"
 
 templateTDict :: Location loc => EntryEnv loc -> (TDict loc,TDict loc)
 templateTDict e = case entryType e of
-    DecT (DecType _ _ hd d _ _ _) -> (fmap (updpos l) hd,fmap (updpos l) d)
+    DecT (DecType _ _ _ hd d _ _ _) -> (fmap (updpos l) hd,fmap (updpos l) d)
     otherwise -> (mempty,mempty)
   where l = entryLoc e
 
@@ -347,7 +348,7 @@ localTemplate e = case entryType e of
 
 localTemplateType :: (VarsIdTcM loc m,Location loc) => SubstsProxy VarIdentifier (TcM loc m) -> Map VarIdentifier VarIdentifier -> loc -> DecType -> TcM loc m (DecType,SubstsProxy VarIdentifier (TcM loc m))
 localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) ssBounds (l::loc) et = case et of
-    DecType tpltid (unzip -> (args,isVariadics)) hcstrs cstrs (unzip -> (specials,isVariadics2)) frees body -> do
+    DecType tpltid isrec (unzip -> (args,isVariadics)) hcstrs cstrs (unzip -> (specials,isVariadics2)) frees body -> do
         (frees',freelst) <- Utils.mapAndUnzipM freeVar $ Set.toList frees
         let freess :: SubstsProxy VarIdentifier (TcM loc m)
             freess = substsProxyFromList freelst `appendSubstsProxy` ss0
@@ -357,7 +358,7 @@ localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) ssBounds (l::loc)
         (body',ss') <- localTemplateType ss ssBounds' l body
         hcstrs' <- substProxy ss' False ssBounds' hcstrs
         cstrs' <- substProxy ss' False ssBounds' cstrs
-        return (DecType tpltid (zip args' isVariadics) hcstrs' cstrs' (zip specials' isVariadics2) (Set.fromList frees') body',ss')
+        return (DecType tpltid isrec (zip args' isVariadics) hcstrs' cstrs' (zip specials' isVariadics2) (Set.fromList frees') body',ss')
     ProcType p pid (unzip3 -> (isConsts,args,isVariadics)) ret stmts -> do
         (args',ss) <- uniqueVars l ss0 ssBounds args
         ret' <- substProxy ss False ssBounds ret
@@ -371,9 +372,9 @@ localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) ssBounds (l::loc)
         return (v',(v,v'))
     uniqueVar :: loc -> SubstsProxy VarIdentifier (TcM loc m) -> Map VarIdentifier VarIdentifier -> Cond (VarName VarIdentifier Type) -> TcM loc m (Cond (VarName VarIdentifier Type),SubstsProxy VarIdentifier (TcM loc m))
     uniqueVar (l::loc) ss ssBounds (Cond i@(VarName t v) c) = do
-        j <- newTyVarId
+        j <- uniqVarId (varIdBase v) Nothing
         t' <- substProxy ss False ssBounds t
-        let i' = VarName t' (VarIdentifier (varIdBase v) (Just j) False)
+        let i' = VarName t' j
         let ss' :: SubstsProxy VarIdentifier (TcM loc m)
             ss' = substsProxyFromTSubsts l (Map.singleton v (varNameToType i')) `appendSubstsProxy` ss
         c' <- substProxy ss' False ssBounds c

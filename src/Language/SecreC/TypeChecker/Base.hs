@@ -8,7 +8,7 @@ import Language.SecreC.Monad
 import Language.SecreC.Syntax
 import Language.SecreC.Utils
 import Language.SecreC.Error
-import Language.SecreC.Pretty
+import Language.SecreC.Pretty as PP
 import Language.SecreC.Vars
 
 import Data.Foldable
@@ -47,7 +47,7 @@ import Control.Monad.Trans.Control
 import Unsafe.Coerce
 
 import Text.PrettyPrint as PP hiding (float,int)
-import qualified Text.PrettyPrint as Pretty
+import qualified Text.PrettyPrint as PP
 
 import qualified Data.HashTable.Weak.IO as WeakHash
 
@@ -952,10 +952,10 @@ newTyVarId :: MonadIO m => TcM loc m TyVarId
 newTyVarId = do
     liftIO $ atomicModifyIORef' globalEnv $ \g -> (g { tyVarId = succ (tyVarId g) },tyVarId g)
 
-uniqVarId :: MonadIO m => Identifier -> TcM loc m VarIdentifier
-uniqVarId n = do
+uniqVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM loc m VarIdentifier
+uniqVarId n doc = do
     i <- newTyVarId
-    let v = VarIdentifier n (Just i) False 
+    let v = VarIdentifier n (Just i) False doc
     addFree v
     return v
     
@@ -1030,6 +1030,7 @@ data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
         , varIdUniq :: Maybe TyVarId
         , varIdTok :: Bool -- if the variable is a token (not to be resolved) (only used for comparisons)
+        , varIdPretty :: Maybe Doc -- for free variables introduced by typechecking
         }
     deriving (Typeable,Data,Show)
 
@@ -1042,10 +1043,12 @@ varTok :: VarName VarIdentifier loc -> Bool
 varTok (VarName _ n) = varIdTok n
 
 mkVarId :: Identifier -> VarIdentifier
-mkVarId s = VarIdentifier s Nothing False
+mkVarId s = VarIdentifier s Nothing False Nothing
 
 instance PP VarIdentifier where
-    pp = ppVarId
+    pp (varIdPretty -> Just s) = s
+    pp (VarIdentifier n Nothing _ _) = text n
+    pp (VarIdentifier n (Just i) _ _) = text n <> char '_' <> PP.int i
 
 type TyVarId = Int
 
@@ -1086,6 +1089,7 @@ data DecType
         [Cond (Attribute VarIdentifier Type)] -- ^ typed arguments
     | DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         TyVarId -- ^ unique template declaration id
+        Bool -- is a recursive invocation
         [(Cond (VarName VarIdentifier Type),IsVariadic)] -- ^ template variables
         (TDict Position) -- ^ constraints for the header
         (TDict Position) -- ^ constraints for the template
@@ -1097,8 +1101,15 @@ data DecType
   deriving (Typeable,Show,Data,Generic)
 
 isTemplateDecType :: DecType -> Bool
-isTemplateDecType (DecType _ ts _ _ specs _ _) = not (null ts && null specs)
+isTemplateDecType (DecType _ _ ts _ _ specs _ _) = not (null ts && null specs)
 isTemplateDecType _ = False
+
+isRecursiveDecType :: DecType -> Bool
+isRecursiveDecType (DecType i _ _ _ _ _ _ d) = everything (||) (mkQ False aux) d
+    where
+    aux :: DecType -> Bool
+    aux (DecType j True _ _ _ _ _ _) = i == j
+    aux d = False
 
 instance Hashable DecType
 
@@ -1227,21 +1238,21 @@ instance PP VArrayType where
 instance PP SecType where
     pp Public = text "public"
     pp (Private d k) = pp d
-    pp (SVar v k) = parens (ppVarId v <+> text "::" <+> pp k)
+    pp (SVar v k) = parens (pp v <+> text "::" <+> pp k)
 instance PP DecType where
-    pp (DecType _ vars hdict dict specs frees body@(StructType _ n atts)) =
+    pp (DecType _ isrec vars hdict dict specs frees body@(StructType _ n atts)) =
         text "Frees:" <+> pp frees
         $+$ pp hdict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ pp dict
         $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
-    pp (DecType _ vars hdict dict [] frees body@(ProcType _ (Left n) args ret stmts)) =
+    pp (DecType _ isrec vars hdict dict [] frees body@(ProcType _ (Left n) args ret stmts)) =
         text "Frees:" <+> pp frees
         $+$ pp hdict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ pp dict
         $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> pp t <> ppVariadic isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
-    pp (DecType _ vars hdict dict [] frees body@(ProcType _ (Right n) args ret stmts)) =
+    pp (DecType _ isrec vars hdict dict [] frees body@(ProcType _ (Right n) args ret stmts)) =
         text "Frees:" <+> pp frees
         $+$ pp hdict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
@@ -1257,13 +1268,13 @@ instance PP DecType where
 instance PP BaseType where
     pp (TyPrim p) = pp p
     pp (TyDec d) = pp d
-    pp (BVar v) = ppVarId v
+    pp (BVar v) = pp v
 instance PP ComplexType where
     pp (TyLit lit) = pp lit
     pp (ArrayLit es) = braces (sepBy comma $ map pp $ Foldable.toList es)
     pp Void = text "void"
     pp (CType s t d szs) = pp s <+> pp t <> brackets (brackets (pp d)) <> parens (sepBy comma $ map pp szs)
-    pp (CVar v) = ppVarId v
+    pp (CVar v) = pp v
 instance PP SysType where
     pp t@(SysPush {}) = text (show t)
     pp t@(SysRet {}) = text (show t)
@@ -1272,7 +1283,7 @@ instance PP SysType where
 
 instance PP Type where
     pp t@(NoType msg) = text "no type"
-    pp (VAType t sz) = parens $ pp t <> text "..." <> parens (pp sz)
+    pp (VAType t sz) = parens $ pp t <> text "..." <> nonemptyParens (pp sz)
     pp t@TType = text "complex type"
     pp t@BType = text "base type"
     pp t@DType = text "declaration type"
@@ -1336,12 +1347,12 @@ typeClass msg (BaseT _) = TypeC
 typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
 
 isStruct :: DecType -> Bool
-isStruct (DecType _ _ _ _ _ _ (StructType {})) = True
+isStruct (DecType _ _ _ _ _ _ _ (StructType {})) = True
 isStruct (StructType {}) = True
 isStruct _ = False
 
 isStructTemplate :: Type -> Bool
-isStructTemplate (DecT (DecType _ _ _ _ _ _ (StructType {}))) = True
+isStructTemplate (DecT (DecType _ _ _ _ _ _ _ (StructType {}))) = True
 isStructTemplate _ = False
 
 isVoid :: ComplexType -> Bool
@@ -1454,14 +1465,14 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType wher
         n' <- f n
         as' <- inLHS $ mapM f as
         return $ StructType p n' as'
-    traverseVars f (DecType tid vs hd d spes frees t) = varsBlock $ do
+    traverseVars f (DecType tid isrec vs hd d spes frees t) = varsBlock $ do
         vs' <- inLHS $ mapM f vs
         frees' <- inLHS $ liftM Set.fromList $ mapM f $ Set.toList frees
         hd' <- f hd
         d' <- f d
         spes' <- mapM f spes
         t' <- f t
-        return $ DecType tid vs' hd' d' spes' frees' t'
+        return $ DecType tid isrec vs' hd' d' spes' frees' t'
     traverseVars f (DVar v) = do
         v' <- f v
         return $ DVar v'
@@ -1676,7 +1687,7 @@ isPublicSecType _ = False
 decTypeTyVarId :: DecType -> Maybe TyVarId
 decTypeTyVarId (StructType _ _ _) = Nothing
 decTypeTyVarId (ProcType _ _ _ _ _) = Nothing
-decTypeTyVarId (DecType i _ _ _ _ _ _) = Just i
+decTypeTyVarId (DecType i _ _ _ _ _ _ _) = Just i
 decTypeTyVarId (DVar _) = Nothing
 
 instance Location Type where
@@ -1710,25 +1721,21 @@ ppTpltArg :: Cond (VarName VarIdentifier Type) -> Doc
 ppTpltArg = ppCond ppTpltArg'
     where
     ppTpltArg' :: VarName VarIdentifier Type -> Doc
-    ppTpltArg' (VarName BType v) = text "type" <+> ppVarId v
-    ppTpltArg' (VarName (SType AnyKind) v) = text "domain" <+> ppVarId v
-    ppTpltArg' (VarName (SType (PrivateKind Nothing)) v) = text "domain" <+> ppVarId v
-    ppTpltArg' (VarName (SType (PrivateKind (Just k))) v) = text "domain" <+> ppVarId v <+> char ':' <+> pp k
-    ppTpltArg' (VarName t v) | isIntType t = text "dim" <+> ppVarId v
-    ppTpltArg' (VarName (VAType b sz) v) | isIntType b = text "dim..." <+> ppVarId v
-    ppTpltArg' (VarName (VAType BType sz) v) = text "type..." <+> ppVarId v
-    ppTpltArg' (VarName (VAType (SType _) sz) v) = text "domain..." <+> ppVarId v
+    ppTpltArg' (VarName BType v) = text "type" <+> pp v
+    ppTpltArg' (VarName (SType AnyKind) v) = text "domain" <+> pp v
+    ppTpltArg' (VarName (SType (PrivateKind Nothing)) v) = text "domain" <+> pp v
+    ppTpltArg' (VarName (SType (PrivateKind (Just k))) v) = text "domain" <+> pp v <+> char ':' <+> pp k
+    ppTpltArg' (VarName t v) | isIntType t = text "dim" <+> pp v
+    ppTpltArg' (VarName (VAType b sz) v) | isIntType b = text "dim..." <+> pp v
+    ppTpltArg' (VarName (VAType BType sz) v) = text "type..." <+> pp v
+    ppTpltArg' (VarName (VAType (SType _) sz) v) = text "domain..." <+> pp v
     ppTpltArg' v = error $ "ppTpltArg: " ++ ppr v ++ " " ++ ppr (loc v)
-
-ppVarId :: VarIdentifier -> Doc
-ppVarId (VarIdentifier n Nothing _) = text n
-ppVarId (VarIdentifier n (Just i) _) = text n <> char '_' <> Pretty.int i
     
 ppTSubsts :: TSubsts -> Doc
 ppTSubsts xs = vcat $ map ppSub $ Map.toList xs
     where
-    ppSub (k,IdxT e) = ppVarId k <+> char '=' <+> ppExprTy e
-    ppSub (k,t) = ppVarId k <+> char '=' <+> pp t
+    ppSub (k,IdxT e) = pp k <+> char '=' <+> ppExprTy e
+    ppSub (k,t) = pp k <+> char '=' <+> pp t
 
 ppArrayRanges :: [ArrayProj] -> Doc
 ppArrayRanges = sepBy comma . map pp
@@ -1927,9 +1934,6 @@ removeOrWarn :: SecrecError -> SecrecError
 removeOrWarn = everywhere (mkT f) where
     f (OrWarn err) = err
     f err = err
-    
-varExpr :: Location loc => VarName iden loc -> Expression iden loc
-varExpr v = RVariablePExpr (loc v) v
 
 varIdxT :: VarName VarIdentifier Type -> Type
 varIdxT v = IdxT $ varExpr v
@@ -1944,7 +1948,7 @@ withoutImplicitClassify :: Monad m => TcM loc m a -> TcM loc m a
 withoutImplicitClassify m = localOpts (\opts -> opts { implicitClassify = False }) m
 
 instance MonadIO m => GenVar VarIdentifier (TcM loc m) where
-    genVar v = uniqVarId (varIdBase v)
+    genVar v = uniqVarId (varIdBase v) (varIdPretty v)
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do

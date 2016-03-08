@@ -591,11 +591,11 @@ equalsList l xs ys = constraintError (EqualityException "type") l xs pp ys pp No
 zipSizes :: (VarsIdTcM loc m,Location loc) => loc -> [Expression VarIdentifier Type] -> [Expression VarIdentifier Type] -> TcM loc m [(Expression VarIdentifier Type,Expression VarIdentifier Type)]
 zipSizes l [] [] = return []
 zipSizes l [] (y:ys) = do
-    x <- newSizeVar
+    x <- newSizeVar Nothing
     zs <- zipSizes l [] ys
     return ((x,y):zs)
 zipSizes l (x:xs) [] = do
-    y <- newSizeVar
+    y <- newSizeVar Nothing
     zs <- zipSizes l xs []
     return ((x,y):zs)
 zipSizes l (x:xs) (y:ys) = do
@@ -608,10 +608,10 @@ equalsPrim l t1 t2 = constraintError (EqualityException "primitive type") l t1 p
 
 expandCTypeVar :: (VarsIdTcM loc m,Location loc) => loc -> VarIdentifier -> TcM loc m ComplexType
 expandCTypeVar l v = do
-    d <- newDomainTyVar AnyKind
-    t <- newBaseTyVar
-    dim <- newDimVar
-    szs <- newSizesVar dim
+    d <- newDomainTyVar AnyKind Nothing
+    t <- newBaseTyVar Nothing
+    dim <- newDimVar Nothing
+    szs <- newSizesVar dim Nothing
     let ct = CType d t dim szs
     addSubstM l (VarName TType v) $ ComplexT ct
     return ct
@@ -718,7 +718,7 @@ coerces2Sec l e1@(loc -> ComplexT ct1) e2@(loc -> ComplexT ct2) x1 x2 = do
 
 coercesE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Type -> TcM loc m (Expression VarIdentifier Type)
 coercesE l e1 t2 = do
-    x2 <- newTypedVar "coerces" t2
+    x2 <- newTypedVar "coerces" t2 $ Just $ pp e1
     tcCstrM l $ Coerces e1 x2
     return $ varExpr x2
 
@@ -736,7 +736,7 @@ coerces l e1 x2 = addErrorM l (TypecheckerError (locpos l) . (CoercionException 
 
 coercesComplexE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> ComplexType -> TcM loc m (Expression VarIdentifier Type)
 coercesComplexE l e1 ct2 = do
-    x2 <- newTypedVar "coerces_complex" $ ComplexT ct2
+    x2 <- newTypedVar "coerces_complex" (ComplexT ct2) $ Just $ pp e1
     coercesComplex l e1 x2
     return $ varExpr x2
 
@@ -786,7 +786,7 @@ coercesSecE :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier
 coercesSecE l e1 s2 = do
     ct1 <- typeToComplexType l (loc e1)
     let t2 = ComplexT $ setCSec ct1 s2
-    x2 <- newTypedVar "coerces_sec" t2
+    x2 <- newTypedVar "coerces_sec" t2 $ Just $ pp e1
     coercesSec l e1 x2
     return $ varExpr x2
 
@@ -811,7 +811,7 @@ coercesSec' l e1 ct1@(cSec -> s1@Public) x2 s2@(SVar v AnyKind) = do
             opts <- askOpts
             if implicitClassify opts
                 then do
-                    v' <- newDomainTyVar $ PrivateKind Nothing
+                    v' <- newDomainTyVar (PrivateKind Nothing) Nothing
                     ks <- classifiesCstrs l e1 ct1 x2 s2
                     tcCstrM l $ MultipleSubstitutions v [(SecT Public,[Unifies (loc x2) (loc e1),Unifies (IdxT $ varExpr x2) (IdxT e1)]),(SecT v',ks)]
                 else do
@@ -870,7 +870,7 @@ classifiesCstrs :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdenti
 classifiesCstrs l e1 ct1 x2 s2 = do
     let ct2 = setCSec ct1 s2
     let classify = ProcedureName () $ mkVarId "classify"
-    dec <- newDecVar
+    dec <- newDecVar Nothing
     let k1 = PDec (Left classify) Nothing [(e1,False)] (ComplexT ct2) dec Nothing
     let k2 = Unifies (loc x2) (ComplexT ct2)
     let k3 = Unifies (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) (fmap (const $ DecT dec) classify) Nothing [(e1,False)])
@@ -987,37 +987,37 @@ compares l t1 t2 = addErrorM l
 decToken :: MonadIO m => TcM loc m DecType
 decToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True
+    let v = VarIdentifier "tok" (Just i) True Nothing
     return $ DVar v
 
 secToken :: MonadIO m => TcM loc m SecType
 secToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True
+    let v = VarIdentifier "tok" (Just i) True Nothing
     return $ SVar v AnyKind
     
 baseToken :: MonadIO m => TcM loc m BaseType
 baseToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True
+    let v = VarIdentifier "tok" (Just i) True Nothing
     return $ BVar v
 
 arrayToken :: MonadIO m => Type -> SExpr VarIdentifier Type -> TcM loc m VArrayType
 arrayToken b sz = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True
+    let v = VarIdentifier "tok" (Just i) True Nothing
     return $ VAVar v b sz
 
 complexToken :: MonadIO m => TcM loc m ComplexType
 complexToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True
+    let v = VarIdentifier "tok" (Just i) True Nothing
     return $ CVar v
 
 exprToken :: MonadIO m => TcM loc m (Expression VarIdentifier Type)
 exprToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True
+    let v = VarIdentifier "tok" (Just i) True Nothing
     let t = BaseT $ BVar v
     return $ RVariablePExpr t (VarName t v)
 
@@ -1505,14 +1505,14 @@ expandVariadicExpr l (e,True) = do
                 1 -> do
                     sz <- evaluateTypeSize l t
                     b <- typeBase l t
-                    vs <- forM [0..pred (fromEnum sz)] $ \i -> newTypedVar ("vex"++show i) b
+                    vs <- forM [0..pred (fromEnum sz)] $ \i -> newTypedVar ("vex"++show i) b Nothing
                     let es = map varExpr vs
                     tcCstrM l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t es)
                     return es
                 otherwise -> genTcError (locpos l) $ text "Variadic matrix" <+> quotes (pp t) <+> text "not supported"
         VArrayT a -> do
             ts <- expandVariadicType l (VArrayT a,True)
-            vs <- forM ts $ \t -> newTypedVar "vex" t
+            vs <- forM ts $ \t -> newTypedVar "vex" t Nothing
             let es = map varExpr vs
             tcCstrM l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t es)
             return es
@@ -1527,7 +1527,7 @@ expandVariadicType l (t@(VArrayT a),True) = do
     let tt = tyOf t
     sz <- evaluateTypeSize l tt
     b <- typeBase l tt
-    vs <- forM [0..pred (fromEnum sz)] $ \i -> newVarOf ("varr"++show i) b
+    vs <- forM [0..pred (fromEnum sz)] $ \i -> newVarOf ("varr"++show i) b Nothing
     tcCstrM l $ Unifies t (VArrayT $ VAVal vs b)
     return vs
 expandVariadicType l (t,True) = genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (pp t)
@@ -1787,13 +1787,13 @@ checkArrayAccess l t d low up sz = do
 
 tcTopPDecCstrM :: (VarsIdTcM loc m,Location loc) => loc -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expression VarIdentifier Type,IsVariadic)] -> Type -> TcM loc m (DecType,[(Expression VarIdentifier Type,IsVariadic)])
 tcTopPDecCstrM l doCoerce pid targs es tret = do
-    dec <- newDecVar
+    dec <- newDecVar Nothing
     opts <- askOpts
     if (doCoerce && implicitClassify opts)
         then do
-            xs <- replicateM (length es) $ do
-                tx <- newTyVar
-                x <- newTypedVar "parg" tx
+            xs <- forM es $ \e -> do
+                tx <- newTyVar Nothing
+                x <- newTypedVar "parg" tx $ Just $ ppVariadicArg pp e
                 return x
             tcTopCstrM l $ PDec pid targs es tret dec $ Just xs
             let es' = zip (map varExpr xs) (map snd es)

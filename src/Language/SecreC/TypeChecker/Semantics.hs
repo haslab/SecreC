@@ -151,7 +151,7 @@ evalProc :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> [(Expression Var
 evalProc l (DVar v) args = do
     d <- resolveDVar l v
     evalProc l d args
-evalProc l (DecType _ [] d1 d2 [] _ proc) args = tcBlock $ do
+evalProc l (DecType _ _ [] d1 d2 [] _ proc) args = tcBlock $ do
     addHeadTDict $ fmap (updpos l) d1
     addHeadTDict $ fmap (updpos l) d2
     evalProc l proc args

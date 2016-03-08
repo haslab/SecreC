@@ -12,6 +12,9 @@ import Data.Generics hiding (empty,GT)
 class PP a where
     pp :: a -> Doc
 
+nonemptyParens :: Doc -> Doc
+nonemptyParens x = if isEmpty x then empty else parens x
+
 ppr :: PP a => a -> String
 ppr = show . pp
 
