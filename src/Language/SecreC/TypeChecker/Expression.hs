@@ -257,16 +257,16 @@ tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM l
 tcVarName isConst v@(VarName l n) = checkVariable isConst LocalScope (bimap mkVarId id v)
 
 -- | returns the operation performed by a binary assignment operation
-binAssignOpToOp :: BinaryAssignOp loc -> Maybe (Op Identifier ())
-binAssignOpToOp (BinaryAssignEqual _) = Nothing
-binAssignOpToOp (BinaryAssignMul _) = Just $ OpMul ()
-binAssignOpToOp (BinaryAssignDiv _) = Just $ OpDiv ()
-binAssignOpToOp (BinaryAssignMod _) = Just $ OpMod ()
-binAssignOpToOp (BinaryAssignAdd _) = Just $ OpAdd ()
-binAssignOpToOp (BinaryAssignSub _) = Just $ OpSub ()
-binAssignOpToOp (BinaryAssignAnd _) = Just $ OpBand ()
-binAssignOpToOp (BinaryAssignOr _)  = Just $ OpBor ()
-binAssignOpToOp (BinaryAssignXor _) = Just $ OpXor ()
+binAssignOpToOp :: BinaryAssignOp loc -> Maybe (Op iden loc)
+binAssignOpToOp (BinaryAssignEqual l) = Nothing
+binAssignOpToOp (BinaryAssignMul l) = Just $ OpMul l
+binAssignOpToOp (BinaryAssignDiv l) = Just $ OpDiv l
+binAssignOpToOp (BinaryAssignMod l) = Just $ OpMod l
+binAssignOpToOp (BinaryAssignAdd l) = Just $ OpAdd l
+binAssignOpToOp (BinaryAssignSub l) = Just $ OpSub l
+binAssignOpToOp (BinaryAssignAnd l) = Just $ OpBand l
+binAssignOpToOp (BinaryAssignOr l)  = Just $ OpBor l
+binAssignOpToOp (BinaryAssignXor l) = Just $ OpXor l
 
 -- | typechecks an index condition
 tcIndexCond :: (VarsIdTcM loc m,Location loc) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))

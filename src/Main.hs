@@ -18,6 +18,7 @@ import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Monad
 import Language.SecreC.Utils
 import Language.SecreC.Location
+import Language.SecreC.Transformation.Simplify
 
 import System.Console.CmdArgs
 import System.Environment
@@ -95,8 +96,8 @@ passes modules = do
     case tc of
         Nothing -> return ()
         Just typedModules -> do
-            liftIO $ output typedModules
-        
+            simpleModules <- fmapFstM simplifyModuleWithPPArgs typedModules
+            liftIO $ output simpleModules
 
 typecheck :: [((PPArgs,Module Identifier Position),OutputType)] -> SecrecM IO (Maybe [((PPArgs,Module VarIdentifier (Typed Position)),OutputType)])
 typecheck modules = do

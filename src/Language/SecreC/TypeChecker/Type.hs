@@ -172,8 +172,7 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     let vn = bimap mkVarId id n
     dec <- newDecVar Nothing
     tcTopCstrM l $ TDec (funit vn) ts dec
-    ret <- newBaseTyVar Nothing
-    tcTopCstrM l $ TRet dec (BaseT ret)
+    let ret = TApp (funit vn) ts dec
     let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
 tcDatatypeSpec (VariableSpecifier l (TypeName nl n)) = do
@@ -202,8 +201,7 @@ tcTemplateTypeArgument (PrimitiveTemplateTypeArgument l p) = do
     return $ PrimitiveTemplateTypeArgument (Typed l t) p'
 tcTemplateTypeArgument (ExprTemplateTypeArgument l e) = do
     e' <- tcExpr e
-    ie <- tryExpr2IExpr e'
-    let t = IdxT (fmap (typed) e')
+    let t = IdxT (fmap typed e')
     return $ ExprTemplateTypeArgument (Typed l t) e'
 tcTemplateTypeArgument (PublicTemplateTypeArgument l) = do
     let t = SecT $ Public
@@ -299,11 +297,19 @@ projectSize p t i x y1 y2 = do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp t) i (pp elow <> char ':' <> pp eupp) arrerr
             subtractIndexExprs p eupp elow          
 
+structBody :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> TcM loc m Type
+structBody l d@(DecType _ _ _ _ _ _ _ _ b) | not (isTemplateDecType d) = structBody l b
+structBody l s@(StructType {}) = return $ DecT s
+structBody l (DVar v) = resolveDVar l v >>= structBody l
+structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
+
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
 projectStructField :: (VarsIdTcM loc m,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc m Type
 projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
 projectStructField l t@(BVar _) a = tcError (locpos l) $ Halt $ FieldNotFound (pp t) (pp a)
-projectStructField l (TyDec d) a = projectStructFieldDec l d a
+projectStructField l (TApp _ _ d) a = do
+    DecT r <- structBody l d
+    projectStructFieldDec l r a
     
 projectStructFieldDec :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc m Type
 projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field

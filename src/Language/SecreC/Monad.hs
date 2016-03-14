@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances, DeriveDataTypeable, TupleSections, MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies, FlexibleContexts, FlexibleInstances, DeriveDataTypeable, TupleSections, MultiParamTypeClasses #-}
 
 module Language.SecreC.Monad where
     
@@ -16,6 +16,8 @@ import Control.Exception (throwIO)
 import Control.Monad.Signatures
 import Control.Monad.Reader (MonadReader,ReaderT(..),ask,local)
 import qualified Control.Monad.Reader as Reader
+import Control.Monad.Trans.Control
+import Control.Monad.Base
 
 import Data.Generics
 import Data.Map as Map
@@ -35,11 +37,12 @@ data Options
         , paths                 :: [FilePath]
         , parser                :: ParserOpt
         , knowledgeInference    :: Bool
-        , inlineTemplates        :: Bool
+        , simplify              :: Bool
         , typeCheck             :: Bool
         , debugLexer            :: Bool
         , debugParser           :: Bool
         , debugTypechecker      :: Bool
+        , debugTransformation   :: Bool
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitClassify      :: Bool
@@ -57,11 +60,12 @@ instance Monoid Options where
         , paths = List.nub $ paths x ++ paths y
         , parser = parser y
         , knowledgeInference = knowledgeInference x || knowledgeInference y
-        , inlineTemplates = inlineTemplates x || inlineTemplates y
+        , simplify = simplify x && simplify y
         , typeCheck = typeCheck x || typeCheck y
         , debugLexer = debugLexer x || debugLexer y
         , debugParser = debugParser x || debugParser y
         , debugTypechecker = debugTypechecker x || debugTypechecker y
+        , debugTransformation = debugTransformation x || debugTransformation y
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitClassify = implicitClassify x && implicitClassify y
@@ -80,11 +84,12 @@ defaultOptions = Opts
     , paths = []
     , parser = Parsec
     , knowledgeInference = False
-    , inlineTemplates = False
+    , simplify = True
     , typeCheck = True
     , debugLexer = False
     , debugParser = False
     , debugTypechecker = False
+    , debugTransformation = False
     , constraintStackSize = 20
     , evalTimeOut = 5
     , implicitClassify = True
@@ -106,6 +111,14 @@ data SecrecM m a = SecrecM { unSecrecM :: ReaderT Options m (Either SecrecError 
 
 instance MonadTrans SecrecM where
     lift m = SecrecM $ lift $ liftM (Right . (,mempty)) m
+
+instance MonadIO m => MonadBase IO (SecrecM m) where
+    liftBase = liftIO
+
+instance MonadIO m => MonadBaseControl IO (SecrecM m) where
+    type StM (SecrecM m) a = SecrecM m a
+    liftBaseWith f = liftIO $ f return
+    restoreM       = id
 
 mapSecrecM :: (m (Either SecrecError (a,SecrecWarnings)) -> n (Either SecrecError (b,SecrecWarnings))) -> SecrecM m a -> SecrecM n b
 mapSecrecM f (SecrecM m) = SecrecM $ Reader.mapReaderT f m

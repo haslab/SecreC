@@ -77,10 +77,10 @@ tcGlobalDeclaration (GlobalKind l kd) = do
     kd' <- tcKindDecl kd
     return $ GlobalKind (notTyped "tcGlobalDeclaration" l) kd'
 tcGlobalDeclaration (GlobalProcedure l pd) = do
-    pd' <- tcProcedureDecl (newOperator) (newProcedure) pd
+    pd' <- tcProcedureDecl newOperator newProcedure pd
     return $ GlobalProcedure (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalStructure l sd) = do
-    sd' <- tcStructureDecl (newStruct) sd
+    sd' <- tcStructureDecl newStruct sd
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
 tcGlobalDeclaration (GlobalTemplate l td) = do
     td' <- tcTemplateDecl td
@@ -115,7 +115,8 @@ tcProcedureDecl addOp addProc dec@(OperatorDeclaration l ret op ps s) = do
         return (ps',ret',vars,top,tret)
     hdeps <- getDeps
     (s',StmtType st) <- tcStmts tret s
-    let tproc = DecT $ ProcType (locpos l) (Right $ fmap typed top) vars tret $ map (fmap (fmap locpos)) s'
+    c <- buildProcClass dec
+    let tproc = DecT $ ProcType (locpos l) (Right $ fmap typed top) vars tret (map (fmap (fmap locpos)) s') c
     let op' = updLoc top (Typed l tproc)
     tcTopCstrM l $ IsReturnStmt st tret
     op'' <- addOp hdeps op'
@@ -129,12 +130,21 @@ tcProcedureDecl addOp addProc dec@(ProcedureDeclaration l ret proc@(ProcedureNam
         return (ps',ret',vars,tret)
     hdeps <- getDeps
     (s',StmtType st) <- tcStmts tret s
-    let tproc = DecT $ ProcType (locpos l) (Left $ ProcedureName () $ mkVarId pn) vars tret $ map (fmap (fmap locpos)) s'
+    c <- buildProcClass dec
+    let tproc = DecT $ ProcType (locpos l) (Left $ ProcedureName () $ mkVarId pn) vars tret (map (fmap (fmap locpos)) s') c
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     tcTopCstrM l $ IsReturnStmt st tret
     proc'' <- addProc hdeps proc'
     let dec' = ProcedureDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' s'
     return dec'
+
+buildProcClass :: Vars VarIdentifier (TcM loc m) (ProcedureDeclaration VarIdentifier loc) => ProcedureDeclaration Identifier loc -> TcM loc m ProcClass
+buildProcClass dec = do
+    vs <- fvs $ bimap mkVarId id dec
+    let (rs,ws) = Map.foldrWithKey (\v w (rs,ws) -> if w then (rs,Set.insert v ws) else (Set.insert v rs,ws)) (Set.empty,Set.empty) vs
+    if Map.null vs
+        then return PureFunc
+        else return $ RWProc rs ws
 
 tcProcedureParam :: (VarsIdTcM loc m,Location loc) => ProcedureParameter Identifier loc -> TcM loc m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Cond (VarName VarIdentifier Type),IsVariadic))
 tcProcedureParam (ProcedureParameter l s isVariadic v sz) = do
@@ -246,10 +256,9 @@ tcGlobal l m = do
     newDict l "tcGlobal"
     x <- m
     solve l
-    dict <- liftM (headNe . tDict) State.get
-    x' <- substFromTDict l dict False Map.empty x
-    State.modify $ \e -> e { localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = updDict (tDict e) }
+    dict <- liftM ((\[x] -> x) . tDict) State.get
+    x' <- substFromTDict "tcGlobal" l dict False Map.empty x
+--    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
+    State.modify $ \e -> e { localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
     liftIO resetGlobalEnv
     return x'
-  where
-      updDict (ConsNe x xs) = xs

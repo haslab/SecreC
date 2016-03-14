@@ -117,24 +117,24 @@ simplIndexExpr e = do
         Right i -> return $ LitPExpr ty $ IntLit ty $ toInteger i
 
 evalExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m HsVal
-evalExpr e@(BinaryAssign l e1 o e2) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(BinaryAssign l e1 o e2) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
 evalExpr e@(QualExpr l e1 t) = evalExpr (updLoc e1 (flip Typed (typed $ loc $ fst t) $ unTyped $ loc e1))
-evalExpr e@(CondExpr l c e1 e2) = genTcError (locpos l) (pp e)
+evalExpr e@(CondExpr l c e1 e2) = genTcError (locpos l) (text "evalExpr" <+> pp e)
 evalExpr e@(BinaryExpr l e1 o e2) = do
     d <- typeToDecType (unTyped l) (typed $ loc o)
     evalProc (unTyped l) d [(e1,False),(e2,False)]
-evalExpr e@(PreOp l _ e1) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(PostOp l _ e1) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(UnaryExpr l o e1) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(DomainIdExpr l e1) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(StringFromBytesExpr l e1) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(BytesFromStringExpr l e1) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(PreOp l _ e1) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(PostOp l _ e1) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(UnaryExpr l o e1) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(DomainIdExpr l e1) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(StringFromBytesExpr l e1) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(BytesFromStringExpr l e1) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
 evalExpr e@(ProcCallExpr l n _ es) = do
     d <- typeToDecType (unTyped l) (typed $ loc n)
     evalProc (unTyped l) d es
-evalExpr e@(PostIndexExpr l e1 s) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(SelectionExpr l e1 a) = genTcError (locpos l) (pp e) -- TODO
-evalExpr e@(ArrayConstructorPExpr l es) = genTcError (locpos l) (pp e) -- TODO
+evalExpr e@(PostIndexExpr l e1 s) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(SelectionExpr l e1 a) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
+evalExpr e@(ArrayConstructorPExpr l es) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
 evalExpr e@(RVariablePExpr l v) = evalVarName v
 evalExpr e@(LitPExpr l lit) = evalLit lit
 
@@ -151,11 +151,11 @@ evalProc :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> [(Expression Var
 evalProc l (DVar v) args = do
     d <- resolveDVar l v
     evalProc l d args
-evalProc l (DecType _ _ [] d1 d2 [] _ proc) args = tcBlock $ do
+evalProc l (DecType _ _ [] d1 _ d2 _ [] proc) args = tcBlock $ do
     addHeadTDict $ fmap (updpos l) d1
     addHeadTDict $ fmap (updpos l) d2
     evalProc l proc args
-evalProc l (ProcType _ n vars ret stmts) args = tcBlock $ do
+evalProc l (ProcType _ n vars ret stmts _) args = tcBlock $ do
     if (length vars == length args)
         then do
             mapM evalProcParam (zip (List.map (\(x,y,z) -> (x,unCond y,z)) vars) args)
@@ -205,7 +205,7 @@ evalStmt (WhileStatement _ c s) = tcBlock $ do
         HsLit (BoolLit _ ok) <- evalExpr c
         if ok then evalStmt s `loopCont` cyc else return HsVoid
     cyc
-evalStmt s@(PrintStatement l es) = genTcError (locpos l) (pp s)
+evalStmt s@(PrintStatement l es) = genTcError (locpos l) (text "evalStmt" <+> pp s)
 evalStmt (DowhileStatement _ s c) = do
     let cyc = do
         evalStmt s `loopCont` do { HsLit (BoolLit _ ok) <- evalExpr c; if ok then cyc else return HsVoid }
@@ -215,7 +215,7 @@ evalStmt (AssertStatement l e) = do
     if ok then return HsVoid else genTcError (locpos l) (text "Assert failure:" <+> pp e)
 evalStmt s@(SyscallStatement l n ps) = do
     case (n,ps) of
-        (stripPrefix "haskell." -> Just hsn,ps) -> do
+        (stripPrefix "core." -> Just hsn,ps) -> do
             (args,ret) <- parseHaskellParams ps
             res <- haskellSyscall (unTyped l) hsn args
             val <- hsValToSExpr (unTyped l) res
@@ -227,7 +227,7 @@ evalStmt s@(SyscallStatement l n ps) = do
             let t = typed $ loc e
             i <- evalTypeSize (unTyped l) t
             return $ HsUint64 i
-        otherwise -> genTcError (locpos l) (pp s)
+        otherwise -> genTcError (locpos l) (text "evalStmt" <+> pp s)
   where
     parseHaskellParams [SyscallReturn _ ret] = return ([],ret)
     parseHaskellParams (SyscallPush _ e:ps) = do

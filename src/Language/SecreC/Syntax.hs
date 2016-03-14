@@ -301,10 +301,10 @@ instance Location loc => Located (VariableInitialization iden loc) where
     updLoc (VariableInitialization _ x y z) l = VariableInitialization l x y z
  
 instance PP iden => PP (VariableInitialization iden loc) where
-    pp (VariableInitialization _ v dim ex) = pp v <+> ppDim dim <+> ppExp ex
+    pp (VariableInitialization _ v dim ex) = pp v <+> ppSizes dim <+> ppExp ex
         where
-        ppDim Nothing = empty
-        ppDim (Just dim) = parens (pp dim)
+        ppSizes Nothing = empty
+        ppSizes (Just szs) = pp szs
         ppExp Nothing = empty
         ppExp (Just e) = text "=" <+> pp e
 
@@ -1189,3 +1189,5 @@ instance PP iden => PP [(Expression iden loc, IsVariadic)] where
     
 varExpr :: Location loc => VarName iden loc -> Expression iden loc
 varExpr v = RVariablePExpr (loc v) v
+
+

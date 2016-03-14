@@ -101,11 +101,12 @@ instance PP Options where
           <+> text "--paths=" <> PP.sepBy (PP.char ':') (map pp $ paths opts)
           <+> text "--parser=" <> pp (parser opts)
           <+> text "--knowledgeinference=" <> pp (knowledgeInference opts)
-          <+> text "--inlinetemplates=" <> pp (inlineTemplates opts)
+          <+> text "--simplify=" <> pp (simplify opts)
           <+> text "--typecheck=" <> pp (typeCheck opts)
           <+> text "--debuglexer=" <> pp (debugLexer opts)
           <+> text "--debugparser=" <> pp (debugParser opts)
           <+> text "--debugtypechecker=" <> pp (debugTypechecker opts)
+          <+> text "--debugtransformation=" <> pp (debugTransformation opts)
           <+> text "--implicitclassify=" <> pp (implicitClassify opts)
           <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
           <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
@@ -123,7 +124,7 @@ opts  = Opts {
     
     -- Transformation
     , knowledgeInference    = knowledgeInference defaultOptions &= name "ki" &= help "Infer private data from public data" &= groupname "Transformation"
-    , inlineTemplates        = inlineTemplates defaultOptions &= help "Inline all template applications" &= groupname "Transformation"
+    , simplify        = simplify defaultOptions &= help "Simplify the SecreC program" &= groupname "Transformation"
     
     -- Verification
     , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
@@ -131,7 +132,8 @@ opts  = Opts {
     -- Debugging
     , debugLexer            = debugLexer defaultOptions &= help "Print lexer tokens to stderr" &= groupname "Debugging"
     , debugParser           = debugParser defaultOptions &= help "Print parser result to stderr" &= groupname "Debugging"
-    , debugTypechecker           = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"
+    , debugTypechecker      = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"
+    , debugTransformation   = debugTransformation defaultOptions &= help "Print transformation result to stderr" &= groupname "Debugging"
     
     -- Typechecker
     , implicitClassify   = implicitClassify defaultOptions &= name "implicit" &= help "Enables implicit classification of public data" &= groupname "Verification:Typechecker"

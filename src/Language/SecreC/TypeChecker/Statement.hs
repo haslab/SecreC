@@ -51,7 +51,7 @@ tcStmts ret (s:ss) = do
         [] -> return ()
         ss -> unless (hasStmtFallthru c) $ tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat $ map pp ss)
     sBvs <- bvs $ bimap mkVarId id s
-    ssFvs <- fvs $ map (bimap mkVarId id) ss
+    ssFvs <- liftM Map.keysSet $ fvs $ map (bimap mkVarId id) ss
     (ss',StmtType cs) <- tcStmts ret ss
     -- issue warning for unused variable declarations
     forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> tcWarn (locpos $ loc s) $ UnusedVariable (pp v)

@@ -46,7 +46,7 @@ appendSubstsProxy f g = SubstsProxy (\proxy i -> do
 class Monad m => GenVar v m where
     genVar :: v -> m v
 
-class (GenVar iden m,IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
+class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
     
     traverseVars :: (forall b . Vars iden m b => b -> VarsM iden m b) -> a -> VarsM iden m a
     
@@ -73,7 +73,7 @@ class (GenVar iden m,IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
                 b <- isBound v
                 if b 
                     then do
-                        (_,(_,ss),_,_) <- State.get
+                        (_,_,(_,ss),_,_) <- State.get
                         let v' = maybe v id (Map.lookup v ss)
                         State.lift $ substR x v'
                     else do
@@ -85,19 +85,23 @@ class (GenVar iden m,IsScVar iden,Monad m,IsScVar a) => Vars iden m a where
                                 return s'
         traverseVars (substVarsM f) x' -- go recursively
     
-    subst :: Vars iden m iden => Substs iden m -> Bool -> Map iden iden -> a -> m a
-    subst f substBounds ss x = State.evalStateT (substVarsM f x) (False,(substBounds,ss),Set.empty,Set.empty)
+    subst :: Vars iden m iden => String -> Substs iden m -> Bool -> Map iden iden -> a -> m a
+    subst msg f substBounds ss x = do
+--        liftIO $ putStrLn $ "subst " ++ show msg
+        x <- State.evalStateT (substVarsM f x) (False,False,(substBounds,ss),Map.empty,Set.empty)
+--        liftIO $ putStrLn $ "unSubsts " ++ show msg
+        return x
     
-    substProxy :: Vars iden m iden => SubstsProxy iden m -> Bool -> Map iden iden -> a -> m a
-    substProxy (SubstsProxy f) substBounds ss x = subst (f Proxy) substBounds ss x
+    substProxy :: Vars iden m iden => String -> SubstsProxy iden m -> Bool -> Map iden iden -> a -> m a
+    substProxy msg (SubstsProxy f) substBounds ss x = subst msg (f Proxy) substBounds ss x
         
-    fvs :: a -> m (Set iden)
+    fvs :: a -> m (Map iden Bool)
     fvs a = do
-        (x,s,y,z) <- State.execStateT (varsM a) (False,(False,Map.empty),Set.empty,Set.empty)
+        (x,lval,s,y,z) <- State.execStateT (varsM a) (False,False,(False,Map.empty),Map.empty,Set.empty)
         return y
     bvs :: a -> m (Set iden)
     bvs a = do
-        (x,s,y,z) <- State.execStateT (varsM a) (False,(False,Map.empty),Set.empty,Set.empty)
+        (x,lval,s,y,z) <- State.execStateT (varsM a) (False,False,(False,Map.empty),Map.empty,Set.empty)
         return z
     
     varsM :: a -> VarsM iden m a
@@ -120,60 +124,68 @@ substsProxyFromList ((x,y):xs) = SubstsProxy (\proxy iden -> case (eqTypeOf (typ
 
 isBound :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m Bool
 isBound v = do
-    (_,ss,fvs,bvs) <- State.get
+    (_,lval,ss,fvs,bvs) <- State.get
     return $ v `Set.member` bvs
 
 type VarsM iden m = StateT
     (Bool -- is left-hand side
+    ,Bool -- is l-value
     ,(Bool,Map iden iden) -- bound substitutions
-    ,Set iden -- free vars
+    ,Map iden Bool -- free vars (read=False or written=True)
     ,Set iden)-- bound vars
     m
 
 type IsScVar a = (Data a,Show a,PP a,Eq a,Ord a,Typeable a)
 
 getLHS :: Monad m => VarsM iden m Bool
-getLHS = liftM (\(x,ss,y,z) -> x) State.get
+getLHS = liftM (\(x,lval,ss,y,z) -> x) State.get
 
 inLHS :: Monad m => VarsM iden m a -> VarsM iden m a
 inLHS m = do
-    (lhs,ss,fvs,bvs) <- State.get
-    (x,(_,ss',fvs',bvs')) <- State.lift $ State.runStateT m (True,ss,fvs,bvs)
-    State.put (lhs,ss',fvs',bvs')
+    (lhs,lval,ss,fvs,bvs) <- State.get
+    (x,(_,lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (True,lval,ss,fvs,bvs)
+    State.put (lhs,lval',ss',fvs',bvs')
+    return x
+
+inLVal :: Monad m => VarsM iden m a -> VarsM iden m a
+inLVal m = do
+    (lhs,lval,ss,fvs,bvs) <- State.get
+    (x,(lhs',_,ss',fvs',bvs')) <- State.lift $ State.runStateT m (lhs,True,ss,fvs,bvs)
+    State.put (lhs',lval,ss',fvs',bvs')
     return x
 
 inRHS :: Monad m => VarsM iden m a -> VarsM iden m a
 inRHS m = do
-    (lhs,ss,fvs,bvs) <- State.get
-    (x,(_,ss',fvs',bvs')) <- State.lift $ State.runStateT m (False,ss,fvs,bvs)
-    State.put (lhs,ss',fvs',bvs')
+    (lhs,lval,ss,fvs,bvs) <- State.get
+    (x,(_,lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (False,lval,ss,fvs,bvs)
+    State.put (lhs,lval',ss',fvs',bvs')
     return x
 
 varsBlock :: (GenVar iden m,IsScVar iden,Monad m) => VarsM iden m a -> VarsM iden m a
 varsBlock m = do
-    (lhs,ss,fvs,bvs) <- State.get
-    (x,(lhs',ss',fvs',bvs')) <- State.lift $ State.runStateT m (lhs,ss,fvs,bvs)
-    State.put (lhs',ss,fvs',bvs) -- forget bound substitutions and bound variables
+    (lhs,lval,ss,fvs,bvs) <- State.get
+    (x,(lhs',lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (lhs,lval,ss,fvs,bvs)
+    State.put (lhs',lval',ss,fvs',bvs) -- forget bound substitutions and bound variables
     return x
 
-addFV :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m ()
-addFV x = State.modify $ \(lhs,ss,fvs,bvs) -> if Set.member x bvs
-    then (lhs,ss,fvs,bvs) -- don't add an already bound variable to the free variables
-    else (lhs,ss,Set.insert x fvs,bvs)
+addFV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m ()
+addFV x = State.modify $ \(lhs,lval,ss,fvs,bvs) -> if Set.member x bvs
+    then (lhs,lval,ss,fvs,bvs) -- don't add an already bound variable to the free variables
+    else (lhs,lval,ss,Map.insertWith (||) x lval fvs,bvs)
  
-addBV :: (GenVar iden m,IsScVar iden,Monad m) => iden -> VarsM iden m ()
+addBV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m ()
 addBV x = do
-    (lhs,(substBounds,ss),fvs,bvs) <- State.get
+    (lhs,lval,(substBounds,ss),fvs,bvs) <- State.get
     ss' <- if substBounds then liftM (\x' -> Map.insert x x' ss) (State.lift $ genVar x) else return ss
-    State.put (lhs,(substBounds,ss'),fvs,Set.insert x bvs)
+    State.put (lhs,lval,(substBounds,ss'),fvs,Set.insert x bvs)
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Integer where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Integer where
     traverseVars f i = return i
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Int64 where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Int64 where
     traverseVars f i = return i
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Word64 where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Word64 where
     traverseVars f i = return i
 
 instance (PP a,PP b) => PP (Map a b) where
@@ -224,7 +236,7 @@ instance (Vars iden m a,Vars iden m b) => Vars iden m (Either a b) where
     traverseVars f (Left x) = liftM Left $ f x
     traverseVars f (Right y) = liftM Right $ f y
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m () where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m () where
     traverseVars f () = return ()
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureDeclaration iden loc) where
@@ -233,7 +245,7 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
         t' <- f t
         o' <- f o
         varsBlock $ do
-            args' <- inLHS $ mapM f args
+            args' <- mapM f args
             s' <- mapM f s
             return $ OperatorDeclaration l' t' o' args' s'
     traverseVars f (ProcedureDeclaration l t n args s) = do
@@ -241,7 +253,7 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
         t' <- f t
         n' <- inLHS $ f n
         varsBlock $ do
-            args' <- inLHS $ mapM f args
+            args' <- mapM f args
             s' <- mapM f s
             return $ ProcedureDeclaration l' t' n' args' s'
 
@@ -250,14 +262,14 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
         l' <- f l
         b' <- f b
         t' <- f t
-        v' <- f v
+        v' <- inLHS $ f v
         sz' <- f sz
         return $ ProcedureParameter l' b' t' v' sz'
     traverseVars f (ConstProcedureParameter l b t v sz e) = do
         l' <- f l
         b' <- f b
         t' <- f t
-        v' <- f v
+        v' <- inLHS $ f v
         sz' <- f sz
         e' <- f e
         return $ ConstProcedureParameter l' b' t' v' sz' e'
@@ -448,7 +460,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Expression iden loc) where
     traverseVars f (BinaryAssign l e1 o e2) = do
         l' <- f l
-        e1' <- f e1
+        e1' <- inLVal $ f e1
         o' <- f o
         e2' <- f e2
         return $ BinaryAssign l' e1' o' e2'
@@ -477,12 +489,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
     traverseVars f (PreOp l o e) = do
         l' <- f l
         o' <- f o
-        e' <- f e
+        e' <- inLVal $ f e
         return $ PreOp l' o' e'
     traverseVars f (PostOp l o e) = do
         l' <- f l
         o' <- f o
-        e' <- f e
+        e' <- inLVal $ f e
         return $ PostOp l' o' e'   
     traverseVars f (DomainIdExpr l t) = do
         l' <- f l
@@ -600,6 +612,8 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (SecType
         l' <- f l
         d' <- f d
         return $ PrivateSpecifier l' d'
+    substL (PrivateSpecifier l (DomainName _ n)) = return $ Just n
+    substL s = return Nothing
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (VariableDeclaration iden loc) where
     traverseVars f (VariableDeclaration l t is) = do
@@ -709,12 +723,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateDeclaration iden loc) where
     traverseVars f (TemplateStructureDeclaration l qs s) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
+        qs' <- mapM f qs
         s' <- f s
         return $ TemplateStructureDeclaration l qs' s'
     traverseVars f (TemplateStructureSpecialization l qs specs s) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
+        qs' <- mapM f qs
         specs' <- mapM f specs
         s' <- f s
         return $ TemplateStructureSpecialization l' qs' specs' s'
@@ -782,10 +796,10 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ImportD
         m' <- f m
         return $ Import l' m'
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Position where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Position where
     traverseVars f p = return p
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Bool where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Bool where
     traverseVars f b = return b
 
 instance (Vars iden m a,MonadIO m) => Vars iden m (UniqRef a) where
@@ -794,10 +808,10 @@ instance (Vars iden m a,MonadIO m) => Vars iden m (UniqRef a) where
         x' <- f x
         liftIO $ newUniqRef x'
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m Ordering where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Ordering where
     traverseVars f x = return x
 
-instance (GenVar iden m,IsScVar iden,Monad m) => Vars iden m SecrecError where
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m SecrecError where
     traverseVars f x = return x
     
 

@@ -209,6 +209,11 @@ updHeadNeM f (ConsNe x xs) = do
     (r,x') <- f x
     return (r,ConsNe x' xs)
 
+updHeadM :: Monad m => (a -> m (x,a)) -> [a] -> m (x,[a])
+updHeadM f (x:xs) = do
+    (r,x') <- f x
+    return (r,x':xs)
+
 snocNe :: NeList a -> a -> NeList a
 snocNe (WrapNe x) y = ConsNe x (WrapNe y)
 snocNe (ConsNe x xs) y = ConsNe x (snocNe xs y)
