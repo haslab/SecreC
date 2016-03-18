@@ -256,9 +256,9 @@ tcGlobal l m = do
     newDict l "tcGlobal"
     x <- m
     solve l
-    dict <- liftM ((\[x] -> x) . tDict) State.get
+    dict <- liftM ((\[a] -> a) . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
---    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
+    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
     liftIO resetGlobalEnv
     return x'

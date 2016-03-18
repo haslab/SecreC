@@ -1207,18 +1207,18 @@ instance PP DecType where
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> pp t <> ppVariadic isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
+        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
     pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret stmts _)) =
         text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> pp t <> ppVariadic isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
+        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
     pp (ProcType _ (Left n) args ret stmts _) =
-            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> pp t <> ppVariadic isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
+            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
     pp (ProcType _ (Right n) args ret stmts _) =
-            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> pp t <> ppVariadic isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
+            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
     pp (DVar v) = pp v
     pp (StructType _ n atts) = text "struct" <+> pp n <+> braces (text "...")
     pp d = error $ "pp: " ++ show d

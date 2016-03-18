@@ -101,8 +101,8 @@ ppTpltAppM l pid args es ret = do
 
 ppTpltApp :: TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> Doc
 ppTpltApp (Left n) args Nothing Nothing = text "struct" <+> pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) $ concat $ args)
-ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> pp (loc e) <> ppVariadic b) $ concat args)
-ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> pp (loc e) <> ppVariadic b) $ concat args)
+ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> ppVariadic (pp $ loc e) b) $ concat args)
+ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> ppVariadic (pp $ loc e) b) $ concat args)
 
 compareProcedureArgs :: (VarsIdTcM loc m,Location loc) => loc -> [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -> [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -> TcM loc m (Comparison (TcM loc m))
 compareProcedureArgs l xs@[] ys@[] = return (Comparison xs ys EQ)
@@ -307,7 +307,7 @@ instantiateTemplateEntry doCoerce n targs pargs ret rets e = do
             (dec',doWrap) <- case mb_dec' of
                         Nothing -> return (e',False)
                         Just dec' -> do
-                            dec'' <- substFromTDict "instantiate tplt" l subst False Map.empty dec'
+                            dec'' <- return dec' --substFromTDict "instantiate tplt" l subst False Map.empty dec'
 --                            liftIO $ putStrLn $ "instantiated declaration  " ++ ppr dec'' ++ "\n" ++ show (ppTSubsts (tSubsts subst))
                             has <- hasCondsDecType dec''
                             return (e' { entryType = DecT dec'' },not has)

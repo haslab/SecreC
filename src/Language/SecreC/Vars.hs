@@ -59,8 +59,8 @@ class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
             EqT -> return $ Just a
             NeqT -> return Nothing
     
-    substR :: Typeable a => a -> iden -> m a
-    substR a iden = case eqTypeOf (typeOfProxy $ proxyOf iden) (typeOfProxy $ proxyOf a) of
+    unSubstL :: Typeable a => a -> iden -> m a
+    unSubstL a iden = case eqTypeOf (typeOfProxy $ proxyOf iden) (typeOfProxy $ proxyOf a) of
             EqT -> return iden
             NeqT -> return a
     
@@ -75,7 +75,7 @@ class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
                     then do
                         (_,_,(_,ss),_,_) <- State.get
                         let v' = maybe v id (Map.lookup v ss)
-                        State.lift $ substR x v'
+                        State.lift $ unSubstL x v'
                     else do
                         r <- State.lift $ f v
                         case r of

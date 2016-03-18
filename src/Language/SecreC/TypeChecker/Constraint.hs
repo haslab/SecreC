@@ -74,7 +74,7 @@ solve l = do
 --        liftIO $ putStrLn $ "solving " ++ " " ++ ppr l
         gr' <- buildCstrGraph $ flattenIOCstrGraphSet gr
         updateHeadTDict $ \d -> return ((),d { tCstrs = gr' })
---        ss <- ppConstraints =<< liftM (headNe . tDict) State.get
+--        ss <- ppConstraints =<< liftM (head . tDict) State.get
 --        liftIO $ putStrLn $ "solve " ++ show (inTemplate env) ++ " [" ++ show ss ++ "\n]"
         solveCstrs l
         updateHeadTDict $ \d -> return ((),d { tCstrs = Graph.nfilter (`elem` Graph.nodes gr) (tCstrs d) })

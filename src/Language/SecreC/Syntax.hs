@@ -370,8 +370,8 @@ instance Location loc => Located (ProcedureParameter iden loc) where
     updLoc (ConstProcedureParameter _ b x y z w) l = ConstProcedureParameter l b x y z w
 
 instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ t b v sz) = pp t <> ppVariadic b <+> pp v <> parens (pp sz)
-    pp (ConstProcedureParameter _ t b v sz e) = text "const" <+> pp t <> ppVariadic b <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
+    pp (ProcedureParameter _ t b v sz) = ppVariadic (pp t) b <+> pp v <> parens (pp sz)
+    pp (ConstProcedureParameter _ t b v sz e) = text "const" <+> ppVariadic (pp t) b <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
 
 -- Types:                                                                      
 
@@ -616,13 +616,11 @@ instance Location loc => Located (TemplateQuantifier iden loc) where
     updLoc (DimensionQuantifier _ b x y) l = DimensionQuantifier l b x y
     updLoc (DataQuantifier _ b x) l = DataQuantifier l b x
 
-ppVariadic b = if b then text "..." else PP.empty
-
 instance PP iden => PP (TemplateQuantifier iden loc) where
-    pp (DomainQuantifier _ b d (Just k)) = text "domain" <> ppVariadic b <+> pp d <+> char ':' <+> pp k
-    pp (DomainQuantifier _ b d Nothing) = text "domain" <> ppVariadic b <+> pp d
-    pp (DimensionQuantifier _ b dim e) = text "dim" <> ppVariadic b <+> pp dim <+> ppOpt e (braces . pp)
-    pp (DataQuantifier _ b t) = text "type" <> ppVariadic b <+> pp t
+    pp (DomainQuantifier _ b d (Just k)) = ppVariadic (text "domain") b <+> pp d <+> char ':' <+> pp k
+    pp (DomainQuantifier _ b d Nothing) = ppVariadic (text "domain") b <+> pp d
+    pp (DimensionQuantifier _ b dim e) = ppVariadic (text "dim") b <+> pp dim <+> ppOpt e (braces . pp)
+    pp (DataQuantifier _ b t) = ppVariadic (text "type") b <+> pp t
   
  -- Structures:                                                                
 
@@ -1023,8 +1021,13 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (RVariablePExpr _ x) l = RVariablePExpr l x
     updLoc (LitPExpr _ x) l = LitPExpr l x
 
+
+ppVariadic :: Doc -> IsVariadic -> Doc
+ppVariadic x False = x
+ppVariadic x True = if PP.isEmpty x then x else x <> text "..."
+
 ppVariadicArg :: (a -> Doc) -> (a,IsVariadic) -> Doc
-ppVariadicArg ppA (e,v) = ppA e <> ppVariadic v
+ppVariadicArg ppA (e,isVariadic) = ppVariadic (ppA e) isVariadic
  
 instance PP iden => PP (Expression iden loc) where
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e

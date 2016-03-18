@@ -288,6 +288,8 @@ newKind (KindName (Typed l t) n) = do
             let e = EntryEnv l t
             modify $ \env -> env { kinds = Map.insert n e (kinds env) } 
 
+noTSubsts d = fmap locpos (d { tSubsts = Map.empty })
+
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
 addTemplateOperator :: (VarsIdTcM loc m,Location loc) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
@@ -298,7 +300,7 @@ addTemplateOperator vars hdeps op = do
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newTyVarId
-    let dt = DecT $ DecType i False vars (fmap locpos hdict) hfrees (fmap locpos bdict) bfrees [] d
+    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateOp" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
 --    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
@@ -316,15 +318,15 @@ newOperator hdeps op = do
     i <- newTyVarId
     frees <- getFrees
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i True [] (fmap locpos recdict) Set.empty mempty frees [] d'
+    let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
     dirtyGDependencies $ Right $ Left $ Right o
     
     solve l
     dict <- liftM (head . tDict) State.get
-    d'' <- substFromTDict "newOp body" l recdict False Map.empty d'
-    let td = DecT $ DecType i False [] (fmap locpos recdict) Set.empty (fmap locpos dict) Set.empty [] d''
+    d'' <- substFromTDict "newOp body" l dict False Map.empty d'
+    let td = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
     let e = EntryEnv l td
 --    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
     modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
@@ -355,7 +357,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newTyVarId
-    let dt = DecT $ DecType i False vars (fmap locpos hdict) hfrees (fmap locpos bdict) bfrees [] d
+    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateProc" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
 --    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
@@ -371,15 +373,15 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     i <- newTyVarId
     frees <- getFrees
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i True [] (fmap locpos recdict) Set.empty mempty frees [] d'
+    let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
     dirtyGDependencies $ Right $ Left $ Left $ funit pn
     
     solve l
     dict <- liftM (head . tDict) State.get
-    d'' <- substFromTDict "newProc body" l recdict False Map.empty d'
-    let dt = DecT $ DecType i False [] (fmap locpos recdict) Set.empty (fmap locpos dict) Set.empty [] d''
+    d'' <- substFromTDict "newProc body" l dict False Map.empty d'
+    let dt = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
     let e = EntryEnv l dt
 --    liftIO $ putStrLn $ "addProc " ++ ppr (entryType e)
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
@@ -452,7 +454,7 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newTyVarId
-    let dt = DecT $ DecType i False vars (fmap locpos hdict) hfrees (fmap locpos bdict) bfrees [] d
+    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateStruct" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
     ss <- liftM structs get
@@ -469,7 +471,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newTyVarId
-    let dt = DecT $ DecType i False vars (fmap locpos hdict) hfrees (fmap locpos bdict) bfrees specials d
+    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees specials d
     dt' <- substFromTSubsts "templateStructSpec" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
     let mergeStructs (b1,s1) (b2,s2) = (b2,s1 `Map.union` s2)
@@ -488,7 +490,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     -- add a temporary declaration for recursive invocations
     frees <- getFrees
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i True [] (fmap locpos recdict) Set.empty mempty frees [] d'
+    let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
     modify $ \env -> env { structs = Map.insert n (rece,Map.empty) (structs env) }
     dirtyGDependencies $ Right $ Right $ funit tn
@@ -502,7 +504,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
         Nothing -> do
             i <- newTyVarId
             d'' <- substFromTDict "newStruct body" l dict False Map.empty d'
-            let dt = DecT $ DecType i False [] (fmap locpos recdict) Set.empty (fmap locpos dict) Set.empty [] d''
+            let dt = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
             let e = EntryEnv l dt
             modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
             return $ updLoc tn (Typed (unTyped $ loc tn) dt)
@@ -772,7 +774,7 @@ addConst scope vi = do
     case scope of
         LocalScope -> State.modify $ \env -> env { localConsts = Map.insert vi vi' $ localConsts env }
         GlobalScope -> State.modify $ \env -> env { globalConsts = Map.insert vi vi' $ globalConsts env }
-    addFree vi'
+--    addFree vi'
     return vi'
 
 vars env = Map.union (localVars env) (globalVars env)

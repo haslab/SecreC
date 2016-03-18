@@ -125,7 +125,7 @@ validitySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV l
 validitySBV l cfg str sprop = do
     opts <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts) $
-        liftIO $ hPutStrLn stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
+        liftIO $ hPutStr stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
 --  smt <- compileToSMTLib True False sprop
 --  liftIO $ putStrLn smt
     r <- proveWithTcSBV cfg sprop

@@ -31,13 +31,13 @@ most possibly controversial typechecker decisions:
 . non-template procedure and structs  may be recursive, but not mutually recursive, since they require all declarations to be defined above.
 
 TODO:
+. change arrays: The shape, unlike dimensionality, is a dynamic property and can freely change in the process of program evaluation.
 . SMT overflow semantics versus sharemind primitive operations?
 . index expression semantics is independent from expression semantics; invariants, dimensions and sizes are evaluated as index conditions and expressions, apart from the regular template-based semantics
 . idea: simplify expressions and convert canonical SecreC into index expressions
 . procedure template parameters
 . size-dependent types
 . pre-processor options in SecreC files with hyphens are not recognized. no idea why
-
 template <domain D, type T, dim N>
 D T[[1]](n) reshape (D T[[N]] arr ,uint n) {
     // stub

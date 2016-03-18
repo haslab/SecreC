@@ -132,8 +132,9 @@ buildTypeSpec l tsec tdta dim False = do
     x <- newTypedVar "dim" (BaseT index) $ Just $ pp dim
     tcCstrM l $ Coerces dim x
     let dim' = varExpr x
-    szs <- newSizesVar dim' Nothing
-    return $ ComplexT $ CType ts td dim' szs
+    szs <- newSizesVar dim' $ Just PP.empty -- size is not declared
+    let ct = CType ts td dim' szs
+    return $ ComplexT ct
     
 zipCTypeArgs l [s] [b] [d] = return [(s,b,d)]
 zipCTypeArgs l [s] bs ds = zipCTypeArgs l (repeat s) bs ds
@@ -361,8 +362,10 @@ matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . Halt . Mi
 -- | Update the size of a compound type
 -- for variadic arrays, we set the size of each base type and not of the array itself
 refineTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Maybe (Sizes VarIdentifier Type) -> TcM loc m Type
-refineTypeSizes l t Nothing = return t
-refineTypeSizes l ct@(ComplexT (CType s t d sz)) (Just (Sizes szs)) = do
+refineTypeSizes l ct@(ComplexT (CType s t d sz)) Nothing = do -- check the generated size
+    tcCstrM l $ MatchTypeDimension ct sz
+    return ct
+refineTypeSizes l ct@(ComplexT (CType s t d sz)) (Just (Sizes szs)) = do -- discard the generated size in detriment of the declared size
     let sz' = Foldable.toList szs
 --    unifiesSizes l d sz d sz'
     return $ ComplexT $ CType s t d sz'
