@@ -399,27 +399,30 @@ checkProcedure pn@(ProcedureName l n) = do
 -- adds a recursive declaration for processing recursive constraints
 withTpltDecRec :: (MonadIO m,Location loc) => loc -> DecType -> TcM loc m a -> TcM loc m a
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Left (ProcedureName _ pn)) _ _ _ _)) m = do
-    let recd = DecType i True ts hd hfrees mempty bfrees specs p
+    j <- newTyVarId
+    let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
-    State.modify $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) pn (procedures env) }
+    State.modify $ \env -> env { procedures = Map.alter (Just . Map.insert j rece . maybe Map.empty id) pn (procedures env) }
     x <- m
-    State.modify $ \env -> env { procedures = Map.alter (Just . Map.delete i . maybe Map.empty id) pn (procedures env) }
+    State.modify $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
     return x
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Right op) _ _ _ _)) m = do
+    j <- newTyVarId
     let o = funit op
-    let recd = DecType i True ts hd hfrees mempty bfrees specs p
+    let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
-    State.modify $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
+    State.modify $ \env -> env { operators = Map.alter (Just . Map.insert j rece . maybe Map.empty id) o (operators env) }
     x <- m
-    State.modify $ \env -> env { operators = Map.alter (Just . Map.delete i . maybe Map.empty id) o (operators env) }
+    State.modify $ \env -> env { operators = Map.alter (Just . Map.delete j . maybe Map.empty id) o (operators env) }
     return x
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType _ (TypeName _ sn) _)) m = do
-    let recd = DecType i True ts hd hfrees mempty bfrees specs s
+    j <- newTyVarId
+    let recd = DecType j True ts hd hfrees mempty bfrees specs s
     (e,es) <- liftM ((!sn) . structs) State.get
     let rece = EntryEnv l (DecT recd)
-    State.modify $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.insert i rece es)) . fromJust) sn (structs env) }
+    State.modify $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.insert j rece es)) . fromJust) sn (structs env) }
     x <- m
-    State.modify $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.delete i es)) . fromJust) sn (structs env) }
+    State.modify $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.delete j es)) . fromJust) sn (structs env) }
     return x
             
 
@@ -604,10 +607,10 @@ addValue l v e = do
 --    liftIO $ putStrLn $ "addValue " ++ ppr v ++ " " ++ ppr e
     updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert v (IdxT e) (tSubsts d) })
 
-addValueM :: (VarsIdTcM loc m,Location loc) => loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
-addValueM l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
-addValueM l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
-    tcCstrM l $ Unifies t (loc e)
+addValueM :: (VarsIdTcM loc m,Location loc) => Bool -> loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+addValueM checkTy l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
+addValueM checkTy l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
+    when checkTy $ tcCstrM l $ Unifies t (loc e)
     addValue l n e
     addGDependencies $ Left n
     dirtyGDependencies $ Left n
@@ -795,10 +798,8 @@ isChoice x = liftM (Set.member (hashUnique x) . tChoices . mconcat . tDict) Stat
 addChoice :: (Monad m,Location loc) => Unique -> TcM loc m ()
 addChoice x = updateHeadTDict $ \d -> return ((),d { tChoices = Set.insert (hashUnique x) $ tChoices d })
 
-bytes :: (MonadIO m,Location loc) => TcM loc m ComplexType
-bytes = do
-    sz <- newSizeVar Nothing
-    return $ CType Public (TyPrim $ DatatypeUint8 ()) (indexSExpr 1) [(sz,False)]
+bytes :: ComplexType
+bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexSExpr 1)
 
 
 substFromTDict :: (VarsIdTcM loc m,Location loc,VarsId (TcM loc m) a) => String -> loc -> TDict loc -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM loc m a
@@ -875,7 +876,13 @@ ppM l a = liftM pp $ specializeM l a
 ppArrayRangesM :: (VarsIdTcM loc m,Location loc) => loc -> [ArrayProj] -> TcM loc m Doc
 ppArrayRangesM l = liftM (sepBy comma) . mapM (ppM l)
 
-
+removeTSubsts :: Monad m => Set VarIdentifier -> TcM loc m ()
+removeTSubsts vs = do
+    env <- State.get
+    let ds = tDict env
+    let remSub d = d { tSubsts = Map.difference (tSubsts d) (Map.fromSet (const $ NoType "rem") vs) }
+    let ds' = map remSub ds
+    State.put $ env { tDict = ds' }
 
 
 

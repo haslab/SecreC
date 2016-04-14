@@ -58,6 +58,10 @@ tryCstrBool :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m
 
 tryCstrMaybe :: (VarsIdTcM loc m,Location loc) => loc -> TcM loc m a -> TcM loc m (Maybe a)
 
+comparesExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Comparison (TcM loc m))
+
+unifiesExpr :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m ()
+
 unifiesList :: (VarsIdTcM loc m,Location loc) => loc -> [Type] -> [Type] -> TcM loc m ()
 
 isTyOf :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> TcM loc m Bool

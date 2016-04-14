@@ -356,22 +356,22 @@ instance PP iden => PP (VariableDeclaration iden loc) where
 type IsVariadic = Bool
 
 data ProcedureParameter iden loc
-    = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc))
-    | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
+    = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc)
+    | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Hashable iden,Hashable loc) => Hashable (ProcedureParameter iden loc)
 
 instance Location loc => Located (ProcedureParameter iden loc) where
     type LocOf (ProcedureParameter iden loc) = loc
-    loc (ProcedureParameter l _ _ _ _) = l
-    loc (ConstProcedureParameter l _ _ _ _ _) = l
-    updLoc (ProcedureParameter _ b x y z) l = ProcedureParameter l b x y z
-    updLoc (ConstProcedureParameter _ b x y z w) l = ConstProcedureParameter l b x y z w
+    loc (ProcedureParameter l _ _ _) = l
+    loc (ConstProcedureParameter l _ _ _ _) = l
+    updLoc (ProcedureParameter _ b x y) l = ProcedureParameter l b x y
+    updLoc (ConstProcedureParameter _ b x y z) l = ConstProcedureParameter l b x y z
 
 instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ t b v sz) = ppVariadic (pp t) b <+> pp v <> parens (pp sz)
-    pp (ConstProcedureParameter _ t b v sz e) = text "const" <+> ppVariadic (pp t) b <+> pp v <> parens (pp sz) <+> ppOpt e (braces . pp)
+    pp (ProcedureParameter _ t b v) = ppVariadic (pp t) b <+> pp v
+    pp (ConstProcedureParameter _ t b v e) = text "const" <+> ppVariadic (pp t) b <+> pp v <+> ppOpt e (braces . pp)
 
 -- Types:                                                                      
 
@@ -659,12 +659,7 @@ instance PP iden => PP (Attribute iden loc) where
 
 -- Procedures:
 
-type SizedTypeSpecifier iden loc = (TypeSpecifier iden loc,Maybe (Sizes iden loc))
-
-ppSizedTypeSpecifier (x,Nothing) = pp x
-ppSizedTypeSpecifier (x,Just s) = pp x <> parens (pp s)
-
-data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (SizedTypeSpecifier iden loc))
+data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (TypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Hashable iden,Hashable loc) => Hashable (ReturnTypeSpecifier iden loc)
@@ -676,7 +671,7 @@ instance Location loc => Located (ReturnTypeSpecifier iden loc) where
  
 instance PP iden => PP (ReturnTypeSpecifier iden loc) where
     pp (ReturnType loc Nothing) = text "void"
-    pp (ReturnType loc (Just (t,sz))) = pp t <> parens (pp sz)
+    pp (ReturnType loc (Just t)) = pp t
   
 ppConst isConst = if isConst then text "const" else PP.empty
   
@@ -964,7 +959,7 @@ instance PP iden => PP (Index iden loc) where
 
 data Expression iden loc
     = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
-    | QualExpr loc (Expression iden loc) (SizedTypeSpecifier iden loc)
+    | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
     | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
     | BinaryExpr loc (Expression iden loc) (Op iden loc) (Expression iden loc)
     | UnaryExpr loc (Op iden loc) (Expression iden loc)
@@ -974,6 +969,7 @@ data Expression iden loc
     | BytesFromStringExpr loc (Expression iden loc)
     | StringFromBytesExpr loc (Expression iden loc)
     | VArraySizeExpr loc (Expression iden loc)
+    | VArrayExpr loc (Expression iden loc) (Expression iden loc)
     | ProcCallExpr loc (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [(Expression iden loc,IsVariadic)]
     | PostIndexExpr loc (Expression iden loc) (Subscript iden loc)
     | SelectionExpr loc (Expression iden loc) (AttributeName iden loc)
@@ -997,6 +993,7 @@ instance Location loc => Located (Expression iden loc) where
     loc (BytesFromStringExpr l _) = l
     loc (StringFromBytesExpr l _) = l
     loc (VArraySizeExpr l _) = l
+    loc (VArrayExpr l _ _) = l
     loc (ProcCallExpr l _ _ _) = l
     loc (PostIndexExpr l _ _) = l
     loc (SelectionExpr l _ _) = l
@@ -1014,6 +1011,7 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (BytesFromStringExpr _ x) l = BytesFromStringExpr l x
     updLoc (StringFromBytesExpr _ x) l = StringFromBytesExpr l x
     updLoc (VArraySizeExpr _ x) l = VArraySizeExpr l x
+    updLoc (VArrayExpr _ x y) l = VArrayExpr l x y
     updLoc (ProcCallExpr _ x y z) l = ProcCallExpr l x y z
     updLoc (PostIndexExpr _ x y) l = PostIndexExpr l x y
     updLoc (SelectionExpr _ x y) l = SelectionExpr l x y
@@ -1031,7 +1029,7 @@ ppVariadicArg ppA (e,isVariadic) = ppVariadic (ppA e) isVariadic
  
 instance PP iden => PP (Expression iden loc) where
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
-    pp (QualExpr _ e t) = pp e <+> text "::" <+> ppSizedTypeSpecifier t
+    pp (QualExpr _ e t) = pp e <+> text "::" <+> pp t
     pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
     pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
     pp (PreOp _ (OpAdd _) e) = text "++" <> pp e
@@ -1043,6 +1041,7 @@ instance PP iden => PP (Expression iden loc) where
     pp (BytesFromStringExpr _ t) = text "__bytes_from_string" <> parens (pp t)
     pp (StringFromBytesExpr _ t) = text "__string_from_bytes" <> parens (pp t)
     pp (VArraySizeExpr _ e) = text "size..." <> parens (pp e)
+    pp (VArrayExpr _ e sz) = text "varray" <> parens (pp e <+> pp sz)
     pp (ProcCallExpr _ n ts es) = pp n <> ppOpt ts (\ts -> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)) <> parens (sepBy comma $ map (ppVariadicArg pp) es)
     pp (PostIndexExpr _ e s) = pp e <> pp s
     pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v

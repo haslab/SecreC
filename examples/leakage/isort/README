@@ -1,0 +1,12 @@
+
+Algorithm:
+Apply oblivious shuffle to the input array and run a leaky insertion sort that reveals the results of the comparisons.
+
+Dafny:
+The input leakage assumption of leaky sort is that we can leak the comparisons between all the elements of the shuffled array.
+
+EasyCrypt:
+Properties of shuffle, that rely on distributions, need to be proven in EasyCrypt.
+If all the elements of the input array are distinct, then we can leak the comparisons of the (randomly) shuffled array.
+There may be a more general theorem here: if we know only the number of equal elements, can we leak the comparisons?
+

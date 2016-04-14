@@ -1,7 +1,924 @@
-#OPTIONS_SECREC --simplify=False
+ #OPTIONS_SECREC --simplify=False
     
 module builtin;
-    
+
+// classify
+template <domain D,type T,dim N { N > 0} >
+D T[[N]] classify (public T[[N]] x) {
+    D T[[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = classify(x[i]);
+    }
+    return ret;
+}
+
+// declassify
+template <domain D,type T,dim N { N > 0 }>
+public T[[N]] declassify (D T[[N]] x) {
+    public T[[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = declassify(x[i]);
+    }
+    return ret;
+}
+
+// strlen
+
+uint strlen (string str) {
+    uint ret;
+    __syscall("core.strlen",str,__return ret);
+    return ret;
+}
+
+// tostring
+
+template <type T>
+string tostring (public T x) {
+    string ret;
+    __syscall("core.tostring",x,__return ret);
+    return ret;
+}
+
+// shape
+
+template <domain D, type T, dim N>
+uint[[1]] shape (D T[[N]] arr) {
+    uint[[1]] ret;
+    __syscall("core.shape",arr,__return ret);
+    return ret;
+}
+
+//cat
+
+template <domain D, type T, dim N>
+D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
+    return cat(x,y,0);
+}
+
+template <domain D, type T, dim N>
+D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n { n < N }) {
+
+    D T[[N]] ret;
+    __syscall("core.cat", x,y,n,__return ret);
+    return ret;
+}
+
+// reshape
+
+template <domain D, type T, dim N>
+D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns) {
+    D T[[size...(ns)]] ret;
+    __syscall("core.reshape",arr,ns,__return ret);
+    return ret;
+}
+
+// size
+
+template <domain D, type T, dim N>
+uint size (D T[[N]] x) {
+    uint ret;
+    __syscall("core.size",x,__return ret);
+    return ret;
+}
+
+// logical operators
+
+bool operator && (bool x,bool y) {
+    bool ret;
+    __syscall("core.band",x,y,__return ret);
+    return ret;
+}
+
+template <domain D, dim N { N > 0 }>
+D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y) {
+    D bool[[N]] ret (varray(shape(x),N)...);
+    assert(sameshape(x,y));
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] && y[i];
+    }
+    return ret;
+}
+
+bool operator || (bool x,bool y) {
+    bool ret;
+    __syscall("core.bor",x,y,__return ret);
+    return ret;
+}
+
+template <domain D, dim N { N > 0 } >
+D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y) {
+    D bool [[N]] ret (varray(shape(x),N)...);
+    assert (sameshape(x,y));
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] || y[i];
+    }
+    return ret;
+}
+
+// unary subtraction
+
+int8 operator - (int8 x) {
+    int8 ret;
+    __syscall("core.neg_int8",x,__return ret);
+    return ret;
+} 
+int16 operator - (int16 x) {
+    int16 ret;
+    __syscall("core.neg_int16",x,__return ret);
+    return ret;
+} 
+int32 operator - (int32 x) {
+    int32 ret;
+    __syscall("core.neg_int32",x,__return ret);
+    return ret;
+} 
+int64 operator - (int64 x) {
+    int64 ret;
+    __syscall("core.neg_int64",x,__return ret);
+    return ret;
+}
+
+// unary array subtraction
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] operator - (D T[[N]] x) {
+    D T [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = - x[i];
+    }
+    return ret;
+}
+
+// subtraction
+
+int8 operator - (int8 x,int8 y) {
+    int8 ret;
+    __syscall("core.sub_int8",x,y,__return ret);
+    return ret;
+} 
+int16 operator - (int16 x,int16 y) {
+    int16 ret;
+    __syscall("core.sub_int16",x,y,__return ret);
+    return ret;
+} 
+int32 operator - (int32 x,int32 y) {
+    int32 ret;
+    __syscall("core.sub_int32",x,y,__return ret);
+    return ret;
+} 
+int64 operator - (int64 x,int64 y) {
+    int64 ret;
+    __syscall("core.sub_int64",x,y,__return ret);
+    return ret;
+}
+uint8 operator - (uint8 x,uint8 y) {
+    uint8 ret;
+    __syscall("core.sub_uint8",x,y,__return ret);
+    return ret;
+} 
+uint16 operator - (uint16 x,uint16 y) {
+    uint16 ret;
+    __syscall("core.sub_uint16",x,y,__return ret);
+    return ret;
+} 
+uint32 operator - (uint32 x,uint32 y) {
+    uint32 ret;
+    __syscall("core.sub_uint32",x,y,__return ret);
+    return ret;
+} 
+uint64 operator - (uint64 x,uint64 y) {
+    uint64 ret;
+    __syscall("core.sub_uint64",x,y,__return ret);
+    return ret;
+} 
+float32 operator - (float32 x,float32 y) {
+    float32 ret;
+    __syscall("core.sub_float32",x,y,__return ret);
+    return ret;
+} 
+float64 operator - (float64 x,float64 y) {
+    float64 ret;
+    __syscall("core.sub_float64",x,y,__return ret);
+    return ret;
+} 
+
+// array subtraction
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] operator - (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D T [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] - y[i];
+    }
+    return ret;
+}
+
+// addition
+
+int8 operator + (int8 x,int8 y) {
+    int8 ret;
+    __syscall("core.add_int8",x,y,__return ret);
+    return ret;
+} 
+int16 operator + (int16 x,int16 y) {
+    int16 ret;
+    __syscall("core.add_int16",x,y,__return ret);
+    return ret;
+} 
+int32 operator + (int32 x,int32 y) {
+    int32 ret;
+    __syscall("core.add_int32",x,y,__return ret);
+    return ret;
+} 
+int64 operator + (int64 x,int64 y) {
+    int64 ret;
+    __syscall("core.add_int64",x,y,__return ret);
+    return ret;
+}
+uint8 operator + (uint8 x,uint8 y) {
+    uint8 ret;
+    __syscall("core.add_uint8",x,y,__return ret);
+    return ret;
+} 
+uint16 operator + (uint16 x,uint16 y) {
+    uint16 ret;
+    __syscall("core.add_uint16",x,y,__return ret);
+    return ret;
+} 
+uint32 operator + (uint32 x,uint32 y) {
+    uint32 ret;
+    __syscall("core.add_uint32",x,y,__return ret);
+    return ret;
+} 
+uint64 operator + (uint64 x,uint64 y) {
+    uint64 ret;
+    __syscall("core.add_uint64",x,y,__return ret);
+    return ret;
+} 
+float32 operator + (float32 x,float32 y) {
+    float32 ret;
+    __syscall("core.add_float32",x,y,__return ret);
+    return ret;
+} 
+float64 operator + (float64 x,float64 y) {
+    float64 ret;
+    __syscall("core.add_float64",x,y,__return ret);
+    return ret;
+} 
+
+// array addition
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] operator + (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D T [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] + y[i];
+    }
+    return ret;
+}
+
+// multiplication
+
+int8 operator * (int8 x,int8 y) {
+    int8 ret;
+     __syscall("core.mul_int8",x,y,__return ret);
+    return ret;
+} 
+int16 operator * (int16 x,int16 y) {
+    int16 ret;
+     __syscall("core.mul_int16",x,y,__return ret);
+    return ret;
+} 
+int32 operator * (int32 x,int32 y) {
+    int32 ret;
+     __syscall("core.mul_int32",x,y,__return ret);
+    return ret;
+} 
+int64 operator * (int64 x,int64 y) {
+    int64 ret;
+     __syscall("core.mul_int64",x,y,__return ret);
+    return ret;
+}
+uint8 operator * (uint8 x,uint8 y) {
+    uint8 ret;
+    __syscall("core.mul_uint8",x,y,__return ret);
+    return ret;
+} 
+uint16 operator * (uint16 x,uint16 y) {
+    uint16 ret;
+    __syscall("core.mul_uint16",x,y,__return ret);
+    return ret;
+} 
+uint32 operator * (uint32 x,uint32 y) {
+    uint32 ret;
+    __syscall("core.mul_uint32",x,y,__return ret);
+    return ret;
+} 
+uint64 operator * (uint64 x,uint64 y) {
+    uint64 ret;
+    __syscall("core.mul_uint64",x,y,__return ret);
+    return ret;
+} 
+float32 operator * (float32 x,float32 y) {
+    float32 ret;
+    __syscall("core.mul_float32",x,y,__return ret);
+    return ret;
+} 
+float64 operator * (float64 x,float64 y) {
+    float64 ret;
+    __syscall("core.mul_float64",x,y,__return ret);
+    return ret;
+} 
+
+// array multiplication
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] operator * (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D T [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] * y[i];
+    }
+    return ret;
+}
+
+
+// division
+
+int8 operator / (int8 x,int8 y) {
+    int8 ret;
+    __syscall("core.div_int8",x,y,__return ret);
+    return ret;
+} 
+int16 operator / (int16 x,int16 y) {
+    int16 ret;
+    __syscall("core.div_int16",x,y,__return ret);
+    return ret;
+} 
+int32 operator / (int32 x,int32 y) {
+    int32 ret;
+    __syscall("core.div_int32",x,y,__return ret);
+    return ret;
+} 
+int64 operator / (int64 x,int64 y) {
+    int64 ret;
+    __syscall("core.div_int64",x,y,__return ret);
+    return ret;
+}
+uint8 operator / (uint8 x,uint8 y) {
+    uint8 ret;
+    __syscall("core.div_uint8",x,y,__return ret);
+    return ret;
+} 
+uint16 operator / (uint16 x,uint16 y) {
+    uint16 ret;
+    __syscall("core.div_uint16",x,y,__return ret);
+    return ret;
+} 
+uint32 operator / (uint32 x,uint32 y) {
+    uint32 ret;
+    __syscall("core.div_uint32",x,y,__return ret);
+    return ret;
+} 
+uint64 operator / (uint64 x,uint64 y) {
+    uint64 ret;
+    __syscall("core.div_uint64",x,y,__return ret);
+    return ret;
+} 
+float32 operator / (float32 x,float32 y) {
+    float32 ret;
+    __syscall("core.div_float32",x,y,__return ret);
+    return ret;
+} 
+float64 operator / (float64 x,float64 y) {
+    float64 ret;
+    __syscall("core.div_float64",x,y,__return ret);
+    return ret;
+} 
+
+// array division
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] operator / (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D T [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] / y[i];
+    }
+    return ret;
+}
+
+// modulo
+
+int8 operator % (int8 x,int8 y) {
+    int8 ret;
+    __syscall("core.mod_int8",x,y,__return ret);
+    return ret;
+} 
+int16 operator % (int16 x,int16 y) {
+    int16 ret;
+    __syscall("core.mod_int16",x,y,__return ret);
+    return ret;
+} 
+int32 operator % (int32 x,int32 y) {
+    int32 ret;
+    __syscall("core.mod_int32",x,y,__return ret);
+    return ret;
+} 
+int64 operator % (int64 x,int64 y) {
+    int64 ret;
+    __syscall("core.mod_int64",x,y,__return ret);
+    return ret;
+}
+uint8 operator % (uint8 x,uint8 y) {
+    uint8 ret;
+    __syscall("core.mod_uint8",x,y,__return ret);
+    return ret;
+} 
+uint16 operator % (uint16 x,uint16 y) {
+    uint16 ret;
+    __syscall("core.mod_uint16",x,y,__return ret);
+    return ret;
+} 
+uint32 operator % (uint32 x,uint32 y) {
+    uint32 ret;
+    __syscall("core.mod_uint32",x,y,__return ret);
+    return ret;
+} 
+uint64 operator % (uint64 x,uint64 y) {
+    uint64 ret;
+    __syscall("core.mod_uint64",x,y,__return ret);
+    return ret;
+} 
+float32 operator % (float32 x,float32 y) {
+    float32 ret;
+    __syscall("core.mod_float32",x,y,__return ret);
+    return ret;
+} 
+float64 operator % (float64 x,float64 y) {
+    float64 ret;
+    __syscall("core.mod_float64",x,y,__return ret);
+    return ret;
+} 
+
+// array modulo
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] operator % (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D T [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] % y[i];
+    }
+    return ret;
+}
+
+// greater
+
+bool operator > (int8 x,int8 y) {
+    bool ret;
+    __syscall("core.gt_int8",x,y,__return ret);
+    return ret;
+} 
+bool operator > (int16 x,int16 y) {
+    bool ret;
+    __syscall("core.gt_int16",x,y,__return ret);
+    return ret;
+} 
+bool operator > (int32 x,int32 y) {
+    bool ret;
+    __syscall("core.gt_int32",x,y,__return ret);
+    return ret;
+} 
+bool operator > (int64 x,int64 y) {
+    bool ret;
+    __syscall("core.gt_int64",x,y,__return ret);
+    return ret;
+}
+bool operator > (uint8 x,uint8 y) {
+    bool ret;
+    __syscall("core.gt_uint8",x,y,__return ret);
+    return ret;
+} 
+bool operator > (uint16 x,uint16 y) {
+    bool ret;
+    __syscall("core.gt_uint16",x,y,__return ret);
+    return ret;
+} 
+bool operator > (uint32 x,uint32 y) {
+    bool ret;
+    __syscall("core.gt_uint32",x,y,__return ret);
+    return ret;
+} 
+bool operator > (uint64 x,uint64 y) {
+    bool ret;
+    __syscall("core.gt_uint64",x,y,__return ret);
+    return ret;
+} 
+bool operator > (float32 x,float32 y) {
+    bool ret;
+    __syscall("core.gt_float32",x,y,__return ret);
+    return ret;
+} 
+bool operator > (float64 x,float64 y) {
+    bool ret;
+    __syscall("core.gt_float64",x,y,__return ret);
+    return ret;
+} 
+bool operator > (bool x,bool y) {
+    bool ret;
+    __syscall("core.gt_bool",x,y,__return ret);
+    return ret;
+} 
+
+// array greater
+
+template <domain D, type T, dim N { N > 0 } >
+D bool[[N]] operator > (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D bool [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] > y[i];
+    }
+    return ret;
+}
+
+// smaller
+
+bool operator < (int8 x,int8 y) {
+    bool ret;
+    __syscall("core.lt_int8",x,y,__return ret);
+    return ret;
+} 
+bool operator < (int16 x,int16 y) {
+    bool ret;
+    __syscall("core.lt_int16",x,y,__return ret);
+    return ret;
+} 
+bool operator < (int32 x,int32 y) {
+    bool ret;
+    __syscall("core.lt_int32",x,y,__return ret);
+    return ret;
+} 
+bool operator < (int64 x,int64 y) {
+    bool ret;
+    __syscall("core.lt_int64",x,y,__return ret);
+    return ret;
+}
+bool operator < (uint8 x,uint8 y) {
+    bool ret;
+    __syscall("core.lt_uint8",x,y,__return ret);
+    return ret;
+} 
+bool operator < (uint16 x,uint16 y) {
+    bool ret;
+    __syscall("core.lt_uint16",x,y,__return ret);
+    return ret;
+} 
+bool operator < (uint32 x,uint32 y) {
+    bool ret;
+    __syscall("core.lt_uint32",x,y,__return ret);
+    return ret;
+} 
+bool operator < (uint64 x,uint64 y) {
+    bool ret;
+    __syscall("core.lt_uint64",x,y,__return ret);
+    return ret;
+} 
+bool operator < (float32 x,float32 y) {
+    bool ret;
+    __syscall("core.lt_float32",x,y,__return ret);
+    return ret;
+} 
+bool operator < (float64 x,float64 y) {
+    bool ret;
+    __syscall("core.lt_float64",x,y,__return ret);
+    return ret;
+} 
+bool operator < (bool x,bool y) {
+    bool ret;
+    __syscall("core.lt_bool",x,y,__return ret);
+    return ret;
+} 
+
+// array smaller
+
+template <domain D, type T, dim N { N > 0 } >
+D bool[[N]] operator < (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D bool [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] < y[i];
+    }
+    return ret;
+}
+
+// greater or equal
+
+bool operator >= (int8 x,int8 y) {
+    bool ret;
+    __syscall("core.ge_int8",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (int16 x,int16 y) {
+    bool ret;
+    __syscall("core.ge_int16",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (int32 x,int32 y) {
+    bool ret;
+    __syscall("core.ge_int32",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (int64 x,int64 y) {
+    bool ret;
+    __syscall("core.ge_int64",x,y,__return ret);
+    return ret;
+}
+bool operator >= (uint8 x,uint8 y) {
+    bool ret;
+    __syscall("core.ge_uint8",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (uint16 x,uint16 y) {
+    bool ret;
+    __syscall("core.ge_uint16",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (uint32 x,uint32 y) {
+    bool ret;
+    __syscall("core.ge_uint32",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (uint64 x,uint64 y) {
+    bool ret;
+    __syscall("core.ge_uint64",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (float32 x,float32 y) {
+    bool ret;
+    __syscall("core.ge_float32",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (float64 x,float64 y) {
+    bool ret;
+    __syscall("core.ge_float64",x,y,__return ret);
+    return ret;
+} 
+bool operator >= (bool x,bool y) {
+    bool ret;
+    __syscall("core.ge_bool",x,y,__return ret);
+    return ret;
+} 
+
+// array greater or equal
+
+template <domain D, type T, dim N { N > 0 } >
+D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D bool [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] >= y[i];
+    }
+    return ret;
+}
+
+// smaller or equal
+
+bool operator <= (int8 x,int8 y) {
+    bool ret;
+    __syscall("core.le_int8",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (int16 x,int16 y) {
+    bool ret;
+    __syscall("core.le_int16",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (int32 x,int32 y) {
+    bool ret;
+    __syscall("core.le_int32",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (int64 x,int64 y) {
+    bool ret;
+    __syscall("core.le_int64",x,y,__return ret);
+    return ret;
+}
+bool operator <= (uint8 x,uint8 y) {
+    bool ret;
+    __syscall("core.le_uint8",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (uint16 x,uint16 y) {
+    bool ret;
+    __syscall("core.le_uint16",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (uint32 x,uint32 y) {
+    bool ret;
+    __syscall("core.le_uint32",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (uint64 x,uint64 y) {
+    bool ret;
+    __syscall("core.le_uint64",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (float32 x,float32 y) {
+    bool ret;
+    __syscall("core.le_float32",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (float64 x,float64 y) {
+    bool ret;
+    __syscall("core.le_float64",x,y,__return ret);
+    return ret;
+} 
+bool operator <= (bool x,bool y) {
+    bool ret;
+    __syscall("core.le_bool",x,y,__return ret);
+    return ret;
+} 
+
+// array greater
+
+template <domain D, type T, dim N { N > 0 } >
+D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y) {
+    assert(sameshape(x,y));
+    D bool [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] <= y[i];
+    }
+    return ret;
+}
+
+// equal
+
+bool operator == (int8 x,int8 y) {
+    bool ret;
+    __syscall("core.eq_int8",x,y,__return ret);
+    return ret;
+} 
+bool operator == (int16 x,int16 y) {
+    bool ret;
+    __syscall("core.eq_int16",x,y,__return ret);
+    return ret;
+} 
+bool operator == (int32 x,int32 y) {
+    bool ret;
+    __syscall("core.eq_int32",x,y,__return ret);
+    return ret;
+} 
+bool operator == (int64 x,int64 y) {
+    bool ret;
+    __syscall("core.eq_int64",x,y,__return ret);
+    return ret;
+}
+bool operator == (uint8 x,uint8 y) {
+    bool ret;
+    __syscall("core.eq_uint8",x,y,__return ret);
+    return ret;
+} 
+bool operator == (uint16 x,uint16 y) {
+    bool ret;
+    __syscall("core.eq_uint16",x,y,__return ret);
+    return ret;
+} 
+bool operator == (uint32 x,uint32 y) {
+    bool ret;
+    __syscall("core.eq_uint32",x,y,__return ret);
+    return ret;
+} 
+bool operator == (uint64 x,uint64 y) {
+    bool ret;
+    __syscall("core.eq_uint64",x,y,__return ret);
+    return ret;
+} 
+bool operator == (float32 x,float32 y) {
+    bool ret;
+    __syscall("core.eq_float32",x,y,__return ret);
+    return ret;
+} 
+bool operator == (float64 x,float64 y) {
+    bool ret;
+    __syscall("core.eq_float64",x,y,__return ret);
+    return ret;
+} 
+bool operator == (bool x,bool y) {
+    bool ret;
+    __syscall("core.eq_bool",x,y,__return ret);
+    return ret;
+} 
+
+// array equal
+
+template <domain D, type T>
+D bool[[1]] operator == (D T[[1]] x,D T[[1]] y) {
+    assert(size(x) == size(y));
+    D bool[[1]] ret (size(x));
+    for (uint i = 0; i < size(x); i++) {
+        ret[i] = x[i] == y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+D bool[[N]] operator == (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D bool [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] == y[i];
+    }
+    return ret;
+}
+
+// not equal
+
+bool operator != (int8 x,int8 y) {
+    bool ret;
+    __syscall("core.neq_int8",x,y,__return ret);
+    return ret;
+} 
+bool operator != (int16 x,int16 y) {
+    bool ret;
+    __syscall("core.neq_int16",x,y,__return ret);
+    return ret;
+} 
+bool operator != (int32 x,int32 y) {
+    bool ret;
+    __syscall("core.neq_int32",x,y,__return ret);
+    return ret;
+} 
+bool operator != (int64 x,int64 y) {
+    bool ret;
+    __syscall("core.neq_int64",x,y,__return ret);
+    return ret;
+}
+bool operator != (uint8 x,uint8 y) {
+    bool ret;
+    __syscall("core.neq_uint8",x,y,__return ret);
+    return ret;
+} 
+bool operator != (uint16 x,uint16 y) {
+    bool ret;
+    __syscall("core.neq_uint16",x,y,__return ret);
+    return ret;
+} 
+bool operator != (uint32 x,uint32 y) {
+    bool ret;
+    __syscall("core.neq_uint32",x,y,__return ret);
+    return ret;
+} 
+bool operator != (uint64 x,uint64 y) {
+    bool ret;
+    __syscall("core.neq_uint64",x,y,__return ret);
+    return ret;
+} 
+bool operator != (float32 x,float32 y) {
+    bool ret;
+    __syscall("core.neq_float32",x,y,__return ret);
+    return ret;
+} 
+bool operator != (float64 x,float64 y) {
+    bool ret;
+    __syscall("core.neq_float64",x,y,__return ret);
+    return ret;
+} 
+bool operator != (bool x,bool y) {
+    bool ret;
+    __syscall("core.neq_bool",x,y,__return ret);
+    return ret;
+} 
+
+// array not equal
+
+template <domain D, type T, dim N { N > 0 } >
+D bool[[N]] operator != (D T[[N]] x,D T[[N]] y) {
+    assert(sameshape(x,y));
+    D bool [[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = x[i] != y[i];
+    }
+    return ret;
+}
+
+bool operator ! (bool x) {
+    if (x==false) return true;
+    else return false;
+}
+
+template <domain D, dim N { N > 0 }>
+D bool[[N]] operator ! (D bool[[N]] x) {
+    D bool[[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
+        ret[i] = ! x[i];
+    }
+    return ret;
+}
+
 // casts
 
 // to bool
@@ -610,923 +1527,22 @@ float64 operator (float64) (float64 x) {
 }
 
 // array casts
-template <domain D, dim N { N > 0 }, type X, type Y, dim... n>
-D Y[[N]](n...) operator (Y) (D X[[N]] x (n...)) {
-    D Y[[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
+template <domain D, dim N { N > 0 }, type X, type Y>
+D Y[[N]] operator (Y) (D X[[N]] x) {
+    D Y[[N]] ret (varray(shape(x),N)...);
+    for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = (Y) x[i];
     }
     return ret;
 }
 
-// classify
-template <domain D,type T,dim N { N > 0}, dim... n >
-D T[[N]](n...) classify (public T[[N]] x (n...)) {
-    D T[[N]] ret (n...);
-    public T x1;
-    D T x2 = classify(x1);
-    return ret;
-}
-
-// declassify
-template <domain D,type T,dim N { N > 0 }, dim... n>
-public T[[N]](n...) declassify (D T[[N]] x (n...)) {
-    public T[[N]] ret (n...);
-    D T x1;
-    public T x2 = declassify(x1);
-    return ret;
-}
-
-// strlen
-
-uint strlen (string str) {
-    uint ret;
-    __syscall("core.strlen",str,__return ret);
-    return ret;
-}
-
-// tostring
-
-template <type T>
-string tostring (public T x) {
-    string ret;
-    __syscall("core.tostring",x,__return ret);
-    return ret;
-}
-
-// shape
-
-template <domain D, type T, dim N>
-uint[[1]](N) shape (D T[[N]] arr) {
-    uint[[1]] ret (N);
-    __syscall("core.shape",arr,__return ret);
-    return ret;
-}
-
-//cat
-
-template <domain D, type T, dim N>
-D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
-    return cat(x,y,0);
-}
-
-template <domain D, type T, dim N, dim... nx, dim... ny, dim... nz>
-D T[[N]](nz...) cat (D T[[N]] x (nx...), D T[[N]] y (ny...), const uint n { n < N }) {
-    D T[[N]] ret (nz...);
-    
-    for (uint i = 0; i < N; i++) {
-        if (i == n) {
-            assert(nz[i] == nx[i] + ny[i]);
-        }
-        else {
-            assert(nx[i] == ny[i]);
-            assert(nz[i] == nx[i]);
-        }
+template<domain D,type T,dim N>
+bool sameshape (D T[[N]] x, D T[[N]] y) {
+    if (size(x) != size(y)) { return false; }
+    uint[[1]] sx = shape(x);
+    uint[[1]] sy = shape(y);
+    for (uint i = 0; i<size(x); ++i) {
+        if (sx[i] != sy[i]) { return false; }
     }
-    
-    return ret;
-}
-
-// reshape
-
-template <domain D, type T, dim N>
-D T[[size...(ns)]](ns...) reshape (D T[[N]] arr, uint... ns) {
-    D T[[size...(ns)]] ret;
-    assert(size(arr) == product(ns...));
-    __syscall("core.reshape",arr,ns,__return ret);
-    return ret;
-}
-
-// size
-
-template <domain D, type T, dim N>
-uint size (D T[[N]] x) {
-    uint ret;
-    __syscall("core.size",x,__return ret);
-    return ret;
-}
-
-// logical operators
-
-bool operator && (bool x,bool y) {
-    bool ret;
-    __syscall("core.band",x,y,__return ret);
-    return ret;
-}
-
-template <domain D, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator && (D bool[[N]] x (n...),D bool[[N]] y (n...)) {
-    D bool[[N]] ret(n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] && y[i];
-    }
-    return ret;
-}
-
-bool operator || (bool x,bool y) {
-    bool ret;
-    __syscall("core.bor",x,y,__return ret);
-    return ret;
-}
-
-template <domain D, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator || (D bool[[N]] x (n...),D bool[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] || y[i];
-    }
-    return ret;
-}
-
-// unary subtraction
-
-int8 operator - (int8 x) {
-    int8 ret;
-    __syscall("core.neg_int8",x,__return ret);
-    return ret;
-} 
-int16 operator - (int16 x) {
-    int16 ret;
-    __syscall("core.neg_int16",x,__return ret);
-    return ret;
-} 
-int32 operator - (int32 x) {
-    int32 ret;
-    __syscall("core.neg_int32",x,__return ret);
-    return ret;
-} 
-int64 operator - (int64 x) {
-    int64 ret;
-    __syscall("core.neg_int64",x,__return ret);
-    return ret;
-}
-
-// unary array subtraction
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D T[[N]](n...) operator - (D T[[N]] x (n...)) {
-    D T [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = - x[i];
-    }
-    return ret;
-}
-
-// subtraction
-
-int8 operator - (int8 x,int8 y) {
-    int8 ret;
-    __syscall("core.sub_int8",x,y,__return ret);
-    return ret;
-} 
-int16 operator - (int16 x,int16 y) {
-    int16 ret;
-    __syscall("core.sub_int16",x,y,__return ret);
-    return ret;
-} 
-int32 operator - (int32 x,int32 y) {
-    int32 ret;
-    __syscall("core.sub_int32",x,y,__return ret);
-    return ret;
-} 
-int64 operator - (int64 x,int64 y) {
-    int64 ret;
-    __syscall("core.sub_int64",x,y,__return ret);
-    return ret;
-}
-uint8 operator - (uint8 x,uint8 y) {
-    uint8 ret;
-    __syscall("core.sub_uint8",x,y,__return ret);
-    return ret;
-} 
-uint16 operator - (uint16 x,uint16 y) {
-    uint16 ret;
-    __syscall("core.sub_uint16",x,y,__return ret);
-    return ret;
-} 
-uint32 operator - (uint32 x,uint32 y) {
-    uint32 ret;
-    __syscall("core.sub_uint32",x,y,__return ret);
-    return ret;
-} 
-uint64 operator - (uint64 x,uint64 y) {
-    uint64 ret;
-    __syscall("core.sub_uint64",x,y,__return ret);
-    return ret;
-} 
-float32 operator - (float32 x,float32 y) {
-    float32 ret;
-    __syscall("core.sub_float32",x,y,__return ret);
-    return ret;
-} 
-float64 operator - (float64 x,float64 y) {
-    float64 ret;
-    __syscall("core.sub_float64",x,y,__return ret);
-    return ret;
-} 
-
-// array subtraction
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D T[[N]](n...) operator - (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D T [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] - y[i];
-    }
-    return ret;
-}
-
-// addition
-
-int8 operator + (int8 x,int8 y) {
-    int8 ret;
-    __syscall("core.add_int8",x,y,__return ret);
-    return ret;
-} 
-int16 operator + (int16 x,int16 y) {
-    int16 ret;
-    __syscall("core.add_int16",x,y,__return ret);
-    return ret;
-} 
-int32 operator + (int32 x,int32 y) {
-    int32 ret;
-    __syscall("core.add_int32",x,y,__return ret);
-    return ret;
-} 
-int64 operator + (int64 x,int64 y) {
-    int64 ret;
-    __syscall("core.add_int64",x,y,__return ret);
-    return ret;
-}
-uint8 operator + (uint8 x,uint8 y) {
-    uint8 ret;
-    __syscall("core.add_uint8",x,y,__return ret);
-    return ret;
-} 
-uint16 operator + (uint16 x,uint16 y) {
-    uint16 ret;
-    __syscall("core.add_uint16",x,y,__return ret);
-    return ret;
-} 
-uint32 operator + (uint32 x,uint32 y) {
-    uint32 ret;
-    __syscall("core.add_uint32",x,y,__return ret);
-    return ret;
-} 
-uint64 operator + (uint64 x,uint64 y) {
-    uint64 ret;
-    __syscall("core.add_uint64",x,y,__return ret);
-    return ret;
-} 
-float32 operator + (float32 x,float32 y) {
-    float32 ret;
-    __syscall("core.add_float32",x,y,__return ret);
-    return ret;
-} 
-float64 operator + (float64 x,float64 y) {
-    float64 ret;
-    __syscall("core.add_float64",x,y,__return ret);
-    return ret;
-} 
-
-// array addition
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D T[[N]](n...) operator + (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D T [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] + y[i];
-    }
-    return ret;
-}
-
-// multiplication
-
-int8 operator * (int8 x,int8 y) {
-    int8 ret;
-     __syscall("core.mul_int8",x,y,__return ret);
-    return ret;
-} 
-int16 operator * (int16 x,int16 y) {
-    int16 ret;
-     __syscall("core.mul_int16",x,y,__return ret);
-    return ret;
-} 
-int32 operator * (int32 x,int32 y) {
-    int32 ret;
-     __syscall("core.mul_int32",x,y,__return ret);
-    return ret;
-} 
-int64 operator * (int64 x,int64 y) {
-    int64 ret;
-     __syscall("core.mul_int64",x,y,__return ret);
-    return ret;
-}
-uint8 operator * (uint8 x,uint8 y) {
-    uint8 ret;
-    __syscall("core.mul_uint8",x,y,__return ret);
-    return ret;
-} 
-uint16 operator * (uint16 x,uint16 y) {
-    uint16 ret;
-    __syscall("core.mul_uint16",x,y,__return ret);
-    return ret;
-} 
-uint32 operator * (uint32 x,uint32 y) {
-    uint32 ret;
-    __syscall("core.mul_uint32",x,y,__return ret);
-    return ret;
-} 
-uint64 operator * (uint64 x,uint64 y) {
-    uint64 ret;
-    __syscall("core.mul_uint64",x,y,__return ret);
-    return ret;
-} 
-float32 operator * (float32 x,float32 y) {
-    float32 ret;
-    __syscall("core.mul_float32",x,y,__return ret);
-    return ret;
-} 
-float64 operator * (float64 x,float64 y) {
-    float64 ret;
-    __syscall("core.mul_float64",x,y,__return ret);
-    return ret;
-} 
-
-// array multiplication
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D T[[N]](n...) operator * (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D T [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] * y[i];
-    }
-    return ret;
-}
-
-
-// division
-
-int8 operator / (int8 x,int8 y) {
-    int8 ret;
-    __syscall("core.div_int8",x,y,__return ret);
-    return ret;
-} 
-int16 operator / (int16 x,int16 y) {
-    int16 ret;
-    __syscall("core.div_int16",x,y,__return ret);
-    return ret;
-} 
-int32 operator / (int32 x,int32 y) {
-    int32 ret;
-    __syscall("core.div_int32",x,y,__return ret);
-    return ret;
-} 
-int64 operator / (int64 x,int64 y) {
-    int64 ret;
-    __syscall("core.div_int64",x,y,__return ret);
-    return ret;
-}
-uint8 operator / (uint8 x,uint8 y) {
-    uint8 ret;
-    __syscall("core.div_uint8",x,y,__return ret);
-    return ret;
-} 
-uint16 operator / (uint16 x,uint16 y) {
-    uint16 ret;
-    __syscall("core.div_uint16",x,y,__return ret);
-    return ret;
-} 
-uint32 operator / (uint32 x,uint32 y) {
-    uint32 ret;
-    __syscall("core.div_uint32",x,y,__return ret);
-    return ret;
-} 
-uint64 operator / (uint64 x,uint64 y) {
-    uint64 ret;
-    __syscall("core.div_uint64",x,y,__return ret);
-    return ret;
-} 
-float32 operator / (float32 x,float32 y) {
-    float32 ret;
-    __syscall("core.div_float32",x,y,__return ret);
-    return ret;
-} 
-float64 operator / (float64 x,float64 y) {
-    float64 ret;
-    __syscall("core.div_float64",x,y,__return ret);
-    return ret;
-} 
-
-// array division
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D T[[N]](n...) operator / (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D T [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] / y[i];
-    }
-    return ret;
-}
-
-// modulo
-
-int8 operator % (int8 x,int8 y) {
-    int8 ret;
-    __syscall("core.mod_int8",x,y,__return ret);
-    return ret;
-} 
-int16 operator % (int16 x,int16 y) {
-    int16 ret;
-    __syscall("core.mod_int16",x,y,__return ret);
-    return ret;
-} 
-int32 operator % (int32 x,int32 y) {
-    int32 ret;
-    __syscall("core.mod_int32",x,y,__return ret);
-    return ret;
-} 
-int64 operator % (int64 x,int64 y) {
-    int64 ret;
-    __syscall("core.mod_int64",x,y,__return ret);
-    return ret;
-}
-uint8 operator % (uint8 x,uint8 y) {
-    uint8 ret;
-    __syscall("core.mod_uint8",x,y,__return ret);
-    return ret;
-} 
-uint16 operator % (uint16 x,uint16 y) {
-    uint16 ret;
-    __syscall("core.mod_uint16",x,y,__return ret);
-    return ret;
-} 
-uint32 operator % (uint32 x,uint32 y) {
-    uint32 ret;
-    __syscall("core.mod_uint32",x,y,__return ret);
-    return ret;
-} 
-uint64 operator % (uint64 x,uint64 y) {
-    uint64 ret;
-    __syscall("core.mod_uint64",x,y,__return ret);
-    return ret;
-} 
-float32 operator % (float32 x,float32 y) {
-    float32 ret;
-    __syscall("core.mod_float32",x,y,__return ret);
-    return ret;
-} 
-float64 operator % (float64 x,float64 y) {
-    float64 ret;
-    __syscall("core.mod_float64",x,y,__return ret);
-    return ret;
-} 
-
-// array modulo
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D T[[N]](n...) operator % (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D T [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] % y[i];
-    }
-    return ret;
-}
-
-// greater
-
-bool operator > (int8 x,int8 y) {
-    bool ret;
-    __syscall("core.gt_int8",x,y,__return ret);
-    return ret;
-} 
-bool operator > (int16 x,int16 y) {
-    bool ret;
-    __syscall("core.gt_int16",x,y,__return ret);
-    return ret;
-} 
-bool operator > (int32 x,int32 y) {
-    bool ret;
-    __syscall("core.gt_int32",x,y,__return ret);
-    return ret;
-} 
-bool operator > (int64 x,int64 y) {
-    bool ret;
-    __syscall("core.gt_int64",x,y,__return ret);
-    return ret;
-}
-bool operator > (uint8 x,uint8 y) {
-    bool ret;
-    __syscall("core.gt_uint8",x,y,__return ret);
-    return ret;
-} 
-bool operator > (uint16 x,uint16 y) {
-    bool ret;
-    __syscall("core.gt_uint16",x,y,__return ret);
-    return ret;
-} 
-bool operator > (uint32 x,uint32 y) {
-    bool ret;
-    __syscall("core.gt_uint32",x,y,__return ret);
-    return ret;
-} 
-bool operator > (uint64 x,uint64 y) {
-    bool ret;
-    __syscall("core.gt_uint64",x,y,__return ret);
-    return ret;
-} 
-bool operator > (float32 x,float32 y) {
-    bool ret;
-    __syscall("core.gt_float32",x,y,__return ret);
-    return ret;
-} 
-bool operator > (float64 x,float64 y) {
-    bool ret;
-    __syscall("core.gt_float64",x,y,__return ret);
-    return ret;
-} 
-bool operator > (bool x,bool y) {
-    bool ret;
-    __syscall("core.gt_bool",x,y,__return ret);
-    return ret;
-} 
-
-// array greater
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator > (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] > y[i];
-    }
-    return ret;
-}
-
-// smaller
-
-bool operator < (int8 x,int8 y) {
-    bool ret;
-    __syscall("core.lt_int8",x,y,__return ret);
-    return ret;
-} 
-bool operator < (int16 x,int16 y) {
-    bool ret;
-    __syscall("core.lt_int16",x,y,__return ret);
-    return ret;
-} 
-bool operator < (int32 x,int32 y) {
-    bool ret;
-    __syscall("core.lt_int32",x,y,__return ret);
-    return ret;
-} 
-bool operator < (int64 x,int64 y) {
-    bool ret;
-    __syscall("core.lt_int64",x,y,__return ret);
-    return ret;
-}
-bool operator < (uint8 x,uint8 y) {
-    bool ret;
-    __syscall("core.lt_uint8",x,y,__return ret);
-    return ret;
-} 
-bool operator < (uint16 x,uint16 y) {
-    bool ret;
-    __syscall("core.lt_uint16",x,y,__return ret);
-    return ret;
-} 
-bool operator < (uint32 x,uint32 y) {
-    bool ret;
-    __syscall("core.lt_uint32",x,y,__return ret);
-    return ret;
-} 
-bool operator < (uint64 x,uint64 y) {
-    bool ret;
-    __syscall("core.lt_uint64",x,y,__return ret);
-    return ret;
-} 
-bool operator < (float32 x,float32 y) {
-    bool ret;
-    __syscall("core.lt_float32",x,y,__return ret);
-    return ret;
-} 
-bool operator < (float64 x,float64 y) {
-    bool ret;
-    __syscall("core.lt_float64",x,y,__return ret);
-    return ret;
-} 
-bool operator < (bool x,bool y) {
-    bool ret;
-    __syscall("core.lt_bool",x,y,__return ret);
-    return ret;
-} 
-
-// array smaller
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator < (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] < y[i];
-    }
-    return ret;
-}
-
-// greater or equal
-
-bool operator >= (int8 x,int8 y) {
-    bool ret;
-    __syscall("core.ge_int8",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (int16 x,int16 y) {
-    bool ret;
-    __syscall("core.ge_int16",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (int32 x,int32 y) {
-    bool ret;
-    __syscall("core.ge_int32",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (int64 x,int64 y) {
-    bool ret;
-    __syscall("core.ge_int64",x,y,__return ret);
-    return ret;
-}
-bool operator >= (uint8 x,uint8 y) {
-    bool ret;
-    __syscall("core.ge_uint8",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (uint16 x,uint16 y) {
-    bool ret;
-    __syscall("core.ge_uint16",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (uint32 x,uint32 y) {
-    bool ret;
-    __syscall("core.ge_uint32",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (uint64 x,uint64 y) {
-    bool ret;
-    __syscall("core.ge_uint64",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (float32 x,float32 y) {
-    bool ret;
-    __syscall("core.ge_float32",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (float64 x,float64 y) {
-    bool ret;
-    __syscall("core.ge_float64",x,y,__return ret);
-    return ret;
-} 
-bool operator >= (bool x,bool y) {
-    bool ret;
-    __syscall("core.ge_bool",x,y,__return ret);
-    return ret;
-} 
-
-// array greater or equal
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator >= (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] >= y[i];
-    }
-    return ret;
-}
-
-// smaller or equal
-
-bool operator <= (int8 x,int8 y) {
-    bool ret;
-    __syscall("core.le_int8",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (int16 x,int16 y) {
-    bool ret;
-    __syscall("core.le_int16",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (int32 x,int32 y) {
-    bool ret;
-    __syscall("core.le_int32",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (int64 x,int64 y) {
-    bool ret;
-    __syscall("core.le_int64",x,y,__return ret);
-    return ret;
-}
-bool operator <= (uint8 x,uint8 y) {
-    bool ret;
-    __syscall("core.le_uint8",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (uint16 x,uint16 y) {
-    bool ret;
-    __syscall("core.le_uint16",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (uint32 x,uint32 y) {
-    bool ret;
-    __syscall("core.le_uint32",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (uint64 x,uint64 y) {
-    bool ret;
-    __syscall("core.le_uint64",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (float32 x,float32 y) {
-    bool ret;
-    __syscall("core.le_float32",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (float64 x,float64 y) {
-    bool ret;
-    __syscall("core.le_float64",x,y,__return ret);
-    return ret;
-} 
-bool operator <= (bool x,bool y) {
-    bool ret;
-    __syscall("core.le_bool",x,y,__return ret);
-    return ret;
-} 
-
-// array greater
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator <= (D T[[N]] x (n...), D T[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] <= y[i];
-    }
-    return ret;
-}
-
-// equal
-
-bool operator == (int8 x,int8 y) {
-    bool ret;
-    __syscall("core.eq_int8",x,y,__return ret);
-    return ret;
-} 
-bool operator == (int16 x,int16 y) {
-    bool ret;
-    __syscall("core.eq_int16",x,y,__return ret);
-    return ret;
-} 
-bool operator == (int32 x,int32 y) {
-    bool ret;
-    __syscall("core.eq_int32",x,y,__return ret);
-    return ret;
-} 
-bool operator == (int64 x,int64 y) {
-    bool ret;
-    __syscall("core.eq_int64",x,y,__return ret);
-    return ret;
-}
-bool operator == (uint8 x,uint8 y) {
-    bool ret;
-    __syscall("core.eq_uint8",x,y,__return ret);
-    return ret;
-} 
-bool operator == (uint16 x,uint16 y) {
-    bool ret;
-    __syscall("core.eq_uint16",x,y,__return ret);
-    return ret;
-} 
-bool operator == (uint32 x,uint32 y) {
-    bool ret;
-    __syscall("core.eq_uint32",x,y,__return ret);
-    return ret;
-} 
-bool operator == (uint64 x,uint64 y) {
-    bool ret;
-    __syscall("core.eq_uint64",x,y,__return ret);
-    return ret;
-} 
-bool operator == (float32 x,float32 y) {
-    bool ret;
-    __syscall("core.eq_float32",x,y,__return ret);
-    return ret;
-} 
-bool operator == (float64 x,float64 y) {
-    bool ret;
-    __syscall("core.eq_float64",x,y,__return ret);
-    return ret;
-} 
-bool operator == (bool x,bool y) {
-    bool ret;
-    __syscall("core.eq_bool",x,y,__return ret);
-    return ret;
-} 
-
-// array equal
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator == (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] == y[i];
-    }
-    return ret;
-}
-
-// not equal
-
-bool operator != (int8 x,int8 y) {
-    bool ret;
-    __syscall("core.neq_int8",x,y,__return ret);
-    return ret;
-} 
-bool operator != (int16 x,int16 y) {
-    bool ret;
-    __syscall("core.neq_int16",x,y,__return ret);
-    return ret;
-} 
-bool operator != (int32 x,int32 y) {
-    bool ret;
-    __syscall("core.neq_int32",x,y,__return ret);
-    return ret;
-} 
-bool operator != (int64 x,int64 y) {
-    bool ret;
-    __syscall("core.neq_int64",x,y,__return ret);
-    return ret;
-}
-bool operator != (uint8 x,uint8 y) {
-    bool ret;
-    __syscall("core.neq_uint8",x,y,__return ret);
-    return ret;
-} 
-bool operator != (uint16 x,uint16 y) {
-    bool ret;
-    __syscall("core.neq_uint16",x,y,__return ret);
-    return ret;
-} 
-bool operator != (uint32 x,uint32 y) {
-    bool ret;
-    __syscall("core.neq_uint32",x,y,__return ret);
-    return ret;
-} 
-bool operator != (uint64 x,uint64 y) {
-    bool ret;
-    __syscall("core.neq_uint64",x,y,__return ret);
-    return ret;
-} 
-bool operator != (float32 x,float32 y) {
-    bool ret;
-    __syscall("core.neq_float32",x,y,__return ret);
-    return ret;
-} 
-bool operator != (float64 x,float64 y) {
-    bool ret;
-    __syscall("core.neq_float64",x,y,__return ret);
-    return ret;
-} 
-bool operator != (bool x,bool y) {
-    bool ret;
-    __syscall("core.neq_bool",x,y,__return ret);
-    return ret;
-} 
-
-// array not equal
-
-template <domain D, type T, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator != (D T[[N]] x (n...),D T[[N]] y (n...)) {
-    D bool [[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = x[i] != y[i];
-    }
-    return ret;
-}
-
-//variadic product
-
-template <domain D, type T, dim N, dim... n>
-D T[[N]](n...) product (D T[[N]]... xs (n...)) {
-    D T[[N]] p (n...) = 0;
-    for (uint i = 0; i <= size...(xs); i++)
-        p *= xs[i];
-    return p;
-}
-
-bool operator ! (bool x) {
-    if (x==false) return true;
-    else return false;
-}
-
-template <domain D, dim N { N > 0 }, dim... n >
-D bool[[N]](n...) operator ! (D bool[[N]] x (n...)) {
-    D bool[[N]] ret (n...);
-    for (uint i = 0; i < n[0]; i++) {
-        ret[i] = ! x[i];
-    }
-    return ret;
+    return true;
 }

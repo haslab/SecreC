@@ -32,8 +32,6 @@ tcSecType :: (VarsIdTcM loc m,Location loc) => SecTypeSpecifier Identifier loc -
 
 tcRetTypeSpec :: (VarsIdTcM loc m,Location loc) => ReturnTypeSpecifier Identifier loc -> TcM loc m (ReturnTypeSpecifier VarIdentifier (Typed loc))
 
-tcSizedTypeSpec :: (VarsIdTcM loc m,Location loc) => SizedTypeSpecifier Identifier loc -> TcM loc m (SizedTypeSpecifier VarIdentifier (Typed loc))
-
 tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM loc m (PrimitiveDatatype (Typed loc))
 
 typeDim :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m (SExpr VarIdentifier Type)

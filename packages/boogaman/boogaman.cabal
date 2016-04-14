@@ -1,0 +1,58 @@
+Name:               Boogaman
+Version:            0.0.1
+Description:        Boogie AST Manipulator
+License:            GPL
+License-file:       COPYING
+Author:             Cryptography and Information Security Group, HASLab - INESC TEC and Universidade do Minho
+Maintainer:         Hugo Pacheco <hpacheco@gmail.com>
+Bug-reports:        mailto:hpacheco@gmail.com
+Stability:          experimental
+Homepage:           
+Category:           Verification
+Build-Type:         Simple
+Cabal-Version:      >=1.6
+Tested-with:        GHC==7.10.2
+Synopsis:           SecreC Analyser
+
+Extra-Source-Files: README.md examples tests
+Data-files: dafny.bpl
+
+Executable boogaman
+  Main-is:          Boogaman.hs
+  Other-Modules:
+                        Paths_Boogaman
+        
+  Hs-source-dirs:   .
+  Build-Depends:    base, cmdargs, language-boogie, parsec, mtl, containers, syb, fgl, ansi-wl-pprint
+
+
+--Library
+--  exposed-modules:
+--                        Language.SecreC.Parser.Derp
+--                        Language.SecreC.Parser.Lexer
+--                        Language.SecreC.Parser.Parsec
+--                        Language.SecreC.Parser.Tokens
+--                        Language.SecreC.TypeChecker.Base
+--                        Language.SecreC.TypeChecker.Expression
+--                        Language.SecreC.TypeChecker.Statement
+--                        Language.SecreC.TypeChecker.Type
+--                        Language.SecreC.TypeChecker.Constraint
+--                        Language.SecreC.Error
+--                        Language.SecreC.Location
+--                        Language.SecreC.Modules
+--                        Language.SecreC.Monad
+--                        Language.SecreC.Parser
+--                        Language.SecreC.Position
+--                        Language.SecreC.Pretty
+--                        Language.SecreC.Syntax
+--                        Language.SecreC.TypeChecker
+--                        Language.SecreC.Utils
+--                        Language.SecreC.Vars
+--                        Text.Derp
+--                        Text.Derp.Combinator
+--  Other-Modules:
+--                        Paths_SecreC
+--  Hs-Source-Dirs: src
+--  Build-Depends:     base, transformers, cmdargs, split, containers, syb, pretty, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async, sbv, lifted-base, transformers-base, monad-control
+--  ghc-prof-options: -prof -fprof-auto -fprof-cafs -fforce-recomp
+--  Build-Tools:      alex

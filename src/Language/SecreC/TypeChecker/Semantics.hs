@@ -118,7 +118,7 @@ simplIndexExpr e = do
 
 evalExpr :: (VarsIdTcM loc m,Location loc) => Expression VarIdentifier (Typed loc) -> TcM loc m HsVal
 evalExpr e@(BinaryAssign l e1 o e2) = genTcError (locpos l) (text "evalExpr" <+> pp e) -- TODO
-evalExpr e@(QualExpr l e1 t) = evalExpr (updLoc e1 (flip Typed (typed $ loc $ fst t) $ unTyped $ loc e1))
+evalExpr e@(QualExpr l e1 t) = evalExpr (updLoc e1 (flip Typed (typed $ loc t) $ unTyped $ loc e1))
 evalExpr e@(CondExpr l c e1 e2) = genTcError (locpos l) (text "evalExpr" <+> pp e)
 evalExpr e@(BinaryExpr l e1 o e2) = do
     d <- typeToDecType (unTyped l) (typed $ loc o)

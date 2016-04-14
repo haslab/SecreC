@@ -1,0 +1,6 @@
+Algorithm:
+Secure median computation for two parties alice and bob, each providing two values.
+Each party, knowing its two input values and the public final result, can infer the intermediate comparisons.
+
+Dafny:
+We use a full product to infer the intermediate values from the public outputs.

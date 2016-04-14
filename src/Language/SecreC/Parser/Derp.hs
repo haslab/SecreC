@@ -191,8 +191,8 @@ scConstDeclaration = scTok CONST <~> scTypeSpecifier <~> scConstInitializations 
 
 scProcedureParameter :: ScParser (ProcedureParameter Identifier Position)
 scProcedureParameter =
-    (scTok CONST ~> scTypeSpecifier <~> scVariadic <~> scVarId <~> optionMaybe scSizes <~> scInvariant ==> (\(x1,(x2,(x3,(x4,x5)))) -> ConstProcedureParameter (loc x1) x1 x2 x3 x4 x5))
-    <|> (scTypeSpecifier <~> scVariadic <~> scVarId <~> optionMaybe scSizes ==> (\(x1,(x2,(x3,x4))) -> ProcedureParameter (loc x1) x1 x2 x3 x4))
+    (scTok CONST ~> scTypeSpecifier <~> scVariadic <~> scVarId <~> scInvariant ==> (\(x1,(x2,(x3,(x4)))) -> ConstProcedureParameter (loc x1) x1 x2 x3 x4))
+    <|> (scTypeSpecifier <~> scVariadic <~> scVarId==> (\(x1,(x2,(x3))) -> ProcedureParameter (loc x1) x1 x2 x3))
 
 scVariadic :: ScParser IsVariadic
 scVariadic = optionMaybe (scTok VARIADIC) ==> isJust
@@ -304,10 +304,7 @@ scAttribute = scTypeSpecifier <~> (scAttributeId <~ (scChar ';')) ==> (\(x1,x2) 
 
 scReturnTypeSpecifier :: ScParser (ReturnTypeSpecifier Identifier Position)
 scReturnTypeSpecifier = scTok VOID ==> (\x1 -> ReturnType (loc x1) Nothing)
-                    <|> scSizedTypeSpecifier ==> (\(x1) -> ReturnType (loc $ fst x1) (Just x1))
-
-scSizedTypeSpecifier :: ScParser (SizedTypeSpecifier Identifier Position)
-scSizedTypeSpecifier = scTypeSpecifier <~> optionMaybe scSizes ==> (\(x1,x2) -> (x1,x2))
+                    <|> scTypeSpecifier ==> (\(x1) -> ReturnType (loc x1) (Just x1))
 
 scProcedureDeclaration :: ScParser (ProcedureDeclaration Identifier Position)
 scProcedureDeclaration = scReturnTypeSpecifier <~> ((scTok OPERATOR ~> scOp) <+> scProcedureId) <~> scParens scProcedureParameterList <~> scCompoundStatement ==> f
@@ -437,7 +434,7 @@ scQualifiedExpression :: ScParser (Expression Identifier Position)
 scQualifiedExpression = scFoldl
     (\qe t -> QualExpr (loc qe) qe t)
     scConditionalExpression
-    (scTok TYPE_QUAL ~> scSizedTypeSpecifier)
+    (scTok TYPE_QUAL ~> scTypeSpecifier)
 
 scConditionalExpression :: ScParser (Expression Identifier Position)
 scConditionalExpression = scLogicalOrExpression
@@ -570,6 +567,7 @@ scPostfixExpression' = scTok DOMAINID <~> scParens scSecTypeSpecifier ==> (\(x1,
                   <|> scTok BYTESFROMSTRING <~> scParens scExpression ==> (\(x1,x2) -> BytesFromStringExpr (loc x1) x2)
                   <|> scTok STRINGFROMBYTES <~> scParens scExpression ==> (\(x1,x2) -> StringFromBytesExpr (loc x1) x2)
                   <|> scTok VSIZE <~> scParens scExpression ==> (\(x1,x2) -> VArraySizeExpr (loc x1) x2)
+                  <|> scTok VARRAY <~> scParens (scExpression <~> scChar ',' ~> scExpression) ==> (\(x1,(x2,x3)) -> VArrayExpr (loc x1) x2 x3)
                   <|> scProcedureId <~> (optionMaybe $ scABrackets scTemplateTypeArguments) <~> scParens (optionMaybe scVariadicExpressionList) ==> (\(x1,(x2,x3)) -> ProcCallExpr (loc x1) x1 x2 (maybe [] Foldable.toList x3))
                   <|> scPrimaryExpression
 

@@ -258,21 +258,19 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             return $ ProcedureDeclaration l' t' n' args' s'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
-    traverseVars f (ProcedureParameter l b t v sz) = do
+    traverseVars f (ProcedureParameter l b t v) = do
         l' <- f l
         b' <- f b
         t' <- f t
         v' <- inLHS $ f v
-        sz' <- f sz
-        return $ ProcedureParameter l' b' t' v' sz'
-    traverseVars f (ConstProcedureParameter l b t v sz e) = do
+        return $ ProcedureParameter l' b' t' v'
+    traverseVars f (ConstProcedureParameter l b t v e) = do
         l' <- f l
         b' <- f b
         t' <- f t
         v' <- inLHS $ f v
-        sz' <- f sz
         e' <- f e
-        return $ ConstProcedureParameter l' b' t' v' sz' e'
+        return $ ConstProcedureParameter l' b' t' v' e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
     traverseVars f (ReturnType l mb) = do
@@ -504,6 +502,11 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         e' <- f e
         return $ VArraySizeExpr l' e'
+    traverseVars f (VArrayExpr l e sz) = do
+        l' <- f l
+        e' <- f e
+        sz' <- f sz
+        return $ VArrayExpr l' e' sz'
     traverseVars f (BytesFromStringExpr l e) = do
         l' <- f l
         e' <- f e

@@ -147,28 +147,26 @@ buildProcClass dec = do
         else return $ RWProc rs ws
 
 tcProcedureParam :: (VarsIdTcM loc m,Location loc) => ProcedureParameter Identifier loc -> TcM loc m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Cond (VarName VarIdentifier Type),IsVariadic))
-tcProcedureParam (ProcedureParameter l s isVariadic v sz) = do
+tcProcedureParam (ProcedureParameter l s isVariadic v) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    (ty',sz') <- tcTypeSizes l ty sz
     let vv = bimap mkVarId id v
-    let v' = fmap (flip Typed ty') vv
+    let v' = fmap (flip Typed ty) vv
     newVariable LocalScope v' Nothing False
-    return (ProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' sz',(False,Cond (fmap typed v') Nothing,isVariadic))
-tcProcedureParam (ConstProcedureParameter l s isVariadic v@(VarName vl vi) sz c) = do
+    return (ProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v',(False,Cond (fmap typed v') Nothing,isVariadic))
+tcProcedureParam (ConstProcedureParameter l s isVariadic v@(VarName vl vi) c) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    (ty',sz') <- tcTypeSizes l ty sz
     vi' <- addConst LocalScope vi
     let vv = VarName vl vi'
-    let v' = fmap (flip Typed ty') vv
+    let v' = fmap (flip Typed ty) vv
     newVariable LocalScope v' Nothing True
     (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
         Just x -> do
             tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
-    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' sz' c',(True,Cond (fmap typed v') (fmap (fmap typed) c'),isVariadic))
+    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' c',(True,Cond (fmap typed v') (fmap (fmap typed) c'),isVariadic))
 
 tcStructureDecl :: (VarsIdTcM loc m,Location loc) => (Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc)))
                 -> StructureDeclaration Identifier loc -> TcM loc m (StructureDeclaration VarIdentifier (Typed loc))
@@ -258,7 +256,7 @@ tcGlobal l m = do
     solve l
     dict <- liftM ((\[a] -> a) . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
-    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
+--    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
     liftIO resetGlobalEnv
     return x'

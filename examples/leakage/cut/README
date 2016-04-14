@@ -1,0 +1,9 @@
+Algorithm: 
+A privacy-preserving cut that, given a vector a and a mask vector m, of equal size, returns a vector with the elements from a where the corresponding value in m is 1.
+The idea is to shuffle the vectors and and m together (i.e., using the same random permutation for both), and then declassify the shuffled m before running the filter. Note that the order of the input elements in a is not preserved in the output.
+
+Dafny:
+The cut function receives as known leakage the number 1s in the input mask m.
+
+EasyCrypt:
+We need to prove that, for a shuffle function, if we know all the elements that belong to an input vector (but not their positions), then we can leak the shuffled vector.

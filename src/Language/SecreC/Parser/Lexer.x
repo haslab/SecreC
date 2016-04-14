@@ -115,7 +115,8 @@ tokens :-
 <0>                     xor_uint8             { lexerTokenInfo XOR_UINT8 }
 
 -- built-in functions:
-<0>                     "size..."              { lexerTokenInfo VSIZE }
+<0>                     "size..."             { lexerTokenInfo VSIZE }
+<0>                     "varray"              { lexerTokenInfo VARRAY }
 <0>                     __bytes_from_string   { lexerTokenInfo BYTESFROMSTRING }
 <0>                     __cref                { lexerTokenInfo CREF }
 <0>                     __domainid            { lexerTokenInfo DOMAINID }

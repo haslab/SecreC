@@ -116,6 +116,7 @@ data Token
     | XOR_ASSIGN
     | VARIADIC
     | VSIZE
+    | VARRAY
     | TokenEOF
     | TokenError
   deriving (Show,Read,Data,Typeable,Eq,Ord)
@@ -202,6 +203,7 @@ instance PP Token where
     pp XOR_ASSIGN = text "^="
     pp VARIADIC = text "..."
     pp VSIZE = text "size..."
+    pp VARRAY = text "varray"
     pp TokenEOF = text "<EOF>"
     pp TokenError = text "error <unknown>"
 

@@ -440,6 +440,7 @@ data TcCstr
         [(SExpr VarIdentifier Type,IsVariadic)]
     | IsValid -- check if an index condition is valid (this is mandatory: raises an error)
         (SCond VarIdentifier Type) -- condition
+    | TypeBase Type BaseType
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Hashable TcCstr
@@ -592,6 +593,7 @@ instance PP TcCstr where
     pp (MatchTypeDimension t d) = text "matchtypedimension" <+> pp t <+> pp d
     pp (EvalVarExprs e) = text "evalexprs" <+> pp e
     pp (IsValid c) = text "isvalid" <+> pp c
+    pp (TypeBase t b) = text "typebase" <+> pp t <+> pp b
 
 instance PP CheckCstr where
     pp (CheckAssertion c) = text "checkAssertion" <+> pp c
@@ -771,6 +773,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
     traverseVars f (IsValid c) = do
         c' <- f c
         return $ IsValid c'
+    traverseVars f (TypeBase t b) = do
+        t' <- f t
+        b' <- f b
+        return $ TypeBase t' b'
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m CheckCstr where
     traverseVars f (CheckAssertion c) = do
@@ -1111,7 +1117,6 @@ data ComplexType
         SecType -- ^ security type
         BaseType -- ^ data type
         (SExpr VarIdentifier Type) -- ^ dimension (default = 0, i.e., scalars)
-        [(SExpr VarIdentifier Type,IsVariadic)] -- ^ sizes for each dimension (dependent types?) -- NOTE: check bounds if size is statically known?
     | CVar VarIdentifier
     | Void -- ^ Empty type
     | TyLit -- ^ the most concrete type for a literal. a complex type because we may cast literals into arrays
@@ -1153,6 +1158,7 @@ data Type
   
 instance Hashable Type
 
+-- | Type arrays
 data VArrayType
     = VAVal -- a type array value
         [Type] -- array elements
@@ -1230,7 +1236,7 @@ instance PP ComplexType where
     pp (TyLit lit) = pp lit
     pp (ArrayLit es) = braces (sepBy comma $ map pp $ Foldable.toList es)
     pp Void = text "void"
-    pp (CType s t d szs) = pp s <+> pp t <> brackets (brackets (pp d)) <> parens (sepBy comma $ map pp szs)
+    pp (CType s t d) = pp s <+> pp t <> brackets (brackets (pp d))
     pp (CVar v) = pp v
 instance PP SysType where
     pp t@(SysPush {}) = text (show t)
@@ -1484,12 +1490,11 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ComplexType 
     traverseVars f (ArrayLit l) = do
         l' <- mapM f l
         return $ ArrayLit l'
-    traverseVars f (CType s t d z) = do
+    traverseVars f (CType s t d) = do
         s' <- f s
         t' <- f t
         d' <- f d
-        z' <- mapM f z
-        return $ CType s' t' d' z'
+        return $ CType s' t' d'
     traverseVars f (CVar v) = do
         v' <- f v
         return $ CVar v'
@@ -1687,7 +1692,7 @@ exprTypes = everything (++) (mkQ [] aux)
     aux :: Type -> [Type]
     aux = (:[])
 
-setBase b (CType s t d sz) = CType s b d sz
+setBase b (CType s t d) = CType s b d
 
 -- Left = type template
 -- Right = procedure overload
@@ -1765,7 +1770,7 @@ prims = [int8,uint8,int16,uint16,int32,uint32,int64,uint64,string,bool,xoruint8,
 numerics = filter isNumericBaseType prims
 
 defCType :: BaseType -> ComplexType
-defCType t = CType Public t (indexSExpr 0) []
+defCType t = CType Public t (indexSExpr 0)
 
 instance Hashable VarIdentifier where
     hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)

@@ -75,8 +75,8 @@ tcExpr (BinaryAssign l pe op e) = do
     return $ BinaryAssign (Typed l tpe') pe' op' eres
 tcExpr (QualExpr l e t) = do
     e' <- tcExpr e
-    t' <- tcSizedTypeSpec t
-    let ty = typed $ loc $ fst t'
+    t' <- tcTypeSpec t False
+    let ty = typed $ loc t'
     x <- newTypedVar "qex" ty $ Just $ pp e'
     tcTopCstrM l $ Coerces (fmap typed e') x
     return $ QualExpr (Typed l ty) (fmap (Typed l) $ varExpr x) t'
@@ -127,8 +127,7 @@ tcExpr (UnaryExpr l op e) = do
             b <- typeToBaseType (unTyped lcast) $ typed $ loc cast
             s <- newDomainTyVar AnyKind Nothing
             dim <- newDimVar Nothing
-            szs <- newSizesVar dim Nothing
-            let ct = ComplexT $ CType s b dim szs
+            let ct = ComplexT $ CType s b dim
             x <- newTypedVar "cast" ct $ Just $ pp e'
             tcTopCstrM l $ Coerces (fmap typed e') x
             let ex = fmap (Typed l) $ RVariablePExpr ct x
@@ -143,19 +142,25 @@ tcExpr (DomainIdExpr l s) = do
     let t = BaseT index
     return $ DomainIdExpr (Typed l t) s'
 tcExpr (StringFromBytesExpr l e) = do
-    b <- bytes
-    e' <- tcExprTy (ComplexT b) e
+    e' <- tcExprTy (ComplexT bytes) e
     return $ StringFromBytesExpr (Typed l $ BaseT string) e'
 tcExpr (BytesFromStringExpr l e) = do
     e' <- tcExprTy (BaseT string) e
-    b <- bytes
-    return $ BytesFromStringExpr (Typed l $ ComplexT b) e'
+    return $ BytesFromStringExpr (Typed l $ ComplexT bytes) e'
 tcExpr (VArraySizeExpr l e) = do
     e' <- tcExpr e
     let t = typed $ loc e'
     unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (pp e)
     sz <- typeSize l t
     return $ fmap (Typed l) sz
+tcExpr (VArrayExpr l e sz) = do
+    e' <- tcExpr e
+    sz' <- tcIndexExpr False sz
+    let t = typed $ loc e'
+    b <- newBaseTyVar Nothing
+    tcTopCstrM l $ TypeBase t b
+    let vt = VAType (BaseT b) (fmap typed sz')
+    return $ VArrayExpr (Typed l vt) e' sz'
 tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     let vn = bimap mkVarId id n
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
