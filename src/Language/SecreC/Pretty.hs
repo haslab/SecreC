@@ -51,10 +51,26 @@ instance PP Integer where
 instance PP Int where
     pp = int
 
+instance PP Int8 where
+    pp = text . show
+instance PP Int16 where
+    pp = text . show
+instance PP Int32 where
+    pp = text . show
 instance PP Int64 where
     pp = text . show
 
+instance PP Word8 where
+    pp = text . show
+instance PP Word16 where
+    pp = text . show
+instance PP Word32 where
+    pp = text . show
 instance PP Word64 where
+    pp = text . show
+instance PP Float where
+    pp = text . show
+instance PP Double where
     pp = text . show
 
 instance PP () where

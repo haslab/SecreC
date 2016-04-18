@@ -9,6 +9,7 @@ import Language.SecreC.TypeChecker.Base
 import Language.SecreC.Vars
 import Language.SecreC.Error
 import Language.SecreC.Pretty
+import Language.SecreC.Prover.Base
 
 import Text.PrettyPrint
 
@@ -19,20 +20,20 @@ import Control.Monad.IO.Class
 
 tcVariadicArg :: (PP (a VarIdentifier (Typed loc)),VarsIdTcM loc m,Located (a VarIdentifier (Typed loc)),Location loc,LocOf (a VarIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM loc m (a VarIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM loc m (a VarIdentifier (Typed loc),IsVariadic)
 
-landExprs :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Expression VarIdentifier Type)
+landExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Expression VarIdentifier Type)
 
-tcExpr :: (VarsIdTcM loc m,Location loc) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
+tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
 
-tcGuard :: (VarsIdTcM loc m,Location loc) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
+tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
 
-tcIndexExpr :: (VarsIdTcM loc m,Location loc) => IsVariadic -> Expression Identifier loc -> TcM loc m (SExpr VarIdentifier (Typed loc))
+tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM loc m (SExpr VarIdentifier (Typed loc))
 
-tcExprTy :: (VarsIdTcM loc m,Location loc) => Type -> Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
+tcExprTy :: (ProverK loc m) => Type -> Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
 
 tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM loc m (VarName VarIdentifier (Typed loc))
 
-tcSizes :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Sizes Identifier loc -> TcM loc m (Sizes VarIdentifier (Typed loc))
+tcSizes :: (ProverK loc m) => loc -> Type -> Sizes Identifier loc -> TcM loc m (Sizes VarIdentifier (Typed loc))
 
-subtractIndexExprs :: (VarsIdTcM loc m,Location loc) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Expression VarIdentifier Type)
+subtractIndexExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Expression VarIdentifier Type)
 
-tcIndexCond :: (VarsIdTcM loc m,Location loc) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))
+tcIndexCond :: (ProverK loc m) => Expression Identifier loc -> TcM loc m (Expression VarIdentifier (Typed loc))

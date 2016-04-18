@@ -13,8 +13,8 @@ import Language.SecreC.Vars
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
-import {-# SOURCE #-} Language.SecreC.TypeChecker.Index
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.Prover.Base
 import Language.SecreC.TypeChecker.Conversion
 
 import Data.IORef
@@ -60,6 +60,7 @@ import qualified System.Mem.Weak.Map as WeakMap
 
 import System.Mem.Weak.Exts as Weak
 
+getAllVars scope = getVarsPred scope (const True)
 getVars scope cl = getVarsPred scope (== cl)
 
 -- | Gets the variables of a given type class
@@ -122,7 +123,7 @@ checkVariable isConst scope (VarName l n) = do
         Nothing -> tcError (locpos l) $ VariableNotFound (pp n')
 
 -- | Adds a new variable to the environment
-newVariable :: (MonadIO m,VarsIdTcM loc m,Location loc) => Scope -> VarName VarIdentifier (Typed loc) -> Maybe (Expression VarIdentifier (Typed loc)) -> Bool -> TcM loc m ()
+newVariable :: (MonadIO m,ProverK loc m) => Scope -> VarName VarIdentifier (Typed loc) -> Maybe (Expression VarIdentifier (Typed loc)) -> Bool -> TcM loc m ()
 newVariable scope v@(VarName (Typed l t) n) val isConst = do
     vars <- getVarsPred scope (\k -> k == TypeC || k == VArrayStarC TypeC)
     case Map.lookup n vars of
@@ -292,7 +293,7 @@ noTSubsts d = fmap locpos (d { tSubsts = Map.empty })
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
-addTemplateOperator :: (VarsIdTcM loc m,Location loc) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
+addTemplateOperator :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
 addTemplateOperator vars hdeps op = do
     let Typed l t = loc op
     d <- typeToDecType l t
@@ -308,7 +309,7 @@ addTemplateOperator vars hdeps op = do
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
 -- | Adds a new (possibly overloaded) operator to the environment.
-newOperator :: (VarsIdTcM loc m,Location loc) => Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
+newOperator :: (ProverK loc m) => Deps loc -> Op VarIdentifier (Typed loc) -> TcM loc m (Op VarIdentifier (Typed loc))
 newOperator hdeps op = do
     let Typed l t = loc op
     let o = funit op
@@ -351,7 +352,7 @@ checkOperator op = do
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
-addTemplateProcedure :: (VarsIdTcM loc m,Location loc) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc))
+addTemplateProcedure :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc))
 addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
@@ -365,7 +366,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     return $ updLoc pn (Typed (unTyped $ loc pn) dt')
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
-newProcedure :: (VarsIdTcM loc m,Location loc) => Deps loc -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc))
+newProcedure :: (ProverK loc m) => Deps loc -> ProcedureName VarIdentifier (Typed loc) -> TcM loc m (ProcedureName VarIdentifier (Typed loc))
 newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
     (_,recdict) <- tcProve l "newProc head" $ addHeadTCstrs hdeps
@@ -451,7 +452,7 @@ splitHead deps = do
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStruct :: (VarsIdTcM loc m,Location loc) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
+addTemplateStruct :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
 addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
@@ -468,7 +469,7 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     
 -- Adds a new (possibly overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStructSpecialization :: (VarsIdTcM loc m,Location loc) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> [(Type,IsVariadic)] -> Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
+addTemplateStructSpecialization :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> [(Type,IsVariadic)] -> Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
 addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
@@ -482,7 +483,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
     return $ updLoc tn (Typed (unTyped $ loc tn) dt')
 
 -- | Defines a new struct type
-newStruct :: (VarsIdTcM loc m,Location loc) => Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
+newStruct :: (ProverK loc m) => Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
 newStruct hdeps tn@(TypeName (Typed l t) n) = do
     addGDependencies $ Right $ Right $ funit tn
     d <- typeToDecType l t
@@ -523,7 +524,7 @@ addSubsts ss = do
     updateHeadTDict $ \d -> return ((),mappend d (TDict Graph.empty Set.empty ss))
     mapM_ (dirtyGDependencies . Left . fst) $ Map.toList ss
 
-addSubstM :: (VarsIdTcM loc m,Location loc) => loc -> VarName VarIdentifier Type -> Type -> TcM loc m ()
+addSubstM :: (ProverK loc m) => loc -> VarName VarIdentifier Type -> Type -> TcM loc m ()
 addSubstM l v t | varNameToType v == t = return ()
 addSubstM l v t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
     tcCstrM l $ Unifies (loc v) (tyOf t)
@@ -607,7 +608,7 @@ addValue l v e = do
 --    liftIO $ putStrLn $ "addValue " ++ ppr v ++ " " ++ ppr e
     updateHeadTDict $ \d -> return ((),d { tSubsts = Map.insert v (IdxT e) (tSubsts d) })
 
-addValueM :: (VarsIdTcM loc m,Location loc) => Bool -> loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
+addValueM :: (ProverK loc m) => Bool -> loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM loc m ()
 addValueM checkTy l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
 addValueM checkTy l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
     when checkTy $ tcCstrM l $ Unifies t (loc e)

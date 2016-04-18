@@ -13,10 +13,9 @@ import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Base hiding (int)
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
-import Language.SecreC.TypeChecker.Semantics
-import Language.SecreC.TypeChecker.SMT
 import Language.SecreC.TypeChecker.Environment
-import Language.SecreC.TypeChecker.Index
+import Language.SecreC.Prover.Semantics
+import Language.SecreC.Prover.Base
 
 import Data.Bifunctor
 import Data.Traversable
@@ -45,11 +44,11 @@ import Text.PrettyPrint as PP hiding (equals)
 
 import Prelude hiding (mapM)
 
-isBoolTypeM :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Bool
+isBoolTypeM :: (ProverK loc m) => loc -> Type -> TcM loc m Bool
 isBoolTypeM l t | isBoolType t = return True
 isBoolTypeM l t = liftM isBoolBaseType (typeToBaseType l t) `mplus` return False
 
-isIntTypeM :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Bool
+isIntTypeM :: (ProverK loc m) => loc -> Type -> TcM loc m Bool
 isIntTypeM l t | isIntType t = return True
 isIntTypeM l t = liftM isIntBaseType (typeToBaseType l t) `mplus` return False
 
@@ -57,28 +56,28 @@ castTypeToType :: CastType VarIdentifier Type -> Type
 castTypeToType (CastPrim p) = BaseT $ TyPrim $ funit p
 castTypeToType (CastTy (TypeName t n)) = t
 
-typeToSecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m SecType
+typeToSecType :: (ProverK loc m) => loc -> Type -> TcM loc m SecType
 typeToSecType l (SecT s) = return s
 typeToSecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ SType AnyKind)
 
-typeToDecType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m DecType
+typeToDecType :: (ProverK loc m) => loc -> Type -> TcM loc m DecType
 typeToDecType l (DecT s) = return s
 typeToDecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp DType)
 
-typeToVArrayType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> SExpr VarIdentifier Type -> TcM loc m VArrayType
+typeToVArrayType :: (ProverK loc m) => loc -> Type -> SExpr VarIdentifier Type -> TcM loc m VArrayType
 typeToVArrayType l (VArrayT a) sz = do
     prove l "typeToVArrayType" $ unifiesExprTy l sz (vArraySize a)
     return a
 typeToVArrayType l t sz = ppM l t >>= tcError (locpos l) . TypeConversionError (pp (NoType $ "array of size " ++ ppr sz))
 
-typeToPrimType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Prim
+typeToPrimType :: (ProverK loc m) => loc -> Type -> TcM loc m Prim
 typeToPrimType l t = do
     b <- typeToBaseType l t
     case b of
         TyPrim p -> return p
         otherwise -> genTcError (locpos l) $ text "not a primitive type" <+> pp t
 
-typeToBaseType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m BaseType
+typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM loc m BaseType
 typeToBaseType l (BaseT s) = return s
 typeToBaseType l t@(ComplexT ct) = case ct of
     (CType s b d) -> catchError
@@ -88,7 +87,7 @@ typeToBaseType l t@(ComplexT ct) = case ct of
     otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
 typeToBaseType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
 
-typeToComplexType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m ComplexType
+typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM loc m ComplexType
 typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
 typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp TType)
@@ -105,7 +104,7 @@ tcTypeName v@(TypeName l n) = do
     t <- checkNonTemplateType (TypeName l n')
     return $ TypeName (Typed l t) n'
 
-tcTypeSpec :: (VarsIdTcM loc m,Location loc) => TypeSpecifier Identifier loc -> IsVariadic -> TcM loc m (TypeSpecifier VarIdentifier (Typed loc))
+tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM loc m (TypeSpecifier VarIdentifier (Typed loc))
 tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
     (sec',tsec) <- tcMbSecType sec 
     dta' <- tcDatatypeSpec dta
@@ -114,7 +113,7 @@ tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
     t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic
     return $ TypeSpecifier (Typed l t) sec' dta' dim'
     
-buildTypeSpec :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Type -> SExpr VarIdentifier Type -> IsVariadic -> TcM loc m Type
+buildTypeSpec :: (ProverK loc m) => loc -> Type -> Type -> SExpr VarIdentifier Type -> IsVariadic -> TcM loc m Type
 buildTypeSpec l tsec tdta tdim True = do
     tsecs <- if isVATy (tyOf tsec) then expandVariadicType l (tsec,True) else return [tsec]
     tdtas <- if isVATy (tyOf tdta) then expandVariadicType l (tdta,True) else return [tdta]
@@ -145,14 +144,14 @@ zipCTypeArgs l ss bs ds = zipCTypeArgs' l ss bs ds
     zipCTypeArgs' l (s:ss) (b:bs) (d:ds) = liftM ((s,b,d) :) (zipCTypeArgs' l ss bs ds)
     zipCTypeArgs' l _ _ _ = genTcError (locpos l) $ text "variadic arrays with mismatching sizes"
     
-tcMbSecType :: (VarsIdTcM loc m,Location loc) => Maybe (SecTypeSpecifier Identifier loc) -> TcM loc m (Maybe (SecTypeSpecifier VarIdentifier (Typed loc)),Type)
+tcMbSecType :: (ProverK loc m) => Maybe (SecTypeSpecifier Identifier loc) -> TcM loc m (Maybe (SecTypeSpecifier VarIdentifier (Typed loc)),Type)
 tcMbSecType Nothing = return (Nothing,SecT Public) -- public by default
 tcMbSecType (Just sec) = do
     sec' <- tcSecType sec
     let t = typed $ loc sec'
     return (Just sec',t)
 
-tcSecType :: (VarsIdTcM loc m,Location loc) => SecTypeSpecifier Identifier loc -> TcM loc m (SecTypeSpecifier VarIdentifier (Typed loc))
+tcSecType :: (ProverK loc m) => SecTypeSpecifier Identifier loc -> TcM loc m (SecTypeSpecifier VarIdentifier (Typed loc))
 tcSecType (PublicSpecifier l) = do
     return $ PublicSpecifier (Typed l $ SecT Public)
 tcSecType (PrivateSpecifier l d) = do
@@ -161,7 +160,7 @@ tcSecType (PrivateSpecifier l d) = do
     let d' = fmap (flip Typed t) vd
     return $ PrivateSpecifier (Typed l t) d'
 
-tcDatatypeSpec :: (VarsIdTcM loc m,Location loc) => DatatypeSpecifier Identifier loc -> TcM loc m (DatatypeSpecifier VarIdentifier (Typed loc))
+tcDatatypeSpec :: (ProverK loc m) => DatatypeSpecifier Identifier loc -> TcM loc m (DatatypeSpecifier VarIdentifier (Typed loc))
 tcDatatypeSpec (PrimitiveSpecifier l p) = do
     p' <- tcPrimitiveDatatype p
     let t = typed $ loc p'
@@ -187,7 +186,7 @@ tcPrimitiveDatatype p = do
     let p' = fmap (flip Typed t) p
     return p'
 
-tcTemplateTypeArgument :: (VarsIdTcM loc m,Location loc) => TemplateTypeArgument Identifier loc -> TcM loc m (TemplateTypeArgument VarIdentifier (Typed loc))
+tcTemplateTypeArgument :: (ProverK loc m) => TemplateTypeArgument Identifier loc -> TcM loc m (TemplateTypeArgument VarIdentifier (Typed loc))
 tcTemplateTypeArgument (GenericTemplateTypeArgument l n) = do
     n' <- checkTemplateArg (bimap mkVarId id n)
     let t = typed $ loc n'
@@ -207,18 +206,18 @@ tcTemplateTypeArgument (PublicTemplateTypeArgument l) = do
     let t = SecT $ Public
     return $ PublicTemplateTypeArgument (Typed l t)
 
-tcMbDimtypeSpec :: (VarsIdTcM loc m,Location loc) => Doc -> Maybe (DimtypeSpecifier Identifier loc) -> TcM loc m (Maybe (DimtypeSpecifier VarIdentifier (Typed loc)),SExpr VarIdentifier (Typed loc))
+tcMbDimtypeSpec :: (ProverK loc m) => Doc -> Maybe (DimtypeSpecifier Identifier loc) -> TcM loc m (Maybe (DimtypeSpecifier VarIdentifier (Typed loc)),SExpr VarIdentifier (Typed loc))
 tcMbDimtypeSpec doc Nothing = return (Nothing,(indexSExprLoc 0)) -- 0 by default
 tcMbDimtypeSpec doc (Just dim) = do
     (dim',t) <- tcDimtypeSpec doc dim
     return (Just dim',t)
 
-tcDimtypeSpec :: (VarsIdTcM loc m,Location loc) => Doc -> DimtypeSpecifier Identifier loc -> TcM loc m (DimtypeSpecifier VarIdentifier (Typed loc),SExpr VarIdentifier (Typed loc))
+tcDimtypeSpec :: (ProverK loc m) => Doc -> DimtypeSpecifier Identifier loc -> TcM loc m (DimtypeSpecifier VarIdentifier (Typed loc),SExpr VarIdentifier (Typed loc))
 tcDimtypeSpec doc (DimSpecifier l e) = do
     e' <- tcExpr e -- we don't commit to a type yet
     return (DimSpecifier (notTyped "tcDimtypeSpec" l) e',e') 
 
-tcRetTypeSpec :: (VarsIdTcM loc m,Location loc) => ReturnTypeSpecifier Identifier loc -> TcM loc m (ReturnTypeSpecifier VarIdentifier (Typed loc))
+tcRetTypeSpec :: (ProverK loc m) => ReturnTypeSpecifier Identifier loc -> TcM loc m (ReturnTypeSpecifier VarIdentifier (Typed loc))
 tcRetTypeSpec (ReturnType l Nothing) = do
     let t = Void
     return $ ReturnType (Typed l $ ComplexT Void) Nothing
@@ -228,13 +227,13 @@ tcRetTypeSpec (ReturnType l (Just t)) = do
     return (ReturnType (Typed l ty) $ Just t')
 
 -- | Retrieves a constant dimension from a type
-typeDim :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m (SExpr VarIdentifier Type)
+typeDim :: (ProverK loc m) => loc -> Type -> TcM loc m (SExpr VarIdentifier Type)
 typeDim l (BaseT _) = return $ indexSExpr 0
 typeDim l (ComplexT (CType _ _ e)) = return e
 typeDim l (VAType _ _) = return $ indexSExpr 1
 typeDim l t = genTcError (locpos l) $ text "No dimension for type" <+> pp t
 
-projectMatrixType :: (VarsIdTcM loc m,Location loc) => loc -> Type -> [ArrayProj] -> TcM loc m Type
+projectMatrixType :: (ProverK loc m) => loc -> Type -> [ArrayProj] -> TcM loc m Type
 projectMatrixType l (ComplexT ct) rngs = liftM ComplexT $ projectMatrixCType l ct rngs
     where
     projectMatrixCType l ct@(CType sec t dim) rngs = do
@@ -253,9 +252,9 @@ projectMatrixType l (VAType t sz) [rng] = projectSizeTyArray l t sz rng
         return $ VAType t sz'
 projectMatrixType l t rngs = genTcError (locpos l) $ text "Cannot project type " <+> quotes (pp t <> brackets (sepBy comma $ map pp rngs))
 
-projectSizes :: (VarsIdTcM loc m,Location loc) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> [ArrayProj] -> TcM loc m (SExpr VarIdentifier Type)
+projectSizes :: (ProverK loc m) => loc -> ComplexType -> Word64 -> SExpr VarIdentifier Type -> [ArrayProj] -> TcM loc m (SExpr VarIdentifier Type)
 projectSizes p ct i dim ys = do
-    n <- evaluateTypeDim p (ComplexT ct)
+    n <- evaluateIndexExpr p =<< typeDim p (ComplexT ct)
     (r) <- projectSizes' p ct i n ys
     return (indexSExpr r)
   where
@@ -269,7 +268,7 @@ projectSizes p ct i dim ys = do
         (dim') <- projectSizes' p ct (succ i) dim ys
         return (dim')
 
-projectSize :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Word64 -> Maybe (SExpr VarIdentifier Type) -> ArrayIndex -> ArrayIndex -> TcM loc m (Maybe (SExpr VarIdentifier Type))
+projectSize :: (ProverK loc m) => loc -> Type -> Word64 -> Maybe (SExpr VarIdentifier Type) -> ArrayIndex -> ArrayIndex -> TcM loc m (Maybe (SExpr VarIdentifier Type))
 projectSize p t i Nothing y1 y2 = return Nothing
 projectSize p t i (Just x) y1 y2 = do
     let low = case y1 of
@@ -284,27 +283,26 @@ projectSize p t i (Just x) y1 y2 = do
     case (low,upp) of
         (DynArrayIndex el,DynArrayIndex eu) -> do
             deps <- getVarOutSet (t,(el,(eu,x)))
-            newErrorM $ checkCstrM p deps $ CheckArrayAccess t i el eu x
             liftM Just $ subtractIndexExprs p eupp elow
         otherwise -> do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp t) i (pp elow <> char ':' <> pp eupp) arrerr
             liftM Just $ subtractIndexExprs p eupp elow          
 
-structBody :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> TcM loc m Type
+structBody :: (ProverK loc m) => loc -> DecType -> TcM loc m Type
 structBody l d@(DecType _ _ _ _ _ _ _ _ b) | not (isTemplateDecType d) = structBody l b
 structBody l s@(StructType {}) = return $ DecT s
 structBody l (DVar v) = resolveDVar l v >>= structBody l
 structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
-projectStructField :: (VarsIdTcM loc m,Location loc) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc m Type
+projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM loc m Type
 projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
 projectStructField l t@(BVar _) a = tcError (locpos l) $ Halt $ FieldNotFound (pp t) (pp a)
 projectStructField l (TApp _ _ d) a = do
     DecT r <- structBody l d
     projectStructFieldDec l r a
     
-projectStructFieldDec :: (VarsIdTcM loc m,Location loc) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc m Type
+projectStructFieldDec :: (ProverK loc m) => loc -> DecType -> AttributeName VarIdentifier () -> TcM loc m Type
 projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field
     case List.find (\(Cond (Attribute _ t f) c) -> attributeNameId f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
@@ -315,18 +313,18 @@ projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- proj
             return $ typeSpecifierLoc t 
 
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
-tcTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM loc m (Type,Maybe (Sizes VarIdentifier (Typed loc)))
+tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM loc m (Type,Maybe (Sizes VarIdentifier (Typed loc)))
 tcTypeSizes l ty szs = do
     szs' <- mapM (tcSizes l ty) szs
     let tszs' = fmap (fmap typed) szs'
     ty' <- refineTypeSizes l ty tszs'
     return (ty',szs')
 
-variadicExprsLength :: (VarsIdTcM loc m,Location loc) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m (SExpr VarIdentifier Type)
+variadicExprsLength :: (ProverK loc m) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m (SExpr VarIdentifier Type)
 variadicExprsLength l [] = return $ indexSExpr 0
 variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr0M (indexSExpr 0) (sumIndexExprs l)
     where
-    variadicExprLength :: (VarsIdTcM loc m,Location loc) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m (SExpr VarIdentifier Type)
+    variadicExprLength :: (ProverK loc m) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m (SExpr VarIdentifier Type)
     variadicExprLength l (e,False) = return $ indexSExpr 1
     variadicExprLength l (e,True) = do
         let t = loc e
@@ -336,15 +334,15 @@ variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr0M (indexSExp
             VArrayT (VAVar v _ sz) -> return sz
             otherwise -> genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (pp t)
 
-evalVarExprs :: (VarsIdTcM loc m,Location loc) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
-evalVarExprs l = mapM_ (evalVarExpr l)
-    where
-    evalVarExpr :: (VarsIdTcM loc m,Location loc) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m ()
-    evalVarExpr l x = do
-        es <- expandVariadicExpr l x
-        mapM_ (evaluateIndexExpr . fmap (Typed l)) es
+--evalVarExprs :: (ProverK loc m) => loc -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
+--evalVarExprs l = mapM_ (evalVarExpr l)
+--    where
+--    evalVarExpr :: (ProverK loc m) => loc -> (SExpr VarIdentifier Type,IsVariadic) -> TcM loc m ()
+--    evalVarExpr l x = do
+--        es <- expandVariadicExpr l x
+--        mapM_ (evaluateIndexExpr . fmap (Typed l)) es
 
-matchTypeDimension :: (VarsIdTcM loc m,Location loc) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
+matchTypeDimension :: (ProverK loc m) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM loc m ()
 matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp t) (pp es) . Just) $ do
     t' <- if isVATy t then typeBase l t else return t
     td <- typeDim l t'
@@ -353,7 +351,7 @@ matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . Halt . Mi
 
 -- | Update the size of a compound type
 -- for variadic arrays, we set the size of each base type and not of the array itself
-refineTypeSizes :: (VarsIdTcM loc m,Location loc) => loc -> Type -> Maybe (Sizes VarIdentifier Type) -> TcM loc m Type
+refineTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes VarIdentifier Type) -> TcM loc m Type
 refineTypeSizes l ct@(ComplexT (CType s t d)) Nothing = do -- check the generated size
     return ct
 refineTypeSizes l ct@(ComplexT (CType s t d)) (Just (Sizes szs)) = do -- discard the generated size in detriment of the declared size
@@ -370,7 +368,7 @@ refineTypeSizes l (VAType b sz) szs = do
     return $ VAType b' sz
 refineTypeSizes l ct _ = genTcError (locpos l) $ text "Failed to add type size" <+> pp ct
     
-typeBase :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m Type
+typeBase :: (ProverK loc m) => loc -> Type -> TcM loc m Type
 typeBase l (BaseT b) = return $ BaseT b
 typeBase l (ComplexT (CType Public b _)) = return $ BaseT b
 typeBase l (ComplexT (CType s b _)) = return $ ComplexT $ CType s b (indexSExpr 0)
@@ -380,7 +378,7 @@ typeBase l (ComplexT (CVar v)) = do
 typeBase l (VAType b sz) = return b
 typeBase l t = genTcError (locpos l) $ text "No static base type for type" <+> quotes (pp t)
     
-typeSize :: (VarsIdTcM loc m,Location loc) => loc -> Type -> TcM loc m (SExpr VarIdentifier Type)
+typeSize :: (ProverK loc m) => loc -> Type -> TcM loc m (SExpr VarIdentifier Type)
 typeSize l (BaseT _) = return $ indexSExpr 1
 --typeSize l (ComplexT (CType _ _ _ [])) = return $ indexSExpr 1
 --typeSize l (ComplexT (CType _ _ _ szs)) | length szs > 0 = do

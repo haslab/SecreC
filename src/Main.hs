@@ -96,7 +96,8 @@ passes modules = do
     case tc of
         Nothing -> return ()
         Just typedModules -> do
-            simpleModules <- fmapFstM simplifyModuleWithPPArgs typedModules
+            opts <- Reader.ask
+            simpleModules <- fmapFstM (simplifyModuleWithPPArgs opts) typedModules
             liftIO $ output simpleModules
 
 typecheck :: [((PPArgs,Module Identifier Position),OutputType)] -> SecrecM IO (Maybe [((PPArgs,Module VarIdentifier (Typed Position)),OutputType)])

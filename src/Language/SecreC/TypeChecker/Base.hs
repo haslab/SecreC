@@ -436,8 +436,6 @@ data TcCstr
     | MatchTypeDimension
         Type -- type
         [(SExpr VarIdentifier Type,IsVariadic)] -- sequence of sizes
-    | EvalVarExprs -- must be able to statically evaluate the dimension and sizes for the given type
-        [(SExpr VarIdentifier Type,IsVariadic)]
     | IsValid -- check if an index condition is valid (this is mandatory: raises an error)
         (SCond VarIdentifier Type) -- condition
     | TypeBase Type BaseType
@@ -450,7 +448,6 @@ isTrivialTcCstr (Equals t1 t2) = t1 == t2
 isTrivialTcCstr (Coerces e v) = e == varExpr v
 isTrivialTcCstr (CoercesSec e v) = e == varExpr v
 isTrivialTcCstr (Unifies t1 t2) = t1 == t2
-isTrivialTcCstr (EvalVarExprs []) = True
 isTrivialTcCstr (IsValid c) = c == trueSCond
 isTrivialTcCstr _ = False
  
@@ -461,12 +458,6 @@ data CheckCstr
     | CheckEqual -- x == y
         (SExpr VarIdentifier Type) -- left expr
         (SExpr VarIdentifier Type) -- right expr
-    | CheckArrayAccess -- [min..max] in [0..size]
-        Type -- type
-        Word64 -- dimension
-        (SExpr VarIdentifier Type) -- min access
-        (SExpr VarIdentifier Type) -- max access
-        (SExpr VarIdentifier Type) -- array size
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Hashable CheckCstr
@@ -474,7 +465,6 @@ instance Hashable CheckCstr
 isTrivialCheckCstr :: CheckCstr -> Bool
 isTrivialCheckCstr (CheckAssertion c) = c == trueSCond
 isTrivialCheckCstr (CheckEqual e1 e2) = e1 == e2
-isTrivialCheckCstr (CheckArrayAccess {}) = False
  
 -- hypothesis (raises warnings)
 data HypCstr
@@ -591,14 +581,12 @@ instance PP TcCstr where
     pp (IsReturnStmt cs t) = text "return" <+> (hcat $ map pp $ Set.toList cs) <+> pp t
     pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> pp (map fst s)
     pp (MatchTypeDimension t d) = text "matchtypedimension" <+> pp t <+> pp d
-    pp (EvalVarExprs e) = text "evalexprs" <+> pp e
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (TypeBase t b) = text "typebase" <+> pp t <+> pp b
 
 instance PP CheckCstr where
     pp (CheckAssertion c) = text "checkAssertion" <+> pp c
     pp (CheckEqual e1 e2) = text "checkEqual" <+> pp e1 <+> pp e2
-    pp (CheckArrayAccess t d l u sz) = text "checkArrayAccess" <+> pp t <+> pp d <+> pp l <+> pp u <+> pp sz
 
 instance PP HypCstr where
     pp (HypCondition c) = text "hypothesis" <+> pp c
@@ -767,9 +755,6 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         t' <- f t
         d' <- f d
         return $ MatchTypeDimension t' d'
-    traverseVars f (EvalVarExprs c) = do
-        c' <- f c
-        return $ EvalVarExprs c'
     traverseVars f (IsValid c) = do
         c' <- f c
         return $ IsValid c'
@@ -786,13 +771,6 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m CheckCstr wh
         c1' <- f c1
         c2' <- f c2
         return $ CheckEqual c1' c2'
-    traverseVars f (CheckArrayAccess t d l u sz) = do
-        t' <- f t
-        d' <- f d
-        l' <- f l
-        u' <- f u
-        sz' <- f sz
-        return $ CheckArrayAccess t' d' l' u' sz'
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m HypCstr where
     traverseVars f (HypCondition c) = do
@@ -1776,127 +1754,6 @@ instance Hashable VarIdentifier where
     hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)
 
 type Prim = PrimitiveDatatype ()
-
--- * Index expressions
--- | Index expressions. Normal form: ...
-data IExpr
-    -- | Integer literals
-    = IInt !Integer
-    -- | Index variables
-    | IIdx (VarName VarIdentifier Prim)
-    -- | Binary arithmetic operators
-    | IArith IAOp (IExpr) (IExpr)
-    | ISym IExpr
-  deriving (Eq, Ord, Show, Data, Typeable,Generic)
-instance Hashable IExpr
-  
-instance PP IExpr where
-    pp (IInt n)            = integer n
-    pp (IIdx (VarName t v)) = pp v <+> text "::" <+> pp t
-    pp ctx@(IArith op l r) = parens (pp l) <+> pp op <+> parens (pp r)
-    pp (ISym e) = char '-' <> pp e
-  
--- * Index conditions
--- TODO: Implication to decide validity?
--- | The conditions are expressed as boolean values and expressions over them.
-data ICond
-    -- | Boolean literal
-    = IBool !Bool
-    -- | Boolean variable
-    | IBInd VarIdentifier
-    -- | Boolean negation (not)
-    | INot (ICond)
-    -- | Boolean conjunctions (non-empty list)
-    | IAnd [ICond]
-    -- | Boolean binary operations.
-    | IBoolOp IBOp (ICond) (ICond)
-    -- | Non-negative operator on expressions. 
-    -- This has the meaning of @e1 <= e2@
-    | ILeq IExpr IExpr
-    -- | Test of equality (@e1 == e2@).
-    | IEq IExpr IExpr
-    deriving (Eq, Ord, Show, Data, Typeable,Generic)
-instance Hashable ICond
-
-instance PP ICond where
-    pp (IBool b) = text $ show b
-    pp (IBInd v) = pp v <+> text "::" <+> pp bool
-    pp ctx@(INot e) = char '!' <> parens (pp e)
-    pp (IAnd l) = parens (cat (punctuate (text " && ") (map pp l)))
-    pp ctx@(IBoolOp op l r) = parens (pp l) <+> pp op <+> parens (pp r)
-    pp ctx@(ILeq e1 e2) = parens (pp e1) <+> text "<=" <+> parens (pp e2)
-    pp ctx@(IEq e1 e2) = parens (pp e1) <+> text "=="  <+> parens (pp e2)
-
--- | Boolean binary operations
-data IBOp 
-    = IOr  -- ^ Boolean disjunction
-    | IXor -- ^ Boolean exclusive disjunction
-    deriving (Eq, Ord, Read, Show, Data, Typeable,Generic)
-instance Hashable IBOp
-
-instance PP IBOp where
-    pp IOr  = text "||"
-    pp IXor = text "^^"
-
--- | Binary arithmetic operators
-data IAOp 
-    = IPlus -- ^ Addition
-    | IMinus -- ^ Substraction
-    | ITimes -- ^ Multiplication
-    | IPower -- ^ Exponentiation
-    | IDiv   -- ^ Whole division
-    | IModOp -- ^ Remainer of whole division
-    deriving (Eq, Ord, Read, Show, Data, Typeable,Generic)
-instance Hashable IAOp
-
-instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m (IExpr) where
-    traverseVars f (IInt i) = liftM IInt $ f i
-    traverseVars f (IIdx v) = do
-        v' <- f v
-        return $ IIdx v'
-    traverseVars f (IArith o e1 e2) = do
-        o' <- f o
-        e1' <- f e1
-        e2' <- f e2
-        return $ IArith o' e1' e2'
-    traverseVars f (ISym e) = liftM ISym $ f e
-    substL (IIdx (VarName _ n)) = return $ Just n
-    substL _ = return Nothing
-instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m (ICond) where
-    traverseVars f (IBool b) = liftM IBool $ f b
-    traverseVars f (IBInd n) = do
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
-        return $ IBInd n
-    traverseVars f (INot c) = liftM INot $ f c
-    traverseVars f (IAnd cs) = liftM IAnd $ mapM f cs
-    traverseVars f (IBoolOp o c1 c2) = do
-        o' <- f o
-        c1' <- f c1
-        c2' <- f c2
-        return $ IBoolOp o' c1' c2'
-    traverseVars f (ILeq e1 e2) = do
-        e1' <- f e1
-        e2' <- f e2
-        return $ ILeq e1' e2'
-    traverseVars f (IEq e1 e2) = do
-        e1' <- f e1
-        e2' <- f e2
-        return $ IEq e1' e2'
-    substL (IBInd n) = return $ Just n
-    substL _ = return Nothing
-instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IBOp where
-    traverseVars f o = return o
-instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IAOp where
-    traverseVars f o = return o
-
-instance PP IAOp where
-    pp IPlus = char '+'
-    pp IMinus = char '-'
-    pp ITimes = char '*'
-    pp IPower = text "**"
-    pp IDiv   = char '/'
-    pp IModOp = char '%'
 
 tcError :: (MonadIO m,Location loc) => Position -> TypecheckerErr -> TcM loc m a
 tcError pos msg = throwTcError $ TypecheckerError pos msg  
