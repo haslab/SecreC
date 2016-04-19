@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, ConstraintKinds, FlexibleContexts #-}
+{-# LANGUAGE GADTs, ViewPatterns, ConstraintKinds, FlexibleContexts #-}
 
 module Language.SecreC.Prover.Expression (
     expr2IExpr
@@ -6,7 +6,9 @@ module Language.SecreC.Prover.Expression (
 
 import Language.SecreC.Syntax
 import Language.SecreC.Location
+import Language.SecreC.Error
 import Language.SecreC.Pretty
+import Language.SecreC.Utils
 import Language.SecreC.Prover.Base
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Environment hiding (addVar)
@@ -77,83 +79,83 @@ syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter VarIdent
 syscall2Prover l n@(isPrefixOf "core." -> True) args = do
     args' <- mapM unpush $ init args
     VarName (Typed _ t) r <- unret $ last args
-    ie <- corecall2Prover l (drop 5 n) args' t
+    ie <- corecall2Prover l (drop 5 n) args'
     addVar r (Just ie,Nothing)
   where
     unpush (SyscallPush _ e) = expr2Prover e
     unret (SyscallReturn _ v) = return v
 syscall2Prover l n args = lift $ genTcError (locpos l) $ text "unsupported syscall" <+> pp n <+> sepBy space (map pp args)
     
-corecall2Prover :: ProverK loc m => loc -> String -> [IExpr] -> Type -> ExprM loc m IExpr
-corecall2Prover l "sub_int8"    [e1,e2] (BaseT (TyPrim (DatatypeInt8 _)))    = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_int16"   [e1,e2] (BaseT (TyPrim (DatatypeInt16 _)))   = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_int32"   [e1,e2] (BaseT (TyPrim (DatatypeInt32 _)))   = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_int64"   [e1,e2] (BaseT (TyPrim (DatatypeInt64 _)))   = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_uint8"   [e1,e2] (BaseT (TyPrim (DatatypeUint8 _)))   = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_uint16"  [e1,e2] (BaseT (TyPrim (DatatypeUint16 _)))  = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_uint32"  [e1,e2] (BaseT (TyPrim (DatatypeUint32 _)))  = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_uint64"  [e1,e2] (BaseT (TyPrim (DatatypeUint64 _)))  = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_float32" [e1,e2] (BaseT (TyPrim (DatatypeFloat32 _))) = return $ IBinOp IMinus e1 e2
-corecall2Prover l "sub_float64" [e1,e2] (BaseT (TyPrim (DatatypeFloat64 _))) = return $ IBinOp IMinus e1 e2
-corecall2Prover l "add_int8"    [e1,e2] (BaseT (TyPrim (DatatypeInt8 _)))    = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_int16"   [e1,e2] (BaseT (TyPrim (DatatypeInt16 _)))   = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_int32"   [e1,e2] (BaseT (TyPrim (DatatypeInt32 _)))   = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_int64"   [e1,e2] (BaseT (TyPrim (DatatypeInt64 _)))   = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_uint8"   [e1,e2] (BaseT (TyPrim (DatatypeUint8 _)))   = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_uint16"  [e1,e2] (BaseT (TyPrim (DatatypeUint16 _)))  = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_uint32"  [e1,e2] (BaseT (TyPrim (DatatypeUint32 _)))  = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_uint64"  [e1,e2] (BaseT (TyPrim (DatatypeUint64 _)))  = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_float32" [e1,e2] (BaseT (TyPrim (DatatypeFloat32 _))) = return $ IBinOp IPlus e1 e2
-corecall2Prover l "add_float64" [e1,e2] (BaseT (TyPrim (DatatypeFloat64 _))) = return $ IBinOp IPlus e1 e2
-corecall2Prover l "mul_int8"    [e1,e2] (BaseT (TyPrim (DatatypeInt8 _)))    = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_int16"   [e1,e2] (BaseT (TyPrim (DatatypeInt16 _)))   = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_int32"   [e1,e2] (BaseT (TyPrim (DatatypeInt32 _)))   = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_int64"   [e1,e2] (BaseT (TyPrim (DatatypeInt64 _)))   = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_uint8"   [e1,e2] (BaseT (TyPrim (DatatypeUint8 _)))   = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_uint16"  [e1,e2] (BaseT (TyPrim (DatatypeUint16 _)))  = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_uint32"  [e1,e2] (BaseT (TyPrim (DatatypeUint32 _)))  = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_uint64"  [e1,e2] (BaseT (TyPrim (DatatypeUint64 _)))  = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_float32" [e1,e2] (BaseT (TyPrim (DatatypeFloat32 _))) = return $ IBinOp ITimes e1 e2
-corecall2Prover l "mul_float64" [e1,e2] (BaseT (TyPrim (DatatypeFloat64 _))) = return $ IBinOp ITimes e1 e2
-corecall2Prover l "leq_int8" [e1,e2] (BaseT (TyPrim (DatatypeInt8 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_int16" [e1,e2] (BaseT (TyPrim (DatatypeInt16 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_int32" [e1,e2] (BaseT (TyPrim (DatatypeInt32 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_int64" [e1,e2] (BaseT (TyPrim (DatatypeInt64 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_uint8" [e1,e2] (BaseT (TyPrim (DatatypeUint8 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_uint16" [e1,e2] (BaseT (TyPrim (DatatypeUint16 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_uint32" [e1,e2] (BaseT (TyPrim (DatatypeUint32 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_uint64" [e1,e2] (BaseT (TyPrim (DatatypeUint64 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_float32" [e1,e2] (BaseT (TyPrim (DatatypeFloat32 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_float64" [e1,e2] (BaseT (TyPrim (DatatypeFloat64 _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "leq_bool" [e1,e2] (BaseT (TyPrim (DatatypeBool _))) = return $ IBinOp ILeq e1 e2
-corecall2Prover l "eq_int8" [e1,e2] (BaseT (TyPrim (DatatypeInt8 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_int16" [e1,e2] (BaseT (TyPrim (DatatypeInt16 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_int32" [e1,e2] (BaseT (TyPrim (DatatypeInt32 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_int64" [e1,e2] (BaseT (TyPrim (DatatypeInt64 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_uint8" [e1,e2] (BaseT (TyPrim (DatatypeUint8 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_uint16" [e1,e2] (BaseT (TyPrim (DatatypeUint16 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_uint32" [e1,e2] (BaseT (TyPrim (DatatypeUint32 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_uint64" [e1,e2] (BaseT (TyPrim (DatatypeUint64 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_float32" [e1,e2] (BaseT (TyPrim (DatatypeFloat32 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_float64" [e1,e2] (BaseT (TyPrim (DatatypeFloat64 _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "eq_bool" [e1,e2] (BaseT (TyPrim (DatatypeBool _))) = return $ IBinOp IEq e1 e2
-corecall2Prover l "neq_int8" [e1,e2] (BaseT (TyPrim (DatatypeInt8 _))) = return $ IUnOp INot $ IBinOp IEq e1 e2
-corecall2Prover l "neq_int16" [e1,e2] (BaseT (TyPrim (DatatypeInt16 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_int32" [e1,e2] (BaseT (TyPrim (DatatypeInt32 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_int64" [e1,e2] (BaseT (TyPrim (DatatypeInt64 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_uint8" [e1,e2] (BaseT (TyPrim (DatatypeUint8 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_uint16" [e1,e2] (BaseT (TyPrim (DatatypeUint16 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_uint32" [e1,e2] (BaseT (TyPrim (DatatypeUint32 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_uint64" [e1,e2] (BaseT (TyPrim (DatatypeUint64 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_float32" [e1,e2] (BaseT (TyPrim (DatatypeFloat32 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_float64" [e1,e2] (BaseT (TyPrim (DatatypeFloat64 _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "neq_bool" [e1,e2] (BaseT (TyPrim (DatatypeBool _))) = return $ IBinOp INeq e1 e2
-corecall2Prover l "size" [e] t = do
-    dim <- lift $ typeDim l t >>= evaluateIndexExpr l
+corecall2Prover :: ProverK loc m => loc -> String -> [IExpr] -> ExprM loc m IExpr
+corecall2Prover l "sub_int8"    [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_int16"   [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_int32"   [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_int64"   [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_uint8"   [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_uint16"  [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_uint32"  [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_uint64"  [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_float32" [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "sub_float64" [e1,e2] = return $ IBinOp IMinus e1 e2
+corecall2Prover l "add_int8"    [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_int16"   [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_int32"   [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_int64"   [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_uint8"   [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_uint16"  [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_uint32"  [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_uint64"  [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_float32" [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "add_float64" [e1,e2] = return $ IBinOp IPlus e1 e2
+corecall2Prover l "mul_int8"    [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_int16"   [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_int32"   [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_int64"   [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_uint8"   [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_uint16"  [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_uint32"  [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_uint64"  [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_float32" [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "mul_float64" [e1,e2] = return $ IBinOp ITimes e1 e2
+corecall2Prover l "leq_int8"    [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_int16"   [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_int32"   [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_int64"   [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_uint8"   [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_uint16"  [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_uint32"  [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_uint64"  [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_float32" [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_float64" [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "leq_bool"    [e1,e2] = return $ IBinOp ILeq e1 e2
+corecall2Prover l "eq_int8"     [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_int16"    [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_int32"    [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_int64"    [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_uint8"    [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_uint16"   [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_uint32"   [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_uint64"   [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_float32"  [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_float64"  [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "eq_bool"     [e1,e2] = return $ IBinOp IEq e1 e2
+corecall2Prover l "neq_int8"    [e1,e2] = return $ IUnOp INot $ IBinOp IEq e1 e2
+corecall2Prover l "neq_int16"   [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_int32"   [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_int64"   [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_uint8"   [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_uint16"  [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_uint32"  [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_uint64"  [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_float32" [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_float64" [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "neq_bool"    [e1,e2] = return $ IBinOp INeq e1 e2
+corecall2Prover l "size"        [e]     = do
+    dim <- lift $ typeDim l (iExprTy e) >>= evaluateIndexExpr l
     case dim of
         0 -> return $ ILit $ IUint64 1
         otherwise -> return $ ISize e
-corecall2Prover l n es t = lift $ genTcError (locpos l) $ text "failed to convert core call" <+> pp n <+> parens (sepBy comma $ map pp es) <+> text "to prover expression"
+corecall2Prover l n es = lift $ genTcError (locpos l) $ text "failed to convert core call" <+> pp n <+> parens (sepBy comma $ map pp es) <+> text "to prover expression"
     
 varInit2Prover :: (ProverK loc m) => VariableInitialization VarIdentifier (Typed loc) -> ExprM loc m ()
 varInit2Prover (VariableInitialization _ v@(VarName l n) _ e) = do
@@ -178,7 +180,16 @@ expr2ProverMb (BinaryAssign l lhs (BinaryAssignEqual _) e) = do
     ie <- expr2Prover e
     addVar v (Just ie,Nothing)
     return Nothing
+expr2ProverMb e@(UnaryExpr l o e1) = proverProcError (typed $ loc o) e
+expr2ProverMb e@(BinaryExpr l o e1 e2) = proverProcError (typed $ loc o) e
+expr2ProverMb e@(ProcCallExpr l n ts es) = proverProcError (typed $ loc n) e
 expr2ProverMb e = lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression"
+    
+proverProcError (DecT (DVar v)) e = do
+    lift $ addGDependencies $ Left v
+    lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError $ text "failed to convert expression" <+> pp e <+> text "to prover expression"
+proverProcError t e = do
+    lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression: unknown declaration type" <+> text (show t)
     
 expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM loc m IExpr
 expr2Prover e = do
@@ -188,7 +199,14 @@ expr2Prover e = do
         Just e' -> return e'
     
 lit2Prover :: (ProverK loc m) => Literal (Typed loc) -> ExprM loc m IExpr
-lit2Prover lit@(IntLit (Typed l (BaseT (TyPrim t))) i) = case t of
+lit2Prover lit = do
+    let Typed l t = loc lit
+    mplus
+        (lift (typeToBaseType l t) >>= litVal2Prover (fmap unTyped lit))
+        (lift (typeToComplexType l t) >>= litArr2Prover (fmap unTyped lit))
+
+litVal2Prover :: ProverK loc m => Literal loc -> BaseType -> ExprM loc m IExpr
+litVal2Prover lit@(IntLit l i) (TyPrim t) = case t of
     DatatypeInt8 _ -> return $ ILit $ IInt8 $ fromInteger i
     DatatypeInt16 _ -> return $ ILit $ IInt16 $ fromInteger i
     DatatypeInt32 _ -> return $ ILit $ IInt32 $ fromInteger i
@@ -201,17 +219,18 @@ lit2Prover lit@(IntLit (Typed l (BaseT (TyPrim t))) i) = case t of
     DatatypeXorUint16 _ -> return $ ILit $ IUint16 $ fromInteger i
     DatatypeXorUint32 _ -> return $ ILit $ IUint32 $ fromInteger i
     DatatypeXorUint64 _ -> return $ ILit $ IUint64 $ fromInteger i
-    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover expression"
-lit2Prover lit@(FloatLit (Typed l (BaseT (TyPrim t))) f) = case t of
+    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover value"
+litVal2Prover lit@(FloatLit l f) (TyPrim t) = case t of
     DatatypeFloat32 _ -> return $ ILit $ IFloat32 $ realToFrac f
     DatatypeFloat64 _ -> return $ ILit $ IFloat64 $ realToFrac f
-    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover expression"
-lit2Prover lit@(StringLit (Typed l (BaseT (TyPrim t))) s) = case t of
-    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover expression"
-lit2Prover lit@(BoolLit (Typed l (BaseT (TyPrim t))) b) = case t of
+    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover value"
+litVal2Prover lit@(StringLit l s) (TyPrim t) = case t of
+    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover value"
+litVal2Prover lit@(BoolLit l b) (TyPrim t) = case t of
     DatatypeBool _ -> return $ ILit $ IBool b
-    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover expression"
-lit2Prover lit = lift $ genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp lit <> text "::" <> pp (typed $ loc lit) <+> text "to prover expression"
+    otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover value"
+litVal2Prover lit t = lift $ genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp lit <> text "::" <> pp t <+> text "to prover value"
 
-
+litArr2Prover :: ProverK loc m => Literal loc -> ComplexType -> ExprM loc m IExpr
+litArr2Prover lit t = lift $ genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp lit <> text "::" <> pp t <+> text "to prover array"
 

@@ -266,7 +266,7 @@ inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret body 
             ss <- simplifyStatements Nothing body'
             return $ Just ([compoundStmt (decls++ss)],Nothing)
 inlineProcCall n t es = do
---    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     return Nothing
 
 simplifyStatements :: SimplifyK loc t m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> t m [Statement VarIdentifier (Typed loc)]

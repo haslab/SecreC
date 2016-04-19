@@ -41,7 +41,7 @@ instance PP [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] where
 
 -- Procedure arguments are maybe provided with index expressions
 -- | Matches a list of template arguments against a list of template declarations
-matchTemplate :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> Maybe [VarName VarIdentifier Type] -> TcM loc m [EntryEnv loc] -> TcM loc m (DecType)
+matchTemplate :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> Maybe [VarName VarIdentifier Type] -> TcM loc m [EntryEnv loc] -> TcM loc m DecType
 matchTemplate l doCoerce n targs pargs ret rets check = do
     entries <- check
     instances <- instantiateTemplateEntries l doCoerce n targs pargs ret rets entries
@@ -285,7 +285,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
         addHeadTDict hdict
         addHeadTDict $ TDict Graph.empty (tChoices bdict) (tSubsts bdict)
     let matchName = unifiesTIdentifier l (templateIdentifier $ entryType e') n -- reverse unification
-    let proof = do
+    let proveHead = do
         (_,ks) <- tcWithCstrs l "instantiate" $ do   
             -- if the instantiation has explicit template arguments, unify them with the base template
             tcAddDeps l "tplt type args" $ when (isJust targs) $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
@@ -297,7 +297,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
         when (isNothing targs) $ do
             forM_ (maybe [] (catMaybes . map (\(Cond x c,isVariadic) -> c)) tplt_targs) $ \c -> do
                 withDependencies ks $ tcCstrM l $ IsValid c
-    ok <- newErrorM $ proveWith l "instantiate with names" (addDicts >> matchName >> proof)
+    ok <- newErrorM $ proveWith l "instantiate with names" (addDicts >> matchName >> proveHead)
     case ok of
         Left err -> do
             --liftIO $ putStrLn $ "did not work " ++ ppr l 

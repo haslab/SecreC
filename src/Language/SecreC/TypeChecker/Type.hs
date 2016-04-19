@@ -282,7 +282,6 @@ projectSize p t i (Just x) y1 y2 = do
     let eupp = arrayIndexSExpr upp
     case (low,upp) of
         (DynArrayIndex el,DynArrayIndex eu) -> do
-            deps <- getVarOutSet (t,(el,(eu,x)))
             liftM Just $ subtractIndexExprs p eupp elow
         otherwise -> do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp t) i (pp elow <> char ':' <> pp eupp) arrerr

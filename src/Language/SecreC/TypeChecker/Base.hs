@@ -128,8 +128,8 @@ orWarn_ m = orWarn m >> return ()
 type GIdentifier = Either VarIdentifier (Either (Either (ProcedureName VarIdentifier ()) (Op VarIdentifier ())) (TypeName VarIdentifier ()))
 
 data GlobalEnv = GlobalEnv
-    { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap Unique IOCstr) -- variable dependencies
-    , ioDeps :: WeakHash.BasicHashTable Unique (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies
+    { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on variables
+    , ioDeps :: WeakHash.BasicHashTable Unique (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on other IOCstrs
     , tyVarId :: TyVarId
     }
 
@@ -419,6 +419,8 @@ data TcCstr
         (Expression VarIdentifier Type)
         (VarName VarIdentifier Type) -- variable to store the 1st resulting expression
         (VarName VarIdentifier Type) -- variable to store the 2nd resulting expression
+    | CoercesLit -- coerce a literal expression into a specific type
+        (Expression VarIdentifier Type) -- literal expression with the base type given at the top-level
     | Unifies -- unification
         Type Type -- ^ type unification
     | UnifiesSizes [(SExpr VarIdentifier Type,IsVariadic)] [(SExpr VarIdentifier Type,IsVariadic)]
@@ -572,6 +574,7 @@ instance PP TcCstr where
     pp (Coerces e1 v2) = text "coerces" <+> ppExprTy e1 <+> ppVarTy v2
     pp (CoercesSec e1 v2) = text "coercessec" <+> ppExprTy e1 <+> ppVarTy v2
     pp (Coerces2Sec e1 e2 v1 v2) = text "coerces2sec" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
+    pp (CoercesLit e) = text "coerceslit" <+> ppExprTy e
     pp (Coerces2 e1 e2 v1 v2) = text "coerces2" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
     pp (UnifiesSizes t1 t2) = text "unifiessizes" <+> pp t1 <+> pp t2
@@ -721,6 +724,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         v1' <- f v1
         v2' <- f v2
         return $ Coerces2Sec e1' e2' v1' v2'
+    traverseVars f (CoercesLit e) = do
+        e' <- f e
+        return $ CoercesLit e'
     traverseVars f (Unifies t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -896,12 +902,17 @@ evalVarsMState varsm st = mapStateT (\m -> evalStateT m st) varsm
 liftVarsM :: (Monad m,MonadTrans t,Vars iden m a) => VarsM iden m a -> VarsM iden (t m) a
 liftVarsM m = mapStateT (lift) m
 
+evalIOCstrVars m = flip evalVarsMState (Map.empty::IOCstrSubsts) m
+
+traverseDict :: (Vars VarIdentifier m loc) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> TDict loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (TDict loc)
+traverseDict f (TDict cstrs choices substs) = do
+    cstrs' <- traverseVarsIOCstrGraph f cstrs
+    choices' <- lift $ mapSetM getIOCstrSubstId choices
+    substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
+    return $ TDict cstrs' choices' substs'
+
 instance (Location loc,MonadIO m,Vars VarIdentifier m loc) => Vars VarIdentifier m (TDict loc) where
-    traverseVars f (TDict cstrs choices substs) = flip evalVarsMState (Map.empty::IOCstrSubsts) $ do
-        cstrs' <- traverseVarsIOCstrGraph f cstrs
-        choices' <- lift $ mapSetM getIOCstrSubstId choices
-        substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
-        return $ TDict cstrs' choices' substs'
+    traverseVars f x = evalIOCstrVars $ traverseDict f x
 
 instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier m (Loc loc a) where
     traverseVars f (Loc l a) = do
@@ -909,11 +920,11 @@ instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier
         a' <- f a
         return $ Loc l' a'
 
-instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m IOCstr where
-    traverseVars f (IOCstr k ref) = do
-        k' <- f k
-        ref' <- liftIO $ readUniqRef ref >>= newUniqRef
-        return $ IOCstr k' ref'
+--instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m IOCstr where
+--    traverseVars f (IOCstr k ref) = do
+--        k' <- f k
+--        ref' <- liftIO $ readUniqRef ref >>= newUniqRef
+--        return $ IOCstr k' ref'
 
 -- we only need to fetch the head
 getTSubsts :: (Monad m,Location loc) => TcM loc m TSubsts
@@ -1097,10 +1108,6 @@ data ComplexType
         (SExpr VarIdentifier Type) -- ^ dimension (default = 0, i.e., scalars)
     | CVar VarIdentifier
     | Void -- ^ Empty type
-    | TyLit -- ^ the most concrete type for a literal. a complex type because we may cast literals into arrays
-           (Literal ()) -- ^ the literal itself
-    | ArrayLit -- ^ a concrete array
-        [SExpr VarIdentifier Type]
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Hashable ComplexType
@@ -1211,8 +1218,6 @@ instance PP BaseType where
     pp (TApp n ts d) = pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)
     pp (BVar v) = pp v
 instance PP ComplexType where
-    pp (TyLit lit) = pp lit
-    pp (ArrayLit es) = braces (sepBy comma $ map pp $ Foldable.toList es)
     pp Void = text "void"
     pp (CType s t d) = pp s <+> pp t <> brackets (brackets (pp d))
     pp (CVar v) = pp v
@@ -1300,15 +1305,6 @@ isVoid :: ComplexType -> Bool
 isVoid Void = True
 isVoid _ = False
 
-isLitType :: Type -> Bool
-isLitType (ComplexT c) = isLitCType c
-isLitType _ = False
-
-isLitCType :: ComplexType -> Bool
-isLitCType (TyLit {}) = True
-isLitCType (ArrayLit {}) = True
-isLitCType _ = False
-
 isBoolType :: Type -> Bool
 isBoolType (BaseT b) = isBoolBaseType b
 isBoolType _ = False
@@ -1318,7 +1314,6 @@ isBoolBaseType (TyPrim (DatatypeBool _)) = True
 isBoolBaseType _ = False
 
 isIntType :: Type -> Bool
-isIntType (ComplexT (TyLit (IntLit _ i))) = True
 isIntType (BaseT b) = isIntBaseType b
 isIntType _ = False
 
@@ -1343,7 +1338,6 @@ isIntPrimType t = False
 
 isFloatType :: Type -> Bool
 isFloatType (BaseT b) = isFloatBaseType b
-isFloatType (ComplexT (TyLit (FloatLit _ f))) = True
 isFloatType _ = False
 
 isFloatBaseType :: BaseType -> Bool
@@ -1422,8 +1416,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType wher
         vs' <- inLHS $ mapM f vs
         hfrees' <- liftM Set.fromList $ mapM f $ Set.toList hfrees
         frees' <- liftM Set.fromList $ mapM f $ Set.toList frees
-        hd' <- f hd
-        d' <- f d
+        (hd',d') <- evalIOCstrVars $ do
+            hd' <- traverseDict f hd
+            d' <- traverseDict f d
+            return (hd',d')
         spes' <- mapM f spes
         t' <- f t
         return $ DecType tid isrec vs' hd' hfrees' d' frees' spes' t'
@@ -1462,12 +1458,6 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m VArrayType w
     substL e = return Nothing
  
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ComplexType where
-    traverseVars f (TyLit l) = do
-        l' <- f l
-        return $ TyLit l'
-    traverseVars f (ArrayLit l) = do
-        l' <- mapM f l
-        return $ ArrayLit l'
     traverseVars f (CType s t d) = do
         s' <- f s
         t' <- f t
@@ -1546,12 +1536,12 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m Type where
         t' <- f t
         c' <- f c
         return $ CondType t' c'
-    substL (BaseT (BVar v)) = return $ Just v
-    substL (SecT (SVar v _)) = return $ Just v
-    substL (ComplexT (CVar v)) = return $ Just v
-    substL (DecT (DVar v)) = return $ Just v
-    substL (IdxT (RVariablePExpr _ v)) = return $ Just $ varNameId v
-    substL (VArrayT (VAVar v _ _)) = return $ Just v
+    --substL (BaseT (BVar v)) = return $ Just v
+    --substL (SecT (SVar v _)) = return $ Just v
+    --substL (ComplexT (CVar v)) = return $ Just v
+    --substL (DecT (DVar v)) = return $ Just v
+    --substL (IdxT (RVariablePExpr _ v)) = return $ Just $ varNameId v
+    --substL (VArrayT (VAVar v _ _)) = return $ Just v
     substL e = return Nothing
 
 data ProcClass
@@ -1805,19 +1795,19 @@ varsCstrGraph :: (VarsIdTcM loc m,Location loc) => Set VarIdentifier -> IOCstrGr
 varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
     where
     aux (i,x) = do
-        xvs <- liftM Map.keysSet $ fvs x
+        xvs <- liftM Map.keysSet $ fvs (kCstr $ unLoc x)
         if Set.null (vs `Set.intersection` xvs)
             then return False
             else return True
 
 -- gets the terminal nodes in the constraint graph for all the variables in a given value
-getVarOutSet :: (VarsIdTcM loc m,VarsId (TcM loc m) a,Location loc) => a -> TcM loc m (Set (Loc loc IOCstr))
-getVarOutSet x = do
-    -- get the free variables
-    vs <- liftM Map.keysSet $ fvs x
-    gr <- liftM (tCstrs . head . tDict) State.get
-    gr' <- varsCstrGraph vs gr
-    return $ Set.fromList $ map snd $ endsGr gr'
+--getVarOutSet :: (VarsIdTcM loc m,VarsId (TcM loc m) a,Location loc) => a -> TcM loc m (Set (Loc loc IOCstr))
+--getVarOutSet x = do
+--    -- get the free variables
+--    vs <- liftM Map.keysSet $ fvs x
+--    gr <- liftM (tCstrs . head . tDict) State.get
+--    gr' <- varsCstrGraph vs gr
+--    return $ Set.fromList $ map snd $ endsGr gr'
 
 compoundStmt :: Location loc => [Statement iden (Typed loc)] -> Statement iden (Typed loc)
 compoundStmt ss = CompoundStatement (Typed noloc t) ss

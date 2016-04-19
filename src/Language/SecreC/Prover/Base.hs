@@ -5,6 +5,7 @@ module Language.SecreC.Prover.Base where
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.Syntax
 import Language.SecreC.Pretty
+import Language.SecreC.Utils
 import Language.SecreC.Location
 import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
 import Language.SecreC.Vars
@@ -60,6 +61,7 @@ data IExpr
     | IUnOp IUOp IExpr
     | ICond IExpr IExpr IExpr -- conditional
     | ISize IExpr -- array size (dimension,array expression)
+    | IArr ComplexType [[IExpr]] -- multi-dimensional array value
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IExpr
 instance PP IExpr where
@@ -69,6 +71,7 @@ instance PP IExpr where
     pp (IUnOp o e1) = parens (pp o <+> pp e1)
     pp (ICond c e1 e2) = pp c <> char '?' <> pp e1 <> char ':' <> pp e2
     pp (ISize e) = text "size" <> parens (pp e)
+    pp (IArr t vvs) = braces (sepBy comma $ map (\vs -> sepBy comma $ map pp vs) vvs) <> text "::" <> pp t
 
 data IBOp
     = IAnd -- boolean conjunction
@@ -129,6 +132,7 @@ iExprTy (IUnOp INot e) = BaseT bool
 iExprTy (IUnOp INeg e) = iExprTy e
 iExprTy (ICond _ e1 e2) = iExprTy e1
 iExprTy (ISize e) = BaseT index
+iExprTy (IArr t vvs) = ComplexT t
 
 iLitTy :: ILit -> Type
 iLitTy (IInt8 _) = BaseT $ TyPrim $ DatatypeInt8 ()
@@ -172,6 +176,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
     traverseVars f (ISize e) = do
         e' <- f e
         return $ ISize e'
+    traverseVars f (IArr t vvs) = do
+        t' <- f t
+        vvs' <- mapM (mapM f) vvs
+        return $ IArr t' vvs'
     substL (IIdx (VarName _ n)) = return $ Just n
     substL _ = return Nothing
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IBOp where

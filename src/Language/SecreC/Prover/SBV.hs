@@ -118,7 +118,7 @@ iExpr2SBV l (ICond c e1 e2) = do
     v1 <- iExpr2SBV l e1
     v2 <- iExpr2SBV l e2
     return $ mergeSBVal (ite vc) v1 v2
-iExpr2SBV l (ISize e) = error "TODO: array size not defined in SBV"
+iExpr2SBV l (ISize e) = lift $ genTcError (locpos l) $ text "array size not defined in SBV"
 
 iBinOp2SBV :: SMTK loc => loc -> IBOp -> SBVal -> SBVal -> TcSBV loc SBVal
 iBinOp2SBV l IAnd (SBool b1) (SBool b2) = return $ SBool $ b1 &&& b2

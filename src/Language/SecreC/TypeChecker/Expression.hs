@@ -123,15 +123,15 @@ tcExpr (UnaryExpr l op e) = do
     let t = typed $ loc e'
     top <- tcOp op
     case (top,t) of
-        (OpCast lcast cast,isLitType -> True) -> do
-            b <- typeToBaseType (unTyped lcast) $ typed $ loc cast
-            s <- newDomainTyVar AnyKind Nothing
-            dim <- newDimVar Nothing
-            let ct = ComplexT $ CType s b dim
-            x <- newTypedVar "cast" ct $ Just $ pp e'
-            tcTopCstrM l $ Coerces (fmap typed e') x
-            let ex = fmap (Typed l) $ RVariablePExpr ct x
-            return $ UnaryExpr (Typed l ct) top ex
+--        (OpCast lcast cast,isLitType -> True) -> do
+--            b <- typeToBaseType (unTyped lcast) $ typed $ loc cast
+--            s <- newDomainTyVar AnyKind Nothing
+--            dim <- newDimVar Nothing
+--            let ct = ComplexT $ CType s b dim
+--            x <- newTypedVar "cast" ct $ Just $ pp e'
+--            tcTopCstrM l $ Coerces (fmap typed e') x
+--            let ex = fmap (Typed l) $ RVariablePExpr ct x
+--            return $ UnaryExpr (Typed l ct) top ex
         otherwise -> do
             v <- newTyVar Nothing
             (dec,[(x,_)]) <- tcTopPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
@@ -213,8 +213,7 @@ tcBinaryOp :: (ProverK loc m) => loc -> Op Identifier loc -> Expression VarIdent
 tcBinaryOp l op e1 = do 
     let t1 = typed $ loc e1
     top <- tcOp op
-    let tlit1 = ComplexT $ TyLit $ IntLit () 1
-    let elit1 = LitPExpr tlit1 $ IntLit tlit1 1
+    let elit1 = LitPExpr t1 $ IntLit t1 1
     (dec,[(x1,_),(x2,_)]) <- tcTopPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e1,False),(elit1,False)] t1
     let ex1 = fmap (Typed l) x1
     return (ex1,updLoc top (Typed l $ DecT dec))
@@ -252,25 +251,22 @@ tcIndex (IndexSlice l e1 e2) = do
 tcLiteral :: (ProverK loc m) => Literal loc -> TcM loc m (Expression VarIdentifier (Typed loc))
 tcLiteral li = do
     let l = loc li
-    let lit = ComplexT $ TyLit $ funit li
-    let elit = LitPExpr lit $ fmap (const lit) li
     x <- newBaseTyVar Nothing
-    let t = BaseT x
-    v <- newTypedVar "lit" t Nothing
-    tcTopCstrM l $ Coerces elit v
-    return $ fmap (Typed l) (varExpr v)
+    sz <- newSizeVar Nothing
+    let t = ComplexT $ CType Public x sz
+    let elit = LitPExpr t $ fmap (const t) li
+    tcTopCstrM l $ CoercesLit elit
+    return $ LitPExpr (Typed l t) $ fmap (const (Typed l t)) li
 
 tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM loc m (Expression VarIdentifier (Typed loc))
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    let lit = ComplexT $ ArrayLit es''
-    let elit = ArrayConstructorPExpr lit es''
     x <- newBaseTyVar Nothing
     let t = ComplexT $ CType Public x (indexSExpr 1)
-    v <- newTypedVar "alit" t Nothing
-    tcTopCstrM l $ Coerces elit v
-    return $ fmap (Typed l) (varExpr v)
+    let elit = ArrayConstructorPExpr t es''
+    tcTopCstrM l $ CoercesLit elit
+    return $ ArrayConstructorPExpr (Typed l t) es'
 
 tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM loc m (VarName VarIdentifier (Typed loc))
 tcVarName isConst v@(VarName l n) = checkVariable isConst LocalScope (bimap mkVarId id v)

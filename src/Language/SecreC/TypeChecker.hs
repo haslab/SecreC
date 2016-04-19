@@ -150,16 +150,15 @@ tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM 
 tcProcedureParam (ProcedureParameter l s isVariadic v) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    let vv = bimap mkVarId id v
-    let v' = fmap (flip Typed ty) vv
+    let vv@(VarName vvl vvn) = bimap mkVarId id v
+    let v' = VarName (Typed vvl ty) vvn
     newVariable LocalScope v' Nothing False
     return (ProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v',(False,Cond (fmap typed v') Nothing,isVariadic))
 tcProcedureParam (ConstProcedureParameter l s isVariadic v@(VarName vl vi) c) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
     vi' <- addConst LocalScope vi
-    let vv = VarName vl vi'
-    let v' = fmap (flip Typed ty) vv
+    let v' = VarName (Typed vl ty) vi'
     newVariable LocalScope v' Nothing True
     (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM tcIndexCond c
     case c' of

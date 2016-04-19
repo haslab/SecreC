@@ -440,7 +440,7 @@ splitHead :: (Location loc,MonadIO m,Vars VarIdentifier (TcM loc m) loc) => Set 
 splitHead deps = do
     d <- liftM (head . tDict) State.get
     frees <- getFrees
-    hvs <- liftM Map.keysSet $ fvs deps
+    hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
     let hfrees = Set.intersection frees hvs
     let bfrees = Set.difference frees hfrees
     opens <- liftM openedCstrs State.get
