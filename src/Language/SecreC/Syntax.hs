@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, TemplateHaskell, TypeFamilies, DeriveFoldable, DeriveTraversable, DeriveFunctor, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE ScopedTypeVariables, DeriveGeneric, TemplateHaskell, TypeFamilies, DeriveFoldable, DeriveTraversable, DeriveFunctor, MultiParamTypeClasses, DeriveDataTypeable, TypeSynonymInstances, FlexibleInstances #-}
 
 module Language.SecreC.Syntax where
 
@@ -137,6 +137,7 @@ data GlobalDeclaration iden loc
     | GlobalProcedure loc (ProcedureDeclaration iden loc)
     | GlobalStructure loc (StructureDeclaration iden loc)
     | GlobalTemplate loc (TemplateDeclaration iden loc)
+    | GlobalAnnotations loc [GlobalAnnotation iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Hashable iden,Hashable loc) => Hashable (GlobalDeclaration iden loc)
@@ -150,6 +151,7 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
     loc (GlobalProcedure l pd) = l
     loc (GlobalStructure l sd) = l
     loc (GlobalTemplate l td) = l
+    loc (GlobalAnnotations l ann) = l
     updLoc (GlobalVariable _ vd) l = GlobalVariable l vd
     updLoc (GlobalConst _ vd) l = GlobalConst l vd
     updLoc (GlobalDomain _ dd) l = GlobalDomain l dd
@@ -157,6 +159,7 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
     updLoc (GlobalProcedure _ pd) l = GlobalProcedure l pd
     updLoc (GlobalStructure _ sd) l = GlobalStructure l sd
     updLoc (GlobalTemplate _ td) l = GlobalTemplate l td
+    updLoc (GlobalAnnotations _ ann) l = GlobalAnnotations l ann
 
 instance PP iden => PP (GlobalDeclaration iden loc) where
     pp (GlobalVariable _ vd) = pp vd
@@ -166,6 +169,7 @@ instance PP iden => PP (GlobalDeclaration iden loc) where
     pp (GlobalProcedure _ pd) = pp pd
     pp (GlobalStructure _ sd) = pp sd
     pp (GlobalTemplate _ td) = pp td
+    pp (GlobalAnnotations _ ann) = pp ann
 
 data KindDeclaration iden loc = Kind loc (KindName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -242,6 +246,9 @@ instance (Hashable iden,Hashable loc) => Hashable (VarName iden loc)
 
 varNameId :: VarName iden loc -> iden
 varNameId (VarName _ i) = i
+
+procedureNameId :: ProcedureName iden loc -> iden
+procedureNameId (ProcedureName _ i) = i
   
 instance Location loc => Located (VarName iden loc) where
     type LocOf (VarName iden loc) = loc
@@ -680,11 +687,13 @@ data ProcedureDeclaration iden loc
         (ReturnTypeSpecifier iden loc)
         (Op iden loc)
         [ProcedureParameter iden loc]
+        [ProcedureAnnotation iden loc]
         [Statement iden loc]
     | ProcedureDeclaration loc
         (ReturnTypeSpecifier iden loc)
         (ProcedureName iden loc)
         [ProcedureParameter iden loc]
+        [ProcedureAnnotation iden loc]
         [Statement iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
@@ -692,14 +701,14 @@ instance (Hashable iden,Hashable loc) => Hashable (ProcedureDeclaration iden loc
 
 instance Location loc => Located (ProcedureDeclaration iden loc) where
     type LocOf (ProcedureDeclaration iden loc) = loc
-    loc (OperatorDeclaration l _ _ _ _) = l
-    loc (ProcedureDeclaration l _ _ _ _) = l
-    updLoc (OperatorDeclaration _ x y z w) l = OperatorDeclaration l x y z w
-    updLoc (ProcedureDeclaration _ x y z w) l = ProcedureDeclaration l x y z w
+    loc (OperatorDeclaration l _ _ _ _ _) = l
+    loc (ProcedureDeclaration l _ _ _ _ _) = l
+    updLoc (OperatorDeclaration _ x y z w s) l = OperatorDeclaration l x y z w s
+    updLoc (ProcedureDeclaration _ x y z w s) l = ProcedureDeclaration l x y z w s
   
 instance PP iden => PP (ProcedureDeclaration iden loc) where
-    pp (OperatorDeclaration _ ret op params stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
-    pp (ProcedureDeclaration _ ret proc params stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) <+> vcat (lbrace : map pp stmts ++ [rbrace])
+    pp (OperatorDeclaration _ ret op params anns stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (lbrace : map pp stmts ++ [rbrace])
+    pp (ProcedureDeclaration _ ret proc params anns stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (lbrace : map pp stmts ++ [rbrace])
   
 data Op iden loc
     = OpAdd      loc
@@ -723,6 +732,8 @@ data Op iden loc
     | OpNot      loc
     | OpCast     loc (CastType iden loc)
     | OpInv      loc
+    | OpImplies  loc
+    | OpEquiv    loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor,Generic)
 
 instance (Hashable iden,Hashable loc) => Hashable (Op iden loc)
@@ -732,6 +743,8 @@ isBoolOp (OpLor _) = True
 isBoolOp (OpNot _) = True
 isBoolOp (OpXor _) = True
 isBoolOp (OpLand _) = True
+isBoolOp (OpImplies _) = True
+isBoolOp (OpEquiv _) = True
 isBoolOp _ = False
 
 isCmpOp :: Op iden loc -> Bool
@@ -769,6 +782,8 @@ instance PP iden => PP (Op iden loc) where
     pp (OpNot l) = text "!"
     pp (OpCast l t) = parens (pp t)
     pp (OpInv l) = text "~"
+    pp (OpImplies l) = text "==>"
+    pp (OpEquiv l) = text "<==>"
   
 instance Location loc => Located (Op iden loc) where
     type LocOf (Op iden loc) = loc
@@ -793,6 +808,8 @@ instance Location loc => Located (Op iden loc) where
     loc (OpNot l)  = l
     loc (OpCast l t) = l
     loc (OpInv l)  = l
+    loc (OpImplies l)  = l
+    loc (OpEquiv l)  = l
     updLoc (OpAdd  _) l = OpAdd  l
     updLoc (OpBand _) l = OpBand l
     updLoc (OpBor  _) l = OpBor  l
@@ -814,6 +831,8 @@ instance Location loc => Located (Op iden loc) where
     updLoc (OpNot  _) l = OpNot  l
     updLoc (OpCast _ t) l = OpCast l t
     updLoc (OpInv  _) l = OpInv  l
+    updLoc (OpImplies  _) l = OpImplies  l
+    updLoc (OpEquiv  _) l = OpEquiv  l
   
 -- Statements: 
 
@@ -831,10 +850,10 @@ instance PP iden => PP (ForInitializer iden loc) where
 data Statement iden loc
     = CompoundStatement loc [Statement iden loc]
     | IfStatement loc (Expression iden loc) (Statement iden loc) (Maybe (Statement iden loc))
-    | ForStatement loc (ForInitializer iden loc) (Maybe (Expression iden loc)) (Maybe (Expression iden loc)) (Statement iden loc)
-    | WhileStatement loc (Expression iden loc) (Statement iden loc)
+    | ForStatement loc (ForInitializer iden loc) (Maybe (Expression iden loc)) (Maybe (Expression iden loc)) [LoopAnnotation iden loc] (Statement iden loc)
+    | WhileStatement loc (Expression iden loc) [LoopAnnotation iden loc] (Statement iden loc)
     | PrintStatement loc [(Expression iden loc,IsVariadic)]
-    | DowhileStatement loc (Statement iden loc) (Expression iden loc)
+    | DowhileStatement loc [LoopAnnotation iden loc] (Statement iden loc) (Expression iden loc)
     | AssertStatement loc (Expression iden loc)
     | SyscallStatement loc String [SyscallParameter iden loc]
     | ConstStatement loc (ConstDeclaration iden loc)
@@ -843,6 +862,7 @@ data Statement iden loc
     | ContinueStatement loc
     | BreakStatement loc
     | ExpressionStatement loc (Expression iden loc)
+    | AnnStatement loc [StatementAnnotation iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Hashable iden,Hashable loc) => Hashable (Statement iden loc)
@@ -851,10 +871,10 @@ instance Location loc => Located (Statement iden loc) where
     type (LocOf (Statement iden loc)) = loc
     loc (CompoundStatement l _) = l
     loc (IfStatement l _ _ _) = l
-    loc (ForStatement l _ _ _ _) = l
-    loc (WhileStatement l _ _) = l
+    loc (ForStatement l _ _ _ _ _) = l
+    loc (WhileStatement l _ _ _) = l
     loc (PrintStatement l _) = l
-    loc (DowhileStatement l _ _) = l
+    loc (DowhileStatement l _ _ _) = l
     loc (AssertStatement l _) = l
     loc (SyscallStatement l _ _) = l
     loc (VarStatement l _) = l
@@ -863,12 +883,13 @@ instance Location loc => Located (Statement iden loc) where
     loc (ContinueStatement l) = l
     loc (BreakStatement l) = l
     loc (ExpressionStatement l _) = l
+    loc (AnnStatement l _) = l
     updLoc (CompoundStatement _ x) l = CompoundStatement l x
     updLoc (IfStatement _ x y z) l = IfStatement l x y z
-    updLoc (ForStatement _ x y z w) l = ForStatement l x y z w
-    updLoc (WhileStatement _ x y) l = WhileStatement l x y
+    updLoc (ForStatement _ x y z w s) l = ForStatement l x y z w s
+    updLoc (WhileStatement _ x y z) l = WhileStatement l x y z
     updLoc (PrintStatement _ x) l = PrintStatement l x
-    updLoc (DowhileStatement _ x y) l = DowhileStatement l x y
+    updLoc (DowhileStatement _ x y z) l = DowhileStatement l x y z
     updLoc (AssertStatement _ x) l = AssertStatement l x
     updLoc (SyscallStatement _ x y) l = SyscallStatement l x y
     updLoc (VarStatement _ x) l = VarStatement l x
@@ -877,6 +898,7 @@ instance Location loc => Located (Statement iden loc) where
     updLoc (ContinueStatement _) l = ContinueStatement l
     updLoc (BreakStatement _) l = BreakStatement l
     updLoc (ExpressionStatement _ x) l = ExpressionStatement l x
+    updLoc (AnnStatement _ x) l = AnnStatement l x
  
 instance PP iden => PP [Statement iden loc] where
     pp [] = semi
@@ -888,10 +910,10 @@ instance PP iden => PP (Statement iden loc) where
         where
         ppElse Nothing = empty
         ppElse (Just s) = text "else" <+> pp s
-    pp (ForStatement _ i e1 e2 s) = text "for" <> parens (pp i <> semi <> ppMb e1 <> semi <> ppMb e2) <+> pp s
-    pp (WhileStatement _ e s) = text "while" <> parens (pp e) <+> pp s
+    pp (ForStatement _ i e1 e2 ann s) = text "for" <> parens (pp i <> semi <> ppMb e1 <> semi <> ppMb e2) $+$ pp ann $+$ pp s
+    pp (WhileStatement _ e ann s) = text "while" <> parens (pp e) $+$ pp ann $+$ pp s
     pp (PrintStatement _ es) = text "print" <> parens (pp es) <> semi
-    pp (DowhileStatement _ s e) = text "do" <+> pp s <+> text "while" <+> parens (pp e) <> semi
+    pp (DowhileStatement _ ann s e) = text "do" $+$ pp ann $+$ pp s <+> text "while" <+> parens (pp e) <> semi
     pp (AssertStatement _ e) = text "assert" <> parens (pp e) <> semi
     pp (SyscallStatement _ n []) = text "__syscall" <> parens (text (show n)) <> semi
     pp (SyscallStatement _ n ps) = text "__syscall" <> parens (text (show n) <> comma <+> ppSyscallParameters ps) <> semi
@@ -900,7 +922,8 @@ instance PP iden => PP (Statement iden loc) where
     pp (ReturnStatement _ e) = text "return" <+> ppMb e <> semi
     pp (ContinueStatement _) = text "continue" <> semi
     pp (BreakStatement _) = text "break" <> semi
-    pp (ExpressionStatement _ e) = pp e <> semi
+    pp (ExpressionStatement _ e) =  pp e
+    pp (AnnStatement _ ann) = pp ann
     
 ppSyscallParameters ps = sepBy comma $ map pp ps
  
@@ -957,6 +980,23 @@ instance PP iden => PP (Index iden loc) where
   
 -- Expressions:  
 
+data Quantifier loc
+    = ForallQ loc
+    | ExistsQ loc
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance Hashable loc => Hashable (Quantifier loc)
+instance PP (Quantifier loc) where
+    pp (ForallQ _) = text "forall"
+    pp (ExistsQ _) = text "exists"
+
+instance Location loc => Located (Quantifier loc) where
+    type LocOf (Quantifier loc) = loc
+    loc (ForallQ l) = l
+    loc (ExistsQ l) = l
+    updLoc (ForallQ _) l = ForallQ l
+    updLoc (ExistsQ _) l = ExistsQ l
+
 data Expression iden loc
     = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
     | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
@@ -966,6 +1006,7 @@ data Expression iden loc
     | PreOp loc (Op iden loc) (Expression iden loc)
     | PostOp loc (Op iden loc) (Expression iden loc)
     | DomainIdExpr loc (SecTypeSpecifier iden loc)
+    | LeakExpr loc (Expression iden loc)
     | BytesFromStringExpr loc (Expression iden loc)
     | StringFromBytesExpr loc (Expression iden loc)
     | VArraySizeExpr loc (Expression iden loc)
@@ -976,6 +1017,8 @@ data Expression iden loc
     | RVariablePExpr loc (VarName iden loc)
     | LitPExpr loc (Literal loc)
     | ArrayConstructorPExpr loc [Expression iden loc]
+    | ResultExpr loc
+    | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Hashable iden,Hashable loc) => Hashable (Expression iden loc)
@@ -983,6 +1026,7 @@ instance (Hashable iden,Hashable loc) => Hashable (Expression iden loc)
 instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
     loc (BinaryAssign l _ _ _) = l
+    loc (LeakExpr l _) = l
     loc (QualExpr l _ _) = l
     loc (CondExpr l _ _ _) = l
     loc (BinaryExpr l _ _ _) = l
@@ -1000,6 +1044,9 @@ instance Location loc => Located (Expression iden loc) where
     loc (ArrayConstructorPExpr l _) = l
     loc (RVariablePExpr l _) = l
     loc (LitPExpr l _) = l
+    loc (ResultExpr l) = l
+    loc (QuantifiedExpr l _ _ _) = l
+    updLoc (LeakExpr _ x) l = LeakExpr l x
     updLoc (BinaryAssign _ x y z) l = BinaryAssign l x y z
     updLoc (QualExpr _ x y) l = QualExpr l x y
     updLoc (CondExpr _ x y z) l = CondExpr l x y z
@@ -1018,6 +1065,8 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (ArrayConstructorPExpr _ x) l = ArrayConstructorPExpr l x
     updLoc (RVariablePExpr _ x) l = RVariablePExpr l x
     updLoc (LitPExpr _ x) l = LitPExpr l x
+    updLoc (ResultExpr _) l = ResultExpr l
+    updLoc (QuantifiedExpr _ x y z) l = QuantifiedExpr l x y z
 
 
 ppVariadic :: Doc -> IsVariadic -> Doc
@@ -1048,6 +1097,9 @@ instance PP iden => PP (Expression iden loc) where
     pp (ArrayConstructorPExpr _ es) = braces (sepBy comma $ fmap pp es)
     pp (RVariablePExpr _ v) = pp v
     pp (LitPExpr _ l) = pp l
+    pp (ResultExpr l) = text "\result"
+    pp (LeakExpr l e) = text "leak" <> parens (pp e)
+    pp (QuantifiedExpr l q vs e) = text "forall" <+> sepBy comma (map (\(t,v) -> pp t <+> pp v) vs) <+> char ';' <+> pp e
   
 data CastType iden loc
     = CastPrim (PrimitiveDatatype loc)
@@ -1139,6 +1191,112 @@ instance PP (Literal loc) where
     pp (BoolLit _ b) = text (show b)
     pp (FloatLit _ f) = text (show f)
 
+unaryLitExpr :: Expression iden loc -> Expression iden loc
+unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)
+unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (FloatLit l1 f))) = LitPExpr l $ FloatLit l1 (-f)
+unaryLitExpr e = e
+    
+instance PP iden => PP [Expression iden loc] where
+    pp xs = parens $ sepBy comma $ map pp xs
+    
+instance PP iden => PP [(Expression iden loc, IsVariadic)] where
+    pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
+    
+varExpr :: Location loc => VarName iden loc -> Expression iden loc
+varExpr v = RVariablePExpr (loc v) v
+
+-- ** Annotations
+
+data GlobalAnnotation iden loc
+    = GlobalProcedureAnn loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+instance (Hashable iden,Hashable loc) => Hashable (GlobalAnnotation iden loc)
+
+instance Location loc => Located (GlobalAnnotation iden loc) where
+    type LocOf (GlobalAnnotation iden loc) = loc
+    loc (GlobalProcedureAnn l _ _)    = l
+    updLoc (GlobalProcedureAnn _ x y)    l = (GlobalProcedureAnn l x y)  
+
+instance PP iden => PP (GlobalAnnotation iden loc) where
+    pp (GlobalProcedureAnn _ [] (ProcedureDeclaration _ ret n params anns e)) = ppAnn $ pp ret <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
+    pp (GlobalProcedureAnn _ qs (ProcedureDeclaration _ ret n params anns e)) = ppAnn $ text "template" <+> abrackets (sepBy comma (fmap pp qs))
+        <+> pp ret <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
+    pp (GlobalProcedureAnn _ [] (OperatorDeclaration _ ret n params anns e)) = ppAnn $ pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
+    pp (GlobalProcedureAnn _ qs (OperatorDeclaration _ ret n params anns e)) = ppAnn $ text "template" <+> abrackets (sepBy comma (fmap pp qs))
+        <+> pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
+
+instance PP iden => PP [GlobalAnnotation iden loc] where
+    pp xs = vcat $ map pp xs
+
+data ProcedureAnnotation iden loc
+    = RequiresAnn loc (Expression iden loc)
+    | EnsuresAnn loc (Expression iden loc)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+instance (Hashable iden,Hashable loc) => Hashable (ProcedureAnnotation iden loc)
+
+instance Location loc => Located (ProcedureAnnotation iden loc) where
+    type LocOf (ProcedureAnnotation iden loc) = loc
+    loc (RequiresAnn l _)    = l
+    loc (EnsuresAnn l _) = l
+    updLoc (RequiresAnn _ x)    l = (RequiresAnn l x)   
+    updLoc (EnsuresAnn _ x)    l = (EnsuresAnn l x)   
+
+instance PP iden => PP (ProcedureAnnotation iden loc) where
+    pp (RequiresAnn _ e) = ppAnn $ text "requires" <+> pp e
+    pp (EnsuresAnn _ e) = ppAnn $ text "ensures" <+> pp e
+
+instance PP iden => PP [ProcedureAnnotation iden loc] where
+    pp xs = vcat $ map pp xs
+
+data LoopAnnotation iden loc
+    = DecreasesAnn loc (Expression iden loc)
+    | InvariantAnn loc (Expression iden loc)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+instance (Hashable iden,Hashable loc) => Hashable (LoopAnnotation iden loc)
+
+instance Location loc => Located (LoopAnnotation iden loc) where
+    type LocOf (LoopAnnotation iden loc) = loc
+    loc (DecreasesAnn l _)    = l
+    loc (InvariantAnn l _) = l
+    updLoc (DecreasesAnn _ x)    l = (DecreasesAnn l x)   
+    updLoc (InvariantAnn _ x)    l = (InvariantAnn l x)   
+
+instance PP iden => PP (LoopAnnotation iden loc) where
+    pp (DecreasesAnn _ e) = ppAnn $ text "decreases" <+> pp e
+    pp (InvariantAnn _ e) = ppAnn $ text "invariant" <+> pp e
+    
+instance PP iden => PP [LoopAnnotation iden loc] where
+    pp xs = vcat $ map pp xs
+
+data StatementAnnotation iden loc
+    = AssumeAnn loc (Expression iden loc)
+    | AssertAnn loc (Expression iden loc)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+instance (Hashable iden,Hashable loc) => Hashable (StatementAnnotation iden loc)
+
+instance Location loc => Located (StatementAnnotation iden loc) where
+    type LocOf (StatementAnnotation iden loc) = loc
+    loc (AssumeAnn l _)    = l
+    loc (AssertAnn l _) = l
+    updLoc (AssumeAnn _ x)    l = (AssumeAnn l x)   
+    updLoc (AssertAnn _ x)    l = (AssertAnn l x)   
+
+instance PP iden => PP (StatementAnnotation iden loc) where
+    pp (AssumeAnn _ e) = ppAnn $ text "assume" <+> pp e
+    pp (AssertAnn _ e) = ppAnn $ text "assert" <+> pp e
+
+instance PP iden => PP [StatementAnnotation iden loc] where
+    pp xs = vcat $ map pp xs
+
+ppAnn x = text "//@" <+> pp x
+
+hasResult :: (Data iden,Data loc) => Expression iden loc -> Bool
+hasResult (x::Expression iden loc) = everything (||) (mkQ False $ res (Proxy::Proxy iden) (Proxy::Proxy loc)) x
+    where
+    res :: Proxy iden -> Proxy loc -> Expression iden loc -> Bool
+    res _ _ (ResultExpr _) = True
+    res _ _ x = False
+
 $(deriveBifunctor ''Module)
 $(deriveBifunctor ''CastType)
 $(deriveBifunctor ''AttributeName)
@@ -1175,21 +1333,18 @@ $(deriveBifunctor ''ForInitializer)
 $(deriveBifunctor ''Statement)
 $(deriveBifunctor ''SyscallParameter)
 $(deriveBifunctor ''Index)
-$(deriveBifunctor ''Expression) 
 $(deriveBifunctor ''Op) 
+$(deriveBifunctor ''Expression) 
+$(deriveBifunctor ''GlobalAnnotation) 
+$(deriveBifunctor ''ProcedureAnnotation) 
+$(deriveBifunctor ''LoopAnnotation) 
+$(deriveBifunctor ''StatementAnnotation) 
 
-unaryLitExpr :: Expression iden loc -> Expression iden loc
-unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)
-unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (FloatLit l1 f))) = LitPExpr l $ FloatLit l1 (-f)
-unaryLitExpr e = e
-    
-instance PP iden => PP [Expression iden loc] where
-    pp xs = parens $ sepBy comma $ map pp xs
-    
-instance PP iden => PP [(Expression iden loc, IsVariadic)] where
-    pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
-    
-varExpr :: Location loc => VarName iden loc -> Expression iden loc
-varExpr v = RVariablePExpr (loc v) v
+
+
+
+
+
+
 
 

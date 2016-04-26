@@ -4,6 +4,7 @@ module Language.SecreC.TypeChecker.Statement where
 
 import Language.SecreC.Vars
 import Language.SecreC.Utils
+import Language.SecreC.Monad
 import Language.SecreC.Syntax
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Pretty
@@ -32,6 +33,7 @@ import Text.PrettyPrint
 import Control.Monad hiding (mapM)
 import Control.Monad.IO.Class
 import Control.Monad.State as State
+import Control.Monad.Reader as Reader
 
 import Prelude hiding (mapM)
 
@@ -93,16 +95,18 @@ tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     (elseS',StmtType cs2) <- tcLocal $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
-tcStmt ret (ForStatement l startE whileE incE bodyS) = tcLocal $ do
+tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal $ do
     startE' <- tcForInitializer startE
     whileE' <- mapM tcGuard whileE
     incE' <- mapM (tcExpr) incE
+    ann' <- mapM tcLoopAnn ann
     (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
-    return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' bodyS',t')
-tcStmt ret (WhileStatement l condE bodyS) = do
+    return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' ann' bodyS',t')
+tcStmt ret (WhileStatement l condE ann bodyS) = do
+    ann' <- mapM tcLoopAnn ann
     condE' <- tcGuard condE
     (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
-    return (WhileStatement (notTyped "tcStmt" l) condE' bodyS',t')
+    return (WhileStatement (notTyped "tcStmt" l) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- mapM (tcVariadicArg tcExpr) argsE
     xs <- forM argsE' $ \argE' -> do
@@ -112,13 +116,15 @@ tcStmt ret (PrintStatement (l::loc) argsE) = do
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
-tcStmt ret (DowhileStatement l bodyS condE) = tcLocal $ do
+tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal $ do
+    ann' <- mapM tcLoopAnn ann
     (bodyS',t') <- tcLoopBodyStmt ret l bodyS
     condE' <- tcGuard condE
-    return (DowhileStatement (notTyped "tcStmt" l) bodyS' condE',t')
+    return (DowhileStatement (notTyped "tcStmt" l) ann' bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
     (argE',cstrsargE) <- tcWithCstrs l "assert" $ tcGuard argE
-    checkCstrM l cstrsargE $ CheckAssertion $ fmap typed argE'
+    opts <- askOpts
+    when (checkAssertions opts) $ checkCstrM l cstrsargE $ CheckAssertion $ fmap typed argE'
     tryAddHypothesis l LocalScope cstrsargE $ HypCondition $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
@@ -152,12 +158,32 @@ tcStmt ret (ContinueStatement l) = do
     return (BreakStatement $ Typed l t,t)
 tcStmt ret (BreakStatement l) = do
     let t = StmtType (Set.singleton StmtBreak)
-    return (BreakStatement $ Typed l t,t)
+    return (BreakStatement $ Typed l t,t)    
 tcStmt ret (ExpressionStatement l e) = do
     e' <- tcExpr e
     let te = typed $ loc e'
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
+tcStmt ret (AnnStatement l ann) = do
+    (ann') <- mapM tcStmtAnn ann
+    let t = StmtType $ Set.singleton StmtFallthru
+    return (AnnStatement (Typed l t) ann',t)
+
+tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM loc m (LoopAnnotation VarIdentifier (Typed loc))
+tcLoopAnn (DecreasesAnn l e) = insideAnnotation $ do
+    (e') <- tcGuard e
+    return (DecreasesAnn (Typed l $ typed $ loc e') e')
+tcLoopAnn (InvariantAnn l e) = insideAnnotation $ do
+    (e') <- tcGuard e
+    return (InvariantAnn (Typed l $ typed $ loc e') e')
+
+tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM loc m (StatementAnnotation VarIdentifier (Typed loc))
+tcStmtAnn (AssumeAnn l e) = insideAnnotation $ do
+    (e') <- tcGuard e
+    return (AssumeAnn (Typed l $ typed $ loc e') e')
+tcStmtAnn (AssertAnn l e) = insideAnnotation $ do
+    (e') <- tcGuard e
+    return (AssertAnn (Typed l $ typed $ loc e') e')
 
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM loc m ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
@@ -191,39 +217,39 @@ tcForInitializer (InitializerVariable vd) = do
 
 tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM loc m (VariableDeclaration VarIdentifier (Typed loc))
 tcVarDecl scope (VariableDeclaration l tyspec vars) = do
-    tyspec' <- tcTypeSpec tyspec False
+    (tyspec') <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
-    vars' <- mapM (tcVarInit scope ty) vars
-    return $ VariableDeclaration (notTyped "tcVarDecl" l) tyspec' vars'
+    (vars') <- mapM (tcVarInit scope ty) vars
+    return (VariableDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
 
 tcVarInit :: (ProverK loc m) => Scope -> Type -> VariableInitialization Identifier loc -> TcM loc m (VariableInitialization VarIdentifier (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- mapM (tcExprTy ty') e
+    (e') <- mapM (tcExprTy ty') e
     -- add the array size to the type
     let v' = VarName (Typed vl ty') $ mkVarId vn
     -- add variable to the environment
     newVariable scope v' Nothing False -- don't add values to the environment
-    return $ VariableInitialization (notTyped "tcVarInit" l) v' szs' e'
+    return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
 tcConstDecl :: (ProverK loc m) => Scope -> ConstDeclaration Identifier loc -> TcM loc m (ConstDeclaration VarIdentifier (Typed loc))
 tcConstDecl scope (ConstDeclaration l tyspec vars) = do
-    tyspec' <- tcTypeSpec tyspec False
+    (tyspec') <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
-    vars' <- mapM (tcConstInit scope ty) vars
-    return $ ConstDeclaration (notTyped "tcVarDecl" l) tyspec' vars'
+    (vars') <- mapM (tcConstInit scope ty) vars
+    return (ConstDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
 
 tcConstInit :: (ProverK loc m) => Scope -> Type -> ConstInitialization Identifier loc -> TcM loc m (ConstInitialization VarIdentifier (Typed loc))
 tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- mapM (tcExprTy ty') e
+    (e') <- mapM (tcExprTy ty') e
     -- add the array size to the type
     vn' <- addConst scope vn
     -- we issue new uniq variables for consts, since they are used in typechecking
     let v' = VarName (Typed vl ty') vn'
     -- add variable to the environment
     newVariable scope v' e' True -- add values to the environment
-    return $ ConstInitialization (notTyped "tcVarInit" l) v' szs' e'
+    return (ConstInitialization (notTyped "tcVarInit" l) v' szs' e')
 
     
 

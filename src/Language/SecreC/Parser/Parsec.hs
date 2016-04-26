@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, TypeFamilies #-}
+{-# LANGUAGE RankNTypes, ScopedTypeVariables, ViewPatterns, TupleSections, TypeFamilies #-}
 
 module Language.SecreC.Parser.Parsec where
 
@@ -12,15 +12,19 @@ import Language.SecreC.Pretty hiding (sepBy)
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Parser.Lexer
 
-import Text.Parsec
+import Text.Parsec hiding (many,many1)
+import qualified Text.Parsec as Parsec
 import Text.Parsec.Pos
 
 import Control.Applicative hiding ((<|>),optional,many)
 import Control.Monad.IO.Class
 import Control.Monad
+import Control.Monad.Catch hiding (try)
 import Control.Monad.Except
 import Control.Monad.Reader (ask)
 import Control.Monad.Identity
+import Control.Monad.State as State
+import Control.Monad.Writer as Writer
 
 import System.IO
 
@@ -28,8 +32,27 @@ import Safe
 
 import qualified Data.Foldable as Foldable
 import Data.Maybe
+import qualified Data.Set as Set
+import qualified Data.Map as Map
 
-type ScParserT u m a = ParsecT [TokenInfo] u m a
+instance (Monad m,MonadCatch m) => MonadThrow (ParsecT s u m) where
+    throwM = lift . throwM
+
+instance MonadCatch m => MonadCatch (ParsecT s u m) where
+    p `catch` h = mkPT $ \s ->
+            runParsecT p s `catch` \e ->
+                runParsecT (h e) s
+
+many1 :: MonadCatch m => String -> ScParserT m a -> ScParserT m [a]
+many1 msg p = catch (Parsec.many1 p) (\(e::SomeException) -> error $ msg ++ show e)
+
+many :: MonadCatch m => String -> ScParserT m a -> ScParserT m [a]
+many msg p = catch (Parsec.many p) (\(e::SomeException) -> error $ msg ++ show e)
+
+-- parser inside an annotation or not
+type ScState = Bool
+
+type ScParserT m a = ParsecT [TokenInfo] ScState (SecrecM m) a
 
 infixr 1 >*< 
 (>*<) :: ParsecT s u m a -> ParsecT s u m b -> ParsecT s u m (a,b)
@@ -61,83 +84,86 @@ apA4 ma mb mc md f = pure f <*> ma <*> mb <*> mc <*> md
 apA5 :: Applicative f => f a -> f b -> f c -> f d -> f e -> (a -> b -> c -> d -> e -> g) -> f g
 apA5 ma mb mc md me f = pure f <*> ma <*> mb <*> mc <*> md <*> me
 
-scTok :: Monad m => Token -> ScParserT u m TokenInfo
+apA6 :: Applicative f => f a -> f b -> f c -> f d -> f e -> f g -> (a -> b -> c -> d -> e -> g -> h) -> f h
+apA6 ma mb mc md me mg f = pure f <*> ma <*> mb <*> mc <*> md <*> me <*> mg
+
+scTok :: (Monad m,MonadCatch m) => Token -> ScParserT m TokenInfo
 scTok t = scTokPred ((==t) . tSymb)
 
-scTokPred :: Monad m => (TokenInfo -> Bool) -> ScParserT u m TokenInfo
+scTokPred :: (Monad m,MonadCatch m) => (TokenInfo -> Bool) -> ScParserT m TokenInfo
 scTokPred p = scTokWith (\x -> if p x then Just x else Nothing)
 
-scTokWith :: Monad m => (TokenInfo -> Maybe a) -> ScParserT u m a
+scTokWith :: (Monad m,MonadCatch m) => (TokenInfo -> Maybe a) -> ScParserT m a
 scTokWith f = tokenPrim ppr next f
     where
     next p t (s:ss) = positionToSourcePos $ tLoc s
     next p t [] = updatePosString p (ppr t)
 
-scChar :: Monad m => Char -> ScParserT u m TokenInfo
+scChar :: (Monad m,MonadCatch m) => Char -> ScParserT m TokenInfo
 scChar c = scTokPred (p . tSymb)
     where
     p (CHAR c') = c == c'
     p _ = False
 
-scParens :: Monad m => ScParserT u m a -> ScParserT u m a
+scParens :: (Monad m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scParens p = scChar '(' *> p <* scChar ')'
 
-scBraces :: Monad m => ScParserT u m a -> ScParserT u m a
+scBraces :: (Monad m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scBraces p = scChar '{' *> p <* scChar '}'
 
-scParens' :: Monad m => (TokenInfo -> ScParserT u m a) -> ScParserT u m a
+scParens' :: (Monad m,MonadCatch m) => (TokenInfo -> ScParserT m a) -> ScParserT m a
 scParens' p = do
     x1 <- scChar '('
     x <- p x1
     scChar ')'
     return x
 
-scBrackets :: Monad m => ScParserT u m a -> ScParserT u m a
+scBrackets :: (Monad m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scBrackets p = scChar '[' *> p <* scChar ']'
 
-scBrackets' :: Monad m => (TokenInfo -> ScParserT u m a) -> ScParserT u m a
+scBrackets' :: (Monad m,MonadCatch m) => (TokenInfo -> ScParserT m a) -> ScParserT m a
 scBrackets' p = do
     x1 <- scChar '['
     x <- p x1
     scChar ']'
     return x
 
-scABrackets :: Monad m => ScParserT u m a -> ScParserT u m a
+scABrackets :: (Monad m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scABrackets p = scChar '<' *> p <* scChar '>'
 
-scCBrackets :: Monad m => ScParserT u m a -> ScParserT u m a
+scCBrackets :: (Monad m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scCBrackets p = scChar '{' *> p <* scChar '}'
 
-scCBrackets' :: Monad m => (TokenInfo -> ScParserT u m a) -> ScParserT u m a
+scCBrackets' :: (Monad m,MonadCatch m) => (TokenInfo -> ScParserT m a) -> ScParserT m a
 scCBrackets' p = do
     x1 <- scChar '{'
     x <- p x1
     scChar '}'
     return x
 
-scFoldl1 :: Monad m => (a -> b -> ScParserT u m a) -> ScParserT u m a -> ScParserT u m b -> ScParserT u m a
+scFoldl1 :: (Monad m,MonadCatch m) => (a -> b -> ScParserT m a) -> ScParserT m a -> ScParserT m b -> ScParserT m a
 scFoldl1 f ma mb = do
     x <- ma
-    ys <- many1 mb
+    ys <- many1 "scFoldl1" mb
     Foldable.foldlM f x ys
     
-scFoldl :: Monad m => (a -> b -> ScParserT u m a) -> ScParserT u m a -> ScParserT u m b -> ScParserT u m a
+scFoldl :: (Monad m,MonadCatch m) => (a -> b -> ScParserT m a) -> ScParserT m a -> ScParserT m b -> ScParserT m a
 scFoldl f ma mb = do
     x <- ma
-    ys <- many mb
+    ys <- many "scFoldl" mb
     Foldable.foldlM f x ys
 
-scMaybeCont :: ScParserT u m a -> (Maybe a -> ScParserT u m b) -> ScParserT u m b
+scMaybeCont :: ScParserT m a -> (Maybe a -> ScParserT m b) -> ScParserT m b
 scMaybeCont p cont = (p >>= cont . Just) <||> cont Nothing
                 
-scMaybeContPair :: ScParserT u m a -> ScParserT u m b -> ScParserT u m (Maybe a,b)
+scMaybeContPair :: ScParserT m a -> ScParserT m b -> ScParserT m (Maybe a,b)
 scMaybeContPair p cont = scMaybeCont p (\mb -> liftM (mb,) cont)
 
 -- * Grammar
 
 -- ** Literals
 
-scIntLiteral :: Monad m => ScParserT u m (Loc Position Integer)
+scIntLiteral :: (Monad m,MonadCatch m) => ScParserT m (Loc Position Integer)
 scIntLiteral = liftM (\x1 -> Loc (loc x1) (tokenInteger x1)) (scTokPred p) <?> "int literal"
     where
     p (TokenInfo (BIN_LITERAL _) _ _) = True
@@ -146,19 +172,19 @@ scIntLiteral = liftM (\x1 -> Loc (loc x1) (tokenInteger x1)) (scTokPred p) <?> "
     p (TokenInfo (OCT_LITERAL _) _ _) = True
     p _ = False
 
-scFloatLiteral :: Monad m => ScParserT u m (Loc Position Double)
+scFloatLiteral :: (Monad m,MonadCatch m) => ScParserT m (Loc Position Double)
 scFloatLiteral = liftM (\x1 -> Loc (loc x1) (tokenFloat x1)) (scTokPred p) <?> "float literal"
     where
     p (TokenInfo (FLOAT_LITERAL _) _ _) = True
     p _ = False
 
-scStrFragment :: Monad m => ScParserT u m TokenInfo
+scStrFragment :: (Monad m,MonadCatch m) => ScParserT m TokenInfo
 scStrFragment = scTokPred p <?> "string fragment"
     where
     p (TokenInfo (STR_FRAGMENT _) _ _) = True
     p _ = False
 
-scStrIdentifier :: Monad m => ScParserT u m TokenInfo
+scStrIdentifier :: (Monad m,MonadCatch m) => ScParserT m TokenInfo
 scStrIdentifier = scTokPred p <?> "string identifier"
     where
     p (TokenInfo (STR_IDENTIFIER _) _ _) = True
@@ -166,37 +192,37 @@ scStrIdentifier = scTokPred p <?> "string identifier"
 
 -- ** Identifiers
 
-scKindId :: Monad m => ScParserT u m (KindName Identifier Position)
+scKindId :: (Monad m,MonadCatch m) => ScParserT m (KindName Identifier Position)
 scKindId = liftM (\t -> KindName (tLoc t) (tokenString t)) scIdentifier <?> "kind id"
 
-scVarId :: Monad m => ScParserT u m (VarName Identifier Position)
+scVarId :: (Monad m,MonadCatch m) => ScParserT m (VarName Identifier Position)
 scVarId = liftM (\t -> VarName (tLoc t) (tokenString t)) scIdentifier <?> "variable id"
 
-scAttributeId :: Monad m => ScParserT u m (AttributeName Identifier Position)
+scAttributeId :: (Monad m,MonadCatch m) => ScParserT m (AttributeName Identifier Position)
 scAttributeId = liftM (\t -> AttributeName (tLoc t) (tokenString t)) scIdentifier <?> "attribute id"
 
-scProcedureId :: Monad m => ScParserT u m (ProcedureName Identifier Position)
+scProcedureId :: (Monad m,MonadCatch m) => ScParserT m (ProcedureName Identifier Position)
 scProcedureId = liftM (\t -> ProcedureName (tLoc t) (tokenString t)) scIdentifier <?> "procedure id"
 
-scDomainId :: Monad m => ScParserT u m (DomainName Identifier Position)
+scDomainId :: (Monad m,MonadCatch m) => ScParserT m (DomainName Identifier Position)
 scDomainId = liftM (\t -> DomainName (tLoc t) (tokenString t)) scIdentifier <?> "domain id"
 
-scTypeId :: Monad m => ScParserT u m (TypeName Identifier Position)
+scTypeId :: (Monad m,MonadCatch m) => ScParserT m (TypeName Identifier Position)
 scTypeId = liftM (\t -> TypeName (tLoc t) (tokenString t)) scIdentifier <?> "type id"
 
-scTemplateArgId :: Monad m => ScParserT u m (TemplateArgName Identifier Position)
+scTemplateArgId :: (Monad m,MonadCatch m) => ScParserT m (TemplateArgName Identifier Position)
 scTemplateArgId = liftM (\t -> TemplateArgName (tLoc t) (tokenString t)) scIdentifier <?> "template argument id"
 
-scModuleId :: Monad m => ScParserT u m (ModuleName Identifier Position)
+scModuleId :: (Monad m,MonadCatch m) => ScParserT m (ModuleName Identifier Position)
 scModuleId = liftM (\t -> ModuleName (tLoc t) (tokenString t)) scIdentifier <?> "module id"
 
-scIdentifier :: Monad m => ScParserT u m TokenInfo
+scIdentifier :: (Monad m,MonadCatch m) => ScParserT m TokenInfo
 scIdentifier = scTokPred (p . tSymb) <?> "id"
     where
     p (IDENTIFIER s) = True
     p _ = False
 
-scEOF :: Monad m => ScParserT u m ()
+scEOF :: (Monad m,MonadCatch m) => ScParserT m ()
 scEOF = scTokPred (p . tSymb) >> return ()
     where
     p TokenEOF = True
@@ -204,29 +230,29 @@ scEOF = scTokPred (p . tSymb) >> return ()
 
 -- ** Program and variable declarations
 
-scModuleFile :: Monad m => ScParserT u m (Module Identifier Position)
+scModuleFile :: (MonadIO m,MonadCatch m) => ScParserT m (Module Identifier Position)
 scModuleFile = scModule <* scEOF
 
-scModule :: Monad m => ScParserT u m (Module Identifier Position)
+scModule :: (MonadIO m,MonadCatch m) => ScParserT m (Module Identifier Position)
 scModule = ((apA4 (scTok MODULE) scModuleId (scChar ';') scProgram (\x1 x2 x3 x4 -> Module (loc x1) (Just x2) x4) <?> "named module")
        <|> (apA scProgram (\x1 -> Module (loc x1) Nothing x1) <?> "unamed module")
        )
     
-scProgram :: Monad m => ScParserT u m (Program Identifier Position)
+scProgram :: (MonadIO m,MonadCatch m) => ScParserT m (Program Identifier Position)
 scProgram = do
     p <- scPosition
-    apA2 scImportDeclarations scGlobalDeclarations (\x1 x2 -> Program (if null x1 then if null x2 then p else loc (head x2) else loc (head x1)) x1 x2) <?> "program"
+    apA2 scImportDeclarations scGlobalDeclarations (\x1 x2 -> Program (if null x1 then if null x2 then p else loc (headNote "scProgram" x2) else loc (headNote "scProgram" x1)) x1 x2) <?> "program"
 
-scImportDeclarations :: Monad m => ScParserT u m [ImportDeclaration Identifier Position]
-scImportDeclarations = many scImportDeclaration <?> "import declarations"
+scImportDeclarations :: (Monad m,MonadCatch m) => ScParserT m [ImportDeclaration Identifier Position]
+scImportDeclarations = many "scImportDeclarations" scImportDeclaration <?> "import declarations"
 
-scGlobalDeclarations :: Monad m => ScParserT u m [GlobalDeclaration Identifier Position]
-scGlobalDeclarations = many scGlobalDeclaration <?> "global declarations"
+scGlobalDeclarations :: (MonadIO m,MonadCatch m) => ScParserT m [GlobalDeclaration Identifier Position]
+scGlobalDeclarations = many "scGlobalDeclarations" scGlobalDeclaration <?> "global declarations"
 
-scImportDeclaration :: Monad m => ScParserT u m (ImportDeclaration Identifier Position)
+scImportDeclaration :: (Monad m,MonadCatch m) => ScParserT m (ImportDeclaration Identifier Position)
 scImportDeclaration = apA3 (scTok IMPORT) scModuleId (scChar ';') (\x1 x2 x3 -> Import (loc x1) x2) <?> "import declaration"
 
-scGlobalDeclaration :: Monad m => ScParserT u m (GlobalDeclaration Identifier Position)
+scGlobalDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (GlobalDeclaration Identifier Position)
 scGlobalDeclaration = (apA2 scConstDeclaration (scChar ';') (\x1 x2 -> GlobalConst (loc x1) x1) <?> "const declaration")
                  <||>  (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
                  <||> (apA2 scDomainDeclaration (scChar ';') (\x1 x2 -> GlobalDomain (loc x1) x1) <?> "domain declaration")
@@ -234,84 +260,89 @@ scGlobalDeclaration = (apA2 scConstDeclaration (scChar ';') (\x1 x2 -> GlobalCon
                  <||> (apA scProcedureDeclaration (\x1 -> GlobalProcedure (loc x1) x1) <?> "procedure declaration")
                  <||> (apA scStructureDeclaration (\x1 -> GlobalStructure (loc x1) x1) <?> "structure declaration")
                  <||> (apA scTemplateDeclaration (\x1 -> GlobalTemplate (loc x1) x1) <?> "template declaration")
+                 <||> ((scGlobalAnnotations >>= \x1 -> scLoc (headMay x1) >>= \lx1 -> return $ GlobalAnnotations lx1 x1) <?> "annotation declaration")
 
-scKindDeclaration :: Monad m => ScParserT u m (KindDeclaration Identifier Position)
+scLoc :: (Monad m,LocOf a ~ Position,Located a) => Maybe a -> ScParserT m Position
+scLoc (Just x) = return $ loc x
+scLoc Nothing = liftM sourcePosToPosition getPosition
+
+scKindDeclaration :: (Monad m,MonadCatch m) => ScParserT m (KindDeclaration Identifier Position)
 scKindDeclaration = apA2 (scTok KIND) scKindId (\x1 x2 -> Kind (loc x1) x2) <?> "kind declaration"
 
-scDomainDeclaration :: Monad m => ScParserT u m (DomainDeclaration Identifier Position)
+scDomainDeclaration :: (Monad m,MonadCatch m) => ScParserT m (DomainDeclaration Identifier Position)
 scDomainDeclaration = apA3 (scTok DOMAIN) scDomainId scKindId (\x1 x2 x3 -> Domain (loc x1) x2 x3) <?> "domain declaration"
 
-scVariableInitialization :: Monad m => ScParserT u m (VariableInitialization Identifier Position)
+scVariableInitialization :: (Monad m,MonadCatch m) => ScParserT m (VariableInitialization Identifier Position)
 scVariableInitialization = apA3
     scVarId
     (optionMaybe scSizes)
     (optionMaybe (scChar '=' *> scExpression))
     (\x1 x2 x3 -> VariableInitialization (loc x1) x1 x2 x3) <?> "variable initialization"
 
-scConstInitialization :: Monad m => ScParserT u m (ConstInitialization Identifier Position)
+scConstInitialization :: (Monad m,MonadCatch m) => ScParserT m (ConstInitialization Identifier Position)
 scConstInitialization = apA3
     scVarId
     (optionMaybe scSizes)
     (optionMaybe (scChar '=' *> scExpression))
     (\x1 x2 x3 -> ConstInitialization (loc x1) x1 x2 x3) <?> "const initialization"
 
-scVariableInitializations :: Monad m => ScParserT u m (NeList (VariableInitialization Identifier Position))
+scVariableInitializations :: (Monad m,MonadCatch m) => ScParserT m (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = apA (sepBy1 scVariableInitialization (scChar ',')) fromListNe <?> "variable initializations"
 
-scConstInitializations :: Monad m => ScParserT u m (NeList (ConstInitialization Identifier Position))
+scConstInitializations :: (Monad m,MonadCatch m) => ScParserT m (NeList (ConstInitialization Identifier Position))
 scConstInitializations = apA (sepBy1 scConstInitialization (scChar ',')) fromListNe <?> "const initializations"
 
-scVariableDeclaration :: Monad m => ScParserT u m (VariableDeclaration Identifier Position)
+scVariableDeclaration :: (Monad m,MonadCatch m) => ScParserT m (VariableDeclaration Identifier Position)
 scVariableDeclaration = scTypeSpecifier $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) x1 x2) <?> "variable declaration"
 
-scConstDeclaration :: Monad m => ScParserT u m (ConstDeclaration Identifier Position)
+scConstDeclaration :: (Monad m,MonadCatch m) => ScParserT m (ConstDeclaration Identifier Position)
 scConstDeclaration = do
     x0 <- scTok CONST
     scTypeSpecifier $ \x1 -> apA scConstInitializations (\x2 -> ConstDeclaration (loc x0) x1 x2) <?> "const declaration"
 
-scProcedureParameter :: Monad m => ScParserT u m (ProcedureParameter Identifier Position)
+scProcedureParameter :: (Monad m,MonadCatch m) => ScParserT m (ProcedureParameter Identifier Position)
 scProcedureParameter =
     (scTok CONST >>= \x0 -> (scVariadicTypeSpecifier $ \(x1,x2) -> apA2 scVarId scInvariant (\x3 x4 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4) <?> "const procedure parameter"))
     <|> (scVariadicTypeSpecifier $ \(x1,x2) -> apA scVarId (\x3 -> ProcedureParameter (loc x1) x1 x2 x3) <?> "procedure parameter")
 
-scSizes :: Monad m => ScParserT u m (Sizes Identifier Position)
+scSizes :: (Monad m,MonadCatch m) => ScParserT m (Sizes Identifier Position)
 scSizes = apA (scParens scVariadicExpressionList1) Sizes <?> "dimensions"
 
-scInvariant :: Monad m => ScParserT u m (Maybe (Expression Identifier Position))
+scInvariant :: (Monad m,MonadCatch m) => ScParserT m (Maybe (Expression Identifier Position))
 scInvariant = optionMaybe (scBraces scExpression) <?> "dimensions"
 
-scExpressionList :: Monad m => ScParserT u m [Expression Identifier Position]
+scExpressionList :: (Monad m,MonadCatch m) => ScParserT m [Expression Identifier Position]
 scExpressionList = sepBy scExpression (scChar ',') <?> "expression list"
 
-scVariadicExpressionList :: Monad m => ScParserT u m [(Expression Identifier Position,IsVariadic)]
+scVariadicExpressionList :: (Monad m,MonadCatch m) => ScParserT m [(Expression Identifier Position,IsVariadic)]
 scVariadicExpressionList = (sepBy scVariadicExpression (scChar ',')) <?> "variadic expression list"
 
-scVariadicExpressionList1 :: Monad m => ScParserT u m (NeList (Expression Identifier Position,IsVariadic))
+scVariadicExpressionList1 :: (Monad m,MonadCatch m) => ScParserT m (NeList (Expression Identifier Position,IsVariadic))
 scVariadicExpressionList1 = apA (sepBy1 scVariadicExpression (scChar ',')) fromListNe <?> "variadic expression list"
 
 -- ** Types                                                                     
 
-scTypeSpecifier :: Monad m => (TypeSpecifier Identifier Position -> ScParserT u m a) -> ScParserT u m a
+scTypeSpecifier :: (Monad m,MonadCatch m) => (TypeSpecifier Identifier Position -> ScParserT m a) -> ScParserT m a
 scTypeSpecifier cont = (scMaybeCont scSecTypeSpecifier $ \x1 -> do
     x2 <- scDatatypeSpecifier
     x3 <- optionMaybe scDimtypeSpecifier
     let t = TypeSpecifier (maybe (loc x2) loc x1) x1 x2 x3
     cont t) <?> "type specifier"
 
-scVariadicTypeSpecifier :: Monad m => ((TypeSpecifier Identifier Position,IsVariadic) -> ScParserT u m a) -> ScParserT u m a
+scVariadicTypeSpecifier :: (Monad m,MonadCatch m) => ((TypeSpecifier Identifier Position,IsVariadic) -> ScParserT m a) -> ScParserT m a
 scVariadicTypeSpecifier cont = scTypeSpecifier $ \t -> do
     scMaybeCont (scTok VARIADIC) $ \b -> cont (t,isJust b)
 
-scSecTypeSpecifier :: Monad m => ScParserT u m (SecTypeSpecifier Identifier Position)
+scSecTypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (SecTypeSpecifier Identifier Position)
 scSecTypeSpecifier = (apA (scTok PUBLIC) (\x1 -> PublicSpecifier (loc x1)) <?> "public security type")
                  <|> (apA scDomainId (\x1 -> PrivateSpecifier (loc x1) x1) <?> "private security type")
 
-scDatatypeSpecifier :: Monad m => ScParserT u m (DatatypeSpecifier Identifier Position)
+scDatatypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (DatatypeSpecifier Identifier Position)
 scDatatypeSpecifier = (apA scPrimitiveDatatype (\x1 -> PrimitiveSpecifier (loc x1) x1) <?> "primitive type specifier")
                   <|> (scTemplateStructDatatypeSpecifier <?> "template type specifier")
                   <||> (apA scTypeId (\x1 -> VariableSpecifier (loc x1) x1) <?> "named type specifier")
 
-scPrimitiveDatatype :: Monad m => ScParserT u m (PrimitiveDatatype Position)
+scPrimitiveDatatype :: (Monad m,MonadCatch m) => ScParserT m (PrimitiveDatatype Position)
 scPrimitiveDatatype = (apA (scTok BOOL) (DatatypeBool . loc)
                   <|> apA (scTok INT) (DatatypeInt64 . loc)
                   <|> apA (scTok UINT) (DatatypeUint64 . loc)
@@ -333,26 +364,26 @@ scPrimitiveDatatype = (apA (scTok BOOL) (DatatypeBool . loc)
                   <|> apA (scTok FLOAT32) (DatatypeFloat32 . loc)
                   <|> apA (scTok FLOAT64) (DatatypeFloat64 . loc)) <?> "primitive type"
 
-scTemplateStructDatatypeSpecifier :: Monad m => ScParserT u m (DatatypeSpecifier Identifier Position)
+scTemplateStructDatatypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (DatatypeSpecifier Identifier Position)
 scTemplateStructDatatypeSpecifier = apA2 scTypeId (scABrackets scTemplateTypeArguments) (\x1 x2 -> TemplateSpecifier (loc x1) x1 x2) <?> "template struct specifier"
 
-scTemplateTypeArguments :: Monad m => ScParserT u m [(TemplateTypeArgument Identifier Position,IsVariadic)]
+scTemplateTypeArguments :: (Monad m,MonadCatch m) => ScParserT m [(TemplateTypeArgument Identifier Position,IsVariadic)]
 scTemplateTypeArguments = sepBy (apA2 scTemplateTypeArgument scVariadic (,)) (scChar ',') <?> "template type arguments"
 
-scTemplateTypeArgument :: Monad m => ScParserT u m (TemplateTypeArgument Identifier Position)
+scTemplateTypeArgument :: (Monad m,MonadCatch m) => ScParserT m (TemplateTypeArgument Identifier Position)
 scTemplateTypeArgument = (apA (scTok PUBLIC) (PublicTemplateTypeArgument . loc) <?> "public template type argument")
                      <|> (apA2 scTypeId (scABrackets scTemplateTypeArguments) (\x1 x2 -> TemplateTemplateTypeArgument (loc x1) x1 x2) <?> "template template type argument")
                     <||> (apA scTemplateArgId (\x1 -> GenericTemplateTypeArgument (loc x1) x1) <?> "named template type argument") -- type, domain or variable identifier
                      <|> (apA scExpression (\x1 -> ExprTemplateTypeArgument (loc x1) x1) <?> "expression template type argument")
                      <||> (apA scPrimitiveDatatype (\x1 -> PrimitiveTemplateTypeArgument (loc x1) x1) <?> "primitive template type argument")
 
-scDimtypeSpecifier :: Monad m => ScParserT u m (DimtypeSpecifier Identifier Position)
+scDimtypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (DimtypeSpecifier Identifier Position)
 scDimtypeSpecifier = (scBrackets' $ \x1 -> scBrackets' $ \x2 ->
       apA scExpression (\x3 -> DimSpecifier (loc x1) x3)) <?> "dimension specifier"
 
 -- ** Templates                                                               
 
-scTemplateDeclaration :: Monad m => ScParserT u m (TemplateDeclaration Identifier Position)
+scTemplateDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (TemplateDeclaration Identifier Position)
 scTemplateDeclaration = (do
     x1 <- scTok TEMPLATE
     x3 <- scABrackets scTemplateQuantifiers
@@ -362,47 +393,47 @@ scTemplateDeclaration = (do
     templStruct x1 x3 (Nothing,x5) = TemplateStructureDeclaration (loc x1) x3 x5
     templStruct x1 x3 (Just x4,x5) = TemplateStructureSpecialization (loc x1) x3 x4 x5
 
-scTemplateQuantifiers :: Monad m => ScParserT u m [TemplateQuantifier Identifier Position]
+scTemplateQuantifiers :: (Monad m,MonadCatch m) => ScParserT m [TemplateQuantifier Identifier Position]
 scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?> "template quantifiers"
 
-scTemplateQuantifier :: Monad m => ScParserT u m (TemplateQuantifier Identifier Position)
+scTemplateQuantifier :: (Monad m,MonadCatch m) => ScParserT m (TemplateQuantifier Identifier Position)
 scTemplateQuantifier =
         (apA4 (scTok DOMAIN) scVariadic scDomainId (optionMaybe (scChar ':' *> scKindId)) (\x1 x2 x3 x4 -> DomainQuantifier (loc x1) x2 x3 x4)
     <|> apA4 (scTok DIMENSIONALITY) scVariadic scVarId scInvariant (\x1 x2 x3 x4 -> DimensionQuantifier (loc x1) x2 x3 x4)
     <|> apA3 (scTok TYPE) scVariadic scTypeId (\x1 x2 x3 -> DataQuantifier (loc x1) x2 x3)) <?> "template quantifier"
 
-scVariadic :: Monad m => ScParserT u m IsVariadic
+scVariadic :: (Monad m,MonadCatch m) => ScParserT m IsVariadic
 scVariadic = apA (optionMaybe (scTok VARIADIC)) isJust
 
 -- ** Structures                                                                 
 
-scStructure :: Monad m => ScParserT u m (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
+scStructure :: (Monad m,MonadCatch m) => ScParserT m (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
 scStructure = apA4 (scTok STRUCT) scTypeId (optionMaybe $ scABrackets scTemplateTypeArguments) (scCBrackets scAttributeList) (\x1 x2 x3 x4 -> (x3,StructureDeclaration (loc x1) x2 x4)) <?> "structure declaration"
 
-scStructureDeclaration :: Monad m => ScParserT u m (StructureDeclaration Identifier Position)
+scStructureDeclaration :: (Monad m,MonadCatch m) => ScParserT m (StructureDeclaration Identifier Position)
 scStructureDeclaration = apA3 (scTok STRUCT) scTypeId (scCBrackets scAttributeList) (\x1 x2 x3 -> StructureDeclaration (loc x1) x2 x3) <?> "structure declaration"
 
-scAttributeList :: Monad m => ScParserT u m [Attribute Identifier Position]
-scAttributeList = many scAttribute <?> "attribute list"
+scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier Position]
+scAttributeList = many "scAttributeList" scAttribute <?> "attribute list"
 
-scAttribute :: Monad m => ScParserT u m (Attribute Identifier Position)
+scAttribute :: (Monad m,MonadCatch m) => ScParserT m (Attribute Identifier Position)
 scAttribute = scTypeSpecifier $ \x1 -> apA2 scAttributeId (scChar ';') (\x2 x3 -> Attribute (loc x1) x1 x2) <?> "attribute"
 
 -- ** Procedures                                
 
-scReturnTypeSpecifier :: Monad m => (ReturnTypeSpecifier Identifier Position -> ScParserT u m a) -> ScParserT u m a
+scReturnTypeSpecifier :: (Monad m,MonadCatch m) => (ReturnTypeSpecifier Identifier Position -> ScParserT m a) -> ScParserT m a
 scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Nothing) >>= cont)
                          <|> scTypeSpecifier (\x1 -> cont (ReturnType (loc x1) (Just x1))))
                           <?> "return type specifier"
 
-scProcedureDeclaration :: Monad m => ScParserT u m (ProcedureDeclaration Identifier Position)
-scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA4 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scCompoundStatement (\x2 x3 x4 x5 -> OperatorDeclaration (loc x1) x1 x3 x4 (unLoc x5)))
-                    <||> (scReturnTypeSpecifier $ \x1 -> apA3 scProcedureId (scParens scProcedureParameterList) scCompoundStatement (\x2 x3 x4 -> ProcedureDeclaration (loc x1) x1 x2 x3 (unLoc x4)))) <?> "procedure definition"
+scProcedureDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureDeclaration Identifier Position)
+scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 x6 -> OperatorDeclaration (loc x1) x1 x3 x4 x5 (unLoc x6)))
+                    <||> (scReturnTypeSpecifier $ \x1 -> apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 -> ProcedureDeclaration (loc x1) x1 x2 x3 x4 (unLoc x5)))) <?> "procedure definition"
     
-scProcedureParameterList :: Monad m => ScParserT u m [ProcedureParameter Identifier Position]
+scProcedureParameterList :: (Monad m,MonadCatch m) => ScParserT m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"
 
-scOp :: Monad m => ScParserT u m (Op Identifier Position)
+scOp :: (Monad m,MonadCatch m) => ScParserT m (Op Identifier Position)
 scOp = (apA (scChar '+') (OpAdd . loc)
    <|> apA (scChar '&') (OpBand . loc)
    <|> apA (scChar '|') (OpBor  . loc)
@@ -422,14 +453,16 @@ scOp = (apA (scChar '+') (OpAdd . loc)
    <|> apA (scTok NE_OP) (OpNe . loc)
    <|> apA (scTok SHL_OP) (OpShl . loc)
    <|> apA (scTok SHR_OP) (OpShr . loc)
+   <|> apA (scTok IMPLIES_OP) (OpImplies . loc)
+   <|> apA (scTok EQUIV_OP) (OpEquiv . loc)
    <|> apA scCastType (\x1 -> OpCast (loc x1) x1) ) <?> "op"
 
 -- * Statements                                                           
 
-scCompoundStatement :: Monad m => ScParserT u m (Loc Position [Statement Identifier Position])
-scCompoundStatement = scCBrackets' $ \x1 -> apA (many scStatement) (\x2 -> Loc (loc x1) x2) <?> "compound statement"
+scCompoundStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Loc Position [Statement Identifier Position])
+scCompoundStatement = scCBrackets' $ \x1 -> apA (many "scCompoundStatement" scStatement) (\x2 -> Loc (loc x1) x2) <?> "compound statement"
 
-scStatement :: Monad m => ScParserT u m (Statement Identifier Position)
+scStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc x1))
           <|> scIfStatement
           <|> scForStatement
@@ -444,18 +477,19 @@ scStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc
           <|> apA2 (scTok CONTINUE) (scChar ';') (\x1 x2 -> ContinueStatement (loc x1))
           <|> apA2 (scTok BREAK) (scChar ';') (\x1 x2 -> BreakStatement (loc x1))
           <|> apA (scChar ';') (\x1 -> CompoundStatement (loc x1) [])
+          <|> (scStatementAnnotations >>= \x1 -> scLoc (headMay x1) >>= \lx1 -> return $ AnnStatement lx1 x1)
           <|> apA2 scExpression (scChar ';') (\x1 x2 -> ExpressionStatement (loc x1) x1)
         ) <?> "statement"
 
-scIfStatement :: Monad m => ScParserT u m (Statement Identifier Position)
+scIfStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scIfStatement = apA4 (scTok IF) (scParens scExpression) scStatement (optionMaybe (scTok ELSE *> scStatement)) (\x1 x2 x3 x4 -> IfStatement (loc x1) x2 x3 x4) <?> "if statement"
 
-scForInitializer :: Monad m => ScParserT u m (ForInitializer Identifier Position)
+scForInitializer :: (Monad m,MonadCatch m) => ScParserT m (ForInitializer Identifier Position)
 scForInitializer = (apA scVariableDeclaration InitializerVariable
                <||> apA (optionMaybe scExpression) InitializerExpression
              ) <?> "for initializer"
 
-scForStatement :: Monad m => ScParserT u m (Statement Identifier Position)
+scForStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scForStatement = (do
     x1 <- scTok FOR
     scChar '('
@@ -465,33 +499,34 @@ scForStatement = (do
     scChar ';'
     x4 <- optionMaybe scExpression
     scChar ')'
-    x5 <- scStatement
-    return $ ForStatement (loc x1) x2 x3 x4 x5) <?> "for statement"
+    x5 <- scLoopAnnotations
+    x6 <- scStatement
+    return $ ForStatement (loc x1) x2 x3 x4 x5 x6) <?> "for statement"
 
-scWhileStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scWhileStatement = apA3 (scTok WHILE) (scParens scExpression) scStatement (\x1 x2 x3 -> WhileStatement (loc x1) x2 x3)
+scWhileStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
+scWhileStatement = apA4 (scTok WHILE) (scParens scExpression) scLoopAnnotations scStatement (\x1 x2 x3 x4 -> WhileStatement (loc x1) x2 x3 x4)
     <?> "while statement"
 
-scPrintStatement :: Monad m => ScParserT u m (Statement Identifier Position)
+scPrintStatement :: (Monad m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scPrintStatement = apA3 (scTok PRINT) (scParens scVariadicExpressionList) (scChar ';') (\x1 x2 x3 -> PrintStatement (loc x1) x2)
     <?> "print statement"
 
-scDowhileStatement :: Monad m => ScParserT u m (Statement Identifier Position)
-scDowhileStatement = apA5 (scTok DO) scStatement (scTok WHILE) (scParens scExpression) (scChar ';') (\x1 x2 x3 x4 x5 -> DowhileStatement (loc x1) x2 x4)
+scDowhileStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
+scDowhileStatement = apA6 (scTok DO) scLoopAnnotations scStatement (scTok WHILE) (scParens scExpression) (scChar ';') (\x1 x2 x3 x4 x5 x6 -> DowhileStatement (loc x1) x2 x3 x5)
     <?> "dowhile statement"
 
-scAssertStatement :: Monad m => ScParserT u m (Statement Identifier Position)
+scAssertStatement :: (Monad m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scAssertStatement = apA3 (scTok ASSERT) (scParens scExpression) (scChar ';') (\x1 x2 x3 -> AssertStatement (loc x1) x2)
     <?> "assert statement"
 
-scSyscallStatement :: Monad m => ScParserT u m (Statement Identifier Position)
+scSyscallStatement :: (Monad m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scSyscallStatement = apA3 (scTok SYSCALL) (scParens sysparams) (scChar ';') (\x1 (x2,x3) x4 -> SyscallStatement (loc x1) x2 x3)
   <?> "syscall statement"
     where
     sysparams = liftM unLoc scStringLiteral
-            >*< many (scChar ',' *> scSyscallParameter)
+            >*< many "scSyscallStatement" (scChar ',' *> scSyscallParameter)
 
-scSyscallParameter :: Monad m => ScParserT u m (SyscallParameter Identifier Position)
+scSyscallParameter :: (Monad m,MonadCatch m) => ScParserT m (SyscallParameter Identifier Position)
 scSyscallParameter = (apA2 (scTok SYSCALL_RETURN) scVarId (\x1 x2 -> SyscallReturn (loc x1) x2)
                  <|> apA2 (scTok REF) scVarId (\x1 x2 -> SyscallPushRef (loc x1) x2)
                  <|> apA2 (scTok CREF) scExpression (\x1 x2 -> SyscallPushCRef (loc x1) x2)
@@ -499,31 +534,31 @@ scSyscallParameter = (apA2 (scTok SYSCALL_RETURN) scVarId (\x1 x2 -> SyscallRetu
 
 -- ** Indices: not strictly expressions as they only appear in specific context  
 
-scSubscript :: Monad m => ScParserT u m (Subscript Identifier Position)
+scSubscript :: (Monad m,MonadCatch m) => ScParserT m (Subscript Identifier Position)
 scSubscript = scBrackets scIndices <?> "subsscript"
 
-scIndices :: Monad m => ScParserT u m (NeList (Index Identifier Position))
+scIndices :: (Monad m,MonadCatch m) => ScParserT m (NeList (Index Identifier Position))
 scIndices = apA (sepBy1 scIndex (scChar ',')) fromListNe <?> "indices"
 
 ---- Precedence of slicing operator? Right now it binds weakest as it can appear
 ---- in very specific context. However, if we ever wish for "foo : bar" evaluate
 ---- to value in some other context we need to figure out sane precedence.
-scIndex :: Monad m => ScParserT u m (Index Identifier Position)
+scIndex :: (Monad m,MonadCatch m) => ScParserT m (Index Identifier Position)
 scIndex = (apA3 (optionMaybe scExpression) (scChar ':') (optionMaybe scExpression) (\x1 x2 x3 -> IndexSlice (maybe (loc x2) loc x1) x1 x3)
      <||> apA scExpression (\x1 -> IndexInt (loc x1) x1)) <?> "index"
 
 -- ** Expressions                                                               
 
-scLvalue :: Monad m => ScParserT u m (Expression Identifier Position)
+scLvalue :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scLvalue = scPostfixExpression <?> "lvalue"
 
-scExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scExpression = scAssignmentExpression <?> "expression"
 
-scVariadicExpression :: Monad m => ScParserT u m (Expression Identifier Position,IsVariadic)
+scVariadicExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position,IsVariadic)
 scVariadicExpression  = apA2 scExpression scVariadic (,)
 
-scAssignmentExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scAssignmentExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scAssignmentExpression = (apA3 scLvalue op scAssignmentExpression (\x1 x2 x3 -> BinaryAssign (loc x1) x1 x2 x3)
                       <||> scQualifiedExpression
                      ) <?> "assignment expression"
@@ -538,21 +573,30 @@ scAssignmentExpression = (apA3 scLvalue op scAssignmentExpression (\x1 x2 x3 -> 
      <|> apA (scTok OR_ASSIGN) (BinaryAssignOr . loc)
      <|> apA (scTok XOR_ASSIGN) (BinaryAssignXor . loc)
 
-scQualifiedExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scQualifiedExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scQualifiedExpression = scFoldl
     (\qe t -> return $ QualExpr (loc qe) qe t)
     scConditionalExpression
     (scTok TYPE_QUAL *> scTypeSpecifier return) <?> "qualified expression"
 
-scConditionalExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scConditionalExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scConditionalExpression = (do
-    x1 <- scLogicalOrExpression 
+    x1 <- scLogicalImpliesExpression 
     mb <- optionMaybe (scChar '?' *> scExpression >*< scChar ':' *> scExpression) 
     case mb of
         Nothing -> return x1
         Just (x2,x3) -> return $ CondExpr (loc x1) x1 x2 x3) <?> "conditional expression"
 
-scLogicalOrExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scLogicalImpliesExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
+scLogicalImpliesExpression = scFoldl
+    (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
+    scLogicalOrExpression
+    (ops >*< scLogicalOrExpression) <?> "logical implies expression"
+  where
+    ops = apA (scTok IMPLIES_OP) (OpImplies . loc)
+      <|> apA (scTok EQUIV_OP) (OpEquiv . loc)
+
+scLogicalOrExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scLogicalOrExpression = scFoldl
     (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
     scLogicalAndExpression
@@ -560,7 +604,7 @@ scLogicalOrExpression = scFoldl
   where
     ops = apA (scTok LOR_OP) (OpLor . loc)
 
-scLogicalAndExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scLogicalAndExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scLogicalAndExpression = scFoldl
     (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
     scBitwiseOrExpression
@@ -568,7 +612,7 @@ scLogicalAndExpression = scFoldl
   where
     ops = apA (scTok LAND_OP) (OpLand . loc)
 
-scBitwiseOrExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scBitwiseOrExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scBitwiseOrExpression = scFoldl
     (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
     scBitwiseXorExpression
@@ -576,7 +620,7 @@ scBitwiseOrExpression = scFoldl
   where
     ops = apA (scChar '|') (OpBor . loc)
 
-scBitwiseXorExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scBitwiseXorExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scBitwiseXorExpression = scFoldl
     (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
     scBitwiseAndExpression
@@ -584,7 +628,7 @@ scBitwiseXorExpression = scFoldl
   where
     ops = apA (scChar '^') (OpXor . loc)
     
-scBitwiseAndExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scBitwiseAndExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scBitwiseAndExpression = scFoldl
     (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
     scEqualityExpression
@@ -592,7 +636,7 @@ scBitwiseAndExpression = scFoldl
   where
     ops = apA (scChar '&') (OpBand . loc)
 
-scEqualityExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scEqualityExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scEqualityExpression = scFoldl
     (\re1 (op,re2) -> return $ BinaryExpr (loc re1) re1 op re2)
     scRelationalExpression
@@ -601,7 +645,7 @@ scEqualityExpression = scFoldl
     ops = apA (scTok EQ_OP) (OpEq . loc)
       <|> apA (scTok NE_OP) (OpNe . loc)
 
-scRelationalExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scRelationalExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scRelationalExpression = scFoldl
     (\se1 (op,se2) -> return $ BinaryExpr (loc se1) se1 op se2)
     scShiftExpression
@@ -612,7 +656,7 @@ scRelationalExpression = scFoldl
       <|> apA (scChar '<') (OpLt . loc)
       <|> apA (scChar '>') (OpGt . loc)
 
-scShiftExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scShiftExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scShiftExpression = scFoldl
     (\a1 (op,a2) -> return $ BinaryExpr (loc a1) a1 op a2)
     scAdditiveExpression
@@ -621,7 +665,7 @@ scShiftExpression = scFoldl
     ops = apA (scTok SHL_OP) (OpShl . loc)
       <|> apA (scTok SHR_OP) (OpShr . loc)
 
-scAdditiveExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scAdditiveExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scAdditiveExpression = scFoldl
     (\a1 (op,a2) -> return $ BinaryExpr (loc a1) a1 op a2)
     scMultiplicativeExpression
@@ -630,7 +674,7 @@ scAdditiveExpression = scFoldl
     ops = apA (scChar '+') (OpAdd . loc)
       <|> apA (scChar '-') (OpSub . loc)
 
-scMultiplicativeExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scMultiplicativeExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scMultiplicativeExpression = scFoldl
     (\a1 (op,a2) -> return $ BinaryExpr (loc a1) a1 op a2)
     scCastExpression
@@ -640,82 +684,153 @@ scMultiplicativeExpression = scFoldl
       <|> apA (scChar '/') (OpDiv . loc)
       <|> apA (scChar '%') (OpMod . loc)
 
-scCastExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scCastExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scCastExpression = (apA2 scCastType scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpCast (loc x1) x1) x2)
             <||> scPrefixOp) <?> "cast expression"
-  where
 
-scCastType :: Monad m => ScParserT u m (CastType Identifier Position)
+scCastType :: (Monad m,MonadCatch m) => ScParserT m (CastType Identifier Position)
 scCastType = scParens (apA scPrimitiveDatatype (CastPrim) <|> apA scTypeId (CastTy))
 
-scPrefixOp :: Monad m => ScParserT u m (Expression Identifier Position)
+scPrefixOp :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scPrefixOp = (apA2 (scTok INC_OP) scLvalue (\x1 x2 -> PreOp (loc x1) (OpAdd $ loc x1) x2)
          <|> apA2 (scTok DEC_OP) scLvalue (\x1 x2 -> PreOp (loc x1) (OpSub $ loc x1) x2)
          <|> scPostfixOp) <?> "prefix op"
 
-scPostfixOp :: Monad m => ScParserT u m (Expression Identifier Position)
+scPostfixOp :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scPostfixOp = ((scLvalue >>= \x1 ->
                     apA (scTok INC_OP) (\x2 -> PostOp (loc x1) (OpAdd (loc x2)) x1)
                 <|> apA (scTok DEC_OP) (\x2 -> PostOp (loc x1) (OpSub (loc x2)) x1)
               )
           <||> scUnaryExpression) <?> "postix op"
 
-scUnaryExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scUnaryExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scUnaryExpression = liftM unaryLitExpr (apA2 (scChar '~') scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpInv (loc x1)) x2)
                 <|> apA2 (scChar '!') scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpNot (loc x1)) x2)
                 <|> apA2 (scChar '-') scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpSub (loc x1)) x2)
                 <|> scPostfixExpression) <?> "unary expression"
 
-scPostfixExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scPostfixExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scPostfixExpression = scFoldl f scPostfixExpression' (scSubscript >+< (scChar '.' *> scAttributeId))
     where
     f pe (Left s) = return $ PostIndexExpr (loc pe) pe s
     f pe (Right v) = return $ SelectionExpr (loc pe) pe v
 
-scPostfixExpression' :: Monad m => ScParserT u m (Expression Identifier Position)
+scPostfixExpression' :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1 x2 -> DomainIdExpr (loc x1) x2)
                   <|> apA2 (scTok STRINGFROMBYTES) (scParens scExpression) (\x1 x2 -> StringFromBytesExpr (loc x1) x2)
                   <|> apA2 (scTok BYTESFROMSTRING) (scParens scExpression) (\x1 x2 -> BytesFromStringExpr (loc x1) x2)
                   <|> apA2 (scTok VSIZE) (scParens scExpression) (\x1 x2 -> VArraySizeExpr (loc x1) x2)
+                  <|> apA2 (scTok LEAK) (scParens scExpression) (\x1 x2 -> LeakExpr (loc x1) x2)
                   <|> apA2 (scTok VARRAY) (scParens (apA2 scExpression (scChar ',' >> scExpression) (,))) (\x1 (x2,x3) -> VArrayExpr (loc x1) x2 x3)
                   <|> apA3 scProcedureId
                       (optionMaybe $ scABrackets scTemplateTypeArguments)
                       (scParens (optionMaybe scVariadicExpressionList))
                       (\x1 x2 x3 -> ProcCallExpr (loc x1) x1 x2 (maybe [] id x3))
+                  <||> scQuantifiedExpr
                   <||> scPrimaryExpression) <?> "postfix expression"
 
-scPrimaryExpression :: Monad m => ScParserT u m (Expression Identifier Position)
+scQuantifiedExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
+scQuantifiedExpr = apA4 scQuantifier (sepBy1 (scTypeSpecifier $ \x -> do { y <- scVarId; return (x,y) }) (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)
+    
+scQuantifier :: (Monad m,MonadCatch m) => ScParserT m (Quantifier Position)
+scQuantifier = apA (scTok FORALL) (\x1 -> ForallQ (loc x1))
+           <|> apA (scTok EXISTS) (\x1 -> ForallQ (loc x1))
+
+scPrimaryExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scPrimaryExpression = (scParens scExpression
                   <|> scCBrackets' (\x1 -> apA scExpressionList (ArrayConstructorPExpr (loc x1)))
                   <|> apA scVarId (\x1 -> RVariablePExpr (loc x1) x1)
+                  <|> apA (scTok RESULT) (\x1 -> ResultExpr (loc x1))
                   <|> apA scLiteral (\x1 -> LitPExpr (loc x1) x1)) <?> "primary expression"
 
-scStringLiteral :: Monad m => ScParserT u m (Loc Position String)
-scStringLiteral = apA (many1 scStringPart) mergeStrs <?> "string literal"
+scStringLiteral :: (Monad m,MonadCatch m) => ScParserT m (Loc Position String)
+scStringLiteral = apA (many1 "scStringLiteral" scStringPart) mergeStrs <?> "string literal"
     where
     mergeStrs xs = Loc (loc $ headNote "head parsec" xs) (concatMap unLoc xs)
 
-scStringPart :: Monad m => ScParserT u m (Loc Position String)
+scStringPart :: (Monad m,MonadCatch m) => ScParserT m (Loc Position String)
 scStringPart = (apA scStrIdentifier (\x1 -> Loc (loc x1) (tokenString x1))
            <|> apA scStrFragment (\x1 -> Loc (loc x1) (tokenString x1))) <?> "string part"
 
 
-scBoolLiteral :: Monad m => ScParserT u m (Loc Position Bool)
+scBoolLiteral :: (Monad m,MonadCatch m) => ScParserT m (Loc Position Bool)
 scBoolLiteral = (apA (scTok TRUE_B) (\x1 -> Loc (loc x1) (tokenBool x1))
             <|> apA (scTok FALSE_B) (\x1 -> Loc (loc x1) (tokenBool x1))) <?> "bool literal"
 
-scLiteral :: Monad m => ScParserT u m (Literal Position)
+scLiteral :: (Monad m,MonadCatch m) => ScParserT m (Literal Position)
 scLiteral = (apA scIntLiteral (\x1 -> IntLit (loc x1) (unLoc x1))
         <|> apA scStringLiteral (\x1 -> StringLit (loc x1) (unLoc x1))
         <|> apA scBoolLiteral (\x1 -> BoolLit (loc x1) (unLoc x1))
         <|> apA scFloatLiteral (\x1 -> FloatLit (loc x1) (unLoc x1))) <?> "literal"
+
+-- ** Annotations
+
+scGlobalAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [GlobalAnnotation Identifier Position]
+scGlobalAnnotations = scAnnotations1 $ many1 "scGlobalAnnotations" scGlobalAnnotation
+
+scGlobalAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (GlobalAnnotation Identifier Position)
+scGlobalAnnotation = apA3 (scTok TEMPLATE) (scABrackets scTemplateQuantifiers) scProcedureDeclaration (\x1 x2 x3 -> GlobalProcedureAnn (loc x1) x2 x3)
+                 <|> apA scProcedureDeclaration (\x1 -> GlobalProcedureAnn (loc x1) [] x1)
+
+scLoopAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [LoopAnnotation Identifier Position]
+scLoopAnnotations = scAnnotations0 $ many "scLoopAnnotations" scLoopAnnotation
+
+scLoopAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (LoopAnnotation Identifier Position)
+scLoopAnnotation = apA3 (scTok DECREASES) scExpression (scChar ';') (\x1 x2 x3 -> DecreasesAnn (loc x1) x2)
+               <|> apA3 (scTok INVARIANT) scExpression (scChar ';') (\x1 x2 x3 -> InvariantAnn (loc x1) x2)
+
+scProcedureAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [ProcedureAnnotation Identifier Position]
+scProcedureAnnotations = scAnnotations0 $ many "scProcedureAnnotations" scProcedureAnnotation
+
+scProcedureAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureAnnotation Identifier Position)
+scProcedureAnnotation = apA3 (scTok REQUIRES) scExpression (scChar ';') (\x1 x2 x3 -> RequiresAnn (loc x1) x2)
+                    <|> apA3 (scTok ENSURES) scExpression (scChar ';') (\x1 x2 x3 -> EnsuresAnn (loc x1) x2)
+                    <|> apA3 (scTok LEAKS) scExpression (scChar ';') (\x1 x2 x3 -> parseLeaks (loc x1) x2)
+
+parseLeaks :: Position -> Expression Identifier Position -> ProcedureAnnotation Identifier Position
+parseLeaks l e = mk l $ LeakExpr l e
+    where mk = if hasResult e then EnsuresAnn else RequiresAnn
+
+scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnnotation Identifier Position]
+scStatementAnnotations = scAnnotations1 $ many1 "scStatementAnnotations" scStatementAnnotation
+
+scStatementAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (StatementAnnotation Identifier Position)
+scStatementAnnotation = apA3 (scTok ASSUME) scExpression (scChar ';') (\x1 x2 x3 -> AssumeAnn (loc x1) x2)
+                    <|> apA3 (scTok ASSERT) scExpression (scChar ';') (\x1 x2 x3 -> AssertAnn (loc x1) x2)
+
+
+scAnnotations0 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
+scAnnotations0 = scAnnotations' (many "scAnnotations0")
+
+scAnnotations1 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
+scAnnotations1 = scAnnotations' (many1 "scAnnotations1")
+
+scAnnotations' :: (PP a,Monoid a,MonadIO m,MonadCatch m) => (forall b . ScParserT m b -> ScParserT m [b]) -> ScParserT m a -> ScParserT m a
+scAnnotations' parseAnns parse = do
+    insideAnn <- getState
+    if insideAnn
+        then parse
+        else do
+            toks <- parseAnns (scTokWith getAnn)
+            let anns = unlines $ concat $ map ((\(ANNOTATION x) -> x) . tSymb) toks
+            p <- scLoc $ headMay toks
+            lift $ catchError
+                (parseSecreCWith (ppr p) anns True (positionToAlexPos p) $ do
+                    setPosition (positionToSourcePos p)
+                    parse <* scEOF
+                )
+                (\e -> Writer.tell (ScWarns $ Map.singleton 0 $ Map.singleton p $ Set.singleton $ ErrWarn e) >> return mempty)
+            
+  where
+    getAnn tok@(tSymb -> ANNOTATION a) = Just tok
+    getAnn tok = Nothing
 
 -- * Parsing functions
 
 parseFileIO :: Options -> String -> IO (Module Identifier Position)
 parseFileIO opts fn = runSecrecM opts $ parseFile fn
 
-parseFile :: MonadIO m => String -> SecrecM m (Module Identifier Position)
+parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (Module Identifier Position)
 parseFile fn = do
     str <- liftIO (readFile fn)
     x <- parseSecreC fn str
@@ -724,24 +839,24 @@ parseFile fn = do
 parseSecreCIO :: Options -> String -> String -> IO (Module Identifier Position)
 parseSecreCIO opts fn str = runSecrecM opts $ parseSecreC fn str
 
-parseSecreCIOWith :: PP a => Options -> String -> String -> ScParserT () Identity a -> IO a
-parseSecreCIOWith opts fn str parse = runSecrecM opts $ parseSecreCWith fn str parse
+parseSecreCIOWith :: PP a => Options -> String -> String -> Bool -> AlexPosn -> ScParserT IO a -> IO a
+parseSecreCIOWith opts fn str insideAnn pos parse = runSecrecM opts $ parseSecreCWith fn str insideAnn pos parse
 
-parseSecreC :: MonadIO m => String -> String -> SecrecM m (Module Identifier Position)
-parseSecreC fn str = parseSecreCWith fn str scModuleFile
+parseSecreC :: (MonadIO m,MonadCatch m) => String -> String -> SecrecM m (Module Identifier Position)
+parseSecreC fn str = parseSecreCWith fn str False alexStartPos scModuleFile
 
-parseSecreCWith :: (MonadIO m,PP a) => String -> String -> ScParserT () Identity a -> SecrecM m a
-parseSecreCWith fn str parser = do
-    case runLexer fn str of
+parseSecreCWith :: (MonadIO m,PP a) => String -> String -> Bool -> AlexPosn -> ScParserT m a -> SecrecM m a
+parseSecreCWith fn str insideAnn pos parser = do
+    case runLexerWith fn str pos return of
         Left err -> throwError $ parserError $ LexicalException err
         Right toks -> do
             opts <- ask
             when (debugLexer opts) $ liftIO $ hPutStrLn stderr ("Lexed " ++ fn ++ ":") >> hPutStrLn stderr (show $ map tSymb toks)
-            let e = runParser parser () fn toks
+            e <- runParserT parser insideAnn fn toks
             case e of
                 Left err -> throwError $ parserError $ ParsecException $ show err
                 Right a -> do
                     when (debugParser opts) $ liftIO $ hPutStrLn stderr ("Parsed " ++ fn ++ ":") >> hPutStrLn stderr (ppr a)
                     return a
-scPosition :: Monad m => ScParserT u m Position
+scPosition :: (Monad m,MonadCatch m) => ScParserT m Position
 scPosition = liftM sourcePosToPosition getPosition

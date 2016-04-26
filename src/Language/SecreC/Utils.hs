@@ -539,3 +539,6 @@ instance (Hashable a,Hashable b) => Hashable (Map a b) where
 
 instance (Hashable a,Hashable b) => Hashable (Gr a b) where
     hashWithSalt i x = hashWithSalt i (grToList x)
+
+join2 :: (Traversable t,Monoid b) => t (a,b) -> (t a,b)
+join2 x = (fmap fst x,mconcat $ Foldable.toList $ fmap snd x)

@@ -90,12 +90,12 @@ simplifyStructureDeclaration :: SimplifyG loc t m StructureDeclaration
 simplifyStructureDeclaration s = return s
 
 simplifyProcedureDeclaration :: SimplifyG loc t m ProcedureDeclaration
-simplifyProcedureDeclaration (OperatorDeclaration l ret op args body) = do
+simplifyProcedureDeclaration (OperatorDeclaration l ret op args ann body) = do
     body' <- simplifyStatements Nothing body
-    return $ OperatorDeclaration l ret op args body'
-simplifyProcedureDeclaration (ProcedureDeclaration l ret op args body) = do
+    return $ OperatorDeclaration l ret op args ann body'
+simplifyProcedureDeclaration (ProcedureDeclaration l ret op args ann body) = do
     body' <- simplifyStatements Nothing body
-    return $ ProcedureDeclaration l ret op args body'
+    return $ ProcedureDeclaration l ret op args ann body'
 
 simplifyVariableDeclaration :: SimplifyK loc t m => VariableDeclaration VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
 simplifyVariableDeclaration (VariableDeclaration l t vs) = do
@@ -173,7 +173,7 @@ simplifyExpression :: SimplifyK loc t m => Expression VarIdentifier (Typed loc) 
 simplifyExpression (ProcCallExpr l n ts es) = do
     (ss,ts') <- simplifyMaybe (simplifyList (simplifyVariadic simplifyTemplateTypeArgument)) ts
     (ss',es') <- simplifyVariadicExpressions es
-    mb <- inlineProcCall (Left $ funit n) (typed $ loc n) es'
+    mb <- inlineProcCall (Left $ procedureNameId n) (typed $ loc n) es'
     case mb of
         Nothing -> return (ss++ss',Just $ ProcCallExpr l n ts' es')
         Just (ss'',res) -> return (ss++ss'++ss'',res)
@@ -246,27 +246,38 @@ bindProcArg (_,Cond v _,True) es = do
     let (es1,es2) = splitAt (fromEnum sz) es
     return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed noloc $ loc v) es1)
 
+splitProcAnns :: [ProcedureAnnotation iden loc] -> ([Statement iden loc],[Statement iden loc])
+splitProcAnns [] = ([],[])
+splitProcAnns (RequiresAnn p e:xs) = let (l,r) = splitProcAnns xs in (AnnStatement p [AssertAnn p e]:l,r)
+splitProcAnns (EnsuresAnn p e:xs) = let (l,r) = splitProcAnns xs in (l,AnnStatement p [AssertAnn p e]:r)
+
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
 inlineProcCall :: SimplifyK loc t m => PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> t m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
-inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret body c))) es | isNonRecursiveDecType d = do
+inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann body c))) es | isNonRecursiveDecType d = do
 --    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs args es'
+    ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) ann
     body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) body
     mb <- type2TypeSpecifier ret
+    let (reqs,ens) = splitProcAnns ann'
     case mb of
-        Just (t) -> do
+        Just t -> do
             (ss1,t') <- simplifyTypeSpecifier t
             res <- liftM (VarName (Typed noloc ret)) $ lift $ freshVarId "res" Nothing
             let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res Nothing Nothing
+            reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements (Just res) body'
-            return $ Just (decls++ss1++[def,compoundStmt ss],Just $ varExpr res)
+            ens' <- simplifyStatements Nothing ens
+            return $ Just (decls++ss1++[def,compoundStmt (reqs'++ss++ens')],Just $ varExpr res)
         Nothing -> do
+            reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements Nothing body'
-            return $ Just ([compoundStmt (decls++ss)],Nothing)
+            ens' <- simplifyStatements Nothing ens
+            return $ Just ([compoundStmt (decls++reqs'++ss++ens')],Nothing)
 inlineProcCall n t es = do
-    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+--    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     return Nothing
 
 simplifyStatements :: SimplifyK loc t m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> t m [Statement VarIdentifier (Typed loc)]
@@ -306,17 +317,17 @@ simplifyStatement ret (VarStatement l v) = do
     simplifyVariableDeclaration v
 simplifyStatement ret (ConstStatement l v) = do
     simplifyConstDeclaration v
-simplifyStatement ret (WhileStatement l c s) = do
+simplifyStatement ret (WhileStatement l c ann s) = do
     s' <- simplifyStatement ret s
-    return [WhileStatement l c $ compoundStmt s']
-simplifyStatement ret (ForStatement l e c i s) = do
+    return [WhileStatement l c ann $ compoundStmt s']
+simplifyStatement ret (ForStatement l e c i ann s) = do
     ss <- simplifyForInitializer e
     s' <- simplifyStatement ret s
-    return (ss++[ForStatement l (InitializerExpression Nothing) c i $ compoundStmt s'])
-simplifyStatement ret (DowhileStatement l s c) = do
+    return (ss++[ForStatement l (InitializerExpression Nothing) c i ann $ compoundStmt s'])
+simplifyStatement ret (DowhileStatement l ann s c) = do
     s' <- simplifyStatement ret s
     (ss,Just c') <- simplifyExpression c
-    return [DowhileStatement l (compoundStmt $ s'++ss) c']
+    return [DowhileStatement l ann (compoundStmt $ s'++ss) c']
 simplifyStatement ret (PrintStatement l es) = do
     (ss,es') <- simplifyVariadicExpressions es
     return (ss++[PrintStatement l es'])

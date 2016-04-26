@@ -125,12 +125,19 @@ orWarn m = (liftM Just m) `catchError` \e -> do
 orWarn_ :: (MonadIO m,Location loc) => TcM loc m a -> TcM loc m ()
 orWarn_ m = orWarn m >> return ()
 
-type GIdentifier = Either VarIdentifier (Either (Either (ProcedureName VarIdentifier ()) (Op VarIdentifier ())) (TypeName VarIdentifier ()))
+type GIdentifier = Either
+    VarIdentifier -- variable
+    (Either
+        (Either
+            VarIdentifier -- function or procedure
+            (Op VarIdentifier ()) -- operator
+        )
+        VarIdentifier -- type
+    )
 
 data GlobalEnv = GlobalEnv
     { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on variables
     , ioDeps :: WeakHash.BasicHashTable Unique (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on other IOCstrs
-    , tyVarId :: TyVarId
     }
 
 --varIdDeps :: VarIdentifier -> IO (Set IOCstr)
@@ -165,17 +172,28 @@ data TcEnv loc = TcEnv {
 --    , inTemplate :: Bool -- ^ @True@ if we are type checking the body of a template declaration
     , tDict :: [TDict loc] -- ^ A stack of dictionaries
     , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
-    , moduleCount :: Int
+    , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
     , localConsts :: Map Identifier VarIdentifier
+    , procClass :: ProcClass -- class when typechecking procedures
+    , tyVarId :: TyVarId
     }
 
---withCstrDependencies :: Monad m => TcM loc m a -> TcM loc m a
---withCstrDependencies m = do
---    gr <- liftM (tCstrs . headNe . tDict) State.get
---    withDependencies (flattenIOCstrGraphSet gr) m
---
+insideAnnotation :: Monad m => TcM loc m a -> TcM loc m a
+insideAnnotation m = do
+    isAnn <- liftM (isAnnProcClass . procClass) State.get
+    State.modify $ \env -> env { procClass = chgAnnProcClass True (procClass env) }
+    x <- m
+    State.modify $ \env -> env { procClass = chgAnnProcClass isAnn (procClass env) }
+    return x
+
+chgAnnProcClass :: Bool -> ProcClass -> ProcClass
+chgAnnProcClass b (Proc _) = Proc b
+
+isAnnProcClass :: ProcClass -> Bool
+isAnnProcClass (Proc b) = b
+
 withDependencies :: Monad m => Set (Loc loc IOCstr) -> TcM loc m a -> TcM loc m a
 withDependencies deps m = do
     env <- State.get
@@ -202,6 +220,7 @@ tcEnvMap f g env = TcEnv
     , inTemplate = inTemplate env
     , globalConsts = globalConsts env
     , localConsts = localConsts env
+    , procClass = procClass env
     }
 
 type VarsId m a = Vars VarIdentifier m a
@@ -221,10 +240,11 @@ emptyTcEnv = TcEnv
     , structs = Map.empty
     , tDict = []
     , openedCstrs = []
-    , moduleCount = 0
+    , moduleCount = 1
     , inTemplate = False
     , globalConsts = Map.empty
     , localConsts = Map.empty
+    , procClass = mempty
     }
 
 data EntryEnv loc = EntryEnv {
@@ -375,7 +395,7 @@ failTcM l m = do
             (\e -> liftIO (hPutStrLn stderr (ppr e) >> exitSuccess))
         else m
 
-type PIdentifier = Either (ProcedureName VarIdentifier ()) (Op VarIdentifier Type)
+type PIdentifier = Either VarIdentifier (Op VarIdentifier Type)
 
 -- | Does a constraint depend on global template, procedure or struct definitions?
 -- I.e., can it be overloaded?
@@ -396,6 +416,7 @@ data TcCstr
         [(Type,IsVariadic)] -- template arguments
         DecType -- result
     | PDec -- ^ procedure declaration
+        ProcClass -- is a pure function call
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
         [(Expression VarIdentifier Type,IsVariadic)] -- procedure arguments
@@ -441,6 +462,7 @@ data TcCstr
     | IsValid -- check if an index condition is valid (this is mandatory: raises an error)
         (SCond VarIdentifier Type) -- condition
     | TypeBase Type BaseType
+    | IsPublic (Expression VarIdentifier Type)
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Hashable TcCstr
@@ -568,8 +590,8 @@ ppVarTy v = ppExprTy (varExpr v)
 
 instance PP TcCstr where
     pp (TDec n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
-    pp (PDec n specs ts r x Nothing) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x
-    pp (PDec n specs ts r x (Just xs)) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> parens (sepBy comma $ map ppExprTy xs)
+    pp (PDec isPure n specs ts r x Nothing) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x
+    pp (PDec isPure n specs ts r x (Just xs)) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> parens (sepBy comma $ map ppExprTy xs)
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces e1 v2) = text "coerces" <+> ppExprTy e1 <+> ppVarTy v2
     pp (CoercesSec e1 v2) = text "coercessec" <+> ppExprTy e1 <+> ppVarTy v2
@@ -586,6 +608,7 @@ instance PP TcCstr where
     pp (MatchTypeDimension t d) = text "matchtypedimension" <+> pp t <+> pp d
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (TypeBase t b) = text "typebase" <+> pp t <+> pp b
+    pp (IsPublic e) = text "ispublic" <+> pp e
 
 instance PP CheckCstr where
     pp (CheckAssertion c) = text "checkAssertion" <+> pp c
@@ -692,14 +715,14 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         args' <- mapM f args
         x' <- f x
         return $ TDec n' args' x'
-    traverseVars f (PDec n ts args ret x xs) = do
+    traverseVars f (PDec isPure n ts args ret x xs) = do
         n' <- f n
         x' <- f x
         ts' <- mapM (mapM (mapFstM f)) ts
         args' <- mapM (mapFstM f) args
         ret' <- f ret
         xs' <- mapM (mapM f) xs
-        return $ PDec n' ts' args' ret' x' xs'
+        return $ PDec isPure n' ts' args' ret' x' xs'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -764,6 +787,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
     traverseVars f (IsValid c) = do
         c' <- f c
         return $ IsValid c'
+    traverseVars f (IsPublic c) = do
+        c' <- f c
+        return $ IsPublic c'
     traverseVars f (TypeBase t b) = do
         t' <- f t
         b' <- f b
@@ -935,7 +961,7 @@ getTSubsts = do
 newTyVarId :: MonadIO m => m TyVarId
 newTyVarId = liftIO $ atomicModifyIORef' globalEnv $ \g -> (g { tyVarId = succ (tyVarId g) },tyVarId g)
 
-freshVarId :: MonadIO m => Identifier -> Maybe Doc -> m VarIdentifier
+freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM loc m VarIdentifier
 freshVarId n doc = do
     i <- newTyVarId
     let v = VarIdentifier n (Just i) False doc
@@ -967,6 +993,7 @@ ppConstraints d = do
 
 data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
+        , varIdModule :: String
         , varIdUniq :: Maybe TyVarId
         , varIdTok :: Bool -- if the variable is a token (not to be resolved) (only used for comparisons)
         , varIdPretty :: Maybe Doc -- for free variables introduced by typechecking
@@ -974,23 +1001,23 @@ data VarIdentifier = VarIdentifier
     deriving (Typeable,Data,Show)
 
 instance Eq VarIdentifier where
-    v1 == v2 = varIdBase v1 == varIdBase v2 && varIdUniq v1 == varIdUniq v2
+    v1 == v2 = varIdUniq v1 == varIdUniq v2 && varIdBase v1 == varIdBase v2 && varIdModule v1 == varIdModule v2
 instance Ord VarIdentifier where
-    compare v1 v2 = mconcat [varIdBase v1 `compare` varIdBase v2,varIdUniq v1 `compare` varIdUniq v2]
+    compare v1 v2 = mconcat [varIdBase v1 `compare` varIdBase v2,varIdUniq v1 `compare` varIdUniq v2,varIdModule v1 `compare` varIdModule v2]
 
 varTok :: VarName VarIdentifier loc -> Bool
 varTok (VarName _ n) = varIdTok n
 
-mkVarId :: Identifier -> VarIdentifier
-mkVarId s = VarIdentifier s Nothing False Nothing
+mkVarId :: Identifier -> String -> VarIdentifier
+mkVarId s m = VarIdentifier s m Nothing False Nothing
 
 instance PP VarIdentifier where
     pp v = case varIdPretty v of
         Just s -> ppVarId v <> char '#' <> s
         Nothing -> ppVarId v
       where
-        ppVarId (VarIdentifier n Nothing _ _) = text n
-        ppVarId (VarIdentifier n (Just i) _ _) = text n <> char '_' <> PP.int i
+        ppVarId (VarIdentifier n m Nothing _ _) = text m <> char '.' <> text n
+        ppVarId (VarIdentifier n m (Just i) _ _) = text m <> char '.' <> text n <> char '_' <> PP.int i
 
 type TyVarId = Int
 
@@ -1016,6 +1043,11 @@ data SVarKind
 
 instance Hashable SVarKind
 
+tyProcClass :: Type -> ProcClass
+tyProcClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
+tyProcClass (DecT (ProcType _ _ _ _ _ _ cl)) = cl
+tyProcClass t = error $ "tyProcClass: " ++ show t
+
 data DecType
     = ProcType -- ^ procedure type
 --        TyVarId -- ^ unique procedure declaration id
@@ -1023,6 +1055,7 @@ data DecType
         PIdentifier
         [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -- typed procedure arguments
         Type -- return type
+        [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the procedure's annotations
         [Statement VarIdentifier (Typed Position)] -- ^ the procedure's body
         ProcClass -- the type of procedure
     | StructType -- ^ Struct type
@@ -1192,24 +1225,32 @@ instance PP DecType where
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
-    pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret stmts _)) =
+    pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret ann stmts _)) =
         text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
-    pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret stmts _)) =
+        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ann
+        $+$ braces (pp stmts)
+    pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) =
         text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
-    pp (ProcType _ (Left n) args ret stmts _) =
-            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
-    pp (ProcType _ (Right n) args ret stmts _) =
-            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args) <+> braces (pp stmts)
+        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ann
+        $+$ braces (pp stmts)
+    pp (ProcType _ (Left n) args ret ann stmts _) =
+            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ann
+        $+$ braces (pp stmts)
+    pp (ProcType _ (Right n) args ret ann stmts _) =
+            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Cond (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ann
+        $+$ braces (pp stmts)
     pp (DVar v) = pp v
     pp (StructType _ n atts) = text "struct" <+> pp n <+> braces (text "...")
     pp d = error $ "pp: " ++ show d
@@ -1390,24 +1431,21 @@ instance PP [TcCstr] where
     pp xs = brackets (sepBy comma $ map pp xs)
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ProcClass where
-    traverseVars f PureFunc = return PureFunc
-    traverseVars f (RWProc rs ws) = do
-        rs' <- f rs
-        ws' <- f ws
-        return $ RWProc rs' ws'
+    traverseVars f (Proc x) = return (Proc x)
 
 instance PP ProcClass where
-    pp PureFunc = text "function"
-    pp (RWProc rs ws) = text "procedure" <+> pp rs <+> pp ws
+    pp (Proc False) = text "procedure"
+    pp (Proc True) = text "annotation procedure"
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType where
-    traverseVars f (ProcType p n vs t stmts c) = varsBlock $ do
+    traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
         n' <- f n
         vs' <- inLHS $ mapM f vs
         t' <- f t
+        ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
-        return $ ProcType p n' vs' t' stmts' c'
+        return $ ProcType p n' vs' t' ann' stmts' c'
     traverseVars f (StructType p n as) = varsBlock $ do
         n' <- f n
         as' <- inLHS $ mapM f as
@@ -1546,13 +1584,14 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m Type where
 
 data ProcClass
     -- | A pure function that does not read or write global variables
-    = PureFunc
-    -- | A procedure that reads and/or writes global variables
-    | RWProc
-        (Set VarIdentifier) -- read variables
-        (Set VarIdentifier)  -- written variables
+    = Proc
+        Bool -- is an annotation
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Hashable ProcClass
+
+instance Monoid ProcClass where
+    mempty = Proc False
+    mappend (Proc x) (Proc y) = Proc (x && y)
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement
@@ -1640,7 +1679,7 @@ isPublicSecType _ = False
 
 decTypeTyVarId :: DecType -> Maybe TyVarId
 decTypeTyVarId (StructType _ _ _) = Nothing
-decTypeTyVarId (ProcType _ _ _ _ _ _) = Nothing
+decTypeTyVarId (ProcType _ _ _ _ _ _ _) = Nothing
 decTypeTyVarId (DecType i _ _ _ _ _ _ _ _) = Just i
 decTypeTyVarId (DVar _) = Nothing
 
@@ -1780,8 +1819,8 @@ withoutImplicitClassify m = localOpts (\opts -> opts { implicitClassify = False 
 instance MonadIO m => GenVar VarIdentifier (TcM loc m) where
     genVar v = uniqVarId (varIdBase v) (varIdPretty v)
 
-instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
-    genVar v = freshVarId (varIdBase v) (varIdPretty v)
+--instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
+--    genVar v = freshVarId (varIdBase v) (varIdPretty v)
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do
@@ -1814,7 +1853,7 @@ compoundStmt ss = CompoundStatement (Typed noloc t) ss
     where t = StmtType $ mconcat $ map ((\(StmtType c) -> c) . typed . loc) ss
     
 moduleVarId :: Module VarIdentifier loc -> VarIdentifier
-moduleVarId = maybe (mkVarId "main") id . moduleId    
+moduleVarId m = maybe (mkVarId "main" "main") id $ moduleId m
     
     
     

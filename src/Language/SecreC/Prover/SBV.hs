@@ -123,14 +123,19 @@ iExpr2SBV l (ISize e) = lift $ genTcError (locpos l) $ text "array size not defi
 iBinOp2SBV :: SMTK loc => loc -> IBOp -> SBVal -> SBVal -> TcSBV loc SBVal
 iBinOp2SBV l IAnd (SBool b1) (SBool b2) = return $ SBool $ b1 &&& b2
 iBinOp2SBV l IOr (SBool b1) (SBool b2) = return $ SBool $ b1 ||| b2
+iBinOp2SBV l IImplies (SBool b1) (SBool b2) = return $ SBool $ b1 ==> b2
 iBinOp2SBV l IXor (SBool b1) (SBool b2) = return $ SBool $ b1 SBV.<+> b2
 iBinOp2SBV l ILeq e1 e2 = return $ SBool $ ordSBVal (.<=) e1 e2
+iBinOp2SBV l ILt e1 e2 = return $ SBool $ ordSBVal (.<) e1 e2
+iBinOp2SBV l IGeq e1 e2 = return $ SBool $ ordSBVal (.>=) e1 e2
+iBinOp2SBV l IGt e1 e2 = return $ SBool $ ordSBVal (.>) e1 e2
 iBinOp2SBV l IEq e1 e2 = return $ SBool $ ordSBVal (.==) e1 e2
 iBinOp2SBV l IPlus e1 e2 = return $ numSBVal (+) e1 e2
 iBinOp2SBV l IMinus e1 e2 = return $ numSBVal (-) e1 e2
 iBinOp2SBV l ITimes e1 e2 = return $ numSBVal (*) e1 e2
 iBinOp2SBV l IDiv e1 e2 = return $ divisibleSBVal sDiv e1 e2
 iBinOp2SBV l IMod e1 e2 = return $ divisibleSBVal sMod e1 e2
+iBinOp2SBV l op e1 e2 = lift $ genTcError (locpos l) $ text "iBinOp2SBV: unsupported op" <+> pp op
 
 iUnOp2SBV :: SMTK loc => loc -> IUOp -> SBVal -> TcSBV loc SBVal
 iUnOp2SBV l INot (SBool b) = return $ SBool $ bnot b
@@ -150,17 +155,17 @@ mergeSBVal f (SFloat64 i1) (SFloat64 i2) = SFloat64 $ f i1 i2
 mergeSBVal f (SBool i1) (SBool i2) = SBool $ f i1 i2
 
 ordSBVal :: (forall a . OrdSymbolic a => a -> a -> SBool) -> SBVal -> SBVal -> SBool
-ordSBVal f (SInt8 i1) (SInt8 i2) = f i1 i2
-ordSBVal f (SInt16 i1) (SInt16 i2) = f i1 i2
-ordSBVal f (SInt32 i1) (SInt32 i2) = f i1 i2
-ordSBVal f (SInt64 i1) (SInt64 i2) = f i1 i2
-ordSBVal f (SUint8 i1) (SUint8 i2) = f i1 i2
-ordSBVal f (SUint16 i1) (SUint16 i2) = f i1 i2
-ordSBVal f (SUint32 i1) (SUint32 i2) = f i1 i2
-ordSBVal f (SUint64 i1) (SUint64 i2) = f i1 i2
+ordSBVal f (SInt8 i1)    (SInt8 i2)    = f i1 i2
+ordSBVal f (SInt16 i1)   (SInt16 i2)   = f i1 i2
+ordSBVal f (SInt32 i1)   (SInt32 i2)   = f i1 i2
+ordSBVal f (SInt64 i1)   (SInt64 i2)   = f i1 i2
+ordSBVal f (SUint8 i1)   (SUint8 i2)   = f i1 i2
+ordSBVal f (SUint16 i1)  (SUint16 i2)  = f i1 i2
+ordSBVal f (SUint32 i1)  (SUint32 i2)  = f i1 i2
+ordSBVal f (SUint64 i1)  (SUint64 i2)  = f i1 i2
 ordSBVal f (SFloat32 i1) (SFloat32 i2) = f i1 i2
 ordSBVal f (SFloat64 i1) (SFloat64 i2) = f i1 i2
-ordSBVal f (SBool i1) (SBool i2) = f i1 i2
+ordSBVal f (SBool i1)    (SBool i2)    = f i1 i2
 
 numSBVal :: (forall a . Num a => a -> a -> a) -> SBVal -> SBVal -> SBVal
 numSBVal f (SInt8 i1) (SInt8 i2) = SInt8 $ f i1 i2

@@ -256,22 +256,24 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m () where
     traverseVars f () = return ()
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureDeclaration iden loc) where
-    traverseVars f (OperatorDeclaration l t o args s) = do
+    traverseVars f (OperatorDeclaration l t o args anns s) = do
         l' <- f l
         t' <- f t
         o' <- f o
         varsBlock $ do
             args' <- mapM f args
+            anns' <- mapM f anns
             s' <- mapM f s
-            return $ OperatorDeclaration l' t' o' args' s'
-    traverseVars f (ProcedureDeclaration l t n args s) = do
+            return $ OperatorDeclaration l' t' o' args' anns' s'
+    traverseVars f (ProcedureDeclaration l t n args anns s) = do
         l' <- f l
         t' <- f t
         n' <- inLHS $ f n
         varsBlock $ do
             args' <- mapM f args
+            anns' <- mapM f anns
             s' <- mapM f s
-            return $ ProcedureDeclaration l' t' n' args' s'
+            return $ ProcedureDeclaration l' t' n' args' anns' s'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l b t v) = do
@@ -393,27 +395,30 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         s1' <- varsBlock $ f s1
         s2' <- varsBlock $ mapM f s2
         return $ IfStatement l' e' s1' s2'
-    traverseVars f (ForStatement l i e1 e2 s) = varsBlock $ do
+    traverseVars f (ForStatement l i e1 e2 anns s) = varsBlock $ do
         l' <- f l
         i' <- f i
         e1' <- mapM f e1
         e2' <- mapM f e2
+        anns' <- mapM f anns
         s' <- varsBlock $ f s
-        return $ ForStatement l' i' e1' e2' s'
-    traverseVars f (WhileStatement l e s) = do
+        return $ ForStatement l' i' e1' e2' anns' s'
+    traverseVars f (WhileStatement l e anns s) = do
         l' <- f l
         e' <- f e
+        anns' <- mapM f anns
         s' <- varsBlock $ f s
-        return $ WhileStatement l' e' s'
+        return $ WhileStatement l' e' anns' s'
     traverseVars f (PrintStatement l es) = do
         l' <- f l
         es' <- mapM f es
         return $ PrintStatement l' es'
-    traverseVars f (DowhileStatement l s e) = varsBlock $ do
+    traverseVars f (DowhileStatement l anns s e) = varsBlock $ do
         l' <- f l
+        anns' <- mapM f anns
         s' <- f s
         e' <- f e
-        return $ DowhileStatement l' s' e'
+        return $ DowhileStatement l' anns' s' e'
     traverseVars f (AssertStatement l e) = do
         l' <- f l
         e' <- f e
@@ -444,6 +449,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         e' <- f e
         return $ ExpressionStatement l' e'
+    traverseVars f (AnnStatement l e) = do
+        l' <- f l
+        e' <- f e
+        return $ AnnStatement l' e'
     
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (Op iden loc) where
     traverseVars f (OpCast l t) = do
@@ -472,6 +481,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
     traverseVars f = mapM (mapFstM f)
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Expression iden loc) where
+    traverseVars f (LeakExpr l x) = do
+        l' <- f l
+        x' <- f x
+        return $ LeakExpr l' x'
     traverseVars f (BinaryAssign l e1 o e2) = do
         l' <- f l
         e1' <- inLVal $ f e1
@@ -559,9 +572,21 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         lit' <- f lit
         return $ LitPExpr l' lit'
+    traverseVars f (QuantifiedExpr l q vs e) = do
+        l' <- f l
+        q' <- f q
+        varsBlock $ do
+            vs' <- inLHS $ mapM f vs
+            e' <- f e
+            return $ QuantifiedExpr l' q' vs' e'
     
     substL (RVariablePExpr _ v) = return $ Just $ varNameId v
     substL e = return Nothing
+
+instance (Location loc,Vars iden m loc) => Vars iden m (Quantifier loc) where
+    traverseVars f q = do
+        l' <- f (loc q)
+        return $ updLoc q l'
 
 instance (Location loc,Vars iden m loc) => Vars iden m (Literal loc) where
     traverseVars f lit = do
@@ -738,6 +763,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         t' <- f t
         return $ GlobalTemplate l' t'
+    traverseVars f (GlobalAnnotations l t) = do
+        l' <- f l
+        t' <- mapM f t
+        return $ GlobalAnnotations l' t'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateDeclaration iden loc) where
     traverseVars f (TemplateStructureDeclaration l qs s) = do
@@ -833,5 +862,54 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Ordering where
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m SecrecError where
     traverseVars f x = return x
     
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (LoopAnnotation iden loc) where
+    traverseVars f (DecreasesAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ DecreasesAnn l' e'
+    traverseVars f (InvariantAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ InvariantAnn l' e'
 
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (StatementAnnotation iden loc) where
+    traverseVars f (AssertAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ AssertAnn l' e'
+    traverseVars f (AssumeAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ AssumeAnn l' e'
+
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ProcedureAnnotation iden loc) where
+    traverseVars f (RequiresAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ RequiresAnn l' e'
+    traverseVars f (EnsuresAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ EnsuresAnn l' e'
+
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [StatementAnnotation iden loc] where
+    traverseVars f xs = mapM f xs
+    
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [ProcedureAnnotation iden loc] where
+    traverseVars f xs = mapM f xs
+
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (GlobalAnnotation iden loc) where
+    traverseVars f (GlobalProcedureAnn l qs p) = do
+        l' <- f l
+        qs' <- inLHS $ mapM f qs
+        p' <- f p
+        return $ GlobalProcedureAnn l' qs' p'
+
+
+
+
+
+
+
+    
 

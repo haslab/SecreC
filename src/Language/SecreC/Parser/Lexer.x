@@ -45,13 +45,13 @@ $simpleop        = [\.\-\,\;\:\!\?\/\^\~\(\)\[\]\{\}\*\&\%\+\<\=\>\|]
 tokens :-
 
 
-<0>       "//".*            ;
+<0>       "//".*            { lineComment }
 <0>       "#".*             ;
 <0>       \/\*              { enterNewComment }
 <comment> \/\*              { embedComment    }
 <comment> \*\/              { unembedComment  }
-<comment> @newline                 ;
-<comment> .                 ;
+<comment> @newline          { bufferComment }
+<comment> .                 { bufferComment }
 
 <0>       $white+           ;
                         
@@ -69,8 +69,11 @@ tokens :-
 <state_string_variable> @identifier             { leaveStateStringVariable }
 
 -- Keywords:
+<0>                     \\result              { lexerTokenInfo RESULT }
+<0>                     forall                { lexerTokenInfo FORALL }
+<0>                     exists                { lexerTokenInfo EXISTS }
 <0>                     assert                { lexerTokenInfo ASSERT }
-<0>                     const                { lexerTokenInfo CONST }
+<0>                     const                 { lexerTokenInfo CONST }
 <0>                     bool                  { lexerTokenInfo BOOL }
 <0>                     break                 { lexerTokenInfo BREAK }
 <0>                     continue              { lexerTokenInfo CONTINUE }
@@ -113,6 +116,11 @@ tokens :-
 <0>                     xor_uint32            { lexerTokenInfo XOR_UINT32 }
 <0>                     xor_uint64            { lexerTokenInfo XOR_UINT64 }
 <0>                     xor_uint8             { lexerTokenInfo XOR_UINT8 }
+<0>                     requires              { lexerTokenInfo REQUIRES }
+<0>                     ensures               { lexerTokenInfo ENSURES }
+<0>                     leaks                 { lexerTokenInfo LEAKS }
+<0>                     leak                 { lexerTokenInfo LEAK }
+<0>                     assume                { lexerTokenInfo ASSUME }
 
 -- built-in functions:
 <0>                     "size..."             { lexerTokenInfo VSIZE }
@@ -133,6 +141,8 @@ tokens :-
 <0>                     @scientificfloat        { lexerTokenInfoFunc (return . FLOAT_LITERAL . readFloat) }
 <0>                     @decimal                { lexerTokenInfoFunc (return . DEC_LITERAL . convert_to_base 10) }
 
+<0>                     ==\>                   { lexerTokenInfo IMPLIES_OP }
+<0>                     \<==\>                   { lexerTokenInfo EQUIV_OP }
 <0>                     "..."                { lexerTokenInfo VARIADIC }
 <0>                     \+=                   { lexerTokenInfo ADD_ASSIGN }
 <0>                     &=                   { lexerTokenInfo AND_ASSIGN }
@@ -216,8 +226,13 @@ leaveStateStringVariable input len = do
 
 enterNewComment :: AlexInput -> Int -> Alex TokenInfo
 enterNewComment input len = do
-    modify (\ aus -> aus { commentDepth = 1 } )
+    modify (\ aus -> aus { commentDepth = 1, commentStr = "" })
     alexSetStartCode comment
+    skip input len
+
+bufferComment :: AlexInput -> Int -> Alex TokenInfo
+bufferComment input@(AlexPn a ln c, _, _, s) len = do
+    modify (\ aus -> aus { commentStr = commentStr aus ++ (take len s) } )
     skip input len
 
 embedComment :: AlexInput -> Int -> Alex TokenInfo
@@ -230,8 +245,24 @@ unembedComment input len = do
     aus <- get
     let cd = commentDepth aus
     put (aus { commentDepth = cd - 1 })
-    when (cd == 1) $ alexSetStartCode 0
-    skip input len
+    if (cd == 1)
+        then do
+            alexSetStartCode 0
+            case isAnnotation (commentStr aus) of
+                Nothing -> skip input len
+                Just ann -> do
+                    aus <- get
+                    modify (\aus -> aus { commentStr = "" })
+                    lexerTokenInfo (ANNOTATION ann) input len
+        else do
+            skip input len
+
+lineComment :: AlexInput -> Int -> Alex TokenInfo
+lineComment input@(AlexPn a ln c, _, _, s) len = do
+    let com = take len s
+    case isAnnotation com of
+        Nothing -> skip input len
+        Just ann -> lexerTokenInfo (ANNOTATION ann) input len
 
 -- Alex Functions --------------------------------------------------------------
 
@@ -240,13 +271,14 @@ data AlexUserState = AlexUserState
     , types        :: [String]
     , commentDepth :: Integer
     , stateString  :: String
+    , commentStr   :: String
     }
 
 alexFilename :: Alex String
 alexFilename = liftM filename get
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "" [] 0 ""
+alexInitUserState = AlexUserState "" [] 0 "" []
 
 instance MonadState AlexUserState Alex where
     get = alexGetUserState
@@ -271,14 +303,23 @@ alexEOF = do
 
 -- Processing Functions --------------------------------------------------------
 
-runLexerWith :: String -> String -> ([TokenInfo] -> Alex a) -> Either String a
-runLexerWith fn str parse = runAlex str $ do
+positionToAlexPos :: Position -> AlexPosn
+positionToAlexPos (Pos fn l c a) = AlexPn l c a
+
+alexSetPos :: AlexPosn -> Alex ()
+alexSetPos p = do
+    (_,x,y,z) <- alexGetInput
+    alexSetInput (p,x,y,z)
+
+runLexerWith :: String -> String -> AlexPosn -> ([TokenInfo] -> Alex a) -> Either String a
+runLexerWith fn str pos parse = runAlex str $ do
+    alexSetPos pos
     put (alexInitUserState { filename = fn })
     toks <- getTokens
     parse toks
 
 runLexer :: String -> String -> Either String [TokenInfo]
-runLexer fn str = runLexerWith fn str return
+runLexer fn str = runLexerWith fn str alexStartPos return
 
 injectResult :: Either String a -> Alex a
 injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") $ text err)

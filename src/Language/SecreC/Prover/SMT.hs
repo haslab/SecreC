@@ -28,6 +28,7 @@ import Language.SecreC.Syntax
 import Language.SecreC.Prover.Base
 import Language.SecreC.Prover.SBV
 import Language.SecreC.TypeChecker.Environment
+import {-# SOURCE #-} Language.SecreC.Prover.Semantics
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint hiding (proveWith)
 import Language.SecreC.Utils
 import Language.SecreC.Monad
@@ -59,7 +60,7 @@ isValid :: (VarsIdTcM loc m,Location loc,SMTK loc) => loc -> IExpr -> TcM loc m 
 isValid l c = do
     hyp <- solveHypotheses l
     addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ iAnd hyp) (pp c)) $ do
-        checkAny (\cfg -> checkValiditySBV l cfg (iAnd hyp) c)
+        checkEvalOrSMT (IBinOp IImplies (iAnd hyp) c) (\cfg -> checkValiditySBV l cfg (iAnd hyp) c)
 
 -- * SBV interface
 --
@@ -148,4 +149,13 @@ checkAny check = do
     case res of
         Left x -> return x
         Right errs -> throwError $ MultipleErrors errs
+
+checkEvalOrSMT :: ProverK loc m => IExpr -> (SMTConfig -> TcM loc m ()) -> TcM loc m ()
+checkEvalOrSMT ie check = do
+    res <- catchError (liftM Right $ evalIExpr ie) (return . Left)
+    case res of
+        Left err -> checkAny check
+        Right (IBool True) -> return ()
+        Right (IBool False) -> genTcError (UnhelpfulPos "evalIExpr") $ text "false"
+        Right ilit -> genTcError (UnhelpfulPos "evalIExpr") $ text "not a boolean prover expression" <+> pp ilit
 

@@ -83,6 +83,18 @@ uint size (D T[[N]] x) {
 
 // logical operators
 
+bool operator ==> (bool x,bool y) {
+    bool ret;
+    __syscall("core.implies",x,y,__return ret);
+    return ret;
+}
+
+bool operator <==> (bool x,bool y) {
+    bool ret;
+    __syscall("core.eq_bool",x,y,__return ret);
+    return ret;
+}
+
 bool operator && (bool x,bool y) {
     bool ret;
     __syscall("core.band",x,y,__return ret);
@@ -90,9 +102,10 @@ bool operator && (bool x,bool y) {
 }
 
 template <domain D, dim N { N > 0 }>
-D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y) {
+D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool[[N]] ret (varray(shape(x),N)...);
-    assert(sameshape(x,y));
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] && y[i];
     }
@@ -106,9 +119,10 @@ bool operator || (bool x,bool y) {
 }
 
 template <domain D, dim N { N > 0 } >
-D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y) {
+D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
-    assert (sameshape(x,y));
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] || y[i];
     }
@@ -205,8 +219,9 @@ float64 operator - (float64 x,float64 y) {
 // array subtraction
 
 template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator - (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D T [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] - y[i];
@@ -270,8 +285,9 @@ float64 operator + (float64 x,float64 y) {
 // array addition
 
 template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator + (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D T [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] + y[i];
@@ -335,8 +351,9 @@ float64 operator * (float64 x,float64 y) {
 // array multiplication
 
 template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator * (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D T [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] * y[i];
@@ -401,8 +418,9 @@ float64 operator / (float64 x,float64 y) {
 // array division
 
 template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator / (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D T [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] / y[i];
@@ -466,8 +484,9 @@ float64 operator % (float64 x,float64 y) {
 // array modulo
 
 template <domain D, type T, dim N { N > 0 } >
-D T[[N]] operator % (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D T [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] % y[i];
@@ -536,8 +555,9 @@ bool operator > (bool x,bool y) {
 // array greater
 
 template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator > (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] > y[i];
@@ -606,8 +626,9 @@ bool operator < (bool x,bool y) {
 // array smaller
 
 template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator < (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] < y[i];
@@ -676,8 +697,9 @@ bool operator >= (bool x,bool y) {
 // array greater or equal
 
 template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] >= y[i];
@@ -746,8 +768,9 @@ bool operator <= (bool x,bool y) {
 // array greater
 
 template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y) {
-    assert(sameshape(x,y));
+D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] <= y[i];
@@ -816,8 +839,10 @@ bool operator == (bool x,bool y) {
 // array equal
 
 template <domain D, type T>
-D bool[[1]] operator == (D T[[1]] x,D T[[1]] y) {
-    assert(size(x) == size(y));
+D bool[[1]] operator == (D T[[1]] x,D T[[1]] y)
+//@ requires equal(shape(x),shape(y));
+{
+
     D bool[[1]] ret (size(x));
     for (uint i = 0; i < size(x); i++) {
         ret[i] = x[i] == y[i];
@@ -826,8 +851,9 @@ D bool[[1]] operator == (D T[[1]] x,D T[[1]] y) {
 }
 
 template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator == (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] == y[i];
@@ -896,8 +922,9 @@ bool operator != (bool x,bool y) {
 // array not equal
 
 template <domain D, type T, dim N { N > 0 } >
-D bool[[N]] operator != (D T[[N]] x,D T[[N]] y) {
-    assert(sameshape(x,y));
+D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
+//@ requires equal(shape(x),shape(y));
+{
     D bool [[N]] ret (varray(shape(x),N)...);
     for (uint i = 0; i < shape(x)[0]; i++) {
         ret[i] = x[i] != y[i];
@@ -910,13 +937,9 @@ bool operator ! (bool x) {
     else return false;
 }
 
-template <domain D, dim N { N > 0 }>
+template <domain D,dim N { N > 0 }>
 D bool[[N]] operator ! (D bool[[N]] x) {
-    D bool[[N]] ret (varray(shape(x),N)...);
-    for (uint i = 0; i < shape(x)[0]; i++) {
-        ret[i] = ! x[i];
-    }
-    return ret;
+    return size(x) > 0 ? cat(!x[0],!x[1:]) : {};
 }
 
 // casts
@@ -1536,13 +1559,7 @@ D Y[[N]] operator (Y) (D X[[N]] x) {
     return ret;
 }
 
-template<domain D,type T,dim N>
-bool sameshape (D T[[N]] x, D T[[N]] y) {
-    if (size(x) != size(y)) { return false; }
-    uint[[1]] sx = shape(x);
-    uint[[1]] sy = shape(y);
-    for (uint i = 0; i<size(x); ++i) {
-        if (sx[i] != sy[i]) { return false; }
-    }
-    return true;
-}
+/* @ bool equal(uint[[1]] x, uint[[1]] y) {
+   @    return (size(x) == size(y) && forall uint i; (0 <= i && i < size(x)) ==> (x[i] == y[i]));
+   @ }
+   @ */

@@ -77,7 +77,11 @@ data IBOp
     = IAnd -- boolean conjunction
     | IOr -- boolean disjunction
     | IXor -- ^ Boolean exclusive disjunction
-    | ILeq -- less or equal
+    | IImplies -- boolean implication
+    | ILeq -- less or equal than
+    | ILt -- less than
+    | IGeq -- greater or equal than
+    | IGt -- greater than
     | IEq -- equal
     | INeq -- not equal
     | IPlus -- ^ Addition
@@ -92,6 +96,7 @@ instance PP IBOp where
     pp IAnd = text "&&"
     pp IOr = text "||"
     pp IXor = text "^^"
+    pp IImplies = text "==>"
     pp (ILeq) = text "<="
     pp (IEq) = text "=="
     pp (INeq) = text "!="
@@ -100,6 +105,9 @@ instance PP IBOp where
     pp (IPower) = text "**"
     pp (IDiv) = text "/"
     pp (IMod) = text "%"
+    pp ILt = text "<"
+    pp IGeq = text ">="
+    pp IGt = text ">"
 
 data IUOp
     = INot -- boolean negation

@@ -153,6 +153,22 @@ tcExpr (VArraySizeExpr l e) = do
     unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (pp e)
     sz <- typeSize l t
     return $ fmap (Typed l) sz
+tcExpr (QuantifiedExpr l q vs e) = tcLocal $ do
+    q' <- tcQuantifier q
+    vs' <- mapM tcQVar vs
+    e' <- tcGuard e
+    return $ QuantifiedExpr (Typed l $ BaseT bool) q' vs' e'
+  where
+    tcQVar (t,v) = do
+        t' <- tcTypeSpec t False
+        let ty = typed $ loc t'
+        let v' = bimap mkVarId (flip Typed ty) v
+        tcTopCstrM l $ IsPublic (fmap typed $ varExpr v') 
+        newVariable LocalScope v' Nothing True -- don't add values to the environment
+        return (t',v')
+tcExpr (LeakExpr l e) = do
+    e' <- tcExpr e
+    return $ LeakExpr (Typed l $ BaseT bool) e'
 tcExpr (VArrayExpr l e sz) = do
     e' <- tcExpr e
     sz' <- tcIndexExpr False sz
@@ -167,7 +183,7 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     es' <- mapM (tcVariadicArg tcExpr) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
     v <- newTyVar Nothing
-    (dec,xs) <- tcTopPDecCstrM l True (Left $ funit vn) tspecs (map (mapFst (fmap typed)) es') v
+    (dec,xs) <- tcTopPDecCstrM l True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
 tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
@@ -190,6 +206,10 @@ tcExpr (LitPExpr l lit) = do
     lit' <- tcLiteral lit
     return lit'
 tcExpr e = tcLValue False e
+
+tcQuantifier :: ProverK loc m => Quantifier loc -> TcM loc m (Quantifier (Typed loc))
+tcQuantifier (ForallQ l) = return $ ForallQ (notTyped "quantifier" l)
+tcQuantifier (ExistsQ l) = return $ ExistsQ (notTyped "quantifier" l)
 
 tcBinaryAssignOp :: (ProverK loc m) => loc -> BinaryAssignOp loc -> Expression VarIdentifier (Typed loc) -> (Expression VarIdentifier (Typed loc)) -> TcM loc m (Expression VarIdentifier (Typed loc),BinaryAssignOp (Typed loc))
 tcBinaryAssignOp l bop lv1 e2 = do 
@@ -312,9 +332,9 @@ tcSizes l ty (Sizes szs) = do
 
 productIndexExpr :: (ProverK loc m) => loc -> (Expression VarIdentifier Type,IsVariadic) -> TcM loc m (Expression VarIdentifier Type)
 productIndexExpr l (e,isVariadic) = do
-    let product = ProcedureName () $ mkVarId "product"
+    let product = mkVarId "product"
     (dec,[(x,_)]) <- tcTopPDecCstrM l True (Left product) Nothing [(e,isVariadic)] (BaseT index)
-    return $ ProcCallExpr (BaseT index) (fmap (const $ DecT dec) product) Nothing [(e,isVariadic)]
+    return $ ProcCallExpr (BaseT index) (fmap (const $ DecT dec) $ ProcedureName () product) Nothing [(e,isVariadic)]
 
 sumIndexExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM loc m (Expression VarIdentifier Type)
 sumIndexExprs l e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1

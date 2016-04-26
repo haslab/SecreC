@@ -334,21 +334,21 @@ newOperator hdeps op = do
     return $ updLoc op (Typed (unTyped $ loc op) td)
   
  -- | Checks that an operator exists.
-checkOperator :: (VarsIdTcM loc m,Location loc) => Op VarIdentifier loc -> TcM loc m [EntryEnv loc]
-checkOperator op@(OpCast l t) = do
+checkOperator :: (VarsIdTcM loc m,Location loc) => ProcClass -> Op VarIdentifier loc -> TcM loc m [EntryEnv loc]
+checkOperator cl@(Proc isAnn) op@(OpCast l t) = do
     addGDependencies $ Right $ Left $ Right $ funit op
     ps <- liftM operators State.get
     let cop = funit op
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCast k) ps
-    return casts
-checkOperator op = do
+    return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) casts
+checkOperator cl@(Proc isAnn) op = do
     addGDependencies $ Right $ Left $ Right $ funit op
     ps <- liftM operators State.get
     let cop = funit op
     case Map.lookup cop ps of
         Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
-        Just es -> return $ Map.elems es
+        Just es -> return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) $ Map.elems es
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
@@ -377,7 +377,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
     modify $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
-    dirtyGDependencies $ Right $ Left $ Left $ funit pn
+    dirtyGDependencies $ Right $ Left $ Left n
     
     solve l
     dict <- liftM (head . tDict) State.get
@@ -389,17 +389,17 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     return $ updLoc pn (Typed (unTyped $ loc pn) dt)
   
  -- | Checks that a procedure exists.
-checkProcedure :: (MonadIO m,Location loc) => ProcedureName VarIdentifier loc -> TcM loc m [EntryEnv loc]
-checkProcedure pn@(ProcedureName l n) = do
-    addGDependencies $ Right $ Left $ Left $ funit pn
+checkProcedure :: (MonadIO m,Location loc) => ProcClass -> ProcedureName VarIdentifier loc -> TcM loc m [EntryEnv loc]
+checkProcedure cl@(Proc isAnn) pn@(ProcedureName l n) = do
+    addGDependencies $ Right $ Left $ Left n
     ps <- liftM procedures State.get
     case Map.lookup n ps of
         Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp n)
-        Just es -> return $ Map.elems es
+        Just es -> return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) $ Map.elems es
 
 -- adds a recursive declaration for processing recursive constraints
 withTpltDecRec :: (MonadIO m,Location loc) => loc -> DecType -> TcM loc m a -> TcM loc m a
-withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Left (ProcedureName _ pn)) _ _ _ _)) m = do
+withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Left pn) _ _ _ _ _)) m = do
     j <- newTyVarId
     let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
@@ -407,7 +407,7 @@ withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Le
     x <- m
     State.modify $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
     return x
-withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Right op) _ _ _ _)) m = do
+withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Right op) _ _ _ _ _)) m = do
     j <- newTyVarId
     let o = funit op
     let recd = DecType j True ts hd hfrees mempty bfrees specs p
@@ -485,7 +485,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
 -- | Defines a new struct type
 newStruct :: (ProverK loc m) => Deps loc -> TypeName VarIdentifier (Typed loc) -> TcM loc m (TypeName VarIdentifier (Typed loc))
 newStruct hdeps tn@(TypeName (Typed l t) n) = do
-    addGDependencies $ Right $ Right $ funit tn
+    addGDependencies $ Right $ Right n
     d <- typeToDecType l t
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTCstrs hdeps
@@ -497,7 +497,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
     modify $ \env -> env { structs = Map.insert n (rece,Map.empty) (structs env) }
-    dirtyGDependencies $ Right $ Right $ funit tn
+    dirtyGDependencies $ Right $ Right n
     
     -- solve the body
     solve l
@@ -530,12 +530,6 @@ addSubstM l v t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariable
     tcCstrM l $ Unifies (loc v) (tyOf t)
     addSubst l (varNameId v) t
     dirtyGDependencies $ Left $ varNameId v
-    
---addSubstM l v t | varNameToType v == t = return ()
---                | typeClass "addSubstML" (varNameToType v) == typeClass "addSubstMR" t = do
---                    addSubst l (varNameId v) t
---                    dirtyVarDependencies (varNameId v)
---                | otherwise = genTcError (locpos l) $ text "Variable" <+> quotes (pp v) <+> text "does not match type" <+> quotes (pp t)
 
 newDomainTyVar :: (MonadIO m,Location loc) => SVarKind -> Maybe Doc -> TcM loc m SecType
 newDomainTyVar k doc = do

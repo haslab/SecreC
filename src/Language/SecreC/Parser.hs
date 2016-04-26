@@ -5,7 +5,6 @@ module Language.SecreC.Parser (
     ) where
 
 import qualified Language.SecreC.Parser.Parsec as Parsec
-import qualified Language.SecreC.Parser.Derp as Derp
 import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Parser.Lexer
 import Language.SecreC.Parser.Tokens
@@ -14,21 +13,18 @@ import Language.SecreC.Position
 import Language.SecreC.Syntax
 
 import Control.Monad.Reader
+import Control.Monad.Catch
 
 parseFileIO :: Options -> String -> IO (PPArgs,Module Identifier Position)
 parseFileIO opts fn = do
     pps <- runSecrecM opts $ runPP fn
-    ast <- case parser opts of
-        Parsec -> Parsec.parseFileIO opts fn
-        Derp -> Derp.parseFileIO opts fn
+    ast <- Parsec.parseFileIO opts fn
     return (pps,ast)
 
-parseFile :: MonadIO m => String -> SecrecM m (PPArgs,Module Identifier Position)
+parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (PPArgs,Module Identifier Position)
 parseFile s = do
     opts <- ask
     pps <- runPP s
-    ast <- case parser opts of
-        Parsec -> Parsec.parseFile s
-        Derp -> Derp.parseFile s
+    ast <- Parsec.parseFile s
     return (pps,ast)
     

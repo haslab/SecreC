@@ -91,15 +91,10 @@ cmdArgsRunPP m xs = do
             Right x -> return x
     liftIO $ cmdArgsApply args
 
-instance PP ParserOpt where
-    pp Parsec = text "parsec"
-    pp Derp = text "derp"
-
 instance PP Options where
     pp opts = PP.sepBy PP.space (map pp $ inputs opts)
           <+> text "--outputs=" <> PP.sepBy (PP.char ':') (map pp $ outputs opts)
           <+> text "--paths=" <> PP.sepBy (PP.char ':') (map pp $ paths opts)
-          <+> text "--parser=" <> pp (parser opts)
           <+> text "--knowledgeinference=" <> pp (knowledgeInference opts)
           <+> text "--simplify=" <> pp (simplify opts)
           <+> text "--typecheck=" <> pp (typeCheck opts)
@@ -113,13 +108,13 @@ instance PP Options where
           <+> text "--evaltimeout=" <> pp (evalTimeOut opts)
           <+> text "--failtypechecker=" <> pp (failTypechecker opts)
           <+> text "--externalsmt=" <> pp (externalSMT opts)
+          <+> text "--checkassertions" <> pp (checkAssertions opts)
 
 opts  :: Options
 opts  = Opts { 
       inputs                = inputs defaultOptions &= args &= typ "FILE.sc"
     , outputs               = outputs defaultOptions &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
     , paths                 = paths defaultOptions &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
-    , parser                = parser defaultOptions &= typ "parsec OR derp" &= help "backend Parser type"
     , implicitBuiltin       = implicitBuiltin defaultOptions &= name "builtin" &= help "Implicitly import the builtin module"
     
     -- Transformation
@@ -141,6 +136,7 @@ opts  = Opts {
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
     , failTypechecker = failTypechecker defaultOptions &= name "fail-tc" &= help "Typechecker should fail" &= groupname "Verification:Typechecker"
+    , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
     }
     &= help "SecreC analyser"
 

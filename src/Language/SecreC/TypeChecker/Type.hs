@@ -107,11 +107,11 @@ tcTypeName v@(TypeName l n) = do
 tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM loc m (TypeSpecifier VarIdentifier (Typed loc))
 tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
     (sec',tsec) <- tcMbSecType sec 
-    dta' <- tcDatatypeSpec dta
+    (dta') <- tcDatatypeSpec dta
     let tdta = typed $ loc dta'
     (dim',tdim) <- tcMbDimtypeSpec (pp tsec <+> pp tdta) dim
     t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic
-    return $ TypeSpecifier (Typed l t) sec' dta' dim'
+    return (TypeSpecifier (Typed l t) sec' dta' dim')
     
 buildTypeSpec :: (ProverK loc m) => loc -> Type -> Type -> SExpr VarIdentifier Type -> IsVariadic -> TcM loc m Type
 buildTypeSpec l tsec tdta tdim True = do
@@ -314,7 +314,7 @@ projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- proj
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM loc m (Type,Maybe (Sizes VarIdentifier (Typed loc)))
 tcTypeSizes l ty szs = do
-    szs' <- mapM (tcSizes l ty) szs
+    (szs') <- mapM (tcSizes l ty) szs
     let tszs' = fmap (fmap typed) szs'
     ty' <- refineTypeSizes l ty tszs'
     return (ty',szs')

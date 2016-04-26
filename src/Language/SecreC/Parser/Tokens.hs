@@ -117,8 +117,21 @@ data Token
     | VARIADIC
     | VSIZE
     | VARRAY
+    | REQUIRES
+    | ENSURES
+    | ASSUME
+    | LEAKS
+    | DECREASES
+    | INVARIANT
     | TokenEOF
     | TokenError
+    | RESULT
+    | FORALL
+    | EXISTS
+    | IMPLIES_OP
+    | EQUIV_OP
+    | LEAK
+    | ANNOTATION [String]
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP Token where
@@ -194,6 +207,8 @@ instance PP Token where
     pp LOR_OP = text "||"
     pp SHR_OP = text ">>"
     pp SHL_OP = text "<<"
+    pp IMPLIES_OP = text "==>"
+    pp EQUIV_OP = text "<==>"
     pp MOD_ASSIGN = text "%="
     pp MUL_ASSIGN = text "*="
     pp NE_OP = text "!="
@@ -204,8 +219,25 @@ instance PP Token where
     pp VARIADIC = text "..."
     pp VSIZE = text "size..."
     pp VARRAY = text "varray"
+    pp REQUIRES = text "requires"
+    pp ENSURES = text "ensures"
+    pp LEAKS = text "leaks"
+    pp DECREASES = text "decreases"
+    pp INVARIANT = text "invariant"
+    pp ASSUME = text "assume"
     pp TokenEOF = text "<EOF>"
     pp TokenError = text "error <unknown>"
+    pp RESULT = text "\\result"
+    pp FORALL = text "forall"
+    pp EXISTS = text "exists"
+    pp LEAK = text "leak"
+    pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
+
+isAnnotation :: String -> Maybe [String]
+isAnnotation s = if ok then Just (map (tail . dropWhile (/='@')) toks) else Nothing
+    where
+    toks = lines s
+    ok = and $ map (maybe False (=="@") . headMay . words) toks
 
 isIntToken :: Token -> Bool
 isIntToken (BIN_LITERAL i) = True

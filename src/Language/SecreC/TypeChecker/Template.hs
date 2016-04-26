@@ -300,10 +300,10 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
     ok <- newErrorM $ proveWith l "instantiate with names" (addDicts >> matchName >> proveHead)
     case ok of
         Left err -> do
-            --liftIO $ putStrLn $ "did not work " ++ ppr l 
+--            liftIO $ putStrLn $ "did not work " ++ ppr l 
             return $ Left (e',err)
         Right (_,subst) -> do
-            --liftIO $ putStrLn $ "worked " ++ ppr l ++ " % " ++ show (ppTSubsts (tSubsts subst)) ++ " %"
+--            liftIO $ putStrLn $ "worked " ++ ppr l -- ++ " % " ++ show (ppTSubsts (tSubsts subst)) ++ " %"
             depCstrs <- mergeDependentCstrs l subst (TDict (tCstrs bdict) Set.empty Map.empty)
             dec <- typeToDecType l (entryType e')
             -- to avoid substituting the template variables
@@ -332,14 +332,14 @@ templateIdentifier (DecT t) = templateIdentifier' t
     where
     templateIdentifier' :: DecType -> TIdentifier
     templateIdentifier' (DecType _ _ _ _ _ _ _ _ t) = templateIdentifier' t
-    templateIdentifier' (ProcType _ n _ _ _ _) = Right n
+    templateIdentifier' (ProcType _ n _ _ _ _ _) = Right n
     templateIdentifier' (StructType _ n _) = Left n
         
 hasCondsDecType :: (MonadIO m,Location loc) => DecType -> TcM loc m Bool
 hasCondsDecType (DecType _ _ targs _ _ _ _ _ d) = do
     b <- hasCondsDecType d
     return $ b || (any hasCond $ map fst targs)
-hasCondsDecType (ProcType _ _ pargs _ _ _) = return $ any hasCond $ map snd3 pargs
+hasCondsDecType (ProcType _ _ pargs _ _ _ _) = return $ any hasCond $ map snd3 pargs
 hasCondsDecType _ = return False
         
 -- | Extracts a head signature from a template type declaration (template arguments,procedure arguments, procedure return type)
@@ -350,7 +350,7 @@ templateArgs l (Left name) t = case t of
     DecT (DecType _ _ args hcstrs hfrees cstrs bfrees specials body) -> do -- a specialization uses the specialized arguments
         return (Just $ map (mapFst (flip Cond Nothing)) specials,Nothing,Nothing)
 templateArgs l (Right name) t = case t of
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (ProcType _ n vars ret stmts _)) -> do -- include the return type
+    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
     otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
 
@@ -390,11 +390,12 @@ localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) ssBounds (l::loc)
         hcstrs' <- substProxy "localTplt" ss' False ssBounds' hcstrs
         cstrs' <- substProxy "localTplt" ss' False ssBounds' cstrs
         return (DecType tpltid isrec (zip args' isVariadics) hcstrs' (Set.fromList hfrees') cstrs' (Set.fromList bfrees') (zip specials' isVariadics2) body',ss')
-    ProcType p pid (unzip3 -> (isConsts,args,isVariadics)) ret stmts c -> do
+    ProcType p pid (unzip3 -> (isConsts,args,isVariadics)) ret ann stmts c -> do
         (args',ss) <- uniqueVars l ss0 ssBounds args
         ret' <- substProxy "localTplt" ss False ssBounds ret
+        ann' <- substProxy "localTplt" ss False ssBounds ann
         stmts' <- substProxy "localTplt" ss False ssBounds stmts
-        return (ProcType p pid (zip3 isConsts args' isVariadics) ret' stmts' c,ss)
+        return (ProcType p pid (zip3 isConsts args' isVariadics) ret' ann' stmts' c,ss)
     otherwise -> return (et,ss0)
   where
     freeVar v = do

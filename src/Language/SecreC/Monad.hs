@@ -35,7 +35,6 @@ data Options
           inputs                :: [FilePath]
         , outputs               :: [FilePath]
         , paths                 :: [FilePath]
-        , parser                :: ParserOpt
         , knowledgeInference    :: Bool
         , simplify              :: Bool
         , typeCheck             :: Bool
@@ -49,6 +48,7 @@ data Options
         , failTypechecker       :: Bool
         , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
+        , checkAssertions       :: Bool
         }
     deriving (Show, Data, Typeable)
 
@@ -58,7 +58,6 @@ instance Monoid Options where
         { inputs = inputs x ++ inputs y
         , outputs = outputs x ++ outputs y
         , paths = List.nub $ paths x ++ paths y
-        , parser = parser y
         , knowledgeInference = knowledgeInference x || knowledgeInference y
         , simplify = simplify x && simplify y
         , typeCheck = typeCheck x || typeCheck y
@@ -72,17 +71,14 @@ instance Monoid Options where
         , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
         , failTypechecker = failTypechecker x || failTypechecker y
         , externalSMT = externalSMT x && externalSMT y
+        , checkAssertions = checkAssertions x && checkAssertions y
         }
-
-data ParserOpt = Parsec | Derp
-  deriving (Data,Typeable,Read,Show)
 
 defaultOptions :: Options
 defaultOptions = Opts
     { inputs = []
     , outputs = []
     , paths = []
-    , parser = Parsec
     , knowledgeInference = False
     , simplify = True
     , typeCheck = True
@@ -96,6 +92,7 @@ defaultOptions = Opts
     , implicitBuiltin = True
     , failTypechecker = False
     , externalSMT = True
+    , checkAssertions = False
     }
 
 newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Map Position (Set SecrecWarning)) }
