@@ -52,9 +52,13 @@ tcModule m@(Module l name prog) = failTcM l $ do
     opts <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts) $
         liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr (modulePosId $ fmap locpos m) ++ "...")
+    -- reset module typechecking environment and increment module count
+    State.modify $ \env -> env
+        { moduleCount = (maybe "main" id $ moduleId m,succ $ snd $ moduleCount env)
+        , moduleEnv = let (x,y) = moduleEnv env in (x `mappend` y,mempty)
+        , tyVarId = 0
+        }
     prog' <- tcProgram prog
-    -- increment module count
-    State.modify $ \env -> env { moduleCount = (maybe "main" id $ moduleId m,succ $ snd $ moduleCount env), tyVarId = 0 }
     return $ Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
 
 tcProgram :: (ProverK loc m) => Program Identifier loc -> TcM loc m (Program VarIdentifier (Typed loc))

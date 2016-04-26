@@ -223,7 +223,7 @@ proverProcError (DecT (DVar v)) e = do
     lift $ addGDependencies $ Left v
     lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError $ text "failed to convert expression" <+> pp e <+> text "to prover expression"
 proverProcError t e = do
-    lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression: unknown declaration type" <+> text (show t)
+    lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression: unknown declaration type" <+> pp t
     
 expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM loc m IExpr
 expr2Prover e = do

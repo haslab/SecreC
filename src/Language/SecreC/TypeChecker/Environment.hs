@@ -66,14 +66,15 @@ getVars scope cl = getVarsPred scope (== cl)
 -- | Gets the variables of a given type class
 getVarsPred :: (MonadIO m,Location loc) => Scope -> (TypeClass -> Bool) -> TcM loc m (Map VarIdentifier (Bool,EntryEnv loc))
 getVarsPred GlobalScope f = do
-    vs <- liftM globalVars State.get
+    (x,y) <- liftM moduleEnv State.get
+    let vs = globalVars x `Map.union` globalVars y
     return $ Map.filter (\(_,e) -> f $ typeClass "getVarsG" (entryType e)) vs
 getVarsPred LocalScope f = do
     vs <- liftM vars State.get
     return $ Map.filterWithKey (\k (_,e) -> f $ typeClass ("getVarsL " ++ ppr k ++ ppr (locpos $ entryLoc e)) (entryType e)) vs
 
 addVar :: (MonadIO m,Location loc) => Scope -> VarIdentifier -> Bool -> EntryEnv loc -> TcM loc m ()
-addVar GlobalScope n b e = modify $ \env -> env { globalVars = Map.insert n (b,e) (globalVars env) }
+addVar GlobalScope n b e = modifyModuleEnv $ \env -> env { globalVars = Map.insert n (b,e) (globalVars env) }
 addVar LocalScope n b e = modify $ \env -> env { localVars = Map.insert n (b,e) (localVars env) }
 
 getFrees :: (Monad m,Location loc) => TcM loc m (Set VarIdentifier)
@@ -107,7 +108,8 @@ withDeps GlobalScope m = do
 getConsts :: Monad m => TcM loc m (Map Identifier VarIdentifier)
 getConsts = do
     env <- State.get
-    return $ localConsts env `Map.union` globalConsts env
+    let (x,y) = moduleEnv env
+    return $ Map.unions[localConsts env,globalConsts x,globalConsts y]
 
 checkVariable :: (MonadIO m,Location loc) => Bool -> Scope -> VarName VarIdentifier loc -> TcM loc m (VarName VarIdentifier (Typed loc))
 checkVariable isConst scope (VarName l n) = do
@@ -163,14 +165,16 @@ tcAddDeps l msg m = do
     
 tryAddHypothesis :: (MonadIO m,Location loc) => loc -> Scope -> Set (Loc loc IOCstr) -> HypCstr -> TcM loc m ()
 tryAddHypothesis l scope deps hyp = do
-    iok <- updateHeadTDict $ \d -> insertTDictCstr l (HypK hyp) Unevaluated d
-    addDep scope $ Loc l iok
-    addIOCstrDependenciesM deps (Loc l iok) Set.empty
+    opts <- askOpts
+    when (checkAssertions opts) $ do
+        iok <- updateHeadTDict $ \d -> insertTDictCstr l (HypK hyp) Unevaluated d
+        addDep scope $ Loc l iok
+        addIOCstrDependenciesM deps (Loc l iok) Set.empty
 
 -- | Adds a new domain variable to the environment
 newDomainVariable :: (MonadIO m,Location loc) => Scope -> DomainName VarIdentifier (Typed loc) -> TcM loc m ()
 newDomainVariable scope (DomainName (Typed l t) n) = do
-    ds <- liftM domains get
+    ds <- getDomains
     case Map.lookup n ds of
         Just e -> tcError (locpos l) $ InvalidDomainVariableName (pp n) (locpos $ entryLoc e)
         Nothing -> do
@@ -182,9 +186,9 @@ newDomainVariable scope (DomainName (Typed l t) n) = do
 -- | Adds a new type variable to the environment
 newTypeVariable :: (MonadIO m,Location loc) => Scope -> TypeName VarIdentifier (Typed loc) -> TcM loc m ()
 newTypeVariable scope (TypeName (Typed l t) n) = do
-    ss <- liftM structs get
+    ss <- getStructs
     case Map.lookup n ss of
-        Just (b,es) -> tcError (locpos l) $ InvalidTypeVariableName (pp n) (map (locpos . entryLoc) (b:Map.elems es))
+        Just (b,es) -> tcError (locpos l) $ InvalidTypeVariableName (pp n) (map (locpos . entryLoc) (maybeToList b ++ Map.elems es))
         Nothing -> do
             vars <- getVarsPred scope (\k -> k == TypeStarC || k == VArrayC TypeStarC)
             case Map.lookup n vars of
@@ -194,12 +198,12 @@ newTypeVariable scope (TypeName (Typed l t) n) = do
 -- | Adds a new domain to the environment
 newDomain :: (MonadIO m,Location loc) => DomainName VarIdentifier (Typed loc) -> TcM loc m ()
 newDomain (DomainName (Typed l t) n) = do
-    ds <- liftM domains get
+    ds <- getDomains
     case Map.lookup n ds of
         Just e -> tcError (locpos l) $ MultipleDefinedDomain (pp n) (locpos $ entryLoc e)
         Nothing -> do
             let e = EntryEnv l t
-            modify $ \env -> env { domains = Map.insert n e (domains env) }
+            modifyModuleEnv $ \env -> env { domains = Map.insert n e (domains env) }
 
 isDomain k = k == KindC || k == VArrayC KindC
 
@@ -207,7 +211,7 @@ isDomain k = k == KindC || k == VArrayC KindC
 -- Searches for both user-defined private domains and domain variables
 checkDomain :: (MonadIO m,Location loc) => DomainName VarIdentifier loc -> TcM loc m Type
 checkDomain (DomainName l n) = do
-    ds <- liftM domains State.get
+    ds <- getDomains
     case Map.lookup n ds of
         Just e -> case entryType e of
             SType (PrivateKind (Just k)) -> return $ SecT $ Private (DomainName () n) k
@@ -222,9 +226,9 @@ checkDomain (DomainName l n) = do
 -- Searches for both user-defined types and type variables
 checkType :: (MonadIO m,Location loc) => TypeName VarIdentifier loc -> TcM loc m ([EntryEnv loc])
 checkType (TypeName l n) = do
-    ss <- liftM structs State.get
+    ss <- getStructs
     case Map.lookup n ss of
-        Just (base,es) -> return (base : Map.elems es)
+        Just (base,es) -> return (maybeToList base ++ Map.elems es)
         Nothing -> do
             vars <- getVarsPred LocalScope (\k -> k == TypeStarC || k == VArrayC TypeStarC)
             case Map.lookup n vars of
@@ -255,12 +259,12 @@ checkTemplateType ty@(TypeName _ n) = do
 -- The argument can be a (user-defined or variable) type, a (user-defined or variable) domain or a dimension variable
 checkTemplateArg :: (MonadIO m,Location loc) => TemplateArgName VarIdentifier loc -> TcM loc m (TemplateArgName VarIdentifier (Typed loc))
 checkTemplateArg (TemplateArgName l n) = do
-    env <- State.get
+    env <- getModuleEnv
     let ss = structs env
     let ds = domains env
-    let vs = vars env
+    vs <- liftM vars State.get
     case (Map.lookup n ss,Map.lookup n ds,Map.lookup n vs) of
-        (Just (base,es),Nothing,Nothing) -> case (base:Map.elems es) of
+        (Just (base,es),Nothing,Nothing) -> case (maybeToList base ++ Map.elems es) of
             [e] -> if (isStructTemplate $ entryType e)
                 then tcError (locpos l) $ NoNonTemplateType (pp n)
                 else return $ TemplateArgName (Typed l $ entryType e) n
@@ -269,12 +273,12 @@ checkTemplateArg (TemplateArgName l n) = do
             SType (PrivateKind (Just k)) -> return $ TemplateArgName (Typed l $ SecT $ Private (DomainName () n) k) n
             otherwise -> genTcError (locpos l) $ text "Unexpected domain" <+> quotes (pp n) <+> text "without kind."
         (Nothing,Nothing,Just (b,e)) -> return $ TemplateArgName (Typed l $ varNameToType $ VarName (entryType e) n) n
-        (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (pp n) $ map (locpos . entryLoc) $ maybe [] (\(b,es) -> b:Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap snd mb3)
+        (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (pp n) $ map (locpos . entryLoc) $ maybe [] (\(b,es) -> maybeToList b ++ Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap snd mb3)
 
 -- | Checks that a kind exists in scope
 checkKind :: (MonadIO m,Location loc) => KindName VarIdentifier loc -> TcM loc m ()
 checkKind (KindName l n) = do
-    ks <- liftM kinds State.get
+    ks <- getKinds
     case Map.lookup n ks of
         Just e -> return ()
         Nothing -> tcError (locpos l) $ NotDefinedKind (pp n)
@@ -282,12 +286,12 @@ checkKind (KindName l n) = do
 -- | Adds a new kind to the environment
 newKind :: (MonadIO m,Location loc) => KindName VarIdentifier (Typed loc) -> TcM loc m ()
 newKind (KindName (Typed l t) n) = do
-    ks <- liftM kinds get
+    ks <- getKinds
     case Map.lookup n ks of
         Just e -> tcError (locpos l) $ MultipleDefinedKind (pp n) (locpos $ entryLoc e)
         Nothing -> do
             let e = EntryEnv l t
-            modify $ \env -> env { kinds = Map.insert n e (kinds env) } 
+            modifyModuleEnv $ \env -> env { kinds = Map.insert n e (kinds env) } 
 
 noTSubsts d = fmap locpos (d { tSubsts = Map.empty })
 
@@ -305,7 +309,7 @@ addTemplateOperator vars hdeps op = do
     dt' <- substFromTSubsts "templateOp" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
 --    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
-    modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
 -- | Adds a new (possibly overloaded) operator to the environment.
@@ -321,7 +325,7 @@ newOperator hdeps op = do
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
-    modify $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
     dirtyGDependencies $ Right $ Left $ Right o
     
     solve l
@@ -330,21 +334,21 @@ newOperator hdeps op = do
     let td = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
     let e = EntryEnv l td
 --    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
-    modify $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) td)
   
  -- | Checks that an operator exists.
 checkOperator :: (VarsIdTcM loc m,Location loc) => ProcClass -> Op VarIdentifier loc -> TcM loc m [EntryEnv loc]
 checkOperator cl@(Proc isAnn) op@(OpCast l t) = do
     addGDependencies $ Right $ Left $ Right $ funit op
-    ps <- liftM operators State.get
+    ps <- getOperators
     let cop = funit op
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCast k) ps
     return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) casts
 checkOperator cl@(Proc isAnn) op = do
     addGDependencies $ Right $ Left $ Right $ funit op
-    ps <- liftM operators State.get
+    ps <- getOperators
     let cop = funit op
     case Map.lookup cop ps of
         Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
@@ -362,7 +366,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     dt' <- substFromTSubsts "templateProc" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
 --    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
-    modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
+    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
     return $ updLoc pn (Typed (unTyped $ loc pn) dt')
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
@@ -376,7 +380,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
-    modify $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
+    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
     dirtyGDependencies $ Right $ Left $ Left n
     
     solve l
@@ -385,14 +389,14 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     let dt = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
     let e = EntryEnv l dt
 --    liftIO $ putStrLn $ "addProc " ++ ppr (entryType e)
-    modify $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
+    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
     return $ updLoc pn (Typed (unTyped $ loc pn) dt)
   
  -- | Checks that a procedure exists.
 checkProcedure :: (MonadIO m,Location loc) => ProcClass -> ProcedureName VarIdentifier loc -> TcM loc m [EntryEnv loc]
 checkProcedure cl@(Proc isAnn) pn@(ProcedureName l n) = do
     addGDependencies $ Right $ Left $ Left n
-    ps <- liftM procedures State.get
+    ps <- getProcedures
     case Map.lookup n ps of
         Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp n)
         Just es -> return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) $ Map.elems es
@@ -403,27 +407,27 @@ withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Le
     j <- newModuleTyVarId
     let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
-    State.modify $ \env -> env { procedures = Map.alter (Just . Map.insert j rece . maybe Map.empty id) pn (procedures env) }
+    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert j rece . maybe Map.empty id) pn (procedures env) }
     x <- m
-    State.modify $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
+    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
     return x
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Right op) _ _ _ _ _)) m = do
     j <- newModuleTyVarId
     let o = funit op
     let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
-    State.modify $ \env -> env { operators = Map.alter (Just . Map.insert j rece . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert j rece . maybe Map.empty id) o (operators env) }
     x <- m
-    State.modify $ \env -> env { operators = Map.alter (Just . Map.delete j . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.delete j . maybe Map.empty id) o (operators env) }
     return x
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType _ (TypeName _ sn) _)) m = do
     j <- newModuleTyVarId
     let recd = DecType j True ts hd hfrees mempty bfrees specs s
-    (e,es) <- liftM ((!sn) . structs) State.get
+    (e,es) <- liftM ((!sn) . structs . snd . moduleEnv) State.get
     let rece = EntryEnv l (DecT recd)
-    State.modify $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.insert j rece es)) . fromJust) sn (structs env) }
+    modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.insert j rece es)) . fromJust) sn (structs env) }
     x <- m
-    State.modify $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.delete j es)) . fromJust) sn (structs env) }
+    modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.delete j es)) . fromJust) sn (structs env) }
     return x
             
 
@@ -461,10 +465,10 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateStruct" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
-    ss <- liftM structs get
+    ss <- getStructs
     case Map.lookup n ss of
-        Just (base,es) -> tcError (locpos l) $ MultipleDefinedStructTemplate (pp n) (locpos $ loc base)
-        Nothing -> modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
+        Just (Just base,es) -> tcError (locpos l) $ MultipleDefinedStructTemplate (pp n) (locpos $ loc base)
+        otherwise -> modifyModuleEnv $ \env -> env { structs = Map.insert n (Just e,Map.empty) (structs env) }
     return $ updLoc tn (Typed (unTyped $ loc tn) dt')
     
 -- Adds a new (possibly overloaded) template structure to the environment.
@@ -479,7 +483,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
     dt' <- substFromTSubsts "templateStructSpec" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
     let mergeStructs (b1,s1) (b2,s2) = (b2,s1 `Map.union` s2)
-    modify $ \env -> env { structs = Map.update (\(b,s) -> Just (b,Map.insert i e s)) n (structs env) }
+    modifyModuleEnv $ \env -> env { structs = Map.update (\(b,s) -> Just (b,Map.insert i e s)) n (structs env) }
     return $ updLoc tn (Typed (unTyped $ loc tn) dt')
 
 -- | Defines a new struct type
@@ -496,21 +500,21 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
     let rece = EntryEnv l recdt
-    modify $ \env -> env { structs = Map.insert n (rece,Map.empty) (structs env) }
+    modifyModuleEnv $ \env -> env { structs = Map.insert n (Just rece,Map.empty) (structs env) }
     dirtyGDependencies $ Right $ Right n
     
     -- solve the body
     solve l
     dict <- liftM (head . tDict) State.get
-    ss <- liftM structs get
+    ss <- getStructs
     case Map.lookup n ss of
-        Just (base,es) -> tcError (locpos l) $ MultipleDefinedStruct (pp n) (locpos $ entryLoc base)
-        Nothing -> do
+        Just (Just base,es) -> tcError (locpos l) $ MultipleDefinedStruct (pp n) (locpos $ entryLoc base)
+        otherwise -> do
             i <- newModuleTyVarId
             d'' <- substFromTDict "newStruct body" l dict False Map.empty d'
             let dt = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
             let e = EntryEnv l dt
-            modify $ \env -> env { structs = Map.insert n (e,Map.empty) (structs env) }
+            modifyModuleEnv $ \env -> env { structs = Map.insert n (Just e,Map.empty) (structs env) }
             return $ updLoc tn (Typed (unTyped $ loc tn) dt)
 
 addSubst :: (MonadIO m,Location loc) => loc -> VarIdentifier -> Type -> TcM loc m ()
@@ -771,11 +775,14 @@ addConst scope vi = do
     vi' <- uniqVarId vi Nothing
     case scope of
         LocalScope -> State.modify $ \env -> env { localConsts = Map.insert vi vi' $ localConsts env }
-        GlobalScope -> State.modify $ \env -> env { globalConsts = Map.insert vi vi' $ globalConsts env }
+        GlobalScope -> modifyModuleEnv $ \env -> env { globalConsts = Map.insert vi vi' $ globalConsts env }
 --    addFree vi'
     return vi'
 
-vars env = Map.union (localVars env) (globalVars env)
+vars :: TcEnv loc -> Map VarIdentifier (Bool,EntryEnv loc)
+vars env = Map.unions [localVars env,globalVars e1,globalVars e2]
+    where
+    (e1,e2) = moduleEnv env
 
 tcWarn :: (Monad m,Location loc) => Position -> TypecheckerWarn -> TcM loc m ()
 tcWarn pos msg = do

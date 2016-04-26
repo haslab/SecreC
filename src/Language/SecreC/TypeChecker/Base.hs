@@ -153,12 +153,26 @@ type Deps loc = Set (Loc loc IOCstr)
 getModuleCount :: (Monad m) => TcM loc m Int
 getModuleCount = liftM (snd . moduleCount) State.get
 
+-- global typechecking environment
 data TcEnv loc = TcEnv {
-      globalVars :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ global variables: name |-> (isConst,type of the variable)
-    , localVars  :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ local variables: name |-> (isConst,type of the variable)
+      localVars  :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ local variables: name |-> (isConst,type of the variable)
     , localFrees :: Set VarIdentifier -- ^ free internal const variables generated during typechecking
+    , localConsts :: Map Identifier VarIdentifier
     , globalDeps :: Deps loc -- ^ global dependencies
     , localDeps :: Deps loc -- ^ local dependencies
+    , tDict :: [TDict loc] -- ^ A stack of dictionaries
+    , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
+    , moduleCount :: (String,Int)
+    , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
+    , procClass :: ProcClass -- class when typechecking procedures
+    , tyVarId :: TyVarId
+    , moduleEnv :: (ModuleTcEnv loc,ModuleTcEnv loc) -- (aggregate module environment for past modules,plus the module environment for the current module)
+    }
+
+-- module typechecking environment that can be exported to an interface file
+data ModuleTcEnv loc = ModuleTcEnv {
+      globalVars :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ global variables: name |-> (isConst,type of the variable)
+    , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
     , kinds :: Map VarIdentifier (EntryEnv loc) -- ^ defined kinds: name |-> type of the kind
     , domains :: Map VarIdentifier (EntryEnv loc) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
@@ -168,19 +182,60 @@ data TcEnv loc = TcEnv {
     -- we don't allow specialization of function templates
     , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv loc)) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
-    , structs :: Map VarIdentifier (EntryEnv loc,Map ModuleTyVarId (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
---    , inTemplate :: Bool -- ^ @True@ if we are type checking the body of a template declaration
-    , tDict :: [TDict loc] -- ^ A stack of dictionaries
-    , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
-    , moduleCount :: (String,Int)
-    , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
-    , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
-    , localConsts :: Map Identifier VarIdentifier
-    , procClass :: ProcClass -- class when typechecking procedures
-    , tyVarId :: TyVarId
+    , structs :: Map VarIdentifier (Maybe (EntryEnv loc),Map ModuleTyVarId (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
     }
 
+instance Monoid (ModuleTcEnv loc) where
+    mempty = ModuleTcEnv {
+          globalVars = Map.empty
+        , globalConsts = Map.empty
+        , kinds = Map.empty
+        , domains = Map.empty
+        , operators = Map.empty
+        , procedures = Map.empty
+        , structs = Map.empty
+        }
+    mappend x y = ModuleTcEnv {
+          globalVars = Map.union (globalVars x) (globalVars y)
+        , globalConsts = Map.union (globalConsts x) (globalConsts y)
+        , kinds = Map.union (kinds x) (kinds y)
+        , domains = Map.union (domains x) (domains y)
+        , operators = Map.unionWith (Map.union) (operators x) (operators y)
+        , procedures = Map.unionWith (Map.union) (procedures x) (procedures y)
+        , structs = Map.unionWith (\(a,b) (c,d) -> (unionMb a c,Map.union b d)) (structs x) (structs y)
+        }
+
+unionMb Nothing y = y
+unionMb x Nothing = x
+unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
+
 type ModuleTyVarId = (Identifier,TyVarId)
+
+modifyModuleEnv :: Monad m => (ModuleTcEnv loc -> ModuleTcEnv loc) -> TcM loc m ()
+modifyModuleEnv f = State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
+
+getModuleField :: (Monad m) => (ModuleTcEnv loc -> x) -> TcM loc m x
+getModuleField f = do
+    (x,y) <- State.gets moduleEnv
+    let xy = mappend x y
+    return $ f xy
+
+getModuleEnv :: Monad m => TcM loc m (ModuleTcEnv loc)
+getModuleEnv = getModuleField id
+getStructs :: Monad m => TcM loc m (Map VarIdentifier (Maybe (EntryEnv loc),Map ModuleTyVarId (EntryEnv loc)))
+getStructs = getModuleField structs
+getKinds :: Monad m => TcM loc m (Map VarIdentifier (EntryEnv loc))
+getKinds = getModuleField kinds
+getGlobalVars :: Monad m => TcM loc m (Map VarIdentifier (Bool,EntryEnv loc))
+getGlobalVars = getModuleField globalVars
+getGlobalConsts :: Monad m => TcM loc m (Map Identifier VarIdentifier)
+getGlobalConsts = getModuleField globalConsts
+getDomains :: Monad m => TcM loc m (Map VarIdentifier (EntryEnv loc))
+getDomains = getModuleField domains
+getOperators :: Monad m => TcM loc m (Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv loc)))
+getOperators = getModuleField operators
+getProcedures :: Monad m => TcM loc m (Map VarIdentifier (Map ModuleTyVarId (EntryEnv loc)))
+getProcedures = getModuleField procedures
 
 insideAnnotation :: Monad m => TcM loc m a -> TcM loc m a
 insideAnnotation m = do
@@ -204,51 +259,46 @@ withDependencies deps m = do
     State.modify $ \env -> env { localDeps = localDeps env }
     return x
 
-tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv loc2 -> TcEnv loc1
-tcEnvMap f g env = TcEnv
-    { globalVars = fmap (\(x,y) -> (x,fmap f y)) $ globalVars env
-    , localVars = fmap (\(x,y) -> (x,fmap f y)) $ localVars env
-    , localFrees = localFrees env
-    , globalDeps = Set.fromList $ map (mapLoc f) $ Set.toList $ globalDeps env
-    , localDeps = Set.fromList $ map (mapLoc f) $ Set.toList $ localDeps env
-    , kinds = fmap (fmap f) $ kinds env
-    , domains = fmap (fmap f) $ domains env
-    , operators = Map.map (Map.map (fmap f)) $ operators env
-    , procedures = Map.map (Map.map (fmap f)) $ procedures env
-    , structs = Map.map (\(x,y) -> (fmap f x,Map.map (fmap f) y)) $ structs env
-    , tDict = fmap (fmap f) $ tDict env
-    , openedCstrs = openedCstrs env
-    , moduleCount = moduleCount env
-    , inTemplate = inTemplate env
-    , globalConsts = globalConsts env
-    , localConsts = localConsts env
-    , procClass = procClass env
-    , tyVarId = tyVarId env
-    }
+--tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv loc2 -> TcEnv loc1
+--tcEnvMap f g env = TcEnv
+--    { globalVars = fmap (\(x,y) -> (x,fmap f y)) $ globalVars env
+--    , localVars = fmap (\(x,y) -> (x,fmap f y)) $ localVars env
+--    , localFrees = localFrees env
+--    , globalDeps = Set.fromList $ map (mapLoc f) $ Set.toList $ globalDeps env
+--    , localDeps = Set.fromList $ map (mapLoc f) $ Set.toList $ localDeps env
+--    , kinds = fmap (fmap f) $ kinds env
+--    , domains = fmap (fmap f) $ domains env
+--    , operators = Map.map (Map.map (fmap f)) $ operators env
+--    , procedures = Map.map (Map.map (fmap f)) $ procedures env
+--    , structs = Map.map (\(x,y) -> (fmap f x,Map.map (fmap f) y)) $ structs env
+--    , tDict = fmap (fmap f) $ tDict env
+--    , openedCstrs = openedCstrs env
+--    , moduleCount = moduleCount env
+--    , inTemplate = inTemplate env
+--    , globalConsts = globalConsts env
+--    , localConsts = localConsts env
+--    , procClass = procClass env
+--    , tyVarId = tyVarId env
+--    }
 
 type VarsId m a = Vars VarIdentifier m a
 type VarsIdTcM loc m = (Typeable m,MonadIO m,MonadBaseControl IO m,VarsId (TcM loc m) loc,VarsId (TcM loc Symbolic) loc)
 
 emptyTcEnv :: TcEnv loc
 emptyTcEnv = TcEnv
-    { globalVars = Map.empty
-    , localVars = Map.empty
+    { 
+    localVars = Map.empty
     , localFrees = Set.empty
     , globalDeps = Set.empty
     , localDeps = Set.empty
-    , kinds = Map.empty
-    , domains = Map.empty
-    , operators = Map.empty
-    , procedures = Map.empty
-    , structs = Map.empty
     , tDict = []
     , openedCstrs = []
     , moduleCount = ("main",1)
     , inTemplate = False
-    , globalConsts = Map.empty
     , localConsts = Map.empty
     , procClass = mempty
     , tyVarId = 0
+    , moduleEnv = (mempty,mempty)
     }
 
 data EntryEnv loc = EntryEnv {
@@ -329,21 +379,21 @@ addErrorM' l (j,err) (TcM m) = do
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
         else TcM $ RWS.withRWST (\(i,f) s -> ((i + j,f . err),s)) m
 
-tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM loc m a
-tcPos = tcLocM (locpos) (updpos noloc)
+--tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM loc m a
+--tcPos = tcLocM (locpos) (updpos noloc)
 
-tcPosVarsM :: (Monad m,Location loc) => VarsM iden (TcM Position m) a -> VarsM iden (TcM loc m) a
-tcPosVarsM m = mapStateT (tcPos) m
+--tcPosVarsM :: (Monad m,Location loc) => VarsM iden (TcM Position m) a -> VarsM iden (TcM loc m) a
+--tcPosVarsM m = mapStateT (tcPos) m
 
 -- | Map different locations over @TcM@ monad.
-tcLocM :: Monad m => (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 m a -> TcM loc2 m a
-tcLocM f g m = do
-    s2 <- get
-    r2 <- ask
-    (x,s1,w1) <- TcM $ lift $ runRWST (unTcM m) r2 (tcEnvMap f g s2)
-    put (tcEnvMap g f s1)
-    tell w1
-    return x
+--tcLocM :: Monad m => (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 m a -> TcM loc2 m a
+--tcLocM f g m = do
+--    s2 <- get
+--    r2 <- ask
+--    (x,s1,w1) <- TcM $ lift $ runRWST (unTcM m) r2 (tcEnvMap f g s2)
+--    put (tcEnvMap g f s1)
+--    tell w1
+--    return x
 
 -- | Typechecks a code block, with local declarations only within its scope
 tcBlock :: Monad m => TcM loc m a -> TcM loc m a
@@ -1836,8 +1886,8 @@ withoutImplicitClassify m = localOpts (\opts -> opts { implicitClassify = False 
 instance MonadIO m => GenVar VarIdentifier (TcM loc m) where
     genVar v = uniqVarId (varIdBase v) (varIdPretty v)
 
---instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
---    genVar v = freshVarId (varIdBase v) (varIdPretty v)
+instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
+    genVar v = freshVarIO v
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do

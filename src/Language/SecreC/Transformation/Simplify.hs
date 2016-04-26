@@ -255,7 +255,7 @@ splitProcAnns (EnsuresAnn p e:xs) = let (l,r) = splitProcAnns xs in (l,AnnStatem
 -- we assume that typechecking has already tied the procedure's type arguments
 inlineProcCall :: SimplifyK loc t m => PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> t m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
 inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann body c))) es | isNonRecursiveDecType d = do
---    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
+    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs args es'
     ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) ann
