@@ -84,7 +84,7 @@ resolveTemplateEntry p n targs pargs ret e doWrap dict = do
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM loc m (Maybe DecType)
 removeTemplate l t@(DecType i isrec targs hdict hfrees bdict bfrees specs d) = if (not isrec) && (isTemplateDecType t)
     then do
-        j <- newTyVarId
+        j <- newModuleTyVarId
         return $ Just $ DecType j False [] hdict hfrees mempty bfrees [] d
     else return Nothing
 removeTemplate l (DVar v) = resolveDVar l v >>= removeTemplate l
@@ -400,7 +400,8 @@ localTemplateType (ss0::SubstsProxy VarIdentifier (TcM loc m)) ssBounds (l::loc)
   where
     freeVar v = do
         j <- newTyVarId
-        let v' = v { varIdUniq = Just j }
+        mn <- State.gets (fst . moduleCount)
+        let v' = v { varIdUniq = Just j, varIdModule = Just mn }
         return (v',(v,v'))
     uniqueVar :: loc -> SubstsProxy VarIdentifier (TcM loc m) -> Map VarIdentifier VarIdentifier -> Cond (VarName VarIdentifier Type) -> TcM loc m (Cond (VarName VarIdentifier Type),SubstsProxy VarIdentifier (TcM loc m))
     uniqueVar (l::loc) ss ssBounds (Cond i@(VarName t v) c) = do

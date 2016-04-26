@@ -209,4 +209,5 @@ instance MonadBaseControl IO Symbolic where
     restoreM       = id
 
 instance GenVar VarIdentifier Symbolic where
-    genVar v = freshVarId (varIdBase v) (varIdPretty v)
+    genVar v = freshVarIO v
+    

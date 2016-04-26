@@ -300,7 +300,7 @@ addTemplateOperator vars hdeps op = do
     let o = funit op
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
-    i <- newTyVarId
+    i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateOp" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
@@ -316,7 +316,7 @@ newOperator hdeps op = do
     d <- typeToDecType l t
     (_,recdict) <- tcProve l "newOp head" $ addHeadTCstrs hdeps
     addHeadTDict recdict
-    i <- newTyVarId
+    i <- newModuleTyVarId
     frees <- getFrees
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
@@ -357,7 +357,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
-    i <- newTyVarId
+    i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateProc" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
@@ -371,7 +371,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
     (_,recdict) <- tcProve l "newProc head" $ addHeadTCstrs hdeps
     addHeadTDict recdict
-    i <- newTyVarId
+    i <- newModuleTyVarId
     frees <- getFrees
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
     let recdt = DecT $ DecType i True [] mempty Set.empty mempty frees [] d'
@@ -400,7 +400,7 @@ checkProcedure cl@(Proc isAnn) pn@(ProcedureName l n) = do
 -- adds a recursive declaration for processing recursive constraints
 withTpltDecRec :: (MonadIO m,Location loc) => loc -> DecType -> TcM loc m a -> TcM loc m a
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Left pn) _ _ _ _ _)) m = do
-    j <- newTyVarId
+    j <- newModuleTyVarId
     let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
     State.modify $ \env -> env { procedures = Map.alter (Just . Map.insert j rece . maybe Map.empty id) pn (procedures env) }
@@ -408,7 +408,7 @@ withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Le
     State.modify $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
     return x
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Right op) _ _ _ _ _)) m = do
-    j <- newTyVarId
+    j <- newModuleTyVarId
     let o = funit op
     let recd = DecType j True ts hd hfrees mempty bfrees specs p
     let rece = EntryEnv l (DecT recd)
@@ -417,7 +417,7 @@ withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType _ n@(Ri
     State.modify $ \env -> env { operators = Map.alter (Just . Map.delete j . maybe Map.empty id) o (operators env) }
     return x
 withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType _ (TypeName _ sn) _)) m = do
-    j <- newTyVarId
+    j <- newModuleTyVarId
     let recd = DecType j True ts hd hfrees mempty bfrees specs s
     (e,es) <- liftM ((!sn) . structs) State.get
     let rece = EntryEnv l (DecT recd)
@@ -457,7 +457,7 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
-    i <- newTyVarId
+    i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateStruct" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
@@ -474,7 +474,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
     d <- typeToDecType l t
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
-    i <- newTyVarId
+    i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees specials d
     dt' <- substFromTSubsts "templateStructSpec" l (tSubsts hdict `Map.union` tSubsts bdict) False Map.empty dt
     let e = EntryEnv l dt'
@@ -490,7 +490,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTCstrs hdeps
     addHeadTDict recdict
-    i <- newTyVarId
+    i <- newModuleTyVarId
     -- add a temporary declaration for recursive invocations
     frees <- getFrees
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
@@ -506,7 +506,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     case Map.lookup n ss of
         Just (base,es) -> tcError (locpos l) $ MultipleDefinedStruct (pp n) (locpos $ entryLoc base)
         Nothing -> do
-            i <- newTyVarId
+            i <- newModuleTyVarId
             d'' <- substFromTDict "newStruct body" l dict False Map.empty d'
             let dt = DecT $ DecType i False [] mempty Set.empty mempty Set.empty [] d''
             let e = EntryEnv l dt

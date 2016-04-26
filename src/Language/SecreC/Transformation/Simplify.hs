@@ -265,7 +265,7 @@ inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann b
     case mb of
         Just t -> do
             (ss1,t') <- simplifyTypeSpecifier t
-            res <- liftM (VarName (Typed noloc ret)) $ lift $ freshVarId "res" Nothing
+            res <- liftM (VarName (Typed noloc ret)) $ genVar (mkVarId "res")
             let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res Nothing Nothing
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements (Just res) body'

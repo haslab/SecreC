@@ -959,37 +959,43 @@ compares l t1 t2 = addErrorM l
 decToken :: MonadIO m => TcM loc m DecType
 decToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True Nothing
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ DVar v
 
 secToken :: MonadIO m => TcM loc m SecType
 secToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True Nothing
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ SVar v AnyKind
     
 baseToken :: MonadIO m => TcM loc m BaseType
 baseToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True Nothing
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ BVar v
 
 arrayToken :: MonadIO m => Type -> SExpr VarIdentifier Type -> TcM loc m VArrayType
 arrayToken b sz = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True Nothing
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ VAVar v b sz
 
 complexToken :: MonadIO m => TcM loc m ComplexType
 complexToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True Nothing
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ CVar v
 
 exprToken :: MonadIO m => TcM loc m (Expression VarIdentifier Type)
 exprToken = do
     i <- newTyVarId
-    let v = VarIdentifier "tok" (Just i) True Nothing
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     let t = BaseT $ BVar v
     return $ RVariablePExpr t (VarName t v)
 

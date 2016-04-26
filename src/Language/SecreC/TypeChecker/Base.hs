@@ -102,7 +102,7 @@ newGlobalEnv :: IO GlobalEnv
 newGlobalEnv = do
     m <- WeakHash.newSized 1024
     iom <- WeakHash.newSized 512
-    return $ GlobalEnv m iom 0
+    return $ GlobalEnv m iom
 
 resetGlobalEnv :: IO ()
 --resetGlobalEnv = newGlobalEnv >>= writeIORef globalEnv
@@ -151,7 +151,7 @@ data GlobalEnv = GlobalEnv
 type Deps loc = Set (Loc loc IOCstr)
 
 getModuleCount :: (Monad m) => TcM loc m Int
-getModuleCount = liftM moduleCount State.get
+getModuleCount = liftM (snd . moduleCount) State.get
 
 data TcEnv loc = TcEnv {
       globalVars :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ global variables: name |-> (isConst,type of the variable)
@@ -163,12 +163,12 @@ data TcEnv loc = TcEnv {
     , domains :: Map VarIdentifier (EntryEnv loc) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , operators :: Map (Op VarIdentifier ()) (Map TyVarId (EntryEnv loc)) -- ^ defined operators: name |-> procedure decl
+    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv loc)) -- ^ defined operators: name |-> procedure decl
     -- a list of overloaded procedures; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , procedures :: Map VarIdentifier (Map TyVarId (EntryEnv loc)) -- ^ defined procedures: name |-> procedure decl
+    , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv loc)) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
-    , structs :: Map VarIdentifier (EntryEnv loc,Map TyVarId (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
+    , structs :: Map VarIdentifier (EntryEnv loc,Map ModuleTyVarId (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
 --    , inTemplate :: Bool -- ^ @True@ if we are type checking the body of a template declaration
     , tDict :: [TDict loc] -- ^ A stack of dictionaries
     , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
@@ -179,6 +179,8 @@ data TcEnv loc = TcEnv {
     , procClass :: ProcClass -- class when typechecking procedures
     , tyVarId :: TyVarId
     }
+
+type ModuleTyVarId = (Identifier,TyVarId)
 
 insideAnnotation :: Monad m => TcM loc m a -> TcM loc m a
 insideAnnotation m = do
@@ -221,6 +223,7 @@ tcEnvMap f g env = TcEnv
     , globalConsts = globalConsts env
     , localConsts = localConsts env
     , procClass = procClass env
+    , tyVarId = tyVarId env
     }
 
 type VarsId m a = Vars VarIdentifier m a
@@ -240,11 +243,12 @@ emptyTcEnv = TcEnv
     , structs = Map.empty
     , tDict = []
     , openedCstrs = []
-    , moduleCount = 1
+    , moduleCount = ("main",1)
     , inTemplate = False
     , globalConsts = Map.empty
     , localConsts = Map.empty
     , procClass = mempty
+    , tyVarId = 0
     }
 
 data EntryEnv loc = EntryEnv {
@@ -958,13 +962,28 @@ getTSubsts = do
     env <- State.get
     return $ tSubsts $ mconcat $ tDict env
 
-newTyVarId :: MonadIO m => m TyVarId
-newTyVarId = liftIO $ atomicModifyIORef' globalEnv $ \g -> (g { tyVarId = succ (tyVarId g) },tyVarId g)
+newTyVarId :: MonadIO m => TcM loc m TyVarId
+newTyVarId = do
+    State.modify' $ \g -> g { tyVarId = succ (tyVarId g) }
+    State.gets tyVarId 
+
+newModuleTyVarId :: MonadIO m => TcM loc m ModuleTyVarId
+newModuleTyVarId = do
+    i <- newTyVarId
+    mn <- State.gets (fst . moduleCount)
+    return (mn,i)
 
 freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM loc m VarIdentifier
 freshVarId n doc = do
     i <- newTyVarId
-    let v = VarIdentifier n (Just i) False doc
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier n (Just mn) (Just i) False doc
+    return v
+
+freshVarIO :: MonadIO m => VarIdentifier -> m VarIdentifier
+freshVarIO v = do
+    i <- liftIO $ liftM hashUnique newUnique
+    let v = VarIdentifier (varIdBase v) Nothing (Just i) False (varIdPretty v)
     return v
 
 uniqVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM loc m VarIdentifier
@@ -993,7 +1012,7 @@ ppConstraints d = do
 
 data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
-        , varIdModule :: String
+        , varIdModule :: Maybe Identifier
         , varIdUniq :: Maybe TyVarId
         , varIdTok :: Bool -- if the variable is a token (not to be resolved) (only used for comparisons)
         , varIdPretty :: Maybe Doc -- for free variables introduced by typechecking
@@ -1008,16 +1027,16 @@ instance Ord VarIdentifier where
 varTok :: VarName VarIdentifier loc -> Bool
 varTok (VarName _ n) = varIdTok n
 
-mkVarId :: Identifier -> String -> VarIdentifier
-mkVarId s m = VarIdentifier s m Nothing False Nothing
+mkVarId :: Identifier -> VarIdentifier
+mkVarId s = VarIdentifier s Nothing Nothing False Nothing
 
 instance PP VarIdentifier where
     pp v = case varIdPretty v of
         Just s -> ppVarId v <> char '#' <> s
         Nothing -> ppVarId v
       where
-        ppVarId (VarIdentifier n m Nothing _ _) = text m <> char '.' <> text n
-        ppVarId (VarIdentifier n m (Just i) _ _) = text m <> char '.' <> text n <> char '_' <> PP.int i
+        ppVarId (VarIdentifier n m Nothing _ _) = ppOpt m (\x -> text x <> char '.') <> text n
+        ppVarId (VarIdentifier n m (Just i) _ _) = ppOpt m (\x -> text x <> char '.') <> text n <> char '_' <> PP.int i
 
 type TyVarId = Int
 
@@ -1050,7 +1069,6 @@ tyProcClass t = error $ "tyProcClass: " ++ show t
 
 data DecType
     = ProcType -- ^ procedure type
---        TyVarId -- ^ unique procedure declaration id
         Position
         PIdentifier
         [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -- typed procedure arguments
@@ -1059,12 +1077,11 @@ data DecType
         [Statement VarIdentifier (Typed Position)] -- ^ the procedure's body
         ProcClass -- the type of procedure
     | StructType -- ^ Struct type
---        TyVarId -- ^ unique structure declaration id
         Position -- ^ location of the procedure declaration
         SIdentifier
         [Cond (Attribute VarIdentifier Type)] -- ^ typed arguments
     | DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
-        TyVarId -- ^ unique template declaration id
+        ModuleTyVarId -- ^ unique template declaration id
         Bool -- is a recursive invocation
         [(Cond (VarName VarIdentifier Type),IsVariadic)] -- ^ template variables
         (TDict Position) -- ^ constraints for the header
@@ -1677,7 +1694,7 @@ isPublicSecType :: SecType -> Bool
 isPublicSecType Public = True
 isPublicSecType _ = False
 
-decTypeTyVarId :: DecType -> Maybe TyVarId
+decTypeTyVarId :: DecType -> Maybe ModuleTyVarId
 decTypeTyVarId (StructType _ _ _) = Nothing
 decTypeTyVarId (ProcType _ _ _ _ _ _ _) = Nothing
 decTypeTyVarId (DecType i _ _ _ _ _ _ _ _) = Just i
@@ -1853,7 +1870,7 @@ compoundStmt ss = CompoundStatement (Typed noloc t) ss
     where t = StmtType $ mconcat $ map ((\(StmtType c) -> c) . typed . loc) ss
     
 moduleVarId :: Module VarIdentifier loc -> VarIdentifier
-moduleVarId m = maybe (mkVarId "main" "main") id $ moduleId m
+moduleVarId m = maybe (mkVarId "main") id $ moduleId m
     
     
     
