@@ -71,6 +71,9 @@ tcModule m@(Module l name prog) = failTcM l $ do
         , tyVarId = 0
         }
     prog' <- tcProgram prog
+    -- substitute the module's environment with the module's dictionary
+    ss <- getTSubsts
+    modifyModuleEnvM $ substFromTSubsts "tcModule" l ss False Map.empty
     let m' = Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
     return m'
 

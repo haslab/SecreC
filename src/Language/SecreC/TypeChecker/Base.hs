@@ -247,6 +247,12 @@ type ModuleTyVarId = (Identifier,TyVarId)
 modifyModuleEnv :: Monad m => (ModuleTcEnv -> ModuleTcEnv) -> TcM m ()
 modifyModuleEnv f = State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
 
+modifyModuleEnvM :: Monad m => (ModuleTcEnv -> TcM m ModuleTcEnv) -> TcM m ()
+modifyModuleEnvM f = do
+    y <- State.gets (snd . moduleEnv)
+    y' <- f y
+    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
+
 getModuleField :: (Monad m) => (ModuleTcEnv -> x) -> TcM m x
 getModuleField f = do
     (x,y) <- State.gets moduleEnv
@@ -441,7 +447,7 @@ tcLocal :: Monad m => TcM m a -> TcM m a
 tcLocal m = do
     env <- State.get
     x <- m
-    State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
+    State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env, tDict = [] }
     return x
 
 -- a new dictionary
@@ -966,14 +972,29 @@ flattenIOCstrGraphSet :: IOCstrGraph loc -> Set (Loc loc IOCstr)
 flattenIOCstrGraphSet = Set.fromList . flattenIOCstrGraph
 
 -- | mappings from variables to current substitution
-type TSubsts = Map VarIdentifier Type
+newtype TSubsts = TSubsts { unTSubsts :: Map VarIdentifier Type } deriving (Eq,Show,Ord,Typeable,Data,Generic)
+instance Binary TSubsts
+instance Hashable TSubsts
+
+instance PP TSubsts where
+    pp = ppTSubsts
+
+instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TSubsts where
+    traverseVars f (TSubsts xs) = varsBlock $ liftM (TSubsts . Map.fromList) $ aux $ Map.toList xs
+        where
+        aux [] = return []
+        aux ((k,v):xs) = do
+            k' <- inLHS $ f k
+            v' <- f v
+            xs' <- aux xs
+            return ((k',v'):xs')
 
 instance Functor TDict where
     fmap f dict = dict { tCstrs = nmap (mapLoc f) (tCstrs dict) }
 
 instance Monoid (TDict loc) where
-    mempty = TDict Graph.empty Set.empty Map.empty
-    mappend (TDict u1 c1 ss1) (TDict u2 c2 ss2) = TDict (unionGr u1 u2) (Set.union c1 c2) (ss1 `Map.union` ss2)
+    mempty = TDict Graph.empty Set.empty (TSubsts Map.empty)
+    mappend (TDict u1 c1 (TSubsts ss1)) (TDict u2 c2 (TSubsts ss2)) = TDict (unionGr u1 u2) (Set.union c1 c2) (TSubsts $ ss1 `Map.union` ss2)
 
 --addCstrDeps :: (MonadIO m,VarsId m TCstr) => IOCstr -> m ()
 --addCstrDeps iok = do
@@ -1041,11 +1062,11 @@ liftVarsM m = State.mapStateT (lift) m
 evalIOCstrVars m = flip evalVarsMState (Map.empty::IOCstrSubsts) m
 
 traverseDict :: (Vars VarIdentifier m loc) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> TDict loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (TDict loc)
-traverseDict f (TDict cstrs choices substs) = do
+traverseDict f (TDict cstrs choices (TSubsts substs)) = do
     cstrs' <- traverseVarsIOCstrGraph f cstrs
     choices' <- lift $ mapSetM getIOCstrSubstId choices
     substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
-    return $ TDict cstrs' choices' substs'
+    return $ TDict cstrs' choices' (TSubsts substs')
 
 instance (Location loc,MonadIO m,Vars VarIdentifier m loc) => Vars VarIdentifier m (TDict loc) where
     traverseVars f x = evalIOCstrVars $ traverseDict f x
@@ -1863,7 +1884,7 @@ ppTpltArg = ppCond ppTpltArg'
     ppTpltArg' v = error $ "ppTpltArg: " ++ ppr v ++ " " ++ ppr (loc v)
     
 ppTSubsts :: TSubsts -> Doc
-ppTSubsts xs = vcat $ map ppSub $ Map.toList xs
+ppTSubsts xs = vcat $ map ppSub $ Map.toList (unTSubsts xs)
     where
     ppSub (k,IdxT e) = pp k <+> char '=' <+> ppExprTy e
     ppSub (k,t) = pp k <+> char '=' <+> pp t

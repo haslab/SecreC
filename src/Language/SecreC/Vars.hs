@@ -215,7 +215,7 @@ instance (Vars iden m a,Vars iden m b) => Vars iden m (Map a b) where
         where
         aux [] = return []
         aux ((k,v):xs) = do
-            k' <- inLHS $ f k
+            k' <- f k
             v' <- f v
             xs' <- aux xs
             return ((k',v'):xs')
