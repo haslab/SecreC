@@ -38,7 +38,7 @@ import Text.PrettyPrint
 
 import System.IO
 
---equalICond :: (VarsIdTcM loc m,Location loc) => loc -> ICond -> ICond -> TcM loc m Bool
+--equalICond :: (VarsIdTcM m,Location loc) => loc -> ICond -> ICond -> TcM m Bool
 --equalICond l c1 c2 = do
 --    hyp <- solveHypotheses l
 --    addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ IAnd hyp) (text "equal" <+> pp c1 <+> pp c2)) $ do
@@ -46,7 +46,7 @@ import System.IO
 --            (IBool b1,IBool b2) -> return $ b1 == b2
 --            otherwise -> checkAny (\cfg -> equalSBV cfg l hyp ci1 ci2) 
 --
---compareICond :: (VarsIdTcM loc m,Location loc) => loc -> ICond -> ICond -> TcM loc m Ordering
+--compareICond :: (VarsIdTcM m,Location loc) => loc -> ICond -> ICond -> TcM m Ordering
 --compareICond l c1 c2 = do
 --    hyp <- solveHypotheses l
 --    addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ IAnd hyp) (text "compare" <+> pp c1 <+> pp c2)) $ do
@@ -56,7 +56,7 @@ import System.IO
 --            (IBool b1,IBool b2) -> return $ compare b1 b2
 --            otherwise -> checkAny (\cfg -> compareSBV cfg l hyp ci1 ci2) 
 
-isValid :: (VarsIdTcM loc m,Location loc,SMTK loc) => loc -> IExpr -> TcM loc m ()
+isValid :: (ProverK loc m) => loc -> IExpr -> TcM m ()
 isValid l c = do
     hyp <- solveHypotheses l
     addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ iAnd hyp) (pp c)) $ do
@@ -64,7 +64,7 @@ isValid l c = do
 
 -- * SBV interface
 --
---compareSBV :: (VarsIdTcM loc m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM loc m Ordering
+--compareSBV :: (VarsIdTcM m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM m Ordering
 --compareSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (ComparisonException "index condition") (pp c1) (pp c2) . Just) $ do
 --    let str1 = ppr (IAnd $ c1 : hyp) ++ " => " ++ ppr c2
 --    let str2 = ppr (IAnd $ c2 : hyp) ++ " => " ++ ppr c1
@@ -86,7 +86,7 @@ isValid l c = do
 --        (_,Nothing,Nothing,_) -> return GT
 --        otherwise -> genTcError (locpos l) $ text "not comparable"
 --
---equalSBV :: (VarsIdTcM loc m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM loc m Bool
+--equalSBV :: (VarsIdTcM m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM m Bool
 --equalSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (EqualityException "index condition") (pp c1) (pp c2) . Just) $ do
 --    let str = show (pp c1 <+> text "==" <+> pp c2)
 --    mb <- tryValiditySBV l cfg str $ do
@@ -98,7 +98,7 @@ isValid l c = do
 --        Nothing -> return True
 --        Just err -> throwError err
 
-checkValiditySBV :: (VarsIdTcM loc m,Location loc,SMTK loc) => loc -> SMTConfig -> IExpr -> IExpr -> TcM loc m ()
+checkValiditySBV :: (VarsIdTcM m,Location loc,SMTK loc) => loc -> SMTConfig -> IExpr -> IExpr -> TcM m ()
 checkValiditySBV l cfg hyp prop = do
     d1 <- ppM l hyp
     d2 <- ppM l prop
@@ -109,10 +109,10 @@ checkValiditySBV l cfg hyp prop = do
         return b
     return r
 
---tryValiditySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV loc SBool -> TcM loc m (Maybe SecrecError)
+--tryValiditySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV SBool -> TcM m (Maybe SecrecError)
 --tryValiditySBV l cfg msg prop = (validitySBV l cfg msg prop >> return Nothing) `catchError` (return . Just)
 
-validitySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV loc SBool -> TcM loc m ()
+validitySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV SBool -> TcM m ()
 validitySBV l cfg str sprop = do
     opts <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts) $
@@ -135,13 +135,13 @@ validitySBV l cfg str sprop = do
 supportedSolvers :: [SMTConfig]
 supportedSolvers = map (defaultSolverConfig) [minBound..maxBound::Solver]
 
-checkWithAny :: (MonadIO m,Location loc) => [String] -> [SecrecError] -> [SMTConfig] -> (SMTConfig -> TcM loc m a) -> TcM loc m (Either a [SecrecError])
+checkWithAny :: (MonadIO m) => [String] -> [SecrecError] -> [SMTConfig] -> (SMTConfig -> TcM m a) -> TcM m (Either a [SecrecError])
 checkWithAny names errs [] check = return $ Right errs
 checkWithAny names errs (solver:solvers) check = do
     liftM Left (check solver) `catchError` \err -> do
         checkWithAny names (errs++[err]) solvers check
 
-checkAny :: (MonadIO m,Location loc) => (SMTConfig -> TcM loc m a) -> TcM loc m a
+checkAny :: MonadIO m => (SMTConfig -> TcM m a) -> TcM m a
 checkAny check = do
     solvers <- liftIO sbvAvailableSolvers
     when (null solvers) $ genTcError noloc $ text "No solver found"
@@ -150,7 +150,7 @@ checkAny check = do
         Left x -> return x
         Right errs -> throwError $ MultipleErrors errs
 
-checkEvalOrSMT :: ProverK loc m => IExpr -> (SMTConfig -> TcM loc m ()) -> TcM loc m ()
+checkEvalOrSMT :: ProverK Position m => IExpr -> (SMTConfig -> TcM m ()) -> TcM m ()
 checkEvalOrSMT ie check = do
     res <- catchError (liftM Right $ evalIExpr ie) (return . Left)
     case res of

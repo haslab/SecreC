@@ -197,8 +197,8 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IUOp where
 
  
 
-type ProverK loc m = (SMTK loc,SimplifyK loc (TcM loc) m,VarsIdTcM loc m,Location loc)
-type SMTK loc = (Vars VarIdentifier Symbolic loc,VarsIdTcM loc Symbolic,Location loc)
+type ProverK loc m = (SMTK loc,SimplifyK loc (TcM) m,VarsIdTcM m,Location loc)
+type SMTK loc = (Vars VarIdentifier Symbolic loc,VarsIdTcM Symbolic,Location loc)
 
 instance MonadBase IO Symbolic where
     liftBase = liftIO

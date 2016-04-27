@@ -38,20 +38,20 @@ import Control.Monad.Trans.Control
 
 -- * Exports
 
-evaluateIndexExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> TcM loc m Word64
+evaluateIndexExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> TcM m Word64
 evaluateIndexExpr l e = do
     IUint64 w <- evaluateExpr l $ fmap (Typed l) e
     return w
 
-evaluateExpr :: (ProverK loc m) => loc -> Expression VarIdentifier (Typed loc) -> TcM loc m ILit
+evaluateExpr :: (ProverK loc m) => loc -> Expression VarIdentifier (Typed loc) -> TcM m ILit
 evaluateExpr l e = evaluate l (text "evaluateExpr") (evalIExpr =<< expr2IExpr e)
 
-evaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM loc m ILit
+evaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
 evaluateIExpr l e = evaluate l (text "evaluateExpr") (evalIExpr e)
 
 ---- * Internal declarations
 
-evaluate :: (ProverK loc m) => loc -> Doc -> TcM loc m a -> TcM loc m a
+evaluate :: (ProverK loc m) => loc -> Doc -> TcM m a -> TcM m a
 evaluate l doc m = do
     arr <- Reader.ask
     env <- State.get
@@ -64,12 +64,13 @@ evaluate l doc m = do
             State.put env'
             TcM (lift $ Writer.tell warns) >> return x
 
-evalIExpr :: (ProverK loc m) => IExpr -> TcM loc m ILit
+evalIExpr :: (ProverK Position m) => IExpr -> TcM m ILit
 evalIExpr (ILit lit) = return lit
 evalIExpr (IIdx v@(VarName t n)) = do
-    mb <- tryResolveEVar noloc n t
+    let p = noloc :: Position
+    mb <- tryResolveEVar p n t
     case mb of
-        Nothing -> genTcError noloc $ text "variable binding not found"
+        Nothing -> genTcError p $ text "variable binding not found"
         Just e -> expr2IExpr e >>= evalIExpr
 evalIExpr (IBinOp o e1 e2) = do
     e1' <- evalIExpr e1
@@ -83,9 +84,11 @@ evalIExpr (ICond c e1 e2) = do
    case c' of
        IBool True -> evalIExpr e1
        IBool False -> evalIExpr e2
-evalIExpr (ISize e) = typeSize noloc (iExprTy e) >>= expr2IExpr  . fmap (Typed noloc) >>= evalIExpr
+evalIExpr (ISize e) = do
+    let p = noloc :: Position
+    typeSize p (iExprTy e) >>= expr2IExpr  . fmap (Typed p) >>= evalIExpr
 
-evalIBinOp :: (ProverK loc m) => IBOp -> ILit -> ILit -> TcM loc m ILit
+evalIBinOp :: Monad m => IBOp -> ILit -> ILit -> TcM m ILit
 evalIBinOp IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2
 evalIBinOp IOr (IBool b1) (IBool b2) = return $ IBool $ b1 || b2
 evalIBinOp IImplies (IBool b1) (IBool b2) = return $ IBool $ b1 <= b2
@@ -102,7 +105,7 @@ evalIBinOp (IPower) e1 e2 = return $ integralILit (^) e1 e2
 evalIBinOp (IDiv) e1 e2 = return $ integralILit div e1 e2
 evalIBinOp (IMod) e1 e2 = return $ integralILit mod e1 e2
 
-evalIUnOp :: (ProverK loc m) => IUOp -> ILit -> TcM loc m ILit
+evalIUnOp :: Monad m => IUOp -> ILit -> TcM m ILit
 evalIUnOp INot (IBool b) = return $ IBool $ not b
 evalIUnOp INeg i = return $ numILit (\x y -> -x) i (error "evalIUnOp INed")
 

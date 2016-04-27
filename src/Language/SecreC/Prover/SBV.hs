@@ -35,7 +35,7 @@ import Text.PrettyPrint
 
 import System.IO
 
-hyp2SBV :: SMTK loc => loc -> IExpr -> TcSBV loc ()
+hyp2SBV :: SMTK loc => loc -> IExpr -> TcSBV ()
 hyp2SBV l c = do
     (inHyp,_) <- State.get
     State.modify $ \(_,st) -> (True,st)
@@ -43,10 +43,10 @@ hyp2SBV l c = do
     State.modify $ \(_,st) -> (inHyp,st)
     lift $ lift $ constrain h
 
-proveWithTcSBV :: (MonadIO m,Location loc) => SMTConfig -> TcSBV loc SBool -> TcM loc m ThmResult
+proveWithTcSBV :: (MonadIO m) => SMTConfig -> TcSBV SBool -> TcM m ThmResult
 proveWithTcSBV cfg m = proveWithTcM cfg $ evalStateT m (False,Map.empty)
 
-proveWithTcM :: (MonadIO m,Location loc) => SMTConfig -> TcM loc Symbolic SBool -> TcM loc m ThmResult
+proveWithTcM :: (MonadIO m) => SMTConfig -> TcM Symbolic SBool -> TcM m ThmResult
 proveWithTcM cfg m = do
     arr <- Reader.ask
     env <- State.get
@@ -71,7 +71,7 @@ proveWithTcM cfg m = do
     return res
 
 
-type TcSBV loc = StateT (Bool,SBVals) (TcM loc Symbolic)
+type TcSBV = StateT (Bool,SBVals) (TcM Symbolic)
 type SBVals = Map VarIdentifier SBVal
 data SBVal where
     SBool :: SBool -> SBVal
@@ -90,7 +90,7 @@ data SBVal where
 instance PP SBVal where
     pp = text . show
 
-iLit2SBV :: SMTK loc => ILit -> TcSBV loc SBVal
+iLit2SBV :: ILit -> TcSBV SBVal
 iLit2SBV (IInt8 i) = return $ SInt8 $ fromIntegral i
 iLit2SBV (IInt16 i) = return $ SInt16 $ fromIntegral i
 iLit2SBV (IInt32 i) = return $ SInt32 $ fromIntegral i
@@ -103,9 +103,9 @@ iLit2SBV (IFloat32 i) = return $ SFloat32 $ realToFrac i
 iLit2SBV (IFloat64 i) = return $ SFloat64 $ realToFrac i
 iLit2SBV (IBool b) = return $ SBool $ fromBool b
 
-iExpr2SBV :: SMTK loc => loc -> IExpr -> TcSBV loc SBVal
+iExpr2SBV :: SMTK loc => loc -> IExpr -> TcSBV SBVal
 iExpr2SBV l (ILit lit) = iLit2SBV lit
-iExpr2SBV l (IIdx v) = tryResolveIExprVar l v
+iExpr2SBV l (IIdx v) = tryResolveIExprVar (locpos l) v
 iExpr2SBV l (IBinOp o e1 e2) = do
     e1' <- iExpr2SBV l e1
     e2' <- iExpr2SBV l e2
@@ -120,7 +120,7 @@ iExpr2SBV l (ICond c e1 e2) = do
     return $ mergeSBVal (ite vc) v1 v2
 iExpr2SBV l (ISize e) = lift $ genTcError (locpos l) $ text "array size not defined in SBV"
 
-iBinOp2SBV :: SMTK loc => loc -> IBOp -> SBVal -> SBVal -> TcSBV loc SBVal
+iBinOp2SBV :: SMTK loc => loc -> IBOp -> SBVal -> SBVal -> TcSBV SBVal
 iBinOp2SBV l IAnd (SBool b1) (SBool b2) = return $ SBool $ b1 &&& b2
 iBinOp2SBV l IOr (SBool b1) (SBool b2) = return $ SBool $ b1 ||| b2
 iBinOp2SBV l IImplies (SBool b1) (SBool b2) = return $ SBool $ b1 ==> b2
@@ -137,7 +137,7 @@ iBinOp2SBV l IDiv e1 e2 = return $ divisibleSBVal sDiv e1 e2
 iBinOp2SBV l IMod e1 e2 = return $ divisibleSBVal sMod e1 e2
 iBinOp2SBV l op e1 e2 = lift $ genTcError (locpos l) $ text "iBinOp2SBV: unsupported op" <+> pp op
 
-iUnOp2SBV :: SMTK loc => loc -> IUOp -> SBVal -> TcSBV loc SBVal
+iUnOp2SBV :: SMTK loc => loc -> IUOp -> SBVal -> TcSBV SBVal
 iUnOp2SBV l INot (SBool b) = return $ SBool $ bnot b
 iUnOp2SBV l INeg x = return $ numSBVal (\x y -> - x) x (error "iUnOp2SBV")
 
@@ -206,7 +206,7 @@ sbVal v (BaseT (TyPrim (DatatypeXorUint64 _))) = liftM SUint64 $ sWord64 v
 sbVal v (BaseT (TyPrim (DatatypeFloat32   _))) = liftM SFloat32 $ sFloat v
 sbVal v (BaseT (TyPrim (DatatypeFloat64   _))) = liftM SFloat64 $ sDouble v
 
-tryResolveIExprVar :: SMTK loc => loc -> VarName VarIdentifier Type -> TcSBV loc SBVal
+tryResolveIExprVar :: Position -> VarName VarIdentifier Type -> TcSBV SBVal
 tryResolveIExprVar l v@(VarName t n) = do
     mb <- lift $ tryResolveEVar l n t
     case mb of

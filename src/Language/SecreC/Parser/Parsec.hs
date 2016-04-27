@@ -819,7 +819,7 @@ scAnnotations' parseAnns parse = do
                     setPosition (positionToSourcePos p)
                     parse <* scEOF
                 )
-                (\e -> Writer.tell (ScWarns $ Map.singleton 0 $ Map.singleton p $ Set.singleton $ ErrWarn e) >> return mempty)
+                (\e -> warn p e >> return mempty)
             
   where
     getAnn tok@(tSymb -> ANNOTATION a) = Just tok

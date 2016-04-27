@@ -5,6 +5,7 @@ module Main where
 
 import qualified Data.List as List
 import Data.List.Split
+import Data.Either
 import Data.Version (showVersion)
 
 import Language.SecreC.Pretty as Pretty
@@ -81,45 +82,48 @@ defaultOutputType = NoOutput
 -- * inputs with explicit output files write to the file
 -- * inputs without explicit output files write to stdout
 -- * non-input modules do not output
-resolveOutput :: [FilePath] -> [FilePath] -> [(PPArgs,Module Identifier Position)] -> [((PPArgs,Module Identifier Position),OutputType)]
+resolveOutput :: [FilePath] -> [FilePath] -> [ModuleFile] -> [(ModuleFile,OutputType)]
 resolveOutput inputs outputs modules = map res modules
     where
     db = zipLeft inputs outputs
-    res (ppargs,m) = case List.lookup (moduleFile m) db of
-        Just (Just o) -> ((ppargs,m),OutputFile o) -- input with matching output
-        Just Nothing -> ((ppargs,m),OutputStdout) -- intput without matching output
-        Nothing -> ((ppargs,m),NoOutput) -- non-input loaded module
+    res (Left (ppargs,m)) = case List.lookup (moduleFile m) db of
+        Just (Just o) -> (Left (ppargs,m),OutputFile o) -- input with matching output
+        Just Nothing -> (Left (ppargs,m),OutputStdout) -- intput without matching output
+        Nothing -> (Left (ppargs,m),NoOutput) -- non-input loaded module
+    res (Right sci) = (Right sci,NoOutput)
 
-passes :: [((PPArgs,Module Identifier Position),OutputType)] -> SecrecM IO ()
+passes :: [(ModuleFile,OutputType)] -> SecrecM IO ()
 passes modules = do
     tc <- typecheck modules
     case tc of
         Nothing -> return ()
         Just typedModules -> do
             opts <- Reader.ask
-            simpleModules <- fmapFstM (simplifyModuleWithPPArgs opts) typedModules
+            simpleModules <- fmapFstM (simplifyModuleFile opts) typedModules
             liftIO $ output simpleModules
 
-typecheck :: [((PPArgs,Module Identifier Position),OutputType)] -> SecrecM IO (Maybe [((PPArgs,Module VarIdentifier (Typed Position)),OutputType)])
+typecheck :: [(ModuleFile,OutputType)] -> SecrecM IO (Maybe [(TypedModuleFile,OutputType)])
 typecheck modules = do
     opts <- Reader.ask
-    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . modulePosId . snd . fst) modules) <+> text str <> char '.'
+    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . snd) $ lefts $ map fst modules) <+> text str <> char '.'
     if (typeCheck opts)
-        then runTcM $ failTcM noloc $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
-            typedModules <- fmapFstM tcModuleWithPPArgs modules
+        then runTcM $ failTcM (noloc::Position) $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
+            typedModules <- fmapFstM tcModuleFile modules
             printMsg "are well-typed"
             return $ Just typedModules
         else do
             printMsg "parsed OK" 
             return Nothing
 
-output :: [((PPArgs,Module VarIdentifier (Typed Position)),OutputType)] -> IO () 
-output modules = forM_ modules $ \((ppargs,m),o) -> case o of
-    NoOutput -> return ()
-    OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
-    OutputStdout -> do
-        putStrLn $ show (moduleFile m) ++ ":"
-        putStrLn $ show $ pp ppargs $+$ pp m
+output :: [(TypedModuleFile,OutputType)] -> IO () 
+output modules = forM_ modules $ \(mfile,o) -> case mfile of
+    Left (ppargs,m) -> case o of
+        NoOutput -> return ()
+        OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
+        OutputStdout -> do
+            putStrLn $ show (moduleFile m) ++ ":"
+            putStrLn $ show $ pp ppargs $+$ pp m
+    Right sci -> return ()
 
 secrec :: Options -> IO ()
 secrec opts = do

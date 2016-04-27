@@ -10,9 +10,12 @@ import Language.SecreC.Utils
 import Language.SecreC.Error
 import Language.SecreC.Pretty as PP
 import Language.SecreC.Vars
+import Language.SecreC.Parser.PreProcessor
 
 import Data.Foldable
+import Data.UnixTime
 import Data.IORef
+import Data.Binary as Binary
 import Data.Unique
 import Data.Int
 import Data.Word
@@ -36,9 +39,12 @@ import Data.Graph.Inductive.Query as Graph
 import GHC.Generics (Generic)
 
 import Control.Applicative
-import Control.Monad.State as State
-import Control.Monad.Reader as Reader
-import Control.Monad.Writer as Writer hiding ((<>))
+import Control.Monad.State (State(..),StateT(..),MonadState(..))
+import qualified Control.Monad.State as State
+import Control.Monad.Reader (Reader(..),ReaderT(..),MonadReader(..))
+import qualified Control.Monad.Reader as Reader
+import Control.Monad.Writer (Writer(..),WriterT(..),MonadWriter(..))
+import qualified Control.Monad.Writer as Writer hiding ((<>))
 import Control.Monad.Trans.RWS (RWS(..),RWST(..))
 import qualified Control.Monad.Trans.RWS as RWS
 import Control.Monad.Except
@@ -56,6 +62,10 @@ import qualified System.Mem.Weak.Map as WeakMap
 import System.Mem.Weak.Exts as Weak
 import System.Exit
 import System.IO
+import System.Posix.Types
+import System.Posix.Files
+import System.FilePath.Posix
+import System.IO.Error
 
 -- warn for unused local variables
 
@@ -65,6 +75,13 @@ data IOCstr = IOCstr
     }
   deriving (Data,Typeable,Show)
 
+instance Binary IOCstr where
+    put iok = do
+        Binary.put (kCstr iok)
+    get = do
+        k <- Binary.get :: Get TCstr
+        let st = unsafePerformIO $ newUniqRef Unevaluated
+        return $ IOCstr k st
 instance Hashable IOCstr where
     hashWithSalt i k = hashWithSalt i (kCstr k)
   
@@ -88,6 +105,7 @@ instance Hashable TCstrStatus
 data Scope = GlobalScope | LocalScope
   deriving (Show,Read,Data,Typeable,Generic)
 
+instance Binary Scope
 instance Hashable Scope
 
 instance PP Scope where
@@ -115,14 +133,14 @@ resetGlobalEnv = do
     iodeps <- WeakHash.newSized 512
     writeIORef globalEnv $ g { tDeps = deps, ioDeps = iodeps }
 
-orWarn :: (MonadIO m,Location loc) => TcM loc m a -> TcM loc m (Maybe a)
+orWarn :: (MonadIO m) => TcM m a -> TcM m (Maybe a)
 orWarn m = (liftM Just m) `catchError` \e -> do
     i <- getModuleCount
     TcM $ lift $ tell $ ScWarns $ Map.singleton i $ Map.singleton (loc e) $ Set.singleton $ ErrWarn e
 --    liftIO $ putStrLn $ "warning... " ++ ppr e
     return Nothing
 
-orWarn_ :: (MonadIO m,Location loc) => TcM loc m a -> TcM loc m ()
+orWarn_ :: (MonadIO m) => TcM m a -> TcM m ()
 orWarn_ m = orWarn m >> return ()
 
 type GIdentifier = Either
@@ -150,42 +168,44 @@ data GlobalEnv = GlobalEnv
 
 type Deps loc = Set (Loc loc IOCstr)
 
-getModuleCount :: (Monad m) => TcM loc m Int
+getModuleCount :: (Monad m) => TcM m Int
 getModuleCount = liftM (snd . moduleCount) State.get
 
 -- global typechecking environment
-data TcEnv loc = TcEnv {
-      localVars  :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ local variables: name |-> (isConst,type of the variable)
+data TcEnv = TcEnv {
+      localVars  :: Map VarIdentifier (Bool,EntryEnv Position) -- ^ local variables: name |-> (isConst,type of the variable)
     , localFrees :: Set VarIdentifier -- ^ free internal const variables generated during typechecking
     , localConsts :: Map Identifier VarIdentifier
-    , globalDeps :: Deps loc -- ^ global dependencies
-    , localDeps :: Deps loc -- ^ local dependencies
-    , tDict :: [TDict loc] -- ^ A stack of dictionaries
+    , globalDeps :: Deps Position -- ^ global dependencies
+    , localDeps :: Deps Position -- ^ local dependencies
+    , tDict :: [TDict Position] -- ^ A stack of dictionaries
     , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , procClass :: ProcClass -- class when typechecking procedures
     , tyVarId :: TyVarId
-    , moduleEnv :: (ModuleTcEnv loc,ModuleTcEnv loc) -- (aggregate module environment for past modules,plus the module environment for the current module)
+    , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
 
 -- module typechecking environment that can be exported to an interface file
-data ModuleTcEnv loc = ModuleTcEnv {
-      globalVars :: Map VarIdentifier (Bool,EntryEnv loc) -- ^ global variables: name |-> (isConst,type of the variable)
+data ModuleTcEnv = ModuleTcEnv {
+      globalVars :: Map VarIdentifier (Bool,EntryEnv Position) -- ^ global variables: name |-> (isConst,type of the variable)
     , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
-    , kinds :: Map VarIdentifier (EntryEnv loc) -- ^ defined kinds: name |-> type of the kind
-    , domains :: Map VarIdentifier (EntryEnv loc) -- ^ defined domains: name |-> type of the domain
+    , kinds :: Map VarIdentifier (EntryEnv Position) -- ^ defined kinds: name |-> type of the kind
+    , domains :: Map VarIdentifier (EntryEnv Position) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv loc)) -- ^ defined operators: name |-> procedure decl
+    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv Position)) -- ^ defined operators: name |-> procedure decl
     -- a list of overloaded procedures; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv loc)) -- ^ defined procedures: name |-> procedure decl
+    , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv Position)) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
-    , structs :: Map VarIdentifier (Maybe (EntryEnv loc),Map ModuleTyVarId (EntryEnv loc)) -- ^ defined structs: name |-> struct decl
-    }
+    , structs :: Map VarIdentifier (Maybe (EntryEnv Position),Map ModuleTyVarId (EntryEnv Position)) -- ^ defined structs: name |-> struct decl
+    } deriving Generic
 
-instance Monoid (ModuleTcEnv loc) where
+instance Binary (ModuleTcEnv)
+
+instance Monoid (ModuleTcEnv) where
     mempty = ModuleTcEnv {
           globalVars = Map.empty
         , globalConsts = Map.empty
@@ -202,42 +222,55 @@ instance Monoid (ModuleTcEnv loc) where
         , domains = Map.union (domains x) (domains y)
         , operators = Map.unionWith (Map.union) (operators x) (operators y)
         , procedures = Map.unionWith (Map.union) (procedures x) (procedures y)
-        , structs = Map.unionWith (\(a,b) (c,d) -> (unionMb a c,Map.union b d)) (structs x) (structs y)
+        , structs = Map.unionWith mergeStructs (structs x) (structs y)
         }
 
+mergeStructs (x,y) (z,w) = (unionMb x z,Map.union y w)
 unionMb Nothing y = y
 unionMb x Nothing = x
 unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
+-- module interface data
+data ModuleSCI = ModuleSCI {
+      sciFile :: FilePath -- base file
+    , sciId :: Identifier -- module identifier
+    , sciImports :: [ImportDeclaration Identifier Position] -- module dependencies 
+    , sciTime :: UnixTime -- typechecked time
+    , sciPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
+    , sciEnv :: ModuleTcEnv -- typechecking environment
+    } deriving Generic
+
+instance Binary ModuleSCI
+
 type ModuleTyVarId = (Identifier,TyVarId)
 
-modifyModuleEnv :: Monad m => (ModuleTcEnv loc -> ModuleTcEnv loc) -> TcM loc m ()
+modifyModuleEnv :: Monad m => (ModuleTcEnv -> ModuleTcEnv) -> TcM m ()
 modifyModuleEnv f = State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
 
-getModuleField :: (Monad m) => (ModuleTcEnv loc -> x) -> TcM loc m x
+getModuleField :: (Monad m) => (ModuleTcEnv -> x) -> TcM m x
 getModuleField f = do
     (x,y) <- State.gets moduleEnv
     let xy = mappend x y
     return $ f xy
 
-getModuleEnv :: Monad m => TcM loc m (ModuleTcEnv loc)
+getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
-getStructs :: Monad m => TcM loc m (Map VarIdentifier (Maybe (EntryEnv loc),Map ModuleTyVarId (EntryEnv loc)))
+getStructs :: Monad m => TcM m (Map VarIdentifier (Maybe (EntryEnv Position),Map ModuleTyVarId (EntryEnv Position)))
 getStructs = getModuleField structs
-getKinds :: Monad m => TcM loc m (Map VarIdentifier (EntryEnv loc))
+getKinds :: Monad m => TcM m (Map VarIdentifier (EntryEnv Position))
 getKinds = getModuleField kinds
-getGlobalVars :: Monad m => TcM loc m (Map VarIdentifier (Bool,EntryEnv loc))
+getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Bool,EntryEnv Position))
 getGlobalVars = getModuleField globalVars
-getGlobalConsts :: Monad m => TcM loc m (Map Identifier VarIdentifier)
+getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField globalConsts
-getDomains :: Monad m => TcM loc m (Map VarIdentifier (EntryEnv loc))
+getDomains :: Monad m => TcM m (Map VarIdentifier (EntryEnv Position))
 getDomains = getModuleField domains
-getOperators :: Monad m => TcM loc m (Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv loc)))
+getOperators :: Monad m => TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv Position)))
 getOperators = getModuleField operators
-getProcedures :: Monad m => TcM loc m (Map VarIdentifier (Map ModuleTyVarId (EntryEnv loc)))
+getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId (EntryEnv Position)))
 getProcedures = getModuleField procedures
 
-insideAnnotation :: Monad m => TcM loc m a -> TcM loc m a
+insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation m = do
     isAnn <- liftM (isAnnProcClass . procClass) State.get
     State.modify $ \env -> env { procClass = chgAnnProcClass True (procClass env) }
@@ -251,15 +284,14 @@ chgAnnProcClass b (Proc _) = Proc b
 isAnnProcClass :: ProcClass -> Bool
 isAnnProcClass (Proc b) = b
 
-withDependencies :: Monad m => Set (Loc loc IOCstr) -> TcM loc m a -> TcM loc m a
+withDependencies :: Monad m => Set (Loc Position IOCstr) -> TcM m a -> TcM m a
 withDependencies deps m = do
-    env <- State.get
     State.modify $ \env -> env { localDeps = deps `Set.union` localDeps env }
     x <- m
     State.modify $ \env -> env { localDeps = localDeps env }
     return x
 
---tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv loc2 -> TcEnv loc1
+--tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv2 -> TcEnv1
 --tcEnvMap f g env = TcEnv
 --    { globalVars = fmap (\(x,y) -> (x,fmap f y)) $ globalVars env
 --    , localVars = fmap (\(x,y) -> (x,fmap f y)) $ localVars env
@@ -282,9 +314,9 @@ withDependencies deps m = do
 --    }
 
 type VarsId m a = Vars VarIdentifier m a
-type VarsIdTcM loc m = (Typeable m,MonadIO m,MonadBaseControl IO m,VarsId (TcM loc m) loc,VarsId (TcM loc Symbolic) loc)
+type VarsIdTcM m = (Typeable m,MonadIO m,MonadBaseControl IO m,VarsId (TcM m) Position,VarsId (TcM Symbolic) Position)
 
-emptyTcEnv :: TcEnv loc
+emptyTcEnv :: TcEnv
 emptyTcEnv = TcEnv
     { 
     localVars = Map.empty
@@ -305,8 +337,9 @@ data EntryEnv loc = EntryEnv {
       entryLoc :: loc -- ^ Location where the entry is defined
     , entryType :: Type -- ^ Type of the entry
     }
-  deriving Functor
-  
+  deriving (Functor,Generic)
+
+instance Binary loc => Binary (EntryEnv loc)  
 
 instance Location loc => Located (EntryEnv loc) where
     type LocOf (EntryEnv loc) = loc
@@ -346,32 +379,32 @@ typeToDomainName t = case typeToVarName t of
 
 type SecrecErrArr = SecrecError -> SecrecError
 
-newtype TcM loc m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv loc) (SecrecM m) a }
-    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv loc),MonadReader (Int,SecrecErrArr),MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
+newtype TcM m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv) (SecrecM m) a }
+    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv),MonadReader (Int,SecrecErrArr),MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
 
-localOptsTcM :: Monad m => (Options -> Options) -> TcM loc m a -> TcM loc m a
-localOptsTcM f (TcM m) = TcM $ RWS.mapRWST (local f) m
+localOptsTcM :: Monad m => (Options -> Options) -> TcM m a -> TcM m a
+localOptsTcM f (TcM m) = TcM $ RWS.mapRWST (Reader.local f) m
 
-mapTcM :: (m (Either SecrecError ((a,TcEnv loc,()),SecrecWarnings)) -> n (Either SecrecError ((b,TcEnv loc,()),SecrecWarnings)))
-    -> TcM loc m a -> TcM loc n b
+mapTcM :: (m (Either SecrecError ((a,TcEnv,()),SecrecWarnings)) -> n (Either SecrecError ((b,TcEnv,()),SecrecWarnings)))
+    -> TcM m a -> TcM n b
 mapTcM f (TcM m) = TcM $ RWS.mapRWST (mapSecrecM f) m
 
-instance MonadTrans (TcM loc) where
+instance MonadTrans (TcM) where
     lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,mempty)) m
 
-askErrorM :: Monad m => TcM loc m SecrecErrArr
+askErrorM :: Monad m => TcM m SecrecErrArr
 askErrorM = liftM snd $ Reader.ask
 
-askErrorM' :: Monad m => TcM loc m (Int,SecrecErrArr)
+askErrorM' :: Monad m => TcM m (Int,SecrecErrArr)
 askErrorM' = Reader.ask
 
-newErrorM :: TcM loc m a -> TcM loc m a
+newErrorM :: TcM m a -> TcM m a
 newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,id),s)) m
 
-addErrorM :: (MonadIO m,Location loc) => loc -> SecrecErrArr -> TcM loc m a -> TcM loc m a
+addErrorM :: (MonadIO m,Location loc) => loc -> SecrecErrArr -> TcM m a -> TcM m a
 addErrorM l err m = addErrorM' l (1,err) m
 
-addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM loc m a -> TcM loc m a
+addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
 addErrorM' l (j,err) (TcM m) = do
     size <- liftM fst Reader.ask
     opts <- askOpts
@@ -379,14 +412,14 @@ addErrorM' l (j,err) (TcM m) = do
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
         else TcM $ RWS.withRWST (\(i,f) s -> ((i + j,f . err),s)) m
 
---tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM loc m a
+--tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM m a
 --tcPos = tcLocM (locpos) (updpos noloc)
 
---tcPosVarsM :: (Monad m,Location loc) => VarsM iden (TcM Position m) a -> VarsM iden (TcM loc m) a
+--tcPosVarsM :: (Monad m,Location loc) => VarsM iden (TcM Position m) a -> VarsM iden (TcM m) a
 --tcPosVarsM m = mapStateT (tcPos) m
 
 -- | Map different locations over @TcM@ monad.
---tcLocM :: Monad m => (loc2 -> loc1) -> (loc1 -> loc2) -> TcM loc1 m a -> TcM loc2 m a
+--tcLocM :: Monad m => (loc2 -> loc1) -> (loc1 -> loc2) -> TcM1 m a -> TcM2 m a
 --tcLocM f g m = do
 --    s2 <- get
 --    r2 <- ask
@@ -396,15 +429,15 @@ addErrorM' l (j,err) (TcM m) = do
 --    return x
 
 -- | Typechecks a code block, with local declarations only within its scope
-tcBlock :: Monad m => TcM loc m a -> TcM loc m a
+tcBlock :: Monad m => TcM m a -> TcM m a
 tcBlock m = do
-    r <- ask
-    s <- get
+    r <- Reader.ask
+    s <- State.get
     (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
     Writer.tell w'
     return x
 
-tcLocal :: Monad m => TcM loc m a -> TcM loc m a
+tcLocal :: Monad m => TcM m a -> TcM m a
 tcLocal m = do
     env <- State.get
     x <- m
@@ -413,7 +446,7 @@ tcLocal m = do
 
 -- a new dictionary
 newDict l msg = do
-    opts <- TcM $ lift ask
+    opts <- TcM $ lift Reader.ask
     size <- liftM (length . tDict) State.get
     if size >= constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "dictionaries"
@@ -421,7 +454,7 @@ newDict l msg = do
             State.modify $ \e -> e { tDict = mempty : tDict e }
 --            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
 
-tcWith :: (VarsIdTcM loc m,Location loc) => loc -> String -> TcM loc m a -> TcM loc m (a,TDict loc)
+tcWith :: (VarsIdTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict Position)
 tcWith l msg m = do
     newDict l $ "tcWith " ++ msg
     x <- m
@@ -431,16 +464,16 @@ tcWith l msg m = do
   where
     dropDict (x:xs) = xs
 
-execTcM :: (MonadIO m,Location loc) => TcM loc m a -> (Int,SecrecErrArr) -> TcEnv loc -> SecrecM m (a,TcEnv loc)
+execTcM :: (MonadIO m) => TcM m a -> (Int,SecrecErrArr) -> TcEnv -> SecrecM m (a,TcEnv)
 execTcM m arr env = do
     (x,env',()) <- RWS.runRWST (unTcM m) arr env
     return (x,env')
 
-runTcM :: (MonadIO m,Location loc) => TcM loc m a -> SecrecM m a
+runTcM :: (MonadIO m) => TcM m a -> SecrecM m a
 runTcM m = liftM fst $ RWS.evalRWST (unTcM m) (0,id) emptyTcEnv
 
 -- flips errors whenever typechecking is expected to fail
-failTcM :: (MonadIO m,Location loc) => loc -> TcM loc m a -> TcM loc m a
+failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
 failTcM l m = do
     opts <- TcM $ lift Reader.ask
     if failTypechecker opts
@@ -519,6 +552,7 @@ data TcCstr
     | IsPublic (Expression VarIdentifier Type)
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
+instance Binary TcCstr
 instance Hashable TcCstr
  
 isTrivialTcCstr :: TcCstr -> Bool
@@ -538,6 +572,7 @@ data CheckCstr
         (SExpr VarIdentifier Type) -- right expr
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
+instance Binary CheckCstr
 instance Hashable CheckCstr
  
 isTrivialCheckCstr :: CheckCstr -> Bool
@@ -555,6 +590,7 @@ data HypCstr
         (SExpr VarIdentifier Type)
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
+instance Binary HypCstr
 instance Hashable HypCstr
  
 isTrivialHypCstr :: HypCstr -> Bool
@@ -594,6 +630,23 @@ data TCstr
     | HypK HypCstr
   deriving (Data,Typeable,Show,Generic)
 
+instance Binary TCstr where
+    put (TcK c) = Binary.put (1::Int) >> Binary.put c
+    put (DelayedK c _) = Binary.put c
+    put (CheckK c) = Binary.put (2::Int) >> Binary.put c
+    put (HypK c) = Binary.put (3::Int) >> Binary.put c
+    get = do
+        i <- Binary.get :: Get Int
+        case i of
+            1 -> do
+                c <- Binary.get :: Get TcCstr
+                return $ TcK c
+            2 -> do
+                c <- Binary.get :: Get CheckCstr
+                return $ CheckK c
+            3 -> do
+                c <- Binary.get :: Get HypCstr
+                return $ HypK c
 instance Hashable TCstr where
     hashWithSalt i (TcK c) = hashWithSalt i c
     hashWithSalt i (DelayedK c _) = hashWithSalt i c
@@ -686,6 +739,7 @@ data ArrayProj
     | ArrayIdx ArrayIndex
   deriving (Data,Typeable,Show,Generic)
 
+instance Binary ArrayProj
 instance Hashable ArrayProj
     
 instance Eq ArrayProj where
@@ -724,6 +778,7 @@ data ArrayIndex
     | DynArrayIndex (SExpr VarIdentifier Type)
   deriving (Data,Typeable,Show,Generic)
   
+instance Binary ArrayIndex
 instance Hashable ArrayIndex
 
 instance Eq ArrayIndex where
@@ -901,6 +956,7 @@ data TDict loc = TDict
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 
+instance Binary loc => Binary (TDict loc)
 instance Hashable loc => Hashable (TDict loc)
 
 flattenIOCstrGraph :: IOCstrGraph loc -> [Loc loc IOCstr]
@@ -977,10 +1033,10 @@ traverseVarsIOCstrGraph f gr = do
             return (ins',ioCstrId n',Loc l n',outs')      
 
 evalVarsMState :: Monad m => VarsM iden (StateT st m) a -> st -> VarsM iden m a
-evalVarsMState varsm st = mapStateT (\m -> evalStateT m st) varsm
+evalVarsMState varsm st = State.mapStateT (\m -> State.evalStateT m st) varsm
 
 liftVarsM :: (Monad m,MonadTrans t,Vars iden m a) => VarsM iden m a -> VarsM iden (t m) a
-liftVarsM m = mapStateT (lift) m
+liftVarsM m = State.mapStateT (lift) m
 
 evalIOCstrVars m = flip evalVarsMState (Map.empty::IOCstrSubsts) m
 
@@ -1007,48 +1063,49 @@ instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier
 --        return $ IOCstr k' ref'
 
 -- we only need to fetch the head
-getTSubsts :: (Monad m,Location loc) => TcM loc m TSubsts
+getTSubsts :: (Monad m) => TcM m TSubsts
 getTSubsts = do
     env <- State.get
     return $ tSubsts $ mconcat $ tDict env
 
-newTyVarId :: MonadIO m => TcM loc m TyVarId
+newTyVarId :: MonadIO m => TcM m TyVarId
 newTyVarId = do
+    i <- State.gets tyVarId
     State.modify' $ \g -> g { tyVarId = succ (tyVarId g) }
-    State.gets tyVarId 
+    return i
 
-newModuleTyVarId :: MonadIO m => TcM loc m ModuleTyVarId
+newModuleTyVarId :: MonadIO m => TcM m ModuleTyVarId
 newModuleTyVarId = do
     i <- newTyVarId
     mn <- State.gets (fst . moduleCount)
     return (mn,i)
 
-freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM loc m VarIdentifier
+freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 freshVarId n doc = do
     i <- newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier n (Just mn) (Just i) False doc
-    return v
+    let v' = VarIdentifier n (Just mn) (Just i) False doc
+    return v'
 
 freshVarIO :: MonadIO m => VarIdentifier -> m VarIdentifier
 freshVarIO v = do
     i <- liftIO $ liftM hashUnique newUnique
-    let v = VarIdentifier (varIdBase v) Nothing (Just i) False (varIdPretty v)
-    return v
+    let v' = VarIdentifier (varIdBase v) Nothing (Just i) False (varIdPretty v)
+    return v'
 
-uniqVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM loc m VarIdentifier
+uniqVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 uniqVarId n doc = do
     v <- freshVarId n doc
     addFree v
     return v
     
-addFree n = modify $ \env -> env { localFrees = Set.insert n (localFrees env) }
+addFree n = State.modify $ \env -> env { localFrees = Set.insert n (localFrees env) }
 
 instance PP (TDict loc) where
     pp dict = text "Constraints:" $+$ nest 4 (ppGr pp (const PP.empty) $ tCstrs dict)
           $+$ text "Substitutions:" $+$ nest 4 (ppTSubsts (tSubsts dict))
 
-ppConstraints :: MonadIO m => TDict loc -> TcM loc m Doc
+ppConstraints :: MonadIO m => TDict loc -> TcM m Doc
 ppConstraints d = do
     let ppK (Loc l c) = do
         s <- liftIO $ readUniqRef $ kStatus c
@@ -1067,7 +1124,9 @@ data VarIdentifier = VarIdentifier
         , varIdTok :: Bool -- if the variable is a token (not to be resolved) (only used for comparisons)
         , varIdPretty :: Maybe Doc -- for free variables introduced by typechecking
         }
-    deriving (Typeable,Data,Show)
+    deriving (Typeable,Data,Show,Generic)
+
+instance Binary VarIdentifier
 
 instance Eq VarIdentifier where
     v1 == v2 = varIdUniq v1 == varIdUniq v2 && varIdBase v1 == varIdBase v2 && varIdModule v1 == varIdModule v2
@@ -1103,6 +1162,7 @@ data SecType
     | SVar VarIdentifier SVarKind
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
+instance Binary SecType
 instance Hashable SecType
 
 data SVarKind
@@ -1110,6 +1170,7 @@ data SVarKind
     | PrivateKind (Maybe (KindName VarIdentifier ()))
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
+instance Binary SVarKind
 instance Hashable SVarKind
 
 tyProcClass :: Type -> ProcClass
@@ -1156,6 +1217,7 @@ isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ F
     aux d = False
 isNonRecursiveDecType d = False
 
+instance Binary DecType
 instance Hashable DecType
 
 instance Eq DecType where
@@ -1172,6 +1234,7 @@ hasCond :: Cond a -> Bool
 hasCond (Cond _ Nothing) = False
 hasCond (Cond _ (Just _)) = True
 
+instance Binary a => Binary (Cond a)
 instance Hashable a => Hashable (Cond a)
 
 unCond :: Cond a -> a
@@ -1196,6 +1259,7 @@ data BaseType
     | BVar VarIdentifier
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
+instance Binary BaseType
 instance Hashable BaseType
 
 type SExpr iden loc = (Expression iden loc)
@@ -1210,6 +1274,7 @@ data ComplexType
     | Void -- ^ Empty type
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
+instance Binary ComplexType
 instance Hashable ComplexType
 
 data SysType
@@ -1219,6 +1284,7 @@ data SysType
     | SysCRef Type
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
+instance Binary SysType
 instance Hashable SysType
 
 data Type
@@ -1241,6 +1307,7 @@ data Type
     | CondType Type (SCond VarIdentifier Type) -- a type with an invariant
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
   
+instance Binary Type
 instance Hashable Type
 
 -- | Type arrays
@@ -1251,6 +1318,7 @@ data VArrayType
     | VAVar VarIdentifier Type (SExpr VarIdentifier Type) -- a type array variable
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
+instance Binary VArrayType
 instance Hashable VArrayType
 
 vArraySize :: VArrayType -> SExpr VarIdentifier Type
@@ -1654,6 +1722,7 @@ data ProcClass
     = Proc
         Bool -- is an annotation
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
+instance Binary ProcClass
 instance Hashable ProcClass
 
 instance Monoid ProcClass where
@@ -1670,6 +1739,7 @@ data StmtClass
     -- | The execution of the statement may end without reaching a return, break or continue statement
     | StmtFallthru
   deriving (Show,Data,Typeable,Eq,Ord,Generic) 
+instance Binary StmtClass
 instance Hashable StmtClass
 
 isLoopStmtClass :: StmtClass -> Bool
@@ -1694,6 +1764,7 @@ isStmtFallthru c = False
 
 data Typed a = Typed a Type
   deriving (Show,Data,Typeable,Functor,Eq,Ord,Generic)
+instance Binary a => Binary (Typed a)
 instance Hashable a => Hashable (Typed a)
 
 instance PP a => PP (Typed a) where
@@ -1851,13 +1922,13 @@ instance Hashable VarIdentifier where
 
 type Prim = PrimitiveDatatype ()
 
-tcError :: (MonadIO m,Location loc) => Position -> TypecheckerErr -> TcM loc m a
+tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
 tcError pos msg = throwTcError $ TypecheckerError pos msg  
 
-genTcError :: (MonadIO m,Location loc) => Position -> Doc -> TcM loc m a
+genTcError :: (MonadIO m) => Position -> Doc -> TcM m a
 genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg  
 
-throwTcError :: (MonadIO m,Location loc) => SecrecError -> TcM loc m a
+throwTcError :: (MonadIO m) => SecrecError -> TcM m a
 throwTcError err = do
     (i,f) <- Reader.ask
     let err2 = f err
@@ -1874,16 +1945,16 @@ removeOrWarn = everywhere (mkT f) where
 varIdxT :: VarName VarIdentifier Type -> Type
 varIdxT v = IdxT $ varExpr v
 
-askOpts :: Monad m => TcM loc m Options
-askOpts = TcM $ lift ask
+askOpts :: Monad m => TcM m Options
+askOpts = TcM $ lift Reader.ask
 
-localOpts :: Monad m => (Options -> Options) -> TcM loc m a -> TcM loc m a
+localOpts :: Monad m => (Options -> Options) -> TcM m a -> TcM m a
 localOpts f (TcM m) = TcM $ RWS.mapRWST (SecrecM . Reader.local f . unSecrecM) m
 
-withoutImplicitClassify :: Monad m => TcM loc m a -> TcM loc m a
+withoutImplicitClassify :: Monad m => TcM m a -> TcM m a
 withoutImplicitClassify m = localOpts (\opts -> opts { implicitClassify = False }) m
 
-instance MonadIO m => GenVar VarIdentifier (TcM loc m) where
+instance MonadIO m => GenVar VarIdentifier (TcM m) where
     genVar v = uniqVarId (varIdBase v) (varIdPretty v)
 
 instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
@@ -1897,7 +1968,7 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifie
     substL v = return $ Just v
 
 -- filter the constraints that depend on a set of variables
-varsCstrGraph :: (VarsIdTcM loc m,Location loc) => Set VarIdentifier -> IOCstrGraph loc -> TcM loc m (IOCstrGraph loc)
+varsCstrGraph :: (VarsIdTcM m,Location loc) => Set VarIdentifier -> IOCstrGraph loc -> TcM m (IOCstrGraph loc)
 varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
     where
     aux (i,x) = do
@@ -1907,7 +1978,7 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
             else return True
 
 -- gets the terminal nodes in the constraint graph for all the variables in a given value
---getVarOutSet :: (VarsIdTcM loc m,VarsId (TcM loc m) a,Location loc) => a -> TcM loc m (Set (Loc loc IOCstr))
+--getVarOutSet :: (VarsIdTcM m,VarsId (TcM m) a,Location loc) => a -> TcM m (Set (Loc loc IOCstr))
 --getVarOutSet x = do
 --    -- get the free variables
 --    vs <- liftM Map.keysSet $ fvs x
@@ -1920,7 +1991,21 @@ compoundStmt ss = CompoundStatement (Typed noloc t) ss
     where t = StmtType $ mconcat $ map ((\(StmtType c) -> c) . typed . loc) ss
     
 moduleVarId :: Module VarIdentifier loc -> VarIdentifier
-moduleVarId m = maybe (mkVarId "main") id $ moduleId m
+moduleVarId m = maybe (mkVarId "main") id $ moduleIdMb m
     
-    
+type ModuleFile = Either (PPArgs,Module Identifier Position) ModuleSCI
+type TypedModuleFile = Either (PPArgs,Module VarIdentifier (Typed Position)) ModuleSCI
+
+moduleFileName :: ModuleFile -> FilePath
+moduleFileName (Left (_,m)) = moduleFile m
+moduleFileName (Right sci) = sciFile sci
+
+moduleFileId :: ModuleFile -> Identifier
+moduleFileId (Left (_,m)) = moduleId m
+moduleFileId (Right sci) = sciId sci
+
+moduleFileImports :: ModuleFile -> [ImportDeclaration Identifier Position]
+moduleFileImports (Left (_,m)) = moduleImports m
+moduleFileImports (Right sci) = sciImports sci
+
     

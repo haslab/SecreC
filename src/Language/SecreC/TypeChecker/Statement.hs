@@ -41,7 +41,7 @@ import Prelude hiding (mapM)
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
-tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM loc m ([Statement VarIdentifier (Typed loc)],Type)
+tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
 tcStmts ret [s] = do
     (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
@@ -60,14 +60,14 @@ tcStmts ret (s:ss) = do
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
 -- | Typecheck a non-empty statement
-tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
+tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
     when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
-tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
+tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
@@ -79,7 +79,7 @@ tcLoopBodyStmt ret l s = do
 -- | Typechecks a @Statement@
 tcStmt :: (ProverK loc m) => Type -- ^ return type
     -> Statement Identifier loc -- ^ input statement
-    -> TcM loc m (Statement VarIdentifier (Typed loc),Type)
+    -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcStmt ret (CompoundStatement l s) = do
     (ss',t) <- tcLocal $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
@@ -169,7 +169,7 @@ tcStmt ret (AnnStatement l ann) = do
     let t = StmtType $ Set.singleton StmtFallthru
     return (AnnStatement (Typed l t) ann',t)
 
-tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM loc m (LoopAnnotation VarIdentifier (Typed loc))
+tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation VarIdentifier (Typed loc))
 tcLoopAnn (DecreasesAnn l e) = insideAnnotation $ do
     (e') <- tcGuard e
     return (DecreasesAnn (Typed l $ typed $ loc e') e')
@@ -177,7 +177,7 @@ tcLoopAnn (InvariantAnn l e) = insideAnnotation $ do
     (e') <- tcGuard e
     return (InvariantAnn (Typed l $ typed $ loc e') e')
 
-tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM loc m (StatementAnnotation VarIdentifier (Typed loc))
+tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
 tcStmtAnn (AssumeAnn l e) = insideAnnotation $ do
     (e') <- tcGuard e
     return (AssumeAnn (Typed l $ typed $ loc e') e')
@@ -185,10 +185,10 @@ tcStmtAnn (AssertAnn l e) = insideAnnotation $ do
     (e') <- tcGuard e
     return (AssertAnn (Typed l $ typed $ loc e') e')
 
-isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM loc m ()
+isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 
-tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM loc m (SyscallParameter VarIdentifier (Typed loc))
+tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM m (SyscallParameter VarIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
     e' <- tcExpr e
     let t = SysT $ SysPush $ typed $ loc e'
@@ -206,7 +206,7 @@ tcSyscallParam (SyscallPushCRef l e) = do
     let t = SysT $ SysCRef $ typed $ loc e'
     return $ SyscallPushCRef (Typed l t) e'
 
-tcForInitializer :: (ProverK loc m) => ForInitializer Identifier loc -> TcM loc m (ForInitializer VarIdentifier (Typed loc))
+tcForInitializer :: (ProverK loc m) => ForInitializer Identifier loc -> TcM m (ForInitializer VarIdentifier (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing
 tcForInitializer (InitializerExpression (Just e)) = do
     e' <- tcExpr e
@@ -215,14 +215,14 @@ tcForInitializer (InitializerVariable vd) = do
     vd' <- tcVarDecl LocalScope vd
     return $ InitializerVariable vd'
 
-tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM loc m (VariableDeclaration VarIdentifier (Typed loc))
+tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM m (VariableDeclaration VarIdentifier (Typed loc))
 tcVarDecl scope (VariableDeclaration l tyspec vars) = do
     (tyspec') <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
     (vars') <- mapM (tcVarInit scope ty) vars
     return (VariableDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
 
-tcVarInit :: (ProverK loc m) => Scope -> Type -> VariableInitialization Identifier loc -> TcM loc m (VariableInitialization VarIdentifier (Typed loc))
+tcVarInit :: (ProverK loc m) => Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization VarIdentifier (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
     (e') <- mapM (tcExprTy ty') e
@@ -232,14 +232,14 @@ tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     newVariable scope v' Nothing False -- don't add values to the environment
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
-tcConstDecl :: (ProverK loc m) => Scope -> ConstDeclaration Identifier loc -> TcM loc m (ConstDeclaration VarIdentifier (Typed loc))
+tcConstDecl :: (ProverK loc m) => Scope -> ConstDeclaration Identifier loc -> TcM m (ConstDeclaration VarIdentifier (Typed loc))
 tcConstDecl scope (ConstDeclaration l tyspec vars) = do
     (tyspec') <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
     (vars') <- mapM (tcConstInit scope ty) vars
     return (ConstDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
 
-tcConstInit :: (ProverK loc m) => Scope -> Type -> ConstInitialization Identifier loc -> TcM loc m (ConstInitialization VarIdentifier (Typed loc))
+tcConstInit :: (ProverK loc m) => Scope -> Type -> ConstInitialization Identifier loc -> TcM m (ConstInitialization VarIdentifier (Typed loc))
 tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
     (e') <- mapM (tcExprTy ty') e

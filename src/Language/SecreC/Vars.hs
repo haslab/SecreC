@@ -87,9 +87,9 @@ class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
     
     subst :: Vars iden m iden => String -> Substs iden m -> Bool -> Map iden iden -> a -> m a
     subst msg f substBounds ss x = do
---        liftIO $ putStrLn $ "subst " ++ show msg
+        --liftIO $ putStrLn $ "subst " ++ show msg
         x <- State.evalStateT (substVarsM f x) (False,False,(substBounds,ss),Map.empty,Set.empty)
---        liftIO $ putStrLn $ "unSubsts " ++ show msg
+        --liftIO $ putStrLn $ "unSubsts " ++ show msg
         return x
     
     substProxy :: Vars iden m iden => String -> SubstsProxy iden m -> Bool -> Map iden iden -> a -> m a

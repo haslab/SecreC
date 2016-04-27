@@ -14,6 +14,8 @@ import Data.Hashable
 
 import GHC.Generics (Generic)
 
+import Data.Binary
+
 import Text.Parsec.Pos
 import Text.PrettyPrint
 
@@ -31,6 +33,7 @@ data Position
     | UnhelpfulPos String
     deriving (Read, Eq, Ord, Data, Typeable,Generic)
 
+instance Binary Position
 instance Hashable Position
 
 instance PP Position where

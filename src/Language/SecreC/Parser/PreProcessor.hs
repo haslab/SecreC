@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleInstances, TypeSynonymInstances, FlexibleContexts, DeriveDataTypeable, TupleSections, TypeFamilies #-}
+{-# LANGUAGE DeriveGeneric, FlexibleInstances, TypeSynonymInstances, FlexibleContexts, DeriveDataTypeable, TupleSections, TypeFamilies #-}
 
 module Language.SecreC.Parser.PreProcessor where
 
@@ -34,10 +34,13 @@ import Safe
 
 import qualified Data.Foldable as Foldable
 import Data.Maybe
+import Data.Binary
 import Data.Typeable
 import Data.Data
 import Data.List.Split (splitOn)
 import Data.Version (showVersion)
+
+import GHC.Generics (Generic)
 
 withPPArgs :: (MonadReader Options m) => (a -> m b) -> (PPArgs,a) -> m b
 withPPArgs f (ppargs,x) = local (`mappend` ppOptions ppargs) (f x)
@@ -49,7 +52,9 @@ type PPArgs = [PPArg]
 
 data PPArg
     = SecrecOpts Options
-  deriving (Data,Show,Typeable)
+  deriving (Data,Show,Typeable,Generic)
+
+instance Binary PPArg
 
 instance PP PPArgs where
     pp args = PP.vcat $ map pp args

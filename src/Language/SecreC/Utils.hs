@@ -1,11 +1,14 @@
-{-# LANGUAGE FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE DeriveGeneric, FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
     
 import Language.SecreC.Pretty
 
-import Data.Generics as Generics hiding (GT,typeOf)
+import Data.Binary
+import Data.Binary.Get as Binary
+import Data.Generics as Generics hiding (GT,typeOf,Generic,empty)
 import qualified Data.Generics as Generics
+import GHC.Generics (Generic)
 import Data.Traversable as Traversable
 import Data.Foldable as Foldable
 import Data.Map (Map(..))
@@ -19,8 +22,11 @@ import Data.Hashable
 import Data.Graph.Inductive.PatriciaTree as Graph
 import Data.Graph.Inductive.Graph as Graph
 import Data.Graph.Inductive.Monad as Graph
+import Data.Graph.Inductive.Query.DFS as Graph
+import Data.Graph.Inductive.Basic as Graph
 import Data.Char
 import Data.List as List
+import qualified Data.ByteString.Lazy as ByteString
 
 import Text.PrettyPrint
 
@@ -65,12 +71,22 @@ elimSpaces = filter (not . isSpace)
 contextGr :: (Graph gr) => gr a b -> Node -> Maybe (Context a b)
 contextGr g v = fst (Graph.match v g)
 
+reachablesGr :: (Graph gr) => [Node] -> gr a b -> [Node]
+reachablesGr vs g = preorderF (dff vs g)
+
 mapGrM :: (Monad m,DynGraph gr) => (Context a b -> m (Context c d)) -> gr a b -> m (gr c d)
 mapGrM f gr = ufold g (return Graph.empty) gr
     where
     g ctx m = do
         ctx' <- f ctx
         liftM (ctx' &) m
+
+nmapM :: (Monad m,DynGraph gr) => (a -> m c) -> gr a b -> m (gr c b)
+nmapM f gr = mapGrM aux gr
+    where
+    aux (froms,n,x,tos) = do
+        x' <- f x
+        return (froms,n,x',tos)
 
 labnfilterM :: (Monad m,DynGraph gr) => (LNode a -> m Bool) -> gr a b -> m (gr a b)
 labnfilterM p gr = ufold aux (return Graph.empty) gr
@@ -122,6 +138,8 @@ deriving instance Typeable (Gr a b)
 deriving instance (Typeable i,Data c,Typeable p) => Data (G.K1 i c p)
 deriving instance (Typeable i,Typeable c,Typeable p,Typeable f,Data (f p)) => Data (G.M1 i c f p)
 
+instance (Binary a,Binary b) => Binary (Gr a b)
+
 fromX :: G.Generic x => x -> G.Rep x x
 fromX = G.from
 toX :: G.Generic x => G.Rep x x -> x
@@ -147,11 +165,13 @@ mapSetM f xs = liftM Set.fromList $ mapM f $ Set.toList xs
 
 -- | Non-empty list
 data NeList a = WrapNe a | ConsNe a (NeList a)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable,Generic)
+instance Binary a => Binary (NeList a)
 
 -- | Non-empty list with separators
 data SepList sep a = WrapSep a | ConsSep a sep (SepList sep a)
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable,Generic)
+instance (Binary sep,Binary a) => Binary (SepList sep a)
 
 foldNeM :: Monad m => (a -> b -> m b) -> (a -> m b) -> NeList a -> m b
 foldNeM f g (WrapNe x) = g x
@@ -540,5 +560,15 @@ instance (Hashable a,Hashable b) => Hashable (Map a b) where
 instance (Hashable a,Hashable b) => Hashable (Gr a b) where
     hashWithSalt i x = hashWithSalt i (grToList x)
 
-join2 :: (Traversable t,Monoid b) => t (a,b) -> (t a,b)
-join2 x = (fmap fst x,mconcat $ Foldable.toList $ fmap snd x)
+decodeFileLazy :: Binary a => FilePath -> IO a
+decodeFileLazy fn = do
+    input <- ByteString.readFile fn
+    return $ Binary.runGet get input
+
+decodeFileOrFailLazy :: Binary a => FilePath -> IO (Either (ByteOffset, String) a)
+decodeFileOrFailLazy fn = do
+    input <- ByteString.readFile fn
+    case Binary.runGetOrFail get input of
+        Left (_,off,err) -> return $ Left (off,err)
+        Right (_,_,x) -> return $ Right x
+

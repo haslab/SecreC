@@ -4,6 +4,7 @@ module Language.SecreC.Location where
     
 import Data.Generics hiding (Generic)
 import Data.Hashable
+import Data.Binary
     
 import Language.SecreC.Pretty
 import Language.SecreC.Position
@@ -39,6 +40,7 @@ instance Location () where
 data Loc loc a = Loc loc a
   deriving (Read,Show,Data,Typeable,Functor,Generic)
 
+instance (Binary loc,Binary a) => Binary (Loc loc a)
 instance (Hashable loc,Hashable a) => Hashable (Loc loc a)
  
 instance Eq a => Eq (Loc loc a) where

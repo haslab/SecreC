@@ -4,11 +4,20 @@ import Text.PrettyPrint
 import Text.Ordinal
 
 import Data.Foldable
+import Data.Binary
 import Data.Int
 import Data.Word
 import Data.Hashable
 import Data.Generics hiding (empty,GT)
+import Data.ByteString.Lazy.Char8 hiding (empty)
 
+instance Binary Doc where
+    put d = do
+        put ((pack $ show d) :: ByteString)
+    get = do
+        s <- get :: Get ByteString
+        return $ text $ show $ unpack s
+        
 class PP a where
     pp :: a -> Doc
 

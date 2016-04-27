@@ -28,9 +28,9 @@ import Text.PrettyPrint
 --(assigned value,declared type)
 type ExprSt = Map VarIdentifier (Maybe IExpr,Maybe Type)
 
-type ExprM loc m = StateT ExprSt (TcM loc m)
+type ExprM m = StateT ExprSt (TcM m)
 
-runExprM :: (ProverK loc m) => ExprM loc m a -> TcM loc m a
+runExprM :: Monad m => ExprM m a -> TcM m a
 runExprM m = evalStateT m Map.empty
 
 addVar x y = State.modify $ \env -> Map.insertWith mergeVar x y env
@@ -38,7 +38,7 @@ addVar x y = State.modify $ \env -> Map.insertWith mergeVar x y env
     mergeVar (e,t) (e',t') = (maybe e Just e',maybe t Just t')
 
 -- discard local variable declarations
-localExprM :: (ProverK loc m) => ExprM loc m a -> ExprM loc m a
+localExprM :: Monad m => ExprM m a -> ExprM m a
 localExprM m = do
     vs <- State.get
     -- undeclare all variable
@@ -53,7 +53,7 @@ localExprM m = do
     merge (e,Nothing) (e',Nothing) = (mergeE e e',Nothing)
     mergeE x y = maybe x Just y
 
-expr2IExpr :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> TcM loc m IExpr
+expr2IExpr :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> TcM m IExpr
 expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
     substs <- lift getTSubsts 
@@ -64,10 +64,10 @@ expr2IExpr e = runExprM $ do
         Nothing -> lift $ genTcError (locpos l) $ text "failed to convert void expression" <+> pp e <+> text "to prover expression"
         Just e' -> expr2Prover e'
 
-stmts2Prover :: (ProverK loc m) => [Statement VarIdentifier (Typed loc)] -> ExprM loc m ()
+stmts2Prover :: (ProverK loc m) => [Statement VarIdentifier (Typed loc)] -> ExprM m ()
 stmts2Prover = mapM_ stmt2Prover
 
-stmt2Prover :: (ProverK loc m) => Statement VarIdentifier (Typed loc) -> ExprM loc m ()
+stmt2Prover :: (ProverK loc m) => Statement VarIdentifier (Typed loc) -> ExprM m ()
 stmt2Prover (CompoundStatement l ss) = localExprM $ stmts2Prover ss
 stmt2Prover (VarStatement l (VariableDeclaration _ t vs)) = mapM_ varInit2Prover vs
 stmt2Prover (AssertStatement {}) = return ()
@@ -75,7 +75,7 @@ stmt2Prover (SyscallStatement l n args) = syscall2Prover (unTyped l) n args
 stmt2Prover (ExpressionStatement l e) = expr2ProverMb e >> return ()
 stmt2Prover s = lift $ genTcError (locpos $ unTyped $ loc s) $ text "failed to convert statement" <+> pp s <+> text "to prover expression"
     
-syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter VarIdentifier (Typed loc)] -> ExprM loc m ()
+syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter VarIdentifier (Typed loc)] -> ExprM m ()
 syscall2Prover l n@(isPrefixOf "core." -> True) args = do
     args' <- mapM unpush $ init args
     VarName (Typed _ t) r <- unret $ last args
@@ -86,7 +86,7 @@ syscall2Prover l n@(isPrefixOf "core." -> True) args = do
     unret (SyscallReturn _ v) = return v
 syscall2Prover l n args = lift $ genTcError (locpos l) $ text "unsupported syscall" <+> pp n <+> sepBy space (map pp args)
     
-corecall2Prover :: ProverK loc m => loc -> String -> [IExpr] -> ExprM loc m IExpr
+corecall2Prover :: ProverK loc m => loc -> String -> [IExpr] -> ExprM m IExpr
 corecall2Prover l "sub_int8"    [e1,e2] = return $ IBinOp IMinus e1 e2
 corecall2Prover l "sub_int16"   [e1,e2] = return $ IBinOp IMinus e1 e2
 corecall2Prover l "sub_int32"   [e1,e2] = return $ IBinOp IMinus e1 e2
@@ -191,12 +191,12 @@ corecall2Prover l "size"        [e]     = do
         otherwise -> return $ ISize e
 corecall2Prover l n es = lift $ genTcError (locpos l) $ text "failed to convert core call" <+> pp n <+> parens (sepBy comma $ map pp es) <+> text "to prover expression"
     
-varInit2Prover :: (ProverK loc m) => VariableInitialization VarIdentifier (Typed loc) -> ExprM loc m ()
+varInit2Prover :: (ProverK loc m) => VariableInitialization VarIdentifier (Typed loc) -> ExprM m ()
 varInit2Prover (VariableInitialization _ v@(VarName l n) _ e) = do
     ie <- mapM expr2Prover e
     addVar n (ie,Just $ typed l)
 
-expr2ProverMb :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM loc m (Maybe IExpr)
+expr2ProverMb :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m (Maybe IExpr)
 expr2ProverMb (RVariablePExpr l v@(VarName tl n)) = do
     vs <- State.get
     case Map.lookup n vs of
@@ -225,21 +225,21 @@ proverProcError (DecT (DVar v)) e = do
 proverProcError t e = do
     lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression: unknown declaration type" <+> pp t
     
-expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM loc m IExpr
+expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m IExpr
 expr2Prover e = do
     mb <- expr2ProverMb e
     case mb of
         Nothing -> lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert void expression" <+> pp e <+> text "to prover expression"
         Just e' -> return e'
     
-lit2Prover :: (ProverK loc m) => Literal (Typed loc) -> ExprM loc m IExpr
+lit2Prover :: (ProverK loc m) => Literal (Typed loc) -> ExprM m IExpr
 lit2Prover lit = do
     let Typed l t = loc lit
     mplus
         (lift (typeToBaseType l t) >>= litVal2Prover (fmap unTyped lit))
         (lift (typeToComplexType l t) >>= litArr2Prover (fmap unTyped lit))
 
-litVal2Prover :: ProverK loc m => Literal loc -> BaseType -> ExprM loc m IExpr
+litVal2Prover :: ProverK loc m => Literal loc -> BaseType -> ExprM m IExpr
 litVal2Prover lit@(IntLit l i) (TyPrim t) = case t of
     DatatypeInt8 _ -> return $ ILit $ IInt8 $ fromInteger i
     DatatypeInt16 _ -> return $ ILit $ IInt16 $ fromInteger i
@@ -265,6 +265,6 @@ litVal2Prover lit@(BoolLit l b) (TyPrim t) = case t of
     otherwise -> lift $ genTcError (locpos l) $ text "failed to convert literal" <+> pp lit <+> text "to prover value"
 litVal2Prover lit t = lift $ genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp lit <> text "::" <> pp t <+> text "to prover value"
 
-litArr2Prover :: ProverK loc m => Literal loc -> ComplexType -> ExprM loc m IExpr
+litArr2Prover :: ProverK loc m => Literal loc -> ComplexType -> ExprM m IExpr
 litArr2Prover lit t = lift $ genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp lit <> text "::" <> pp t <+> text "to prover array"
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, FlexibleContexts, FlexibleInstances, DeriveDataTypeable, TupleSections, MultiParamTypeClasses #-}
+{-# LANGUAGE DeriveGeneric, TypeFamilies, FlexibleContexts, FlexibleInstances, DeriveDataTypeable, TupleSections, MultiParamTypeClasses #-}
 
 module Language.SecreC.Monad where
     
@@ -16,10 +16,12 @@ import Control.Exception (throwIO)
 import Control.Monad.Signatures
 import Control.Monad.Reader (MonadReader,ReaderT(..),ask,local)
 import qualified Control.Monad.Reader as Reader
+import qualified Control.Monad.Writer as Writer
 import Control.Monad.Trans.Control
 import Control.Monad.Base
 
-import Data.Generics
+import Data.Generics hiding (Generic)
+import Data.Binary
 import Data.Map as Map
 import Data.Set as Set
 import Data.List as List
@@ -28,6 +30,8 @@ import Text.PrettyPrint
 
 import System.IO
 import System.Exit
+
+import GHC.Generics (Generic)
 
 -- | SecreC options
 data Options
@@ -50,7 +54,8 @@ data Options
         , externalSMT           :: Bool
         , checkAssertions       :: Bool
         }
-    deriving (Show, Data, Typeable)
+    deriving (Show, Data, Typeable,Generic)
+instance Binary Options
 
 instance Monoid Options where
     mempty = defaultOptions
@@ -71,7 +76,7 @@ instance Monoid Options where
         , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
         , failTypechecker = failTypechecker x || failTypechecker y
         , externalSMT = externalSMT x && externalSMT y
-        , checkAssertions = checkAssertions x && checkAssertions y
+        , checkAssertions = checkAssertions x || checkAssertions y
         }
 
 defaultOptions :: Options
@@ -202,4 +207,5 @@ instance Monad m => Applicative (SecrecM m) where
 mapError :: MonadError SecrecError m => (SecrecError -> SecrecError) -> m a -> m a
 mapError f m = m `catchError` (throwError . f)
 
-
+warn :: (MonadWriter SecrecWarnings m,MonadError SecrecError m) => Position -> SecrecError -> m ()
+warn pos e = Writer.tell $ ScWarns $ Map.singleton 0 $ Map.singleton pos $ Set.singleton $ ErrWarn e
