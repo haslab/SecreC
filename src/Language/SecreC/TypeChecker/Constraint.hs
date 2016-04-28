@@ -57,7 +57,7 @@ solveHypotheses :: (ProverK loc m) => loc -> TcM m [IExpr]
 solveHypotheses l = do
     hyps <- liftM Set.toList getHyps
     (_,dhyps) <- tcWith (locpos l) "solveHypotheses" $ do
-        addHeadTDict $ TDict (Graph.insNodes (map (\x -> (ioCstrId $ unLoc x,x)) hyps) Graph.empty) Set.empty Map.empty
+        addHeadTDict $ TDict (Graph.insNodes (map (\x -> (ioCstrId $ unLoc x,x)) hyps) Graph.empty) Set.empty mempty
         solve l
     addHeadTDict $ dhyps { tCstrs = Graph.empty }
     -- collect the result for the hypotheses
@@ -80,7 +80,7 @@ solve l = do
         solveCstrs l
         updateHeadTDict $ \d -> return ((),d { tCstrs = Graph.nfilter (`elem` Graph.nodes gr) (tCstrs d) })
 
-priorityRoots :: (x,Loc loc IOCstr) -> (x,Loc loc IOCstr) -> Ordering
+priorityRoots :: (x,LocIOCstr) -> (x,LocIOCstr) -> Ordering
 priorityRoots x y = priorityTCstr (kCstr $ unLoc $ snd x) (kCstr $ unLoc $ snd y)
 
 solveCstrs :: (ProverK loc m) => loc -> TcM m ()
@@ -118,7 +118,7 @@ mergeSolveRes a (Left False) = a
 mergeSolveRes (Right a) (Right b) = Right (a ++ b)
 
 -- | tries to solve one or more constraints
-trySolveSomeCstrs :: (ProverK loc m) => [Loc loc IOCstr] -> TcM m SolveRes
+trySolveSomeCstrs :: (ProverK Position m) => [LocIOCstr] -> TcM m SolveRes
 trySolveSomeCstrs = foldlM solveBound (Left False)
     where
     solveBound b x@(Loc l iok) = do
@@ -151,7 +151,7 @@ errorOpts :: TCstr -> Maybe [TSubsts]
 errorOpts = everything append (mkQ Nothing aux)
     where
     aux :: TCstr -> Maybe [TSubsts]
-    aux (TcK (MultipleSubstitutions v opts)) = Just $ map (Map.singleton v . fst) opts
+    aux (TcK (MultipleSubstitutions v opts)) = Just $ map (TSubsts . Map.singleton v . fst) opts
     aux _ = Nothing
     append Nothing y = y
     append x y = x
@@ -202,7 +202,7 @@ guessError doAll errs = do
 --        return Nothing) `catchError` \e -> return (Just $ tryStep o e)
 
 -- since templates are only resolved at instantiation time, we prevent solving of overloadable constraints
-trySolveCstr :: (ProverK loc m) => Bool -> Loc loc IOCstr -> TcM m SolveRes
+trySolveCstr :: (ProverK Position m) => Bool -> LocIOCstr -> TcM m SolveRes
 trySolveCstr False (Loc l iok) | isGlobalCstr (kCstr iok) = do
     return $ Right [(uniqId $ kStatus iok,kCstr iok,TypecheckerError (locpos l) $ Halt $ GenTcError $ text "Unsolved global constraint")]
 trySolveCstr doAll (Loc l iok) = catchError
@@ -381,7 +381,7 @@ ioCstrResult l iok proxy = do
         Nothing -> genError (locpos l) $ text "Wrong IOCstr output type" <+> text (show dyn) <+> text "::" <+> text (show $     applyShowOrdDyn Generics.typeOf dyn) <+> text "with type" <+> text (show $ Generics.typeOf (error "applyShowOrdDyn"::t)) <+> pp k
         Just x -> return x
 
-tcProve :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,TDict Position)
+tcProve :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,TDict)
 tcProve l msg m = do
     newDict l $ "tcProve " ++ msg
     x <- m
@@ -392,7 +392,7 @@ tcProve l msg m = do
   where
     dropDict (x:xs) = xs
 
-proveWith :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict Position))
+proveWith :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict))
 proveWith l msg proof = try `catchError` (return . Left)
     where
     try = liftM Right $ tcProve l msg proof
@@ -1560,7 +1560,7 @@ tryResolveTVar l v = do
     addGDependencies $ Left v
     -- lookup in the substitution environment
     s <- getTSubsts
-    mb <- substsFromMap s v
+    mb <- substsFromMap (unTSubsts s) v
     return $ mb
 
 -- | tries to resolve an expression
@@ -1569,7 +1569,7 @@ tryResolveEVar l v t | varIdTok v = return Nothing
 tryResolveEVar l v t = do
     addGDependencies $ Left v
     ss <- getTSubsts
-    case Map.lookup v ss of
+    case Map.lookup v (unTSubsts ss) of
         Just (IdxT e) -> do
             tcCstrM l $ Unifies t (loc e)
             return $ Just (fmap (Typed l) e)

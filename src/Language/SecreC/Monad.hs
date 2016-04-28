@@ -53,6 +53,7 @@ data Options
         , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
         , checkAssertions       :: Bool
+        , forceRecomp           :: Bool
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
@@ -77,6 +78,7 @@ instance Monoid Options where
         , failTypechecker = failTypechecker x || failTypechecker y
         , externalSMT = externalSMT x && externalSMT y
         , checkAssertions = checkAssertions x || checkAssertions y
+        , forceRecomp = forceRecomp x || forceRecomp y
         }
 
 defaultOptions :: Options
@@ -98,6 +100,7 @@ defaultOptions = Opts
     , failTypechecker = False
     , externalSMT = True
     , checkAssertions = False
+    , forceRecomp = False
     }
 
 newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Map Position (Set SecrecWarning)) }

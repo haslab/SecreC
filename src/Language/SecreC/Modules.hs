@@ -57,7 +57,8 @@ type ModuleGraph = Gr ModuleFile Position
 parseModuleFiles :: ModK m => [FilePath] -> SecrecM m [ModuleFile]
 parseModuleFiles files = do
     g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles files empty
-    g' <- dirtyParents g
+    opts <- ask
+    g' <- if forceRecomp opts then return g else dirtyParents g
     let modules = topsort' g'
     return modules
 
@@ -124,10 +125,14 @@ openImport parent g (Import sl mn@(ModuleName l n)) = do
 
 parseModuleFile :: ModK m => String -> SecrecM m ModuleFile
 parseModuleFile fn = do
-    mb <- readModuleSCI fn
-    case mb of
-        Nothing -> liftM Left $ parseFile fn
-        Just x -> return $ Right x
+    opts <- ask
+    if forceRecomp opts
+        then liftM Left $ parseFile fn
+        else do
+            mb <- readModuleSCI fn
+            case mb of
+                Nothing -> liftM Left $ parseFile fn
+                Just x -> return $ Right x
 
 -- re-parse parent modules whose dependencies have changed
 dirtyParents :: ModK m => ModuleGraph -> SecrecM m ModuleGraph
@@ -165,6 +170,7 @@ type ModK m = (MonadIO m,MonadCatch m)
 
 writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> Module Identifier loc -> TcM m ()
 writeModuleSCI ppargs m = do
+    opts <- askOpts
     let fn = moduleFile m
     menv <- State.gets (snd . moduleEnv)
     t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
@@ -172,9 +178,7 @@ writeModuleSCI ppargs m = do
     e <- liftIO $ tryIOError $ encodeFile scifn $ ModuleSCI fn (moduleId m) (map (fmap locpos) $ moduleImports m) t ppargs menv
     case e of
         Left ioerr -> when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Error writing SecreC interface file " ++ show scifn
-        Right () -> do
-            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Wrote SecreC interface file " ++ show scifn
-            return ()
+        Right () -> when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Wrote SecreC interface file " ++ show scifn
 
 readModuleSCI :: (MonadReader Options m,MonadWriter SecrecWarnings m,MonadError SecrecError m,MonadIO m) => FilePath -> m (Maybe ModuleSCI)
 readModuleSCI fn = do
@@ -191,7 +195,9 @@ readModuleSCI fn = do
         Right (Right sci) -> do
             t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
             if (sciFile sci == fn && t <= sciTime sci)
-                then return $ Just sci
+                then do
+                    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "SecreC file " ++ show fn ++ " has not changed"
+                    return $ Just sci
                 else do
-                    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "SecreC file " ++ show fn ++ " has changed."
+                    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "SecreC file " ++ show fn ++ " has changed"
                     return Nothing

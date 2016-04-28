@@ -114,6 +114,7 @@ instance PP Options where
           <+> text "--failtypechecker=" <> pp (failTypechecker opts)
           <+> text "--externalsmt=" <> pp (externalSMT opts)
           <+> text "--checkassertions" <> pp (checkAssertions opts)
+          <+> text "--forcerecomp" <> pp (forceRecomp opts)
 
 opts  :: Options
 opts  = Opts { 
@@ -142,6 +143,7 @@ opts  = Opts {
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
     , failTypechecker = failTypechecker defaultOptions &= name "fail-tc" &= help "Typechecker should fail" &= groupname "Verification:Typechecker"
     , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
+    , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"
     }
     &= help "SecreC analyser"
 

@@ -22,13 +22,13 @@ solveHypotheses :: (ProverK loc m) => loc -> TcM m [IExpr]
 
 tcTopCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 
-proveWith :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict Position))
+proveWith :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict))
 
 prove :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m a
 
-tcProve :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,TDict Position)
+tcProve :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,TDict)
 
-checkCstrM :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> CheckCstr -> TcM m ()
+checkCstrM :: (ProverK loc m) => loc -> Set (LocIOCstr) -> CheckCstr -> TcM m ()
 
 tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Maybe (SExpr VarIdentifier (Typed loc)))
 

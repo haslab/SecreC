@@ -271,9 +271,9 @@ tcIndex (IndexSlice l e1 e2) = do
 tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression VarIdentifier (Typed loc))
 tcLiteral li = do
     let l = loc li
-    x <- newBaseTyVar Nothing
+    b <- newBaseTyVar Nothing
     sz <- newSizeVar Nothing
-    let t = ComplexT $ CType Public x sz
+    let t = ComplexT $ CType Public b sz
     let elit = LitPExpr t $ fmap (const t) li
     tcTopCstrM l $ CoercesLit elit
     return $ LitPExpr (Typed l t) $ fmap (const (Typed l t)) li
@@ -282,8 +282,8 @@ tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    x <- newBaseTyVar Nothing
-    let t = ComplexT $ CType Public x (indexSExpr 1)
+    b <- newBaseTyVar Nothing
+    let t = ComplexT $ CType Public b (indexSExpr 1)
     let elit = ArrayConstructorPExpr t es''
     tcTopCstrM l $ CoercesLit elit
     return $ ArrayConstructorPExpr (Typed l t) es'

@@ -502,7 +502,7 @@ instance Show Unique where
     show = show . hashUnique
 
 data UniqRef a = UniqRef
-    { uniqId :: Unique
+    { uniqId :: !Unique
     , uniqRef :: !(IORef a)
     }
   deriving (Data,Typeable)

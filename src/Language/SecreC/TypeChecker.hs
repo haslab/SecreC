@@ -72,9 +72,11 @@ tcModule m@(Module l name prog) = failTcM l $ do
         }
     prog' <- tcProgram prog
     -- substitute the module's environment with the module's dictionary
-    ss <- getTSubsts
-    modifyModuleEnvM $ substFromTSubsts "tcModule" l ss False Map.empty
+    --ss <- getTSubsts
+    --modifyModuleEnvM $ substFromTSubsts "tcModule" l ss False Map.empty
+    --State.modify $ \env -> env { tDict = [] }
     let m' = Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
+    --m'' <- substFromTSubsts "tcModule" l ss False Map.empty m'
     return m'
 
 tcProgram :: (ProverK loc m) => Program Identifier loc -> TcM m (Program VarIdentifier (Typed loc))
@@ -135,7 +137,7 @@ tcKindDecl (Kind l k) = do
 tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (KindName VarIdentifier (Typed loc))
 tcKindName (KindName kl kn) = return $ KindName (Typed kl KType) $ mkVarId kn
 
-tcProcedureDecl :: (ProverK loc m) => (Deps Position -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))) -> (Deps Position -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc)))
+tcProcedureDecl :: (ProverK loc m) => (Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))) -> (Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc)))
                 -> ProcedureDeclaration Identifier loc -> TcM m (ProcedureDeclaration VarIdentifier (Typed loc))
 tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = do
     (ps',ret',vars',top,tret) <- tcAddDeps l "tcProcedureDecl" $ do
@@ -200,7 +202,7 @@ tcProcedureParam (ConstProcedureParameter l s isVariadic (VarName vl vi) c) = do
             tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
     return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' c',(True,Cond (fmap typed v') (fmap (fmap typed) c'),isVariadic))
 
-tcStructureDecl :: (ProverK loc m) => (Deps Position -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc)))
+tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc)))
                 -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration VarIdentifier (Typed loc))
 tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = do
     hdeps <- getDeps

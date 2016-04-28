@@ -6,7 +6,7 @@ import Language.SecreC.Location
 import Language.SecreC.Position
 import Language.SecreC.Monad
 import Language.SecreC.Syntax
-import Language.SecreC.Utils
+import Language.SecreC.Utils as Utils
 import Language.SecreC.Error
 import Language.SecreC.Pretty as PP
 import Language.SecreC.Vars
@@ -27,14 +27,15 @@ import qualified Data.Foldable as Foldable
 import qualified Data.List as List
 import Data.Set (Set(..))
 import qualified Data.Set as Set
-import Data.Map (Map(..))
+import Data.Map (Map(..),(!))
 import qualified Data.Map as Map
 import Data.Bifunctor
 import Data.Hashable
 import Data.SBV (Symbolic)
 import Data.Graph.Inductive.PatriciaTree
 import Data.Graph.Inductive.Graph as Graph
-import Data.Graph.Inductive.Query as Graph
+import Data.Graph.Inductive.Query as Graph hiding (mapSnd)
+import Data.Text.Unsafe
 
 import GHC.Generics (Generic)
 
@@ -49,6 +50,8 @@ import Control.Monad.Trans.RWS (RWS(..),RWST(..))
 import qualified Control.Monad.Trans.RWS as RWS
 import Control.Monad.Except
 import Control.Monad.Trans.Control
+
+import Safe
 
 import Unsafe.Coerce
 
@@ -71,17 +74,18 @@ import System.IO.Error
 
 data IOCstr = IOCstr
     { kCstr :: TCstr
-    , kStatus :: UniqRef TCstrStatus
+    , kStatus :: !(UniqRef TCstrStatus)
     }
   deriving (Data,Typeable,Show)
 
-instance Binary IOCstr where
-    put iok = do
-        Binary.put (kCstr iok)
-    get = do
-        k <- Binary.get :: Get TCstr
-        let st = unsafePerformIO $ newUniqRef Unevaluated
-        return $ IOCstr k st
+--instance Binary IOCstr where
+--    put iok = do
+--        Binary.put (kCstr iok)
+--    {-# INLINE get #-}
+--    get = do
+--        k <- Binary.get :: Get TCstr
+--        -- we really want to create new refs for each constraint, hence inline all calls
+--        return $ IOCstr k (inlinePerformIO $ newUniqRef Unevaluated)
 instance Hashable IOCstr where
     hashWithSalt i k = hashWithSalt i (kCstr k)
   
@@ -166,19 +170,19 @@ data GlobalEnv = GlobalEnv
 --        Nothing -> return Set.empty
 --        Just cs -> WeakMap.foldM (\xs (_,iok) -> return $ Set.insert iok xs) Set.empty cs
 
-type Deps loc = Set (Loc loc IOCstr)
+type Deps = Set LocIOCstr
 
 getModuleCount :: (Monad m) => TcM m Int
 getModuleCount = liftM (snd . moduleCount) State.get
 
 -- global typechecking environment
 data TcEnv = TcEnv {
-      localVars  :: Map VarIdentifier (Bool,EntryEnv Position) -- ^ local variables: name |-> (isConst,type of the variable)
+      localVars  :: Map VarIdentifier (Bool,EntryEnv) -- ^ local variables: name |-> (isConst,type of the variable)
     , localFrees :: Set VarIdentifier -- ^ free internal const variables generated during typechecking
     , localConsts :: Map Identifier VarIdentifier
-    , globalDeps :: Deps Position -- ^ global dependencies
-    , localDeps :: Deps Position -- ^ local dependencies
-    , tDict :: [TDict Position] -- ^ A stack of dictionaries
+    , globalDeps :: Deps -- ^ global dependencies
+    , localDeps :: Deps -- ^ local dependencies
+    , tDict :: [TDict] -- ^ A stack of dictionaries
     , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
@@ -189,19 +193,22 @@ data TcEnv = TcEnv {
 
 -- module typechecking environment that can be exported to an interface file
 data ModuleTcEnv = ModuleTcEnv {
-      globalVars :: Map VarIdentifier (Bool,EntryEnv Position) -- ^ global variables: name |-> (isConst,type of the variable)
+      globalVars :: Map VarIdentifier (Bool,EntryEnv) -- ^ global variables: name |-> (isConst,type of the variable)
     , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
-    , kinds :: Map VarIdentifier (EntryEnv Position) -- ^ defined kinds: name |-> type of the kind
-    , domains :: Map VarIdentifier (EntryEnv Position) -- ^ defined domains: name |-> type of the domain
+    , kinds :: Map VarIdentifier (EntryEnv) -- ^ defined kinds: name |-> type of the kind
+    , domains :: Map VarIdentifier (EntryEnv) -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv Position)) -- ^ defined operators: name |-> procedure decl
+    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv)) -- ^ defined operators: name |-> procedure decl
     -- a list of overloaded procedures; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv Position)) -- ^ defined procedures: name |-> procedure decl
+    , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv)) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
-    , structs :: Map VarIdentifier (Maybe (EntryEnv Position),Map ModuleTyVarId (EntryEnv Position)) -- ^ defined structs: name |-> struct decl
-    } deriving Generic
+    , structs :: Map VarIdentifier (Maybe (EntryEnv),Map ModuleTyVarId (EntryEnv)) -- ^ defined structs: name |-> struct decl
+    } deriving (Generic,Data,Typeable,Eq,Ord,Show)
+
+instance PP ModuleTcEnv where
+    pp = text . show
 
 instance Binary (ModuleTcEnv)
 
@@ -224,6 +231,23 @@ instance Monoid (ModuleTcEnv) where
         , procedures = Map.unionWith (Map.union) (procedures x) (procedures y)
         , structs = Map.unionWith mergeStructs (structs x) (structs y)
         }
+
+instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ModuleTcEnv where
+    traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7) = do
+        x1' <- f x1
+        x2' <- f x2
+        x3' <- f x3
+        x4' <- f x4
+        x5' <- f x5
+        x6' <- f x6
+        x7' <- f x7
+        return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7'
+
+instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m EntryEnv where
+    traverseVars f (EntryEnv x1 x2) = do
+        x1' <- f x1
+        x2' <- f x2
+        return $ EntryEnv x1' x2'
 
 mergeStructs (x,y) (z,w) = (unionMb x z,Map.union y w)
 unionMb Nothing y = y
@@ -261,19 +285,19 @@ getModuleField f = do
 
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
-getStructs :: Monad m => TcM m (Map VarIdentifier (Maybe (EntryEnv Position),Map ModuleTyVarId (EntryEnv Position)))
+getStructs :: Monad m => TcM m (Map VarIdentifier (Maybe (EntryEnv),Map ModuleTyVarId (EntryEnv)))
 getStructs = getModuleField structs
-getKinds :: Monad m => TcM m (Map VarIdentifier (EntryEnv Position))
+getKinds :: Monad m => TcM m (Map VarIdentifier (EntryEnv))
 getKinds = getModuleField kinds
-getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Bool,EntryEnv Position))
+getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Bool,EntryEnv))
 getGlobalVars = getModuleField globalVars
 getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField globalConsts
-getDomains :: Monad m => TcM m (Map VarIdentifier (EntryEnv Position))
+getDomains :: Monad m => TcM m (Map VarIdentifier (EntryEnv))
 getDomains = getModuleField domains
-getOperators :: Monad m => TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv Position)))
+getOperators :: Monad m => TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv)))
 getOperators = getModuleField operators
-getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId (EntryEnv Position)))
+getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId (EntryEnv)))
 getProcedures = getModuleField procedures
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
@@ -339,18 +363,21 @@ emptyTcEnv = TcEnv
     , moduleEnv = (mempty,mempty)
     }
 
-data EntryEnv loc = EntryEnv {
-      entryLoc :: loc -- ^ Location where the entry is defined
+data EntryEnv = EntryEnv {
+      entryLoc :: Position -- ^ Location where the entry is defined
     , entryType :: Type -- ^ Type of the entry
     }
-  deriving (Functor,Generic)
+  deriving (Generic,Data,Typeable,Eq,Ord,Show)
 
-instance Binary loc => Binary (EntryEnv loc)  
+instance Binary EntryEnv  
 
-instance Location loc => Located (EntryEnv loc) where
-    type LocOf (EntryEnv loc) = loc
+instance Located EntryEnv where
+    type LocOf EntryEnv = Position
     loc = entryLoc
     updLoc e l = e { entryLoc = l }
+   
+instance PP EntryEnv where
+    pp = pp . entryType
    
 varNameToType :: VarName VarIdentifier Type -> Type
 varNameToType (VarName (SType k) n) = SecT $ SVar n k
@@ -447,7 +474,7 @@ tcLocal :: Monad m => TcM m a -> TcM m a
 tcLocal m = do
     env <- State.get
     x <- m
-    State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env, tDict = [] }
+    State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
     return x
 
 -- a new dictionary
@@ -460,7 +487,7 @@ newDict l msg = do
             State.modify $ \e -> e { tDict = mempty : tDict e }
 --            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
 
-tcWith :: (VarsIdTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict Position)
+tcWith :: (VarsIdTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict)
 tcWith l msg m = do
     newDict l $ "tcWith " ++ msg
     x <- m
@@ -951,30 +978,70 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TCstr where
 --        xs' <- f xs
 --        return $ GraphK xs'
 
-type IOCstrGraph loc = Gr (Loc loc IOCstr) ()
+type IOCstrGraph = Gr LocIOCstr ()
+type LocIOCstr = Loc Position IOCstr
+
+type TCstrGraph = Gr LocTCstr ()
+type LocTCstr = Loc Position TCstr
 
 -- | Template constraint dictionary
 -- a dictionary with a set of inferred constraints and resolved constraints
-data TDict loc = TDict
-    { tCstrs :: IOCstrGraph loc -- a list of constraints
+data TDict = TDict
+    { tCstrs :: IOCstrGraph -- a list of constraints
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
+instance Hashable TDict
 
-instance Binary loc => Binary (TDict loc)
-instance Hashable loc => Hashable (TDict loc)
 
-flattenIOCstrGraph :: IOCstrGraph loc -> [Loc loc IOCstr]
+-- A dictionary with pure (unevaluated) constraints
+data PureTDict = PureTDict
+    { pureCstrs :: TCstrGraph
+    , pureSubsts :: TSubsts
+    }
+  deriving (Typeable,Eq,Data,Ord,Show,Generic)
+instance Hashable PureTDict
+instance Binary PureTDict
+
+instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m TCstrGraph where
+    traverseVars f g = nmapM f g
+
+instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m PureTDict where
+    traverseVars f (PureTDict ks ss) = do
+        ks' <- f ks
+        ss' <- f ss
+        return $ PureTDict ks' ss'
+
+fromPureTDict :: PureTDict -> IO TDict
+fromPureTDict (PureTDict g ss) = do
+    (g',is) <- runStateT (mapGrM newIOCstr g) Map.empty
+    let g'' = gmap (\(ins,j,x,outs) -> (fmapSnd (is!) ins,j,x,fmapSnd (is!) outs)) g'
+    return $ TDict g'' Set.empty ss
+  where
+    newIOCstr (ins,i,Loc l k,outs) = do
+        st <- lift $ newUniqRef Unevaluated
+        let j = hashUnique $ uniqId st
+        State.modify $ \is -> Map.insert i j is
+        return (ins,j,Loc l $ IOCstr k st,outs)
+
+toPureTDict :: TDict -> PureTDict
+toPureTDict (TDict ks _ ss) = PureTDict (nmap (fmap kCstr) ks) ss
+
+flattenIOCstrGraph :: IOCstrGraph -> [LocIOCstr]
 flattenIOCstrGraph = map snd . labNodes
 
-flattenIOCstrGraphSet :: IOCstrGraph loc -> Set (Loc loc IOCstr)
+flattenIOCstrGraphSet :: IOCstrGraph -> Set (LocIOCstr)
 flattenIOCstrGraphSet = Set.fromList . flattenIOCstrGraph
 
 -- | mappings from variables to current substitution
 newtype TSubsts = TSubsts { unTSubsts :: Map VarIdentifier Type } deriving (Eq,Show,Ord,Typeable,Data,Generic)
 instance Binary TSubsts
 instance Hashable TSubsts
+
+instance Monoid TSubsts where
+    mempty = TSubsts Map.empty
+    mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
 
 instance PP TSubsts where
     pp = ppTSubsts
@@ -989,12 +1056,13 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TSubsts wher
             xs' <- aux xs
             return ((k',v'):xs')
 
-instance Functor TDict where
-    fmap f dict = dict { tCstrs = nmap (mapLoc f) (tCstrs dict) }
-
-instance Monoid (TDict loc) where
+instance Monoid TDict where
     mempty = TDict Graph.empty Set.empty (TSubsts Map.empty)
     mappend (TDict u1 c1 (TSubsts ss1)) (TDict u2 c2 (TSubsts ss2)) = TDict (unionGr u1 u2) (Set.union c1 c2) (TSubsts $ ss1 `Map.union` ss2)
+
+instance Monoid PureTDict where
+    mempty = PureTDict Graph.empty (TSubsts Map.empty)
+    mappend (PureTDict u1 (TSubsts ss1)) (PureTDict u2 (TSubsts ss2)) = PureTDict (unionGr u1 u2) (TSubsts $ ss1 `Map.union` ss2)
 
 --addCstrDeps :: (MonadIO m,VarsId m TCstr) => IOCstr -> m ()
 --addCstrDeps iok = do
@@ -1012,64 +1080,65 @@ instance Monoid (TDict loc) where
 ioCstrId :: IOCstr -> Int
 ioCstrId = hashUnique . uniqId . kStatus
 
-type IOCstrSubsts = Map Int IOCstr
+--type IOCstrSubsts = Map Int IOCstr
+--
+--newIOCstrSubst :: (GenVar VarIdentifier m,MonadIO m) => Int -> (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstr -> VarsM VarIdentifier (StateT IOCstrSubsts m) IOCstr
+--newIOCstrSubst i f iok = do
+--    unless (i == ioCstrId iok) $ error $ "newIOCstrSubst mismatching cstr id " ++ show i ++ " " ++ ppr iok
+--    xs <- lift State.get
+--    case Map.lookup i xs of
+--        Nothing -> do
+--            st <- liftIO $ readUniqRef $ kStatus iok
+--            c' <- liftVarsM $ f (kCstr iok)
+--            let st' = case st of
+--                        Evaluated t -> Evaluated t
+--                        otherwise -> Unevaluated
+--            iok' <- liftM (IOCstr c') $ liftIO $ newUniqRef st'
+--            lift $ State.put $ Map.insert i iok' xs
+--            return iok'
+--        Just iok' -> return iok'
+--
+--getIOCstrSubst :: Monad m => Int -> StateT IOCstrSubsts m IOCstr
+--getIOCstrSubst i = do
+--    xs <- State.get
+--    return $ fromJustNote "getIOCstrSubst" $ Map.lookup i xs
+--
+--getIOCstrSubstId :: Monad m => Int -> StateT IOCstrSubsts m Int
+--getIOCstrSubstId i = do
+--    xs <- State.get
+--    return $ fromJustNote "getIOCstrSubstId" $ fmap ioCstrId $ Map.lookup i xs
 
-newIOCstrSubst :: (GenVar VarIdentifier m,MonadIO m) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstr -> VarsM VarIdentifier (StateT IOCstrSubsts m) IOCstr
-newIOCstrSubst f iok = do
-    xs <- lift State.get
-    case Map.lookup (ioCstrId iok) xs of
-        Nothing -> do
-            st <- liftIO $ readUniqRef $ kStatus iok
-            c' <- liftVarsM $ f (kCstr iok)
-            let st' = case st of
-                        Evaluated t -> Evaluated t
-                        otherwise -> Unevaluated
-            iok' <- liftM (IOCstr c') $ liftIO $ newUniqRef st'
-            lift $ State.put $ Map.insert (ioCstrId iok) iok' xs
-            return iok'
-        Just iok' -> return iok'
+--instance (Vars VarIdentifier m loc,MonadIO m) => Vars VarIdentifier m (IOCstrGraph loc) where
+--    traverseVars f gr = flip evalVarsMState(Map.empty::IOCstrSubsts) $ traverseVarsIOCstrGraph f gr
 
-getIOCstrSubst :: Monad m => Int -> IOCstr -> StateT IOCstrSubsts m IOCstr
-getIOCstrSubst i def = do
-    xs <- State.get
-    return $ maybe def id $ Map.lookup i xs
+--traverseVarsIOCstrGraph :: (GenVar VarIdentifier m,MonadIO m) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstrGraph loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (IOCstrGraph loc)
+--traverseVarsIOCstrGraph f gr = do
+--        forM_ (labNodes gr) $ \(i,x) -> newIOCstrSubst i f (unLoc x)
+--        mapGrM mapNode gr
+--      where
+--        mapNode ctx@(ins,nid,Loc l n,outs) = do
+--            n' <- lift $ getIOCstrSubst nid
+--            ins' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) ins
+--            outs' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) outs
+--            return (ins',ioCstrId n',Loc l n',outs')      
+--
+--evalVarsMState :: Monad m => VarsM iden (StateT st m) a -> st -> VarsM iden m a
+--evalVarsMState varsm st = State.mapStateT (\m -> State.evalStateT m st) varsm
+--
+--liftVarsM :: (Monad m,MonadTrans t,Vars iden m a) => VarsM iden m a -> VarsM iden (t m) a
+--liftVarsM m = State.mapStateT (lift) m
+--
+--evalIOCstrVars m = flip evalVarsMState (Map.empty::IOCstrSubsts) m
+--
+--traverseDict :: (Vars VarIdentifier m loc) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> TDict -> VarsM VarIdentifier (StateT IOCstrSubsts m) (TDict)
+--traverseDict f (TDict cstrs choices (TSubsts substs)) = do
+--    cstrs' <- traverseVarsIOCstrGraph f cstrs
+--    choices' <- lift $ mapSetM getIOCstrSubstId choices
+--    substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
+--    return $ TDict cstrs' choices' (TSubsts substs')
 
-getIOCstrSubstId :: Monad m => Int -> StateT IOCstrSubsts m Int
-getIOCstrSubstId i = do
-    xs <- State.get
-    return $ maybe i ioCstrId $ Map.lookup i xs
-
-instance (Vars VarIdentifier m loc,MonadIO m) => Vars VarIdentifier m (IOCstrGraph loc) where
-    traverseVars f gr = flip evalVarsMState(Map.empty::IOCstrSubsts) $ traverseVarsIOCstrGraph f gr
-
-traverseVarsIOCstrGraph :: (GenVar VarIdentifier m,MonadIO m) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstrGraph loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (IOCstrGraph loc)
-traverseVarsIOCstrGraph f gr = do
-        forM_ (labNodes gr) $ \(i,x) -> newIOCstrSubst f (unLoc x)
-        mapGrM mapNode gr
-      where
-        mapNode ctx@(ins,nid,Loc l n,outs) = do
-            n' <- lift $ getIOCstrSubst nid n
-            ins' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) ins
-            outs' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) outs
-            return (ins',ioCstrId n',Loc l n',outs')      
-
-evalVarsMState :: Monad m => VarsM iden (StateT st m) a -> st -> VarsM iden m a
-evalVarsMState varsm st = State.mapStateT (\m -> State.evalStateT m st) varsm
-
-liftVarsM :: (Monad m,MonadTrans t,Vars iden m a) => VarsM iden m a -> VarsM iden (t m) a
-liftVarsM m = State.mapStateT (lift) m
-
-evalIOCstrVars m = flip evalVarsMState (Map.empty::IOCstrSubsts) m
-
-traverseDict :: (Vars VarIdentifier m loc) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> TDict loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (TDict loc)
-traverseDict f (TDict cstrs choices (TSubsts substs)) = do
-    cstrs' <- traverseVarsIOCstrGraph f cstrs
-    choices' <- lift $ mapSetM getIOCstrSubstId choices
-    substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
-    return $ TDict cstrs' choices' (TSubsts substs')
-
-instance (Location loc,MonadIO m,Vars VarIdentifier m loc) => Vars VarIdentifier m (TDict loc) where
-    traverseVars f x = evalIOCstrVars $ traverseDict f x
+--instance (Location loc,MonadIO m,Vars VarIdentifier m loc) => Vars VarIdentifier m (TDict) where
+--    traverseVars f x = evalIOCstrVars $ traverseDict f x
 
 instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier m (Loc loc a) where
     traverseVars f (Loc l a) = do
@@ -1114,19 +1183,23 @@ freshVarIO v = do
     let v' = VarIdentifier (varIdBase v) Nothing (Just i) False (varIdPretty v)
     return v'
 
-uniqVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
-uniqVarId n doc = do
+freeVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
+freeVarId n doc = do
     v <- freshVarId n doc
     addFree v
     return v
     
 addFree n = State.modify $ \env -> env { localFrees = Set.insert n (localFrees env) }
 
-instance PP (TDict loc) where
+instance PP TDict where
     pp dict = text "Constraints:" $+$ nest 4 (ppGr pp (const PP.empty) $ tCstrs dict)
           $+$ text "Substitutions:" $+$ nest 4 (ppTSubsts (tSubsts dict))
 
-ppConstraints :: MonadIO m => TDict loc -> TcM m Doc
+instance PP PureTDict where
+    pp dict = text "Constraints:" $+$ nest 4 (ppGr pp (const PP.empty) $ pureCstrs dict)
+          $+$ text "Substitutions:" $+$ nest 4 (ppTSubsts (pureSubsts dict))
+
+ppConstraints :: MonadIO m => TDict -> TcM m Doc
 ppConstraints d = do
     let ppK (Loc l c) = do
         s <- liftIO $ readUniqRef $ kStatus c
@@ -1216,9 +1289,9 @@ data DecType
         ModuleTyVarId -- ^ unique template declaration id
         Bool -- is a recursive invocation
         [(Cond (VarName VarIdentifier Type),IsVariadic)] -- ^ template variables
-        (TDict Position) -- ^ constraints for the header
+        PureTDict -- ^ constraints for the header
         (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
-        (TDict Position) -- ^ constraints for the template
+        PureTDict -- ^ constraints for the template
         (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
         [(Type,IsVariadic)] -- ^ template specializations
         DecType -- ^ template's type
@@ -1610,10 +1683,8 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType wher
         vs' <- inLHS $ mapM f vs
         hfrees' <- liftM Set.fromList $ mapM f $ Set.toList hfrees
         frees' <- liftM Set.fromList $ mapM f $ Set.toList frees
-        (hd',d') <- evalIOCstrVars $ do
-            hd' <- traverseDict f hd
-            d' <- traverseDict f d
-            return (hd',d')
+        hd' <- f hd
+        d' <- f d
         spes' <- mapM f spes
         t' <- f t
         return $ DecType tid isrec vs' hd' hfrees' d' frees' spes' t'
@@ -1976,7 +2047,7 @@ withoutImplicitClassify :: Monad m => TcM m a -> TcM m a
 withoutImplicitClassify m = localOpts (\opts -> opts { implicitClassify = False }) m
 
 instance MonadIO m => GenVar VarIdentifier (TcM m) where
-    genVar v = uniqVarId (varIdBase v) (varIdPretty v)
+    genVar v = freeVarId (varIdBase v) (varIdPretty v)
 
 instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
     genVar v = freshVarIO v
@@ -1989,7 +2060,7 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifie
     substL v = return $ Just v
 
 -- filter the constraints that depend on a set of variables
-varsCstrGraph :: (VarsIdTcM m,Location loc) => Set VarIdentifier -> IOCstrGraph loc -> TcM m (IOCstrGraph loc)
+varsCstrGraph :: (VarsIdTcM m) => Set VarIdentifier -> IOCstrGraph -> TcM m IOCstrGraph
 varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
     where
     aux (i,x) = do
@@ -1999,7 +2070,7 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
             else return True
 
 -- gets the terminal nodes in the constraint graph for all the variables in a given value
---getVarOutSet :: (VarsIdTcM m,VarsId (TcM m) a,Location loc) => a -> TcM m (Set (Loc loc IOCstr))
+--getVarOutSet :: (VarsIdTcM m,VarsId (TcM m) a,Location loc) => a -> TcM m (Set (LocIOCstr))
 --getVarOutSet x = do
 --    -- get the free variables
 --    vs <- liftM Map.keysSet $ fvs x

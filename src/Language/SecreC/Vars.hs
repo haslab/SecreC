@@ -182,6 +182,8 @@ addBV x = do
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Integer where
     traverseVars f i = return i
 
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m [Char] where
+    traverseVars f s = return s
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Int8 where
     traverseVars f i = return i
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Int16 where
@@ -193,6 +195,8 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Int64 where
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Double where
     traverseVars f i = return i
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Float where
+    traverseVars f i = return i
+instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Int where
     traverseVars f i = return i
 
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Word8 where
