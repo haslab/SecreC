@@ -256,15 +256,32 @@ unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
 -- module interface data
 data ModuleSCI = ModuleSCI {
-      sciFile :: FilePath -- base file
-    , sciId :: Identifier -- module identifier
-    , sciImports :: [ImportDeclaration Identifier Position] -- module dependencies 
-    , sciTime :: UnixTime -- typechecked time
-    , sciPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
-    , sciEnv :: ModuleTcEnv -- typechecking environment
+      sciHeader :: SCIHeader
+    , sciBody :: SCIBody
     } deriving Generic
 
+sciFile = sciHeaderFile . sciHeader
+sciTime = sciHeaderTime . sciHeader
+sciId = sciBodyId . sciBody
+sciImports = sciBodyImports . sciBody
+sciPPArgs = sciBodyPPArgs . sciBody
+sciEnv = sciBodyEnv . sciBody
+
 instance Binary ModuleSCI
+
+data SCIHeader = SCIHeader {
+      sciHeaderFile :: FilePath
+    , sciHeaderTime :: UnixTime
+    } deriving Generic
+instance Binary SCIHeader
+
+data SCIBody = SCIBody {
+      sciBodyId :: Identifier -- module identifier
+    , sciBodyImports :: [ImportDeclaration Identifier Position] -- module dependencies 
+    , sciBodyPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
+    , sciBodyEnv :: ModuleTcEnv -- typechecking environment
+    } deriving Generic
+instance Binary SCIBody
 
 type ModuleTyVarId = (Identifier,TyVarId)
 

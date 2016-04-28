@@ -9,6 +9,10 @@ import Data.Maybe as Maybe
 import Data.UnixTime
 import Data.Either
 import Data.Binary
+import Data.Binary.Get
+import Data.ByteString.Lazy (ByteString(..))
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.Internal as BL
 import Data.Graph.Inductive
 import Data.Graph.Inductive.Basic
 import Data.Graph.Inductive.Graph
@@ -168,36 +172,51 @@ findModuleCycle i g = do
 type ModK m = (MonadIO m,MonadCatch m)
 
 
-writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> Module Identifier loc -> TcM m ()
-writeModuleSCI ppargs m = do
-    opts <- askOpts
+writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> SecrecM m ()
+writeModuleSCI ppargs menv m = do
+    opts <- ask
     let fn = moduleFile m
-    menv <- State.gets (snd . moduleEnv)
     t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
     let scifn = replaceExtension fn "sci"
-    e <- liftIO $ tryIOError $ encodeFile scifn $ ModuleSCI fn (moduleId m) (map (fmap locpos) $ moduleImports m) t ppargs menv
+    let header = SCIHeader fn t
+    let body = SCIBody (moduleId m) (map (fmap locpos) $ moduleImports m) ppargs menv
+    e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
     case e of
-        Left ioerr -> when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Error writing SecreC interface file " ++ show scifn
-        Right () -> when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Wrote SecreC interface file " ++ show scifn
-
-readModuleSCI :: (MonadReader Options m,MonadWriter SecrecWarnings m,MonadError SecrecError m,MonadIO m) => FilePath -> m (Maybe ModuleSCI)
+        Nothing -> return ()
+        Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
+    
+readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
     opts <- Reader.ask
     let scifn = replaceExtension fn "sci"
-    e <- liftIO $ tryIOError $ decodeFileOrFailLazy scifn
+    e <- trySCI "Failed to find SecreC interface file" $ BL.readFile fn
     case e of
-        Left ioerr -> do
-            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Failed to find SecreC interface file " ++ show scifn
-            return Nothing
-        Right (Left (_,err)) -> do
-            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "Error loading SecreC interface file " ++ show scifn
-            return Nothing
-        Right (Right sci) -> do
-            t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
-            if (sciFile sci == fn && t <= sciTime sci)
-                then do
-                    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "SecreC file " ++ show fn ++ " has not changed"
-                    return $ Just sci
-                else do
-                    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "SecreC file " ++ show fn ++ " has changed"
-                    return Nothing
+        Just input -> go (runGetIncremental get) input scifn
+        Nothing -> return Nothing
+  where
+    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> SecrecM m (Maybe ModuleSCI)
+    go (Done leftover consumed header) input scifn = do
+        t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
+        if (sciHeaderFile header == fn && t <= sciHeaderTime header)
+            then do
+                sciError $ "SecreC interface file " ++ show scifn ++ " has not changed"
+                let e = runGetOrFail get (BL.chunk leftover input)
+                case e of
+                    Right (_,_,body) -> return $ Just $ ModuleSCI header body
+                    Left (_,_,err) -> sciError ("Error loading SecreC interface file " ++ show scifn) >> return Nothing
+            else sciError ("SecreC interface file " ++ show scifn ++ " has changed") >> return Nothing
+    go (Partial k) input scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) scifn
+    go (Fail leftover consumed msg) input scifn = sciError ("Error loading SecreC interface file " ++ show scifn) >> return Nothing
+ 
+trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
+trySCI msg io = do
+    e <- liftIO $ tryIOError io
+    case e of
+        Left ioerr -> sciError msg >> return Nothing
+        Right x -> return $ Just x
+
+sciError :: MonadIO m => String -> SecrecM m ()
+sciError msg = do
+    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr msg
+    
+   

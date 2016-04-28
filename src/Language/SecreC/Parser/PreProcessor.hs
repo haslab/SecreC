@@ -35,6 +35,7 @@ import Safe
 import qualified Data.Foldable as Foldable
 import Data.Maybe
 import Data.Binary
+import Data.Hashable
 import Data.Typeable
 import Data.Data
 import Data.List.Split (splitOn)
@@ -55,6 +56,7 @@ data PPArg
   deriving (Data,Show,Typeable,Generic)
 
 instance Binary PPArg
+instance Hashable PPArg
 
 instance PP PPArgs where
     pp args = PP.vcat $ map pp args

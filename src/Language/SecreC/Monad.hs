@@ -22,6 +22,7 @@ import Control.Monad.Base
 
 import Data.Generics hiding (Generic)
 import Data.Binary
+import Data.Hashable
 import Data.Map as Map
 import Data.Set as Set
 import Data.List as List
@@ -57,6 +58,7 @@ data Options
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
+instance Hashable Options
 
 instance Monoid Options where
     mempty = defaultOptions

@@ -308,7 +308,7 @@ addTemplateOperator vars hdeps op = do
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     dt' <- substFromTSubsts "templateOp" l (pureSubsts hdict `mappend` pureSubsts bdict) False Map.empty dt
     let e = EntryEnv (locpos l) dt'
-    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
+--    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 

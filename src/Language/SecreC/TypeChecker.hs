@@ -41,6 +41,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State (State(..),StateT(..))
 import qualified Control.Monad.State as State
 import qualified Control.Monad.Reader as Reader
+import Control.Monad.Trans
 
 import System.IO
 import System.Posix.Time
@@ -56,7 +57,8 @@ tcModuleFile (Right sci) = do
 tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc) -> TcM m (PPArgs,Module VarIdentifier (Typed loc))
 tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
     x' <- tcModule x
-    writeModuleSCI ppargs x
+    menv <- State.gets (snd . moduleEnv)
+    TcM $ lift $ writeModuleSCI ppargs menv x
     return (ppargs,x')
 
 tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module VarIdentifier (Typed loc))

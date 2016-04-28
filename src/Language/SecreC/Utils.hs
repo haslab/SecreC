@@ -26,7 +26,9 @@ import Data.Graph.Inductive.Query.DFS as Graph
 import Data.Graph.Inductive.Basic as Graph
 import Data.Char
 import Data.List as List
-import qualified Data.ByteString.Lazy as ByteString
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.Internal as BL
+import qualified Data.ByteString as BS
 
 import Text.PrettyPrint
 
@@ -562,13 +564,24 @@ instance (Hashable a,Hashable b) => Hashable (Gr a b) where
 
 decodeFileLazy :: Binary a => FilePath -> IO a
 decodeFileLazy fn = do
-    input <- ByteString.readFile fn
+    input <- BL.readFile fn
     return $ Binary.runGet get input
 
 decodeFileOrFailLazy :: Binary a => FilePath -> IO (Either (ByteOffset, String) a)
 decodeFileOrFailLazy fn = do
-    input <- ByteString.readFile fn
+    input <- BL.readFile fn
     case Binary.runGetOrFail get input of
         Left (_,off,err) -> return $ Left (off,err)
         Right (_,_,x) -> return $ Right x
 
+takeHeadChunk :: BL.ByteString -> Maybe BS.ByteString
+takeHeadChunk lbs =
+  case lbs of
+    (BL.Chunk bs _) -> Just bs
+    _ -> Nothing
+
+dropHeadChunk :: BL.ByteString -> BL.ByteString
+dropHeadChunk lbs =
+  case lbs of
+    (BL.Chunk _ lbs') -> lbs'
+    _ -> BL.Empty
