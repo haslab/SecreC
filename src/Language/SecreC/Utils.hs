@@ -106,7 +106,7 @@ unionGr x y = insEdges (labEdges x ++ labEdges y) $ insNodes (labNodes x ++ labN
 ppGr :: (a -> Doc) -> (b -> Doc) -> Gr a b -> Doc
 ppGr ppA ppB gr = vcat $ map ppNode $ grToList gr
     where
-    ppNode (froms,k,v,tos) = ppA v $+$ nest 4 (sepBy comma $ map ppFrom froms ++ map ppTo tos)
+    ppNode (froms,k,v,tos) = pp k <+> text "=" <+> ppA v $+$ nest 4 (sepBy comma $ map ppFrom froms ++ map ppTo tos)
     ppTo (tolbl,toid) = text "-" <> ppB tolbl <> text "->" <+> pp toid
     ppFrom (fromlbl,fromid) = pp fromid <+> text "-" <> ppB fromlbl <> text "->"
 

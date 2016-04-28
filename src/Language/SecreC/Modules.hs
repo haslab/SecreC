@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, ConstraintKinds, FlexibleContexts, DoAndIfThenElse #-}
+{-# LANGUAGE DeriveGeneric, ScopedTypeVariables, ConstraintKinds, FlexibleContexts, DoAndIfThenElse #-}
 
 module Language.SecreC.Modules where
 
@@ -51,19 +51,22 @@ import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Utils
 import Language.SecreC.TypeChecker.Base
 
+import GHC.Generics (Generic(..))
+
 type IdNodes = Map Identifier (FilePath -- ^ module's file
                               ,Node -- ^ module's node id
                               ,Bool) -- ^ opened (@True@) or closed (@False@) module
 
 type ModuleGraph = Gr ModuleFile Position
 
+type ModuleM m = StateT (IdNodes,Int) (SecrecM m)
+
 -- | Parses and resolves imports, returning all the modules to be loaded, in evaluation order 
 parseModuleFiles :: ModK m => [FilePath] -> SecrecM m [ModuleFile]
 parseModuleFiles files = do
     g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles files empty
     opts <- ask
-    g' <- if forceRecomp opts then return g else dirtyParents g
-    let modules = topsort' g'
+    let modules = topsort' g
     return modules
 
 resolveModule :: ModK m => FilePath -> SecrecM m FilePath
@@ -73,7 +76,7 @@ resolveModule file = do
     findModule (takeDirectory file : paths opts) m
 
 -- | Opens a list of modules by filename
-openModuleFiles :: ModK m => [FilePath] -> ModuleGraph -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
+openModuleFiles :: ModK m => [FilePath] -> ModuleGraph -> ModuleM m ModuleGraph
 openModuleFiles fs g = foldlM open g fs
     where
     open g f = do
@@ -81,15 +84,15 @@ openModuleFiles fs g = foldlM open g fs
         mfile <- lift $ parseModuleFile f'
         opts <- ask
         let mfile' = case mfile of
-                        Left (ppargs,ast) -> if (implicitBuiltin opts && moduleIdMb ast /= Just "builtin")
-                            then Left (ppargs,addModuleImport (Import noloc $ ModuleName noloc "builtin") ast)
-                            else Left (ppargs,ast)
+                        Left (t,ppargs,ast) -> if (implicitBuiltin opts && moduleIdMb ast /= Just "builtin")
+                            then Left (t,ppargs,addModuleImport (Import noloc $ ModuleName noloc "builtin") ast)
+                            else Left (t,ppargs,ast)
                         Right sci -> Right sci
         openModule Nothing g f' (moduleFileId mfile') noloc (return mfile')
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter
-openModule :: ModK m => Maybe (Position,Node) -> ModuleGraph -> FilePath -> Identifier -> Position -> SecrecM m ModuleFile -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
+openModule :: ModK m => Maybe (Position,Node) -> ModuleGraph -> FilePath -> Identifier -> Position -> SecrecM m ModuleFile -> ModuleM m ModuleGraph
 openModule parent g f n pos load = do
     (ns,c) <- State.get
     g' <- case Map.lookup n ns of
@@ -113,16 +116,17 @@ openModule parent g f n pos load = do
                         Just (l,j) -> insEdge (c,j,l) $ insNode (c,mfile) g
             -- open imports
             foldlM (openImport c) g' (moduleFileImports mfile)
+    g'' <- dirtyParents c g'
     closeModule n
-    return g'
+    return g''
   where
     insParent Nothing i = id
     insParent (Just (l,j)) i = insEdge (i,j,l)
 
-closeModule :: ModK m => Identifier -> StateT (IdNodes,Int) (SecrecM m) ()
+closeModule :: ModK m => Identifier -> ModuleM m ()
 closeModule n = State.modify $ \(ns,c) -> (Map.adjust (\(x,y,z) -> (x,y,False)) n ns,c) 
 
-openImport :: ModK m => Node -> ModuleGraph -> ImportDeclaration Identifier Position -> StateT (IdNodes,Int) (SecrecM m) ModuleGraph
+openImport :: ModK m => Node -> ModuleGraph -> ImportDeclaration Identifier Position -> ModuleM m ModuleGraph
 openImport parent g (Import sl mn@(ModuleName l n)) = do
     f <- lift $ resolveModule n
     openModule (Just (sl,parent)) g f n l (parseModuleFile f)
@@ -131,24 +135,40 @@ parseModuleFile :: ModK m => String -> SecrecM m ModuleFile
 parseModuleFile fn = do
     opts <- ask
     if forceRecomp opts
-        then liftM Left $ parseFile fn
+        then parse
         else do
             mb <- readModuleSCI fn
             case mb of
-                Nothing -> liftM Left $ parseFile fn
+                Nothing -> parse
                 Just x -> return $ Right x
-
--- re-parse parent modules whose dependencies have changed
-dirtyParents :: ModK m => ModuleGraph -> SecrecM m ModuleGraph
-dirtyParents g = do
-    let chgs = map fst $ filter (isLeft . snd) $ labNodes g
-    let chgs' = Set.fromList (chgs ++ reachablesGr chgs g)
-    mapGrM (reparse chgs') g
   where
-    reparse is (froms,i,(Right sci),tos) | Set.member i is = do
-        ast <- parseFile (sciFile sci)
-        return (froms,i,Left ast,tos)
-    reparse is ctx = return ctx
+    parse = do
+        (args,m) <- parseFile fn
+        t <- liftIO $ fileModificationTime fn
+        return $ Left (t,args,m)
+
+-- recursively update the modification time of parent modules
+dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph
+dirtyParents i g = case contextGr g i of
+    Nothing -> return g
+    Just (_,_,n,parents) -> dirtyParents' (map snd parents) (moduleFileModificationTime n) g
+  where
+    dirtyParents' :: ModK m => [Node] -> UnixTime -> ModuleGraph -> ModuleM m ModuleGraph
+    dirtyParents' [] t g = return g
+    dirtyParents' (i:is) t g = case contextGr g i of
+        Nothing -> dirtyParents' is t g
+        Just (_,_,n,parents) -> if moduleFileModificationTime n >= t
+            -- we can stop if the parent module has a more recent modification time
+            then dirtyParents' is t g
+            -- dirty recursively
+            else do
+                n' <- lift $ update n t
+                dirtyParents' (is++map snd parents) t (insNode (i,n') g)
+    update (Left (_,args,m)) t = return $ Left (t,args,m)
+    update (Right sci) t = do
+        sciError $ "A dependency of the SecreC file " ++ show (sciFile sci) ++ " has changed"
+        (args,m) <- parseFile (sciFile sci)
+        return $ Left (t,args,m)
 
 -- | Finds a file in the path from a module name
 findModule :: ModK m => [FilePath] -> ModuleName Identifier Position -> SecrecM m FilePath
@@ -171,15 +191,16 @@ findModuleCycle i g = do
 
 type ModK m = (MonadIO m,MonadCatch m)
 
+fileModificationTime :: FilePath -> IO UnixTime
+fileModificationTime fn = liftM (fromEpochTime . modificationTime) $ getFileStatus fn
 
 writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> SecrecM m ()
 writeModuleSCI ppargs menv m = do
-    opts <- ask
     let fn = moduleFile m
-    t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
+    t <- liftIO $ fileModificationTime fn
     let scifn = replaceExtension fn "sci"
-    let header = SCIHeader fn t
-    let body = SCIBody (moduleId m) (map (fmap locpos) $ moduleImports m) ppargs menv
+    let header = SCIHeader fn t (moduleId m)
+    let body = SCIBody (map (fmap locpos) $ moduleImports m) ppargs menv
     e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
     case e of
         Nothing -> return ()
@@ -187,26 +208,25 @@ writeModuleSCI ppargs menv m = do
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
-    opts <- Reader.ask
     let scifn = replaceExtension fn "sci"
-    e <- trySCI "Failed to find SecreC interface file" $ BL.readFile fn
+    e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BL.readFile scifn
     case e of
-        Just input -> go (runGetIncremental get) input scifn
+        Just input -> go (runGetIncremental get) input fn scifn
         Nothing -> return Nothing
   where
-    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> SecrecM m (Maybe ModuleSCI)
-    go (Done leftover consumed header) input scifn = do
-        t <- liftIO $ liftM (fromEpochTime . modificationTime) $ getFileStatus fn
-        if (sciHeaderFile header == fn && t <= sciHeaderTime header)
+    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe ModuleSCI)
+    go (Done leftover consumed header) input fn scifn = do
+        t <- liftIO $ fileModificationTime fn
+        if (sciHeaderFile header == fn && t <= sciHeaderModTime header)
             then do
-                sciError $ "SecreC interface file " ++ show scifn ++ " has not changed"
+                sciError $ "SecreC file " ++ show fn ++ " has not changed"
                 let e = runGetOrFail get (BL.chunk leftover input)
                 case e of
                     Right (_,_,body) -> return $ Just $ ModuleSCI header body
-                    Left (_,_,err) -> sciError ("Error loading SecreC interface file " ++ show scifn) >> return Nothing
-            else sciError ("SecreC interface file " ++ show scifn ++ " has changed") >> return Nothing
-    go (Partial k) input scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) scifn
-    go (Fail leftover consumed msg) input scifn = sciError ("Error loading SecreC interface file " ++ show scifn) >> return Nothing
+                    Left (_,_,err) -> sciError ("Error loading SecreC interface file body " ++ show scifn) >> return Nothing
+            else sciError ("SecreC file " ++ show fn ++ " has changed") >> return Nothing
+    go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
+    go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
  
 trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
 trySCI msg io = do
@@ -217,6 +237,63 @@ trySCI msg io = do
 
 sciError :: MonadIO m => String -> SecrecM m ()
 sciError msg = do
+    opts <- Reader.ask
     when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr msg
     
-   
+
+moduleVarId :: Module VarIdentifier loc -> VarIdentifier
+moduleVarId m = maybe (mkVarId "main") id $ moduleIdMb m
+    
+type ModuleFile = Either (UnixTime,PPArgs,Module Identifier Position) ModuleSCI
+type TypedModuleFile = Either (UnixTime,PPArgs,Module VarIdentifier (Typed Position)) ModuleSCI
+
+moduleFileName :: ModuleFile -> FilePath
+moduleFileName (Left (_,_,m)) = moduleFile m
+moduleFileName (Right sci) = sciFile sci
+
+moduleFileId :: ModuleFile -> Identifier
+moduleFileId (Left (_,_,m)) = moduleId m
+moduleFileId (Right sci) = sciId sci
+
+moduleFileImports :: ModuleFile -> [ImportDeclaration Identifier Position]
+moduleFileImports (Left (_,_,m)) = moduleImports m
+moduleFileImports (Right sci) = sciImports sci
+
+moduleFileModificationTime :: ModuleFile -> UnixTime
+moduleFileModificationTime (Left (t,_,_)) = t
+moduleFileModificationTime (Right sci) = sciModTime sci
+
+updModuleFileModificationTime :: ModuleFile -> UnixTime -> ModuleFile
+updModuleFileModificationTime (Left (t,a,m)) t' = Left (t',a,m)
+updModuleFileModificationTime (Right sci) t' = Right $ updModTime sci t'
+
+-- module interface data
+data ModuleSCI = ModuleSCI {
+      sciHeader :: SCIHeader
+    , sciBody :: SCIBody
+    } deriving Generic
+
+sciFile = sciHeaderFile . sciHeader
+sciModTime = sciHeaderModTime . sciHeader
+sciId = sciHeaderId . sciHeader
+sciImports = sciBodyImports . sciBody
+sciPPArgs = sciBodyPPArgs . sciBody
+sciEnv = sciBodyEnv . sciBody
+
+updModTime sci t = sci { sciHeader = (sciHeader sci) { sciHeaderModTime = t } }
+
+instance Binary ModuleSCI
+
+data SCIHeader = SCIHeader {
+      sciHeaderFile :: FilePath
+    , sciHeaderModTime :: UnixTime
+    , sciHeaderId :: Identifier -- module identifier
+    } deriving Generic
+instance Binary SCIHeader
+
+data SCIBody = SCIBody {
+      sciBodyImports :: [ImportDeclaration Identifier Position] -- module dependencies 
+    , sciBodyPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
+    , sciBodyEnv :: ModuleTcEnv -- typechecking environment
+    } deriving Generic
+instance Binary SCIBody

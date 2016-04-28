@@ -254,37 +254,6 @@ unionMb Nothing y = y
 unionMb x Nothing = x
 unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
--- module interface data
-data ModuleSCI = ModuleSCI {
-      sciHeader :: SCIHeader
-    , sciBody :: SCIBody
-    } deriving Generic
-
-sciFile = sciHeaderFile . sciHeader
-sciTime = sciHeaderTime . sciHeader
-sciId = sciBodyId . sciBody
-sciImports = sciBodyImports . sciBody
-sciPPArgs = sciBodyPPArgs . sciBody
-sciEnv = sciBodyEnv . sciBody
-
-instance Binary ModuleSCI
-
-data SCIHeader = SCIHeader {
-      sciHeaderFile :: FilePath
-    , sciHeaderTime :: UnixTime
-    } deriving Generic
-instance Binary SCIHeader
-
-data SCIBody = SCIBody {
-      sciBodyId :: Identifier -- module identifier
-    , sciBodyImports :: [ImportDeclaration Identifier Position] -- module dependencies 
-    , sciBodyPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
-    , sciBodyEnv :: ModuleTcEnv -- typechecking environment
-    } deriving Generic
-instance Binary SCIBody
-
-type ModuleTyVarId = (Identifier,TyVarId)
-
 modifyModuleEnv :: Monad m => (ModuleTcEnv -> ModuleTcEnv) -> TcM m ()
 modifyModuleEnv f = State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
 
@@ -1924,6 +1893,8 @@ isPublicSecType :: SecType -> Bool
 isPublicSecType Public = True
 isPublicSecType _ = False
 
+type ModuleTyVarId = (Identifier,TyVarId)
+
 decTypeTyVarId :: DecType -> Maybe ModuleTyVarId
 decTypeTyVarId (StructType _ _ _) = Nothing
 decTypeTyVarId (ProcType _ _ _ _ _ _ _) = Nothing
@@ -2098,23 +2069,6 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
 compoundStmt :: Location loc => [Statement iden (Typed loc)] -> Statement iden (Typed loc)
 compoundStmt ss = CompoundStatement (Typed noloc t) ss
     where t = StmtType $ mconcat $ map ((\(StmtType c) -> c) . typed . loc) ss
-    
-moduleVarId :: Module VarIdentifier loc -> VarIdentifier
-moduleVarId m = maybe (mkVarId "main") id $ moduleIdMb m
-    
-type ModuleFile = Either (PPArgs,Module Identifier Position) ModuleSCI
-type TypedModuleFile = Either (PPArgs,Module VarIdentifier (Typed Position)) ModuleSCI
 
-moduleFileName :: ModuleFile -> FilePath
-moduleFileName (Left (_,m)) = moduleFile m
-moduleFileName (Right sci) = sciFile sci
-
-moduleFileId :: ModuleFile -> Identifier
-moduleFileId (Left (_,m)) = moduleId m
-moduleFileId (Right sci) = sciId sci
-
-moduleFileImports :: ModuleFile -> [ImportDeclaration Identifier Position]
-moduleFileImports (Left (_,m)) = moduleImports m
-moduleFileImports (Right sci) = sciImports sci
 
     

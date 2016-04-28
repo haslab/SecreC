@@ -315,7 +315,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
                             --dec'' <- substFromTDict "instantiate tplt" l subst False Map.empty dec'
 --                            liftIO $ putStrLn $ "instantiated declaration  " ++ ppr dec'' ++ "\n" ++ show (ppTSubsts (tSubsts subst))
                             has <- hasCondsDecType dec'
-                            return (e',not has)
+                            return (e' { entryType = DecT dec' },not has)
             return $ Right (e,e'',doWrap,depCstrs)
 
 -- merge two dictionaries with the second depending on the first
@@ -334,7 +334,8 @@ templateIdentifier (DecT t) = templateIdentifier' t
     templateIdentifier' (DecType _ _ _ _ _ _ _ _ t) = templateIdentifier' t
     templateIdentifier' (ProcType _ n _ _ _ _ _) = Right n
     templateIdentifier' (StructType _ n _) = Left n
-        
+   
+-- has procedure conditions     
 hasCondsDecType :: (MonadIO m) => DecType -> TcM m Bool
 hasCondsDecType (DecType _ _ targs _ _ _ _ _ d) = do
     b <- hasCondsDecType d

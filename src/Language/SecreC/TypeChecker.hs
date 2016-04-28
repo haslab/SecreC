@@ -49,7 +49,9 @@ import System.Posix.Files
 import System.FilePath.Posix
 
 tcModuleFile :: ProverK Position m => ModuleFile -> TcM m TypedModuleFile
-tcModuleFile (Left m) = liftM Left $ tcModuleWithPPArgs m
+tcModuleFile (Left (t,args,m)) = do
+    (args',m') <- tcModuleWithPPArgs (args,m)
+    return $ Left (t,args',m')
 tcModuleFile (Right sci) = do
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (mappend x y,sciEnv sci) }
     return $ Right sci

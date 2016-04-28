@@ -939,7 +939,7 @@ bool operator ! (bool x) {
 
 template <domain D,dim N { N > 0 }>
 D bool[[N]] operator ! (D bool[[N]] x) {
-    return size(x) > 0 ? cat(!x[0],!x[1:]) : {};
+    return size(x) > 0 ? cat({!x[0]},!x[1:]) : {};
 }
 
 // casts

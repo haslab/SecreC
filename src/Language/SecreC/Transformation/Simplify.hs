@@ -16,6 +16,7 @@ import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Error
 import Language.SecreC.Position
 import Language.SecreC.Monad
+import Language.SecreC.Modules
 
 import Data.Foldable as Foldable
 import Data.Map (Map(..))
@@ -42,7 +43,9 @@ type SimplifyT loc t m a = SimplifyM loc t m (a VarIdentifier (Typed loc))
 type SimplifyG loc t m a = SimplifyK loc t m => a VarIdentifier (Typed loc) -> t m (a VarIdentifier (Typed loc))
 
 simplifyModuleFile :: SimplifyK Position t m => Options -> TypedModuleFile -> t m TypedModuleFile
-simplifyModuleFile opts (Left m) = liftM Left $ simplifyModuleWithPPArgs opts m
+simplifyModuleFile opts (Left (t,args,m)) = do
+    (args',m') <- simplifyModuleWithPPArgs opts (args,m)
+    return $ Left (t,args',m')
 simplifyModuleFile opts (Right sci) = return $ Right sci
 
 simplifyModuleWithPPArgs :: SimplifyK loc t m => Options -> (PPArgs,Module VarIdentifier (Typed loc)) -> t m (PPArgs,Module VarIdentifier (Typed loc))
