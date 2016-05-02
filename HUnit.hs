@@ -43,7 +43,7 @@ hasLabel s t = False
     
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
-    code <- system $ "secrec " ++ f
+    code <- system $ "secrec --debugtypechecker=True " ++ f
     case code of
         ExitSuccess -> return True
         ExitFailure i -> return False

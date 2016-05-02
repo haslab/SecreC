@@ -122,21 +122,19 @@ tcExpr (UnaryExpr l op e) = do
     e' <- tcExpr e
     let t = typed $ loc e'
     top <- tcOp op
-    case (top,t) of
---        (OpCast lcast cast,isLitType -> True) -> do
---            b <- typeToBaseType (unTyped lcast) $ typed $ loc cast
---            s <- newDomainTyVar AnyKind Nothing
---            dim <- newDimVar Nothing
---            let ct = ComplexT $ CType s b dim
---            x <- newTypedVar "cast" ct $ Just $ pp e'
---            tcTopCstrM l $ Coerces (fmap typed e') x
---            let ex = fmap (Typed l) $ RVariablePExpr ct x
---            return $ UnaryExpr (Typed l ct) top ex
-        otherwise -> do
-            v <- newTyVar Nothing
-            (dec,[(x,_)]) <- tcTopPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
-            let ex = fmap (Typed l) x
-            return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
+    
+    case (top,e) of
+        -- hack to translate a literal cast to a qualified expression
+        (OpCast lcast cast,e@(LitPExpr {})) -> do
+            castty <- typeToBaseType (unTyped lcast) $ typed $ loc cast
+            b <- typeBase l t
+            tcTopCstrM l $ Unifies b (BaseT castty)
+        otherwise -> return ()
+    
+    v <- newTyVar Nothing
+    (dec,[(x,_)]) <- tcTopPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
+    let ex = fmap (Typed l) x
+    return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
 tcExpr (DomainIdExpr l s) = do
     s' <- tcSecType s
     let t = BaseT index
@@ -272,8 +270,7 @@ tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression VarIdentifier (
 tcLiteral li = do
     let l = loc li
     b <- newBaseTyVar Nothing
-    sz <- newSizeVar Nothing
-    let t = ComplexT $ CType Public b sz
+    let t = ComplexT $ CType Public b (indexSExpr 0)
     let elit = LitPExpr t $ fmap (const t) li
     tcTopCstrM l $ CoercesLit elit
     return $ LitPExpr (Typed l t) $ fmap (const (Typed l t)) li

@@ -72,6 +72,12 @@ D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns) {
     return ret;
 }
 
+//repeat
+template <domain D,type T>
+D T[[1]] repeat (D T x,uint n) {
+    return n > 0 ? cat({x},repeat(x,n-1) : {} ;
+}
+
 // size
 
 template <domain D, type T, dim N>

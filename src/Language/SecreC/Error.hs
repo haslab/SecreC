@@ -13,6 +13,7 @@ import Data.Generics hiding (empty,Generic)
 import Data.Int
 import Data.Word
 import Data.Hashable
+import Data.Binary
 
 import GHC.Generics (Generic)
 
@@ -29,6 +30,7 @@ data ParserException
     | PreProcessorException String
     deriving (Show,Typeable,Data,Eq,Ord,Generic)
 
+instance Binary ParserException
 instance Hashable ParserException
 
 instance PP ParserException where
@@ -50,8 +52,10 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | TimedOut Int -- timed out after @x@ seconds
                  | OrWarn -- ^ optional constraint, just throw a warning
                      SecrecError
+                 | ErrToken -- for internal purposes
   deriving (Show,Typeable,Data,Eq,Ord,Generic)
   
+instance Binary SecrecError
 instance Hashable SecrecError
 
 instance Located SecrecError where
@@ -63,6 +67,7 @@ instance Located SecrecError where
      loc (MultipleErrors es) = minimum (map loc es)
      loc (TimedOut _) = noloc
      loc (OrWarn e) = loc e
+     loc (ErrToken) = noloc
      updLoc = error "cannot update location in errors"
 
 instance PP SecrecError where
@@ -73,6 +78,7 @@ instance PP SecrecError where
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
     pp (OrWarn err) = pp err
+    pp (ErrToken) = text "<error>"
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -227,6 +233,7 @@ data TypecheckerErr
         SecrecError -- sub-error
   deriving (Show,Typeable,Data,Eq,Ord,Generic)
 
+instance Binary TypecheckerErr
 instance Hashable TypecheckerErr
 
 instance PP TypecheckerErr where
@@ -355,6 +362,7 @@ data ModuleErr
     | CircularModuleDependency [(Identifier,Identifier,Position)]
   deriving (Show,Read,Data,Typeable,Eq,Ord,Generic)
 
+instance Binary ModuleErr
 instance Hashable ModuleErr
 
 instance PP ModuleErr where
@@ -380,6 +388,7 @@ data SecrecWarning
     | ErrWarn SecrecError
   deriving (Show,Typeable,Eq,Ord,Generic)
 
+instance Binary SecrecWarning
 instance Hashable SecrecWarning
 
 instance Located SecrecWarning where
@@ -424,7 +433,8 @@ data TypecheckerWarn
         String -- min range
         String -- max range
   deriving (Data,Show,Typeable,Eq,Ord,Generic)
- 
+
+instance Binary TypecheckerWarn 
 instance Hashable TypecheckerWarn
 
 instance PP TypecheckerWarn where

@@ -73,7 +73,7 @@ resolveModule :: ModK m => FilePath -> SecrecM m FilePath
 resolveModule file = do
     let m = ModuleName (UnhelpfulPos "resolveModule") (takeBaseName file)
     opts <- ask
-    findModule (takeDirectory file : paths opts) m
+    findModule (takeDirectory file : paths opts) m   
 
 -- | Opens a list of modules by filename
 openModuleFiles :: ModK m => [FilePath] -> ModuleGraph -> ModuleM m ModuleGraph
@@ -82,13 +82,7 @@ openModuleFiles fs g = foldlM open g fs
     open g f = do
         f' <- lift $ resolveModule f
         mfile <- lift $ parseModuleFile f'
-        opts <- ask
-        let mfile' = case mfile of
-                        Left (t,ppargs,ast) -> if (implicitBuiltin opts && moduleIdMb ast /= Just "builtin")
-                            then Left (t,ppargs,addModuleImport (Import noloc $ ModuleName noloc "builtin") ast)
-                            else Left (t,ppargs,ast)
-                        Right sci -> Right sci
-        openModule Nothing g f' (moduleFileId mfile') noloc (return mfile')
+        openModule Nothing g f' (moduleFileId mfile) noloc (return mfile)
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter
@@ -111,9 +105,7 @@ openModule parent g f n pos load = do
             mfile <- lift load
             -- add new node and edge to parent
             State.put (Map.insert n (f,c,True) ns,succ c)
-            let g' = case parent of
-                        Nothing -> insNode (c,mfile) g
-                        Just (l,j) -> insEdge (c,j,l) $ insNode (c,mfile) g
+            let g' = insParent parent c $ insNode (c,mfile) g
             -- open imports
             foldlM (openImport c) g' (moduleFileImports mfile)
     g'' <- dirtyParents c g'
@@ -143,9 +135,13 @@ parseModuleFile fn = do
                 Just x -> return $ Right x
   where
     parse = do
+        opts <- ask
         (args,m) <- parseFile fn
         t <- liftIO $ fileModificationTime fn
-        return $ Left (t,args,m)
+        let m' = if (implicitBuiltin (opts `mappend` ppOptions args) && moduleIdMb m /= Just "builtin")
+            then addModuleImport (Import noloc $ ModuleName noloc "builtin") m
+            else m
+        return $ Left (t,args,m')
 
 -- recursively update the modification time of parent modules
 dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph

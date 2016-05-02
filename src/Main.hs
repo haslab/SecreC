@@ -49,7 +49,7 @@ printHelp = withArgs ["--help"] $ cmdArgsRun mode >> return ()
 
 mode  :: Mode (CmdArgs Options)
 mode  = cmdArgsMode $
-           modes [opts &= auto]
+           modes [optionsDecl &= auto]
         &= help "SecreC analyser"
         &= summary ("secrec " ++ showVersion version ++ " \n\
                    \(C) PRACTICE TEAM 2016 - DI/HasLab - Univ. Minho,\

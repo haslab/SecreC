@@ -396,7 +396,19 @@ typeToDomainName t = case typeToVarName t of
     Just (VarName _ n) -> Just $ DomainName t n
     otherwise -> Nothing
 
-type SecrecErrArr = SecrecError -> SecrecError
+newtype SecrecErrArr = SecrecErrArr { unSecrecErrArr :: SecrecError -> SecrecError }
+    deriving (Generic,Data,Typeable,Show)
+
+instance Binary SecrecErrArr where
+    put (SecrecErrArr f) = Binary.put (f ErrToken)
+    get = do
+        err <- Binary.get
+        let aux :: SecrecError -> SecrecError -> SecrecError
+            aux x ErrToken = x
+            aux x e = e
+        return $ SecrecErrArr $ \x -> everywhere (mkT $ aux x) err
+instance Hashable SecrecErrArr where
+    hashWithSalt salt err = salt
 
 newtype TcM m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv) (SecrecM m) a }
     deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv),MonadReader (Int,SecrecErrArr),MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
@@ -411,25 +423,27 @@ mapTcM f (TcM m) = TcM $ RWS.mapRWST (mapSecrecM f) m
 instance MonadTrans (TcM) where
     lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,mempty)) m
 
-askErrorM :: Monad m => TcM m SecrecErrArr
-askErrorM = liftM snd $ Reader.ask
+askErrorM :: Monad m => TcM m (SecrecError -> SecrecError)
+askErrorM = liftM (unSecrecErrArr . snd) $ Reader.ask
 
-askErrorM' :: Monad m => TcM m (Int,SecrecErrArr)
-askErrorM' = Reader.ask
+askErrorM' :: Monad m => TcM m (Int,SecrecError -> SecrecError)
+askErrorM' = do
+    (i,SecrecErrArr f) <- Reader.ask
+    return (i,f)
 
 newErrorM :: TcM m a -> TcM m a
-newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,id),s)) m
+newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 
-addErrorM :: (MonadIO m,Location loc) => loc -> SecrecErrArr -> TcM m a -> TcM m a
+addErrorM :: (MonadIO m,Location loc) => loc -> (SecrecError -> SecrecError) -> TcM m a -> TcM m a
 addErrorM l err m = addErrorM' l (1,err) m
 
-addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
+addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecError -> SecrecError) -> TcM m a -> TcM m a
 addErrorM' l (j,err) (TcM m) = do
     size <- liftM fst Reader.ask
     opts <- askOpts
     if (size + j) > constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
-        else TcM $ RWS.withRWST (\(i,f) s -> ((i + j,f . err),s)) m
+        else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
 
 --tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM m a
 --tcPos = tcLocM (locpos) (updpos noloc)
@@ -489,7 +503,7 @@ execTcM m arr env = do
     return (x,env')
 
 runTcM :: (MonadIO m) => TcM m a -> SecrecM m a
-runTcM m = liftM fst $ RWS.evalRWST (unTcM m) (0,id) emptyTcEnv
+runTcM m = liftM fst $ RWS.evalRWST (unTcM m) (0,SecrecErrArr id) emptyTcEnv
 
 -- flips errors whenever typechecking is expected to fail
 failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
@@ -528,7 +542,8 @@ data TcCstr
         [(Expression VarIdentifier Type,IsVariadic)] -- procedure arguments
         Type -- return type
         DecType -- result
-        (Maybe [VarName VarIdentifier Type]) -- resulting coerced procedure arguments
+        Bool -- coerce arguments
+        [VarName VarIdentifier Type] -- resulting coerced procedure arguments
     | Equals Type Type -- ^ types equal
     | Coerces -- ^ types coercible
         (Expression VarIdentifier Type)
@@ -649,28 +664,8 @@ data TCstr
     | HypK HypCstr
   deriving (Data,Typeable,Show,Generic)
 
-instance Binary TCstr where
-    put (TcK c) = Binary.put (1::Int) >> Binary.put c
-    put (DelayedK c _) = Binary.put c
-    put (CheckK c) = Binary.put (2::Int) >> Binary.put c
-    put (HypK c) = Binary.put (3::Int) >> Binary.put c
-    get = do
-        i <- Binary.get :: Get Int
-        case i of
-            1 -> do
-                c <- Binary.get :: Get TcCstr
-                return $ TcK c
-            2 -> do
-                c <- Binary.get :: Get CheckCstr
-                return $ CheckK c
-            3 -> do
-                c <- Binary.get :: Get HypCstr
-                return $ HypK c
-instance Hashable TCstr where
-    hashWithSalt i (TcK c) = hashWithSalt i c
-    hashWithSalt i (DelayedK c _) = hashWithSalt i c
-    hashWithSalt i (CheckK c) = hashWithSalt i c
-    hashWithSalt i (HypK c) = hashWithSalt i c
+instance Binary TCstr
+instance Hashable TCstr
  
 instance Eq TCstr where
     (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
@@ -716,8 +711,8 @@ ppVarTy v = ppExprTy (varExpr v)
 
 instance PP TcCstr where
     pp (TDec n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
-    pp (PDec isPure n specs ts r x Nothing) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x
-    pp (PDec isPure n specs ts r x (Just xs)) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> parens (sepBy comma $ map ppExprTy xs)
+    pp (PDec isPure n specs ts r x doCoerce xs) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> ppCoerce <+> parens (sepBy comma $ map ppExprTy xs)
+        where ppCoerce = if doCoerce then text "~~>" else text "-->"
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces e1 v2) = text "coerces" <+> ppExprTy e1 <+> ppVarTy v2
     pp (CoercesSec e1 v2) = text "coercessec" <+> ppExprTy e1 <+> ppVarTy v2
@@ -843,14 +838,14 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         args' <- mapM f args
         x' <- f x
         return $ TDec n' args' x'
-    traverseVars f (PDec isPure n ts args ret x xs) = do
+    traverseVars f (PDec isPure n ts args ret x doCoerce xs) = do
         n' <- f n
         x' <- f x
         ts' <- mapM (mapM (mapFstM f)) ts
         args' <- mapM (mapFstM f) args
         ret' <- f ret
-        xs' <- mapM (mapM f) xs
-        return $ PDec isPure n' ts' args' ret' x' xs'
+        xs' <- mapM f xs
+        return $ PDec isPure n' ts' args' ret' x' doCoerce xs'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -2010,7 +2005,7 @@ genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg
 
 throwTcError :: (MonadIO m) => SecrecError -> TcM m a
 throwTcError err = do
-    (i,f) <- Reader.ask
+    (i,SecrecErrArr f) <- Reader.ask
     let err2 = f err
     ios <- liftM openedCstrs State.get
     let add io = liftIO $ writeUniqRef (kStatus io) (Erroneous err2)

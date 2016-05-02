@@ -251,8 +251,8 @@ newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m ()
 newTCstr l k = do
     doSome <- liftM inTemplate State.get
     deps <- getDeps
-    delay <- askErrorM'
-    let k' = DelayedK k delay
+    (i,delay) <- askErrorM'
+    let k' = DelayedK k (i,SecrecErrArr delay)
     iok <- newTemplateConstraint l k'
     addIOCstrDependenciesM deps (Loc (locpos l) iok) Set.empty
     
@@ -268,7 +268,7 @@ resolveTCstr l (HypK h) = liftM ShowOrdDyn $ withDeps GlobalScope $ do
     resolveHypCstr l h
 resolveTCstr l (CheckK c) = liftM ShowOrdDyn $ withDeps GlobalScope $ do
     resolveCheckCstr l c
-resolveTCstr l (DelayedK k (i,err)) = addErrorM' l (i,err) $ resolveTCstr l k
+resolveTCstr l (DelayedK k (i,SecrecErrArr err)) = addErrorM' l (i,err) $ resolveTCstr l k
 
 -- tests if a constraint is only used as part of an hypothesis
 --isHypInGraph :: Int -> IOCstrGraph loc -> Bool
@@ -286,17 +286,15 @@ resolveTcCstr l k = do
     resolveTcCstr' k
   where
     resolveTcCstr' k@(TDec n args x) = do
-        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing Nothing (checkTemplateType $ fmap (const l) n)
+        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing [] (checkTemplateType $ fmap (const l) n)
         addErrorM l
             (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args))))
             (tcCstrM l $ Unifies (DecT x) (DecT res))
-    resolveTcCstr' k@(PDec cl (Left n) specs args r x xs) = do
-        let doCoerce = isJust xs
+    resolveTcCstr' k@(PDec cl (Left n) specs args r x doCoerce xs) = do
         res <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) xs (checkProcedure cl $ ProcedureName l n)
         addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
             tcCstrM l $ Unifies (DecT x) (DecT res)
-    resolveTcCstr' k@(PDec cl (Right o) specs args r x xs) = do
-        let doCoerce = isJust xs
+    resolveTcCstr' k@(PDec cl (Right o) specs args r x doCoerce xs) = do
         res <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) xs (checkOperator cl $ fmap (const l) o)
         addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args)))) $ do
             tcCstrM l $ Unifies (DecT x) (DecT res)
@@ -870,16 +868,16 @@ classifiesCstrs l e1 ct1 x2 s2 = do
     let ct2 = setCSec ct1 s2
     dec <- newDecVar Nothing
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
-    let k1 = PDec cl (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec Nothing
+    v1 <- newTypedVar "parg" (loc e1) $ Just $ pp e1
+    let k1 = PDec cl (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]
     let k2 = Unifies (loc x2) (ComplexT ct2)
     let k3 = Unifies (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])
     return [k1,k2,k3]
 
 coercesLit :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> TcM m ()
-coercesLit l (LitPExpr (BaseT t) lit) = do
-    coercesLitBase l (funit lit) t
-coercesLit l (LitPExpr (ComplexT ct@(CType Public t d)) lit) = do
-    coercesLitBase l (funit lit) t
+coercesLit l e@(LitPExpr (BaseT t) lit) = do
+    b <- typeToBaseType l t
+    coercesLitBase l (funit lit) b
 coercesLit l (ArrayConstructorPExpr (ComplexT ct@(CType Public t d)) es) = do
     -- coerce the base types
     mapM_ (\e -> tcCstrM l $ Unifies (loc e) (BaseT t)) es
@@ -916,45 +914,6 @@ coercesLitBase l (FloatLit _ f) (TyPrim (t@(primFloatBounds -> Just (min,max))))
 coercesLitBase l (BoolLit _ b) (TyPrim (DatatypeBool _)) = return ()
 coercesLitBase l (StringLit _ s) (TyPrim (DatatypeString _)) = return ()
 coercesLitBase l l1 t2 = constraintError (CoercionException "literal base type") l l1 pp t2 pp Nothing  
-
--- | Checks if a type is more specific than another, performing substitutions
-compares :: (ProverK loc m) => loc -> Type -> Type -> TcM m (Comparison (TcM m))
-compares l (IdxT e1) (IdxT e2) = comparesExpr l e1 e2
-compares l (BaseT b1) (BaseT b2) = do
-    comparesBase l b1 b2
-compares l (ComplexT c1) (ComplexT c2) = do
-    comparesComplex l c1 c2
-compares l (BaseT b1) (ComplexT c2) = do
-    comparesComplex l (defCType b1) c2
-compares l (ComplexT c1) (BaseT b2) = do
-    comparesComplex l c1 (defCType b2)
-compares l (SecT s1) (SecT s2) = do
-    comparesSec l s1 s2
-compares l (SysT t1) (SysT t2) = do
-    comparesSys l t1 t2
-compares l (DecT d1) (DecT d2) = do
-    comparesDec l d1 d2
-compares l (VArrayT a1) (VArrayT a2) = do
-    comparesArray l a1 a2
-compares l (VAType b1 sz1) (VAType b2 sz2) = do
-    o1 <- compares l b1 b2
-    o2 <- compares l (IdxT sz1) (IdxT sz2)
-    appendComparisons l [o1,o2]
---compares l (CondType t1 c1) (CondType t2 c2) = do
---    o1 <- compares l t1 t2
---    o2 <- comparesSCond l c1 c2
---    return $ o1 `mappend` o2
---compares l (CondType t1 c1) t2 = do
---    o1 <- compares l t1 t2
---    o2 <- comparesSCond l c1 trueSCond
---    return $ o1 `mappend` o2
---compares l t1 (CondType t2 c2) = do
---    o1 <- compares l t1 t2
---    o2 <- comparesSCond l trueSCond c2
---    return $ o1 `mappend` o2
-compares l t1 t2 = addErrorM l
-    (TypecheckerError (locpos l) . (ComparisonException "type") (pp t1) (pp t2) . Just)
-    (equals l t1 t2 >> return (Comparison t1 t2 EQ))
 
 decToken :: MonadIO m => TcM m DecType
 decToken = do
@@ -998,6 +957,45 @@ exprToken = do
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     let t = BaseT $ BVar v
     return $ RVariablePExpr t (VarName t v)
+
+-- | Checks if a type is more specific than another, performing substitutions
+compares :: (ProverK loc m) => loc -> Type -> Type -> TcM m (Comparison (TcM m))
+compares l (IdxT e1) (IdxT e2) = comparesExpr l coerceDim e1 e2
+compares l (BaseT b1) (BaseT b2) = do
+    comparesBase l b1 b2
+compares l (ComplexT c1) (ComplexT c2) = do
+    comparesComplex l c1 c2
+compares l (BaseT b1) (ComplexT c2) = do
+    comparesComplex l (defCType b1) c2
+compares l (ComplexT c1) (BaseT b2) = do
+    comparesComplex l c1 (defCType b2)
+compares l (SecT s1) (SecT s2) = do
+    comparesSec l s1 s2
+compares l (SysT t1) (SysT t2) = do
+    comparesSys l t1 t2
+compares l (DecT d1) (DecT d2) = do
+    comparesDec l d1 d2
+compares l (VArrayT a1) (VArrayT a2) = do
+    comparesArray l a1 a2
+compares l (VAType b1 sz1) (VAType b2 sz2) = do
+    o1 <- compares l b1 b2
+    o2 <- compares l (IdxT sz1) (IdxT sz2)
+    appendComparisons l [o1,o2]
+--compares l (CondType t1 c1) (CondType t2 c2) = do
+--    o1 <- compares l t1 t2
+--    o2 <- comparesSCond l c1 c2
+--    return $ o1 `mappend` o2
+--compares l (CondType t1 c1) t2 = do
+--    o1 <- compares l t1 t2
+--    o2 <- comparesSCond l c1 trueSCond
+--    return $ o1 `mappend` o2
+--compares l t1 (CondType t2 c2) = do
+--    o1 <- compares l t1 t2
+--    o2 <- comparesSCond l trueSCond c2
+--    return $ o1 `mappend` o2
+compares l t1 t2 = addErrorM l
+    (TypecheckerError (locpos l) . (ComparisonException "type") (pp t1) (pp t2) . Just)
+    (equals l t1 t2 >> return (Comparison t1 t2 EQ))
 
 comparesDec :: (ProverK loc m) => loc -> DecType -> DecType -> TcM m (Comparison (TcM m))
 comparesDec l t1@(DVar v1) t2@(DVar v2) = do
@@ -1065,8 +1063,8 @@ comparesArray l a1@(VAVar v1 b1 sz1) a2 = do
 comparesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m (Comparison (TcM m))
 comparesSec l t1@Public t2@Public = return (Comparison t1 t2 EQ)
 comparesSec l t1@(Private d1 k1) t2@(Private d2 k2) | d1 == d2 && k1 == k2 = return (Comparison t1 t2 EQ)
---comparesSec l Public (Private {}) = return LT -- public computations are preferrable
---comparesSec l (Private {}) Public = return GT -- public computations are preferrable
+--comparesSec l Public (Private {}) = return LT -- public computations are preferrable (because of coercions)
+--comparesSec l (Private {}) Public = return GT -- public computations are preferrable (because of coercions)
 comparesSec l t1@(SVar v1 k1) t2@(SVar v2 k2) | v1 == v2 && k1 == k2 = return (Comparison t1 t2 EQ)
 comparesSec l t1@(SVar v1 k1) t2@(SVar v2 k2) = do
     mb1 <- tryResolveSVar l v1
@@ -1151,7 +1149,7 @@ comparesComplex l t1@Void t2@Void = return $ Comparison t1 t2 EQ
 comparesComplex l ct1@(CType s1 t1 d1) ct2@(CType s2 t2 d2) = do
     o1 <- comparesSec l s1 s2
     o2 <- comparesBase l t1 t2
-    o3 <- comparesExpr l d1 d2
+    o3 <- comparesDim l d1 d2
     appendComparisons l [o1,o2,o3]
 comparesComplex l t1@(CVar v1) t2@(CVar v2) = do
     mb1 <- tryResolveCVar l v1
@@ -1674,17 +1672,13 @@ comparesTpltArgs l ts1 ts2 = do
         unless (b1 == b2) $ genTcError (locpos l) $ text "incomparable template arguments"
         compares l t1 t2
 
-comparesSizes :: (ProverK loc m) => loc -> [(Expression VarIdentifier Type,IsVariadic)] -> [(Expression VarIdentifier Type,IsVariadic)] -> TcM m (Comparison (TcM m))
-comparesSizes l szs1 szs2 = do
-    os <- constraintList (ComparisonException "size") comparesSize l szs1 szs2
-    appendComparisons l os
-  where
-    comparesSize (sz1,b1) (sz2,b2) = do
-        unless (b1 == b2) $ genTcError (locpos l) $ text "incomparable sizes"
-        comparesExpr l sz1 sz2
+comparesDim :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
+comparesDim l e1 e2 = do
+    tcCstrM l $ Unifies (IdxT e1) (IdxT $ indexSExpr 0)
+    tcCstrM l $ Unifies (IdxT e2) (IdxT $ indexSExpr 0)
     
-comparesExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
-comparesExpr l e1 e2 = addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp e1) (pp e2) . Just) (comparesExpr' l e1 e2)
+comparesExpr :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
+comparesExpr l coerceDim e1 e2 = addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp e1) (pp e2) . Just) (comparesExpr' l e1 e2)
     where
     comparesExpr' :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
     comparesExpr' l e1 e2 | e1 == e2 = return (Comparison e1 e2 EQ)
@@ -1714,7 +1708,8 @@ comparesExpr l e1 e2 = addErrorM l (TypecheckerError (locpos l) . (ComparisonExc
                 addValueM False l v2 e1
                 return (Comparison e1 e2 LT)
             Just e2' -> comparesExpr' l e1 (fmap typed e2')
-    comparesExpr' l e1 e2 = equalsExpr l e1 e2 >> return (Comparison e1 e2 EQ)
+    comparesExpr' l e1 e2 = do
+        equalsExpr l e1 e2 >> return (Comparison e1 e2 EQ)
 
 equalsExprTy :: (ProverK loc m) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM m ()
 equalsExprTy l e1 e2 = addErrorM l (TypecheckerError (locpos l) . (EqualityException "typed expression") (ppExprTy e1) (ppExprTy e2) . Just) $ do
@@ -1775,9 +1770,13 @@ tcTopPDecCstrM l doCoerce pid targs es tret = do
                 tx <- newTyVar Nothing
                 x <- newTypedVar "parg" tx $ Just $ ppVariadicArg pp e
                 return x
-            tcTopCstrM l $ PDec cl pid targs es tret dec $ Just xs
+            tcTopCstrM l $ PDec cl pid targs es tret dec True xs
             let es' = zip (map varExpr xs) (map snd es)
             return (dec,es')
         else do
-            tcTopCstrM l $ PDec cl pid targs es tret dec Nothing
+            xs <- forM es $ \e -> do
+                let tx = loc $ fst e
+                x <- newTypedVar "parg" tx $ Just $ ppVariadicArg pp e
+                return x
+            tcTopCstrM l $ PDec cl pid targs es tret dec False xs
             return (dec,es)

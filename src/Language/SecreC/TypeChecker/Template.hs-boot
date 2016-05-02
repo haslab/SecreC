@@ -9,4 +9,4 @@ import Language.SecreC.Vars
 import Language.SecreC.Prover.Base
 import Language.SecreC.Position
 
-matchTemplate :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> Maybe [VarName VarIdentifier Type] -> TcM m [EntryEnv] -> TcM m (DecType)
+matchTemplate :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> [VarName VarIdentifier Type] -> TcM m [EntryEnv] -> TcM m (DecType)

@@ -118,8 +118,8 @@ instance PP Options where
           <+> text "--checkassertions" <> pp (checkAssertions opts)
           <+> text "--forcerecomp" <> pp (forceRecomp opts)
 
-opts  :: Options
-opts  = Opts { 
+optionsDecl  :: Options
+optionsDecl  = Opts { 
       inputs                = inputs defaultOptions &= args &= typ "FILE.sc"
     , outputs               = outputs defaultOptions &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
     , paths                 = paths defaultOptions &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
@@ -150,7 +150,7 @@ opts  = Opts {
     &= help "SecreC analyser"
 
 ppMode  :: Mode (CmdArgs Options)
-ppMode  = cmdArgsMode $ modes [opts &= auto]
+ppMode  = cmdArgsMode $ modes [optionsDecl &= auto]
 
 processOpts :: Options -> Options
 processOpts opts = opts

@@ -214,16 +214,16 @@ expr2ProverMb (BinaryAssign l lhs (BinaryAssignEqual _) e) = do
     ie <- expr2Prover e
     addVar v (Just ie,Nothing)
     return Nothing
-expr2ProverMb e@(UnaryExpr l o e1) = proverProcError (typed $ loc o) e
-expr2ProverMb e@(BinaryExpr l e1 o e2) = proverProcError (typed $ loc o) e
-expr2ProverMb e@(ProcCallExpr l n ts es) = proverProcError (typed $ loc n) e
-expr2ProverMb e = lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression"
+expr2ProverMb e@(UnaryExpr l o e1) = proverProcError "unary" (typed $ loc o) e
+expr2ProverMb e@(BinaryExpr l e1 o e2) = proverProcError "binary" (typed $ loc o) e
+expr2ProverMb e@(ProcCallExpr l n ts es) = proverProcError "proccall" (typed $ loc n) e
+expr2ProverMb e = lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression"
     
-proverProcError (DecT (DVar v)) e = do
+proverProcError str (DecT (DVar v)) e = do
     lift $ addGDependencies $ Left v
-    lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError $ text "failed to convert expression" <+> pp e <+> text "to prover expression"
-proverProcError t e = do
-    lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> pp e <+> text "to prover expression: unknown declaration type" <+> pp t
+    lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError $ text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression"
+proverProcError str t e = do
+    lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression: unknown declaration type" <+> pp t
     
 expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m IExpr
 expr2Prover e = do

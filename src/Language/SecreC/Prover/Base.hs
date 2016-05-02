@@ -38,6 +38,7 @@ data ILit
     | IFloat32 Float 
     | IFloat64 Double
     | IBool Bool
+    | IArr [[ILit]]
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable ILit
 instance PP ILit where
@@ -194,8 +195,6 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IBOp where
     traverseVars f o = return o
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IUOp where
     traverseVars f o = return o
-
- 
 
 type ProverK loc m = (SMTK loc,SimplifyK loc (TcM) m,VarsIdTcM m,Location loc)
 type SMTK loc = (Vars VarIdentifier Symbolic loc,VarsIdTcM Symbolic,Location loc)
