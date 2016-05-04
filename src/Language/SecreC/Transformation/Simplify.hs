@@ -212,6 +212,15 @@ simplifyExpression (PostIndexExpr l e s) = do
     (ss1,Just e') <- simplifyExpression e
     (ss2,s') <- simplifySubscript s
     return (ss1++ss2,Just $ PostIndexExpr l e' s')
+simplifyExpression (LambdaExpr l ss@(last -> ReturnStatement _ (Just e))) = do
+    let ret = typed $ loc e
+    res <- liftM (VarName (Typed noloc ret)) $ genVar (mkVarId "res")
+    (t,sz) <- type2TypeSpecifierNonVoid ret
+    (ss1,t') <- simplifyTypeSpecifier t
+    (ss2,sz') <- simplifySizes sz
+    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res sz' Nothing
+    ss' <- simplifyStatements (Just res) ss
+    return (ss1++ss2++[def,compoundStmt ss'],Just $ varExpr res)
 simplifyExpression e = return ([],Just e)
 
 simplifySubscript :: SimplifyT loc t m Subscript
@@ -238,15 +247,17 @@ bindProcArgs (v:vs) es = do
 
 bindProcArg :: SimplifyK loc t m => (Bool,Cond (VarName VarIdentifier Type),IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArg (False,Cond v _,False) (e:es) = do
-    (t) <- type2TypeSpecifierNonVoid (loc v)
+    (t,sz) <- type2TypeSpecifierNonVoid (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
-    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc (fmap (Typed noloc) v) Nothing $ Just e
-    return (es,ss1++[def],Map.empty)
+    (ss2,sz') <- simplifySizes sz
+    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc (fmap (Typed noloc) v) sz' $ Just e
+    return (es,ss1++ss2++[def],Map.empty)
 bindProcArg (True,Cond v _,False) (e:es) = do
-    t <- type2TypeSpecifierNonVoid (loc v)
+    (t,sz) <- type2TypeSpecifierNonVoid (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
-    let def = ConstStatement noloc $ ConstDeclaration noloc t' $ WrapNe $ ConstInitialization noloc (fmap (Typed noloc) v) Nothing $ Just e
-    return (es,ss1++[def],Map.empty)
+    (ss2,sz') <- simplifySizes sz
+    let def = ConstStatement noloc $ ConstDeclaration noloc t' $ WrapNe $ ConstInitialization noloc (fmap (Typed noloc) v) sz' $ Just e
+    return (es,ss1++ss2++[def],Map.empty)
 bindProcArg (_,Cond v _,True) es = do
     let p = noloc::Position
     sz <- lift $ runSecrecM mempty $ runTcM $ evaluateIndexExpr p =<< typeSize p (loc v)
@@ -267,17 +278,18 @@ inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann b
     (decls,substs) <- bindProcArgs args es'
     ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) ann
     body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) body
-    mb <- type2TypeSpecifier ret
+    (mb,sz) <- type2TypeSpecifier ret
     let (reqs,ens) = splitProcAnns ann'
     case mb of
         Just t -> do
             (ss1,t') <- simplifyTypeSpecifier t
+            (ss2,sz') <- simplifySizes sz
             res <- liftM (VarName (Typed noloc ret)) $ genVar (mkVarId "res")
-            let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res Nothing Nothing
+            let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res sz' Nothing
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements (Just res) body'
             ens' <- simplifyStatements Nothing ens
-            return $ Just (decls++ss1++[def,compoundStmt (reqs'++ss++ens')],Just $ varExpr res)
+            return $ Just (decls++ss1++ss2++[def,compoundStmt (reqs'++ss++ens')],Just $ varExpr res)
         Nothing -> do
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements Nothing body'
@@ -379,6 +391,9 @@ simplifyMaybe m (Just x) = do
     (ss,x') <- m x
     return (ss,Just x')
 
-
+simplifySizes :: SimplifyM loc t m (Maybe (Sizes VarIdentifier (Typed loc)))
+simplifySizes = simplifyMaybe $ \(Sizes xs) -> do
+    (ss,xs') <- simplifyVariadicExpressions (Foldable.toList xs)
+    return (ss,Sizes $ fromListNe xs')
 
 

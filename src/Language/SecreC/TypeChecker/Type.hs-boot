@@ -37,7 +37,7 @@ tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM 
 
 typeDim :: (ProverK loc m) => loc -> Type -> TcM m (SExpr VarIdentifier Type)
 
-matchTypeDimension :: (ProverK loc m) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM m ()
+matchTypeDimension :: (ProverK loc m) => loc -> SExpr VarIdentifier Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM m ()
 
 projectMatrixType :: (ProverK loc m) => loc -> Type -> [ArrayProj] -> TcM m Type
 

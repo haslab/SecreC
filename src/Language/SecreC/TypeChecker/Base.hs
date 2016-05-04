@@ -386,6 +386,9 @@ typeToVarName (VArrayT (VAVar n b sz)) = Just (VarName (VAType b sz) n)
 typeToVarName (IdxT (RVariablePExpr _ (VarName t n))) | typeClass "typeToVarName" t == TypeC = Just (VarName t n)
 typeToVarName _ = Nothing
 
+tyToVar :: Type -> VarName VarIdentifier Type
+tyToVar = fromJustNote "tyToVar" . typeToVarName
+
 typeToTypeName :: Type -> Maybe (TypeName VarIdentifier Type)
 typeToTypeName t = case typeToVarName t of
     Just (VarName _ n) -> Just $ TypeName t n
@@ -484,7 +487,7 @@ newDict l msg = do
     if size >= constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "dictionaries"
         else do
-            State.modify $ \e -> e { tDict = mempty : tDict e }
+            State.modify $ \e -> e { tDict = emptyTDict : tDict e }
 --            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
 
 tcWith :: (VarsIdTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict)
@@ -548,7 +551,7 @@ data TcCstr
     | Coerces -- ^ types coercible
         (Expression VarIdentifier Type)
         (VarName VarIdentifier Type)
-    | CoercesSec
+    | CoercesSecDimSizes
         (Expression VarIdentifier Type) -- source expression
         (VarName VarIdentifier Type) -- target variable where to store the resulting expression
     | Coerces2 -- ^ bidirectional coercion
@@ -556,7 +559,7 @@ data TcCstr
         (Expression VarIdentifier Type)
         (VarName VarIdentifier Type)
         (VarName VarIdentifier Type) 
-    | Coerces2Sec
+    | Coerces2SecDimSizes
         (Expression VarIdentifier Type)
         (Expression VarIdentifier Type)
         (VarName VarIdentifier Type) -- variable to store the 1st resulting expression
@@ -565,7 +568,7 @@ data TcCstr
         (Expression VarIdentifier Type) -- literal expression with the base type given at the top-level
     | Unifies -- unification
         Type Type -- ^ type unification
-    | UnifiesSizes [(SExpr VarIdentifier Type,IsVariadic)] [(SExpr VarIdentifier Type,IsVariadic)]
+    | UnifiesSizes (Maybe [(SExpr VarIdentifier Type,IsVariadic)]) (Maybe [(SExpr VarIdentifier Type,IsVariadic)])
     | SupportedPrint
         [(Expression VarIdentifier Type,IsVariadic)] -- ^ can call tostring on the argument type
         [VarName VarIdentifier Type] -- resulting coerced procedure arguments
@@ -575,12 +578,13 @@ data TcCstr
     | ProjectMatrix -- ^ matrix type projection
         Type [ArrayProj]
         Type -- result
-    | IsReturnStmt (Set StmtClass) Type -- ^ is return statement
+    | IsReturnStmt (Set StmtClass) (Type) -- ^ is return statement
     | MultipleSubstitutions VarIdentifier [(Type,[TcCstr])]
     | MatchTypeDimension
-        Type -- type
+        (SExpr VarIdentifier Type) -- type dimension
         [(SExpr VarIdentifier Type,IsVariadic)] -- sequence of sizes
     | IsValid -- check if an index condition is valid (this is mandatory: raises an error)
+        Bool -- check statically
         (SCond VarIdentifier Type) -- condition
     | TypeBase Type BaseType
     | IsPublic (Expression VarIdentifier Type)
@@ -592,10 +596,14 @@ instance Hashable TcCstr
 isTrivialTcCstr :: TcCstr -> Bool
 isTrivialTcCstr (Equals t1 t2) = t1 == t2
 isTrivialTcCstr (Coerces e v) = e == varExpr v
-isTrivialTcCstr (CoercesSec e v) = e == varExpr v
+isTrivialTcCstr (CoercesSecDimSizes e v) = e == varExpr v
 isTrivialTcCstr (Unifies t1 t2) = t1 == t2
-isTrivialTcCstr (IsValid c) = c == trueSCond
+isTrivialTcCstr (IsValid _ c) = c == trueSCond
 isTrivialTcCstr _ = False
+ 
+isStaticTcCstr :: TcCstr -> Bool
+isStaticTcCstr (IsValid isStatic c) = isStatic
+isStaticTcCstr _ = False
  
 -- | checks (raise warnings)
 data CheckCstr
@@ -654,6 +662,11 @@ isTrivialCstr (TcK c) = isTrivialTcCstr c
 isTrivialCstr (DelayedK c _) = isTrivialCstr c
 isTrivialCstr (CheckK c) = isTrivialCheckCstr c
 isTrivialCstr (HypK c) = isTrivialHypCstr c
+
+isStaticCstr :: TCstr -> Bool
+isStaticCstr (TcK c) = isStaticTcCstr c
+isStaticCstr (DelayedK c _) = isStaticCstr c
+isStaticCstr c = True
 
 data TCstr
     = TcK TcCstr
@@ -715,8 +728,8 @@ instance PP TcCstr where
         where ppCoerce = if doCoerce then text "~~>" else text "-->"
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces e1 v2) = text "coerces" <+> ppExprTy e1 <+> ppVarTy v2
-    pp (CoercesSec e1 v2) = text "coercessec" <+> ppExprTy e1 <+> ppVarTy v2
-    pp (Coerces2Sec e1 e2 v1 v2) = text "coerces2sec" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
+    pp (CoercesSecDimSizes e1 v2) = text "coercessec" <+> ppExprTy e1 <+> ppVarTy v2
+    pp (Coerces2SecDimSizes e1 e2 v1 v2) = text "coerces2sec" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
     pp (CoercesLit e) = text "coerceslit" <+> ppExprTy e
     pp (Coerces2 e1 e2 v1 v2) = text "coerces2" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
@@ -726,8 +739,8 @@ instance PP TcCstr where
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
     pp (IsReturnStmt cs t) = text "return" <+> (hcat $ map pp $ Set.toList cs) <+> pp t
     pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> pp (map fst s)
-    pp (MatchTypeDimension t d) = text "matchtypedimension" <+> pp t <+> pp d
-    pp (IsValid c) = text "isvalid" <+> pp c
+    pp (MatchTypeDimension d sz) = text "matchtypedimension" <+> pp d <+> pp sz
+    pp (IsValid b c) = text "isvalid" <+> pp b <+> pp c
     pp (TypeBase t b) = text "typebase" <+> pp t <+> pp b
     pp (IsPublic e) = text "ispublic" <+> pp e
 
@@ -854,22 +867,22 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         e1' <- f e1
         v2' <- f v2
         return $ Coerces e1' v2'
-    traverseVars f (CoercesSec e1 e2) = do
+    traverseVars f (CoercesSecDimSizes e1 e2) = do
         e1' <- f e1
         e2' <- f e2
-        return $ CoercesSec e1' e2'
+        return $ CoercesSecDimSizes e1' e2'
     traverseVars f (Coerces2 e1 e2 v1 v2) = do
         e1' <- f e1
         e2' <- f e2
         v1' <- f v1
         v2' <- f v2
         return $ Coerces2 e1' e2' v1' v2'
-    traverseVars f (Coerces2Sec e1 e2 v1 v2) = do
+    traverseVars f (Coerces2SecDimSizes e1 e2 v1 v2) = do
         e1' <- f e1
         e2' <- f e2
         v1' <- f v1
         v2' <- f v2
-        return $ Coerces2Sec e1' e2' v1' v2'
+        return $ Coerces2SecDimSizes e1' e2' v1' v2'
     traverseVars f (CoercesLit e) = do
         e' <- f e
         return $ CoercesLit e'
@@ -907,9 +920,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         t' <- f t
         d' <- f d
         return $ MatchTypeDimension t' d'
-    traverseVars f (IsValid c) = do
+    traverseVars f (IsValid b c) = do
         c' <- f c
-        return $ IsValid c'
+        return $ IsValid b c'
     traverseVars f (IsPublic c) = do
         c' <- f c
         return $ IsPublic c'
@@ -1020,9 +1033,9 @@ newtype TSubsts = TSubsts { unTSubsts :: Map VarIdentifier Type } deriving (Eq,S
 instance Binary TSubsts
 instance Hashable TSubsts
 
-instance Monoid TSubsts where
-    mempty = TSubsts Map.empty
-    mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
+--instance Monoid TSubsts where
+--    mempty = TSubsts Map.empty
+--    mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
 
 instance PP TSubsts where
     pp = ppTSubsts
@@ -1037,13 +1050,14 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TSubsts wher
             xs' <- aux xs
             return ((k',v'):xs')
 
-instance Monoid TDict where
-    mempty = TDict Graph.empty Set.empty (TSubsts Map.empty)
-    mappend (TDict u1 c1 (TSubsts ss1)) (TDict u2 c2 (TSubsts ss2)) = TDict (unionGr u1 u2) (Set.union c1 c2) (TSubsts $ ss1 `Map.union` ss2)
+emptyTDict :: TDict
+emptyTDict = TDict Graph.empty Set.empty emptyTSubsts
 
-instance Monoid PureTDict where
-    mempty = PureTDict Graph.empty (TSubsts Map.empty)
-    mappend (PureTDict u1 (TSubsts ss1)) (PureTDict u2 (TSubsts ss2)) = PureTDict (unionGr u1 u2) (TSubsts $ ss1 `Map.union` ss2)
+emptyPureTDict :: PureTDict
+emptyPureTDict = PureTDict Graph.empty emptyTSubsts
+
+emptyTSubsts :: TSubsts
+emptyTSubsts = TSubsts Map.empty
 
 --addCstrDeps :: (MonadIO m,VarsId m TCstr) => IOCstr -> m ()
 --addCstrDeps iok = do
@@ -1132,12 +1146,6 @@ instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier
 --        k' <- f k
 --        ref' <- liftIO $ readUniqRef ref >>= newUniqRef
 --        return $ IOCstr k' ref'
-
--- we only need to fetch the head
-getTSubsts :: (Monad m) => TcM m TSubsts
-getTSubsts = do
-    env <- State.get
-    return $ tSubsts $ mconcat $ tDict env
 
 newTyVarId :: MonadIO m => TcM m TyVarId
 newTyVarId = do
@@ -1345,6 +1353,7 @@ data ComplexType
         SecType -- ^ security type
         BaseType -- ^ data type
         (SExpr VarIdentifier Type) -- ^ dimension (default = 0, i.e., scalars)
+        (Maybe [(SExpr VarIdentifier Type,IsVariadic)]) -- optional sizes
     | CVar VarIdentifier
     | Void -- ^ Empty type
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
@@ -1401,7 +1410,7 @@ vArraySize (VAVal xs _) = indexSExpr $ toEnum $ length xs
 vArraySize (VAVar _ _ sz) = sz
 
 tyOf :: Type -> Type
-tyOf (IdxT _) = TType
+tyOf (IdxT e) = loc e
 tyOf (SecT s) = SType (secTypeKind s)
 tyOf (ComplexT _) = TType
 tyOf (BaseT _) = BType
@@ -1470,7 +1479,7 @@ instance PP BaseType where
     pp (BVar v) = pp v
 instance PP ComplexType where
     pp Void = text "void"
-    pp (CType s t d) = pp s <+> pp t <> brackets (brackets (pp d))
+    pp (CType s t d sz) = pp s <+> pp t <> brackets (brackets (pp d)) <+> ppOpt sz (parens . pp)
     pp (CVar v) = pp v
 instance PP SysType where
     pp t@(SysPush {}) = text (show t)
@@ -1507,7 +1516,7 @@ data TypeClass
     | KindC -- kinds
     | DomainC -- for typed domains
     | TypeStarC -- type of types
-    | ExprC -- type of regular expressions (also for index expressions)
+    | ExprC TypeClass -- type of regular expressions (also for index expressions)
     | TypeC -- regular type
     | SysC -- system call parameters
     | DecC -- type of declarations
@@ -1520,7 +1529,7 @@ instance PP TypeClass where
     pp KindC = text "kind"
     pp DomainC = text "domain"
     pp TypeStarC = text "type star"
-    pp ExprC = text "index expression"
+    pp (ExprC c) = text "index expression" <+> pp c
     pp TypeC = text "complex type"
     pp SysC = text "system call parameter"
     pp DecC = text "declaration"
@@ -1536,7 +1545,7 @@ typeClass msg (SType _) = KindC
 typeClass msg (SecT _) = DomainC
 typeClass msg (DecT _) = DecC
 typeClass msg (SysT _) = SysC
-typeClass msg (IdxT _) = ExprC
+typeClass msg (IdxT e) = ExprC $ typeClass msg $ loc e
 typeClass msg (VArrayT (VAVal ts b)) = VArrayC (typeClass msg b)
 typeClass msg (VArrayT (VAVar v b sz)) = VArrayC (typeClass msg b)
 typeClass msg (ComplexT _) = TypeC
@@ -1704,11 +1713,12 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m VArrayType w
     substL e = return Nothing
  
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ComplexType where
-    traverseVars f (CType s t d) = do
+    traverseVars f (CType s t d sz) = do
         s' <- f s
         t' <- f t
         d' <- f d
-        return $ CType s' t' d'
+        sz' <- mapM f sz
+        return $ CType s' t' d' sz'
     traverseVars f (CVar v) = do
         v' <- f v
         return $ CVar v'
@@ -1804,7 +1814,7 @@ instance Monoid ProcClass where
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement
-    = StmtReturn
+    = StmtReturn Type
     -- | The execution of the statement may end because of reaching a break statement
     | StmtBreak
     -- | The execution of the statement may end because of reaching a continue statement
@@ -1820,7 +1830,7 @@ isLoopStmtClass c = List.elem c [StmtBreak,StmtContinue]
 
 isLoopBreakStmtClass :: StmtClass -> Bool
 isLoopBreakStmtClass StmtBreak = True
-isLoopBreakStmtClass (StmtReturn) = True
+isLoopBreakStmtClass (StmtReturn _) = True
 isLoopBreakStmtClass _ = False
 
 isIterationStmtClass :: StmtClass -> Bool
@@ -1912,7 +1922,7 @@ exprTypes = everything (++) (mkQ [] aux)
     aux :: Type -> [Type]
     aux = (:[])
 
-setBase b (CType s t d) = CType s b d
+setBase b (CType s t d sz) = CType s b d sz
 
 -- Left = type template
 -- Right = procedure overload
@@ -1921,7 +1931,7 @@ type TIdentifier = Either SIdentifier PIdentifier
 type SIdentifier = TypeName VarIdentifier ()
 
 ppStructAtt :: Attribute VarIdentifier Type -> Doc
-ppStructAtt (Attribute _ t n) = pp t <+> pp n
+ppStructAtt (Attribute _ t n sz) = pp t <+> pp n <+> ppOpt sz pp
 
 ppTpltArg :: Cond (VarName VarIdentifier Type) -> Doc
 ppTpltArg = ppCond ppTpltArg'
@@ -1990,7 +2000,7 @@ prims = [int8,uint8,int16,uint16,int32,uint32,int64,uint64,string,bool,xoruint8,
 numerics = filter isNumericBaseType prims
 
 defCType :: BaseType -> ComplexType
-defCType t = CType Public t (indexSExpr 0)
+defCType t = CType Public t (indexSExpr 0) Nothing
 
 instance Hashable VarIdentifier where
     hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)

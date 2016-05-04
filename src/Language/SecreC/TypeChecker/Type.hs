@@ -66,7 +66,7 @@ typeToDecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp DTy
 
 typeToVArrayType :: (ProverK loc m) => loc -> Type -> SExpr VarIdentifier Type -> TcM m VArrayType
 typeToVArrayType l (VArrayT a) sz = do
-    prove l "typeToVArrayType" $ unifiesExprTy l sz (vArraySize a)
+    prove l "typeToVArrayType" $ unifiesExprTy l True sz (vArraySize a)
     return a
 typeToVArrayType l t sz = ppM l t >>= tcError (locpos l) . TypeConversionError (pp (NoType $ "array of size " ++ ppr sz))
 
@@ -80,8 +80,8 @@ typeToPrimType l t = do
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToBaseType l (BaseT s) = return s
 typeToBaseType l t@(ComplexT ct) = case ct of
-    (CType s b d) -> catchError
-        (newErrorM $ prove l "typeToBaseType" $ tcCstrM l (Equals t (ComplexT $ CType Public b (indexSExpr 0))) >> return b)
+    (CType s b d _) -> catchError
+        (newErrorM $ prove l "typeToBaseType" $ tcCstrM l (Equals t (ComplexT $ CType Public b (indexSExpr 0) Nothing)) >> return b)
         (\err -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType))
     CVar v -> resolveBVar l v
     otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
@@ -128,10 +128,8 @@ buildTypeSpec l tsec tdta tdim True = do
 buildTypeSpec l tsec tdta dim False = do
     ts <- typeToSecType l tsec
     td <- typeToBaseType l tdta
-    x <- newTypedVar "dim" (BaseT index) $ Just $ pp dim
-    tcCstrM l $ Coerces dim x
-    let dim' = varExpr x
-    let ct = CType ts td dim'
+    dim' <- tcExprTy' (BaseT index) $ fmap (Typed l) dim
+    let ct = CType ts td (fmap typed dim') Nothing
     return $ ComplexT ct
     
 zipCTypeArgs l [s] [b] [d] = return [(s,b,d)]
@@ -218,27 +216,28 @@ tcDimtypeSpec doc (DimSpecifier l e) = do
     return (DimSpecifier (notTyped "tcDimtypeSpec" l) e',e') 
 
 tcRetTypeSpec :: (ProverK loc m) => ReturnTypeSpecifier Identifier loc -> TcM m (ReturnTypeSpecifier VarIdentifier (Typed loc))
-tcRetTypeSpec (ReturnType l Nothing) = do
+tcRetTypeSpec (ReturnType l Nothing Nothing) = do
     let t = Void
-    return $ ReturnType (Typed l $ ComplexT Void) Nothing
-tcRetTypeSpec (ReturnType l (Just t)) = do
+    return $ ReturnType (Typed l $ ComplexT Void) Nothing Nothing
+tcRetTypeSpec (ReturnType l (Just t) sz) = do
     t' <- tcTypeSpec t False
     let ty = typed $ loc t'
-    return (ReturnType (Typed l ty) $ Just t')
+    (ty',sz') <- tcTypeSizes l ty sz
+    return (ReturnType (Typed l ty') (Just t') sz')
 
 -- | Retrieves a constant dimension from a type
 typeDim :: (ProverK loc m) => loc -> Type -> TcM m (SExpr VarIdentifier Type)
 typeDim l (BaseT _) = return $ indexSExpr 0
-typeDim l (ComplexT (CType _ _ e)) = return e
+typeDim l (ComplexT (CType _ _ e _)) = return e
 typeDim l (VAType _ _) = return $ indexSExpr 1
 typeDim l t = genTcError (locpos l) $ text "No dimension for type" <+> pp t
 
 projectMatrixType :: (ProverK loc m) => loc -> Type -> [ArrayProj] -> TcM m Type
 projectMatrixType l (ComplexT ct) rngs = liftM ComplexT $ projectMatrixCType l ct rngs
     where
-    projectMatrixCType l ct@(CType sec t dim) rngs = do
+    projectMatrixCType l ct@(CType sec t dim sz) rngs = do
         (dim'') <- projectSizes l ct 1 dim rngs  
-        return $ CType sec t dim''
+        return $ CType sec t dim'' Nothing
     projectMatrixCType l (CVar v) rngs = do
         t <- resolveCVar l v
         projectMatrixCType l t rngs
@@ -303,18 +302,18 @@ projectStructField l (TApp _ _ d) a = do
     
 projectStructFieldDec :: (ProverK loc m) => loc -> DecType -> AttributeName VarIdentifier () -> TcM m Type
 projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field
-    case List.find (\(Cond (Attribute _ t f) c) -> attributeNameId f == a) atts of
+    case List.find (\(Cond (Attribute _ t f _) c) -> attributeNameId f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
-        Just (Cond (Attribute _ t f) c) -> do
+        Just (Cond (Attribute _ t f _) c) -> do
             case c of
                 Nothing -> return ()
-                Just k -> tcCstrM l $ IsValid k
+                Just k -> tcCstrM l $ IsValid True k
             return $ typeSpecifierLoc t 
 
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM m (Type,Maybe (Sizes VarIdentifier (Typed loc)))
 tcTypeSizes l ty szs = do
-    (szs') <- mapM (tcSizes l ty) szs
+    (szs') <- mapM (tcSizes l) szs
     let tszs' = fmap (fmap typed) szs'
     ty' <- refineTypeSizes l ty tszs'
     return (ty',szs')
@@ -341,22 +340,21 @@ variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr0M (indexSExp
 --        es <- expandVariadicExpr l x
 --        mapM_ (evaluateIndexExpr . fmap (Typed l)) es
 
-matchTypeDimension :: (ProverK loc m) => loc -> Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM m ()
-matchTypeDimension l t es = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp t) (pp es) . Just) $ do
-    t' <- if isVATy t then typeBase l t else return t
-    td <- typeDim l t'
-    d <- variadicExprsLength l es
-    tcCstrM l $ Unifies (IdxT td) (IdxT d)
+matchTypeDimension :: (ProverK loc m) => loc -> SExpr VarIdentifier Type -> [(SExpr VarIdentifier Type,IsVariadic)] -> TcM m ()
+matchTypeDimension l td szs = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp td) (pp szs) . Just) $ do
+    d <- variadicExprsLength l szs 
+    liftIO $ putStrLn $ "matchTypeDim " ++ ppr td ++ " " ++ ppr d
+    unifiesExpr l True td d
 
 -- | Update the size of a compound type
 -- for variadic arrays, we set the size of each base type and not of the array itself
 refineTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes VarIdentifier Type) -> TcM m Type
-refineTypeSizes l ct@(ComplexT (CType s t d)) Nothing = do -- check the generated size
+refineTypeSizes l ct@(ComplexT (CType s t d sz)) Nothing = do -- check the generated size
     return ct
-refineTypeSizes l ct@(ComplexT (CType s t d)) (Just (Sizes szs)) = do -- discard the generated size in detriment of the declared size
+refineTypeSizes l ct@(ComplexT (CType s t d sz)) (Just (Sizes szs)) = do -- discard the generated size in detriment of the declared size
     let sz' = Foldable.toList szs
-    tcCstrM l $ MatchTypeDimension ct sz'
-    return $ ComplexT $ CType s t d
+    tcCstrM l $ MatchTypeDimension d sz'
+    return $ ComplexT $ CType s t d $ Just sz'
 refineTypeSizes l (VArrayT (VAVal ts b)) szs = do
     liftM (VArrayT . flip VAVal b) $ mapM (\t -> refineTypeSizes l t szs) ts
 refineTypeSizes l (VArrayT (VAVar v b sz)) szs = do
@@ -369,8 +367,8 @@ refineTypeSizes l ct _ = genTcError (locpos l) $ text "Failed to add type size" 
     
 typeBase :: (ProverK loc m) => loc -> Type -> TcM m Type
 typeBase l (BaseT b) = return $ BaseT b
-typeBase l (ComplexT (CType Public b _)) = return $ BaseT b
-typeBase l (ComplexT (CType s b _)) = return $ ComplexT $ CType s b (indexSExpr 0)
+typeBase l (ComplexT (CType Public b _ _)) = return $ BaseT b
+typeBase l (ComplexT (CType s b _ _)) = return $ ComplexT $ CType s b (indexSExpr 0) Nothing
 typeBase l (ComplexT (CVar v)) = do
     ct <- resolveCVar l v
     typeBase l (ComplexT ct)
@@ -379,13 +377,13 @@ typeBase l t = genTcError (locpos l) $ text "No static base type for type" <+> q
     
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m (SExpr VarIdentifier Type)
 typeSize l (BaseT _) = return $ indexSExpr 1
---typeSize l (ComplexT (CType _ _ _ [])) = return $ indexSExpr 1
---typeSize l (ComplexT (CType _ _ _ szs)) | length szs > 0 = do
---    is <- concatMapM (expandVariadicExpr l) szs
---    foldr0M (indexSExpr 1) (multiplyIndexExprs l) is
---typeSize l (ComplexT (CVar v)) = do
---    t <- resolveCVar l v
---    typeSize l (ComplexT t)
+typeSize l (ComplexT (CType _ _ _ (Just []))) = return $ indexSExpr 1
+typeSize l (ComplexT (CType _ _ _ (Just szs))) | length szs > 0 = do
+    is <- concatMapM (expandVariadicExpr l) szs
+    foldr0M (indexSExpr 1) (multiplyIndexExprs l) is
+typeSize l (ComplexT (CVar v)) = do
+    t <- resolveCVar l v
+    typeSize l (ComplexT t)
 typeSize l (VAType t sz) = return sz
 typeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
 

@@ -10,7 +10,7 @@ import Language.SecreC.Error
 import Language.SecreC.Utils as Utils
 import Language.SecreC.Pretty
 import Language.SecreC.Position
-import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.Environment
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import Language.SecreC.Prover.Base
@@ -91,7 +91,7 @@ removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m (Maybe DecType)
 removeTemplate l t@(DecType i isrec targs hdict hfrees bdict bfrees specs d) = if (not isrec) && (isTemplateDecType t)
     then do
         j <- newModuleTyVarId
-        return $ Just $ DecType j False [] hdict hfrees mempty bfrees [] d
+        return $ Just $ DecType j False [] hdict hfrees emptyPureTDict bfrees [] d
     else return Nothing
 removeTemplate l (DVar v) = resolveDVar l v >>= removeTemplate l
 removeTemplate l t = genTcError (locpos l) $ text "removeTemplate" <+> pp t
@@ -114,7 +114,7 @@ compareProcedureArgs :: (ProverK loc m) => loc -> [(Bool,Cond (VarName VarIdenti
 compareProcedureArgs l xs@[] ys@[] = return (Comparison xs ys EQ)
 compareProcedureArgs l ((_,Cond v1@(VarName t1 n1) c1,isVariadic1):xs) ((_,Cond v2@(VarName t2 n2) c2,isVariadic2):ys) = do
 --    liftIO $ putStrLn $ "comparePArgExp " ++ ppr v1 ++ " " ++ ppr v2 ++ " "
-    o0 <- comparesExpr l (varExpr v1) (varExpr v2)
+    o0 <- comparesExpr l True (varExpr v1) (varExpr v2)
 --    liftIO $ putStr $ show (compOrdering o0)
 --    liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " "
     o1 <- compares l t1 t2
@@ -176,7 +176,7 @@ unifyTemplateTypeArgs l lhs rhs = do
             (matchVariadicTypeArgs l tts ts)
         return tcs
     -- check the procedure argument conditions
-    forM_ cs $ \c -> withDependencies ks $ tcCstrM l $ IsValid c      
+    forM_ cs $ \c -> withDependencies ks $ tcCstrM l $ IsValid True c      
 
 matchVariadicTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [Type] -> TcM m ()
 matchVariadicTypeArgs l [] [] = return ()
@@ -203,7 +203,7 @@ matchVariadicTypeArg l (t,True) xs = do
     -- match the array content
     tcCstrM l $ Unifies t (VArrayT $ VAVal xs1 b)
     -- match the array size
-    unifiesExprTy l sz (indexSExpr $ toEnum $ length xs1)
+    unifiesExprTy l True sz (indexSExpr $ toEnum $ length xs1)
     return xs2      
 
 matchVariadicPArgs :: (ProverK loc m) => Bool -> loc -> [(Bool,SExpr VarIdentifier Type,IsVariadic)] -> [(Expression VarIdentifier Type,VarName VarIdentifier Type)] -> TcM m ()
@@ -232,10 +232,10 @@ matchVariadicPArg doCoerce l (isConst,v,True) exs = do
             (unzip -> (vs,exs1),exs2) <- spanMaybeM (\ex -> newTypedVar "varr" b Nothing >>= \v -> tryCstrMaybe l (coercePArg doCoerce l isConst (varExpr v) ex >> return (v,ex))) exs
             -- match the array content
             if isConst
-                then unifiesExprTy l v (ArrayConstructorPExpr t $ map varExpr vs)
+                then unifiesExprTy l True v (ArrayConstructorPExpr t $ map varExpr vs)
                 else tcCstrM l $ Unifies (loc v) t
             -- match the array size
-            unifiesExprTy l sz (indexSExpr $ toEnum $ length exs1)
+            unifiesExprTy l True sz (indexSExpr $ toEnum $ length exs1)
             return exs2
 
 coercePArg :: (ProverK loc m) => Bool -> loc -> Bool -> SExpr VarIdentifier Type -> (Expression VarIdentifier Type,VarName VarIdentifier Type) -> TcM m ()
@@ -247,9 +247,9 @@ coercePArg doCoerce l isConst v2 (e,x2) = do
     tcCstrM l $ Unifies tx2 tt
     if doCoerce
         then tcCstrM l $ Coerces e x2
-        else unifiesExprTy l (varExpr x2) e
+        else unifiesExprTy l True (varExpr x2) e
     if isConst
-        then unifiesExprTy l v2 (varExpr x2)
+        then unifiesExprTy l True v2 (varExpr x2)
         else tcCstrM l $ Unifies (loc v2) (loc x2)
 
 expandPArgExpr :: (ProverK loc m) => loc -> ((Expression VarIdentifier Type,IsVariadic),VarName VarIdentifier Type) -> TcM m [(Expression VarIdentifier Type,VarName VarIdentifier Type)]
@@ -260,7 +260,7 @@ expandPArgExpr l ((e,True),x) = do
     let at = VAType ct0 (indexSExpr $ toEnum $ length vs)
     xs <- forM vs $ \v -> newTypedVar "xi" ct0 Nothing
     -- match array content
-    unifiesExprTy l (varExpr x) (ArrayConstructorPExpr at $ map varExpr xs)
+    unifiesExprTy l True (varExpr x) (ArrayConstructorPExpr at $ map varExpr xs)
     return $ zip vs xs
 
 coerceProcedureArgs :: (ProverK loc m) => Bool -> loc -> [((Expression VarIdentifier Type,IsVariadic),VarName VarIdentifier Type)] -> [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -> TcM m ()
@@ -276,7 +276,7 @@ coerceProcedureArgs doCoerce l lhs rhs = do
             (matchVariadicPArgs doCoerce l vs exs)
         return cs
     -- check the procedure argument conditions
-    forM_ cs $ \c -> withDependencies ks $ tcCstrM l $ IsValid c
+    forM_ cs $ \c -> withDependencies ks $ tcCstrM l $ IsValid False c
 
 instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe Type -> [VarName VarIdentifier Type] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,Bool,TDict))
 instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
@@ -299,23 +299,23 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
             coerceProcedureArgs doCoerce l (zip (concat pargs) rets) (concat tplt_pargs)
             -- unify the procedure return type
             unifiesList l (maybeToList tplt_ret) (maybeToList ret) -- reverse unification
-        -- if there are no explicit template type arguments, we need to make sure to check the invariants
+        -- if there are no explicit template type arguments, we need to make sure to check the type invariants
         when (isNothing targs) $ do
             forM_ (maybe [] (catMaybes . map (\(Cond x c,isVariadic) -> c)) tplt_targs) $ \c -> do
-                withDependencies ks $ tcCstrM l $ IsValid c
-    ok <- newErrorM $ proveWith l "instantiate with names" (addDicts >> matchName >> proveHead)
+                withDependencies ks $ tcCstrM l $ IsValid True c
+        return ()
+    ok <- newErrorM $ proveStaticWith l "instantiate with names" (addDicts >> matchName >> proveHead)
     case ok of
-        Left err -> do
---            liftIO $ putStrLn $ "did not work " ++ ppr l 
-            return $ Left (e',err)
-        Right (_,subst) -> do
+        (Left err) -> return $ Left (e',err)
+        Right (_,subst,asserts) -> do
 --            liftIO $ putStrLn $ "worked " ++ ppr l -- ++ " % " ++ show (ppTSubsts (tSubsts subst)) ++ " %"
-            depCstrs <- mergeDependentCstrs l subst (TDict (tCstrs bdict) Set.empty mempty)
+            depCstrs <- mergeDependentCstrs l subst (TDict (tCstrs bdict) Set.empty emptyTSubsts)
             dec <- typeToDecType l (entryType e')
             -- to avoid substituting the template variables
-            dec' <- substFromTDict "instantiate tplt" l subst False Map.empty dec
-            mb_dec' <- removeTemplate l dec'
-            (e'',doWrap) <- case mb_dec' of
+            dec1 <- substFromTDict "instantiate tplt" l subst False Map.empty dec
+            dec2 <- addAsserts l asserts dec1
+            mb_dec2 <- removeTemplate l dec2
+            (e'',doWrap) <- case mb_dec2 of
                         Nothing -> return (e',False)
                         Just dec' -> do
                             --dec'' <- substFromTDict "instantiate tplt" l subst False Map.empty dec'
@@ -324,13 +324,23 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
                             return (e' { entryType = DecT dec' },not has)
             return $ Right (e,e'',doWrap,depCstrs)
 
+addAsserts :: (MonadIO m,Location loc) => loc -> [SCond VarIdentifier Type] -> DecType -> TcM m DecType
+addAsserts l asserts (DecType x1 x2 x3 x4 x5 x6 x7 x8 d) = liftM (DecType x1 x2 x3 x4 x5 x6 x7 x8) (addAsserts l asserts d) 
+addAsserts l [] d@(StructType {}) = return d
+addAsserts l asserts d@(StructType {}) = genTcError (locpos l) $ text "cannot add assertions to structure"
+addAsserts l asserts (ProcType x1 x2 x3 ret x5 ss x7) = do
+    let st = StmtType $ Set.singleton $ StmtFallthru
+    let asserts' = map (\c -> fmap (Typed noloc) $ AssertStatement st c) asserts
+    return $ ProcType x1 x2 x3 ret x5 (asserts'++ss) x7
+
 -- merge two dictionaries with the second depending on the first
 mergeDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m (TDict)
 mergeDependentCstrs l from to = do
     let froms = map fst $ endsGr $ tCstrs from
     let tos = map fst $ rootsGr $ tCstrs to
     let deps = [ (f,t) | f <- froms, t <- tos ]
-    let merge = foldl' (\d (f,t) -> d { tCstrs = insEdge (f,t,()) (tCstrs d) } ) (to `mappend` from) deps
+    fromto <- appendTDict from to
+    let merge = foldl' (\d (f,t) -> d { tCstrs = insEdge (f,t,()) (tCstrs d) } ) fromto deps
     return merge
 
 templateIdentifier :: Type -> TIdentifier
@@ -371,7 +381,7 @@ templateTDict e = case entryType e of
         hd' <- liftIO $ fromPureTDict hd
         d' <- liftIO $ fromPureTDict d
         return (hd',d')
-    otherwise -> return (mempty,mempty)
+    otherwise -> return (emptyTDict,emptyTDict)
 
 condVarType (Cond (VarName t n) c) = condType t c
 condVar (Cond (VarName t n) c) = VarName (condType t c) n

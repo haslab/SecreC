@@ -152,7 +152,7 @@ tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = do
         return (ps',ret',vars',top,tret)
     hdeps <- getDeps
     ann' <- mapM tcProcedureAnn ann
-    (s',StmtType st) <- tcStmts tret s
+    (s',StmtType st) <- tcStmts (Just tret) s
     cl <- liftM procClass State.get
     let tproc = DecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
     let op' = updLoc top (Typed l tproc)
@@ -168,7 +168,7 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
         return (ps',ret',vars',tret)
     hdeps <- getDeps
     ann' <- mapM tcProcedureAnn ann
-    (s',StmtType st) <- tcStmts tret s
+    (s',StmtType st) <- tcStmts (Just tret) s
     cl <- liftM procClass State.get
     let tproc = DecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
@@ -186,25 +186,21 @@ tcProcedureAnn (EnsuresAnn l e) = insideAnnotation $ do
     return $ EnsuresAnn (Typed l $ typed $ loc e') e'
 
 tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Cond (VarName VarIdentifier Type),IsVariadic))
-tcProcedureParam (ProcedureParameter l s isVariadic v) = do
+tcProcedureParam (ProcedureParameter l s isVariadic v sz) = do -- procedure parameters are read-only
+    tcProcedureParam (ConstProcedureParameter l s isVariadic v sz Nothing)
+tcProcedureParam (ConstProcedureParameter l s isVariadic (VarName vl vi) sz c) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    let (VarName vvl vvn) = bimap mkVarId id v
-    let v' = VarName (Typed vvl ty) vvn
-    newVariable LocalScope v' Nothing False
-    return (ProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v',(False,Cond (fmap typed v') Nothing,isVariadic))
-tcProcedureParam (ConstProcedureParameter l s isVariadic (VarName vl vi) c) = do
-    s' <- tcTypeSpec s isVariadic
-    let ty = typed $ loc s'
+    (ty',sz') <- tcTypeSizes l ty sz
     vi' <- addConst LocalScope vi
-    let v' = VarName (Typed vl ty) vi'
+    let v' = VarName (Typed vl ty') vi'
     newVariable LocalScope v' Nothing True
     (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
         Just x -> do
             tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
-    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' c',(True,Cond (fmap typed v') (fmap (fmap typed) c'),isVariadic))
+    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' sz' c',(True,Cond (fmap typed v') (fmap (fmap typed) c'),isVariadic))
 
 tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc)))
                 -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration VarIdentifier (Typed loc))
@@ -217,11 +213,12 @@ tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = do
     return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'
 
 tcAttribute :: (ProverK loc m) => Attribute Identifier loc -> TcM m (Attribute VarIdentifier (Typed loc))
-tcAttribute (Attribute l ty (AttributeName vl vn)) = do
+tcAttribute (Attribute l ty (AttributeName vl vn) sz) = do
     ty' <- tcTypeSpec ty False
     let t = typed $ loc ty'
-    let v' = AttributeName (Typed vl t) $ mkVarId vn
-    return $ Attribute (notTyped "tcAttribute" l) ty' v'
+    (t',sz') <- tcTypeSizes l t sz
+    let v' = AttributeName (Typed vl t') $ mkVarId vn
+    return $ Attribute (notTyped "tcAttribute" l) ty' v' sz'
 
 tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration VarIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate $ do
@@ -282,7 +279,7 @@ tcTemplate :: (ProverK Position m) => TcM m a -> TcM m a
 tcTemplate m = do
     State.modify $ \env -> env { inTemplate = True }
     x <- m
-    updateHeadTDict $ \_ -> return ((),mempty)
+    updateHeadTDict $ \_ -> return ((),emptyTDict)
     State.modify $ \env -> env { inTemplate = False }
     return x
 

@@ -81,6 +81,7 @@ class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
                         case r of
                             Nothing -> return x
                             Just s -> do
+                                --liftIO $ putStrLn $ "substituted " ++ ppr v ++ " --> " ++ ppr s
                                 s' <- substVarsM f s -- recursive case on substitution
                                 return s'
         traverseVars (substVarsM f) x' -- go recursively
@@ -280,25 +281,28 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             return $ ProcedureDeclaration l' t' n' args' anns' s'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
-    traverseVars f (ProcedureParameter l b t v) = do
+    traverseVars f (ProcedureParameter l b t v sz) = do
         l' <- f l
         b' <- f b
         t' <- f t
         v' <- inLHS $ f v
-        return $ ProcedureParameter l' b' t' v'
-    traverseVars f (ConstProcedureParameter l b t v e) = do
+        sz' <- mapM f sz
+        return $ ProcedureParameter l' b' t' v' sz'
+    traverseVars f (ConstProcedureParameter l b t v e sz) = do
         l' <- f l
         b' <- f b
         t' <- f t
         v' <- inLHS $ f v
         e' <- f e
-        return $ ConstProcedureParameter l' b' t' v' e'
+        sz' <- mapM f sz
+        return $ ConstProcedureParameter l' b' t' v' e' sz'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
-    traverseVars f (ReturnType l mb) = do
+    traverseVars f (ReturnType l mb sz) = do
         l' <- f l
         mb' <- mapM f mb
-        return $ ReturnType l' mb'
+        sz' <- mapM f sz
+        return $ ReturnType l' mb' sz'
     
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (VarName iden loc) where
     traverseVars f v@(VarName l n) = do
@@ -489,17 +493,22 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         x' <- f x
         return $ LeakExpr l' x'
+    traverseVars f (LambdaExpr l x) = do
+        l' <- f l
+        x' <- f x
+        return $ LambdaExpr l' x'
     traverseVars f (BinaryAssign l e1 o e2) = do
         l' <- f l
         e1' <- inLVal $ f e1
         o' <- f o
         e2' <- f e2
         return $ BinaryAssign l' e1' o' e2'
-    traverseVars f (QualExpr l e t) = do
+    traverseVars f (QualExpr l e t sz) = do
         l' <- f l
         e' <- f e
         t' <- f t
-        return $ QualExpr l' e' t'
+        sz' <- mapM f sz
+        return $ QualExpr l' e' t' sz'
     traverseVars f (CondExpr l e1 e2 e3) = do
         l' <- f l
         e1' <- f e1
@@ -798,11 +807,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         return $ StructureDeclaration l' n' as'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Attribute iden loc) where
-    traverseVars f (Attribute l t a) = do
+    traverseVars f (Attribute l t a sz) = do
         l' <- f l
         t' <- f t
         a' <- inLHS $ f a
-        return $ Attribute l' t' a'
+        sz' <- mapM f sz
+        return $ Attribute l' t' a' sz'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateQuantifier iden loc) where
     traverseVars f (DomainQuantifier l b d k) = do

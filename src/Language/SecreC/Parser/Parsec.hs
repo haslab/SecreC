@@ -302,8 +302,8 @@ scConstDeclaration = do
 
 scProcedureParameter :: (Monad m,MonadCatch m) => ScParserT m (ProcedureParameter Identifier Position)
 scProcedureParameter =
-    (scTok CONST >>= \x0 -> (scVariadicTypeSpecifier $ \(x1,x2) -> apA2 scVarId scInvariant (\x3 x4 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4) <?> "const procedure parameter"))
-    <|> (scVariadicTypeSpecifier $ \(x1,x2) -> apA scVarId (\x3 -> ProcedureParameter (loc x1) x1 x2 x3) <?> "procedure parameter")
+    (scTok CONST >>= \x0 -> (scVariadicTypeSpecifier $ \(x1,x2) -> apA3 scVarId (optionMaybe scSizes) scInvariant (\x3 x4 x5 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4 x5) <?> "const procedure parameter"))
+    <|> (scVariadicTypeSpecifier $ \(x1,x2) -> apA2 scVarId (optionMaybe scSizes) (\x3 x4 -> ProcedureParameter (loc x1) x1 x2 x3 x4) <?> "procedure parameter")
 
 scSizes :: (Monad m,MonadCatch m) => ScParserT m (Sizes Identifier Position)
 scSizes = apA (scParens scVariadicExpressionList1) Sizes <?> "dimensions"
@@ -417,14 +417,18 @@ scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier P
 scAttributeList = many "scAttributeList" scAttribute <?> "attribute list"
 
 scAttribute :: (Monad m,MonadCatch m) => ScParserT m (Attribute Identifier Position)
-scAttribute = scTypeSpecifier $ \x1 -> apA2 scAttributeId (scChar ';') (\x2 x3 -> Attribute (loc x1) x1 x2) <?> "attribute"
+scAttribute = scTypeSpecifier $ \x1 -> apA3 scAttributeId (optionMaybe scSizes) (scChar ';') (\x2 x3 x4 -> Attribute (loc x1) x1 x2 x3) <?> "attribute"
 
 -- ** Procedures                                
 
 scReturnTypeSpecifier :: (Monad m,MonadCatch m) => (ReturnTypeSpecifier Identifier Position -> ScParserT m a) -> ScParserT m a
-scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Nothing) >>= cont)
-                         <|> scTypeSpecifier (\x1 -> cont (ReturnType (loc x1) (Just x1))))
+scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Nothing Nothing) >>= cont)
+                         <|> scTySize)
                           <?> "return type specifier"
+    where
+    scTySize = scTypeSpecifier $ \x1 -> do
+        x2 <- optionMaybe scSizes
+        cont $ ReturnType (loc x1) (Just x1) x2
 
 scProcedureDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureDeclaration Identifier Position)
 scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 x6 -> OperatorDeclaration (loc x1) x1 x3 x4 x5 (unLoc x6)))
@@ -575,9 +579,9 @@ scAssignmentExpression = (apA3 scLvalue op scAssignmentExpression (\x1 x2 x3 -> 
 
 scQualifiedExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scQualifiedExpression = scFoldl
-    (\qe t -> return $ QualExpr (loc qe) qe t)
+    (\qe (t,sz) -> return $ QualExpr (loc qe) qe t sz)
     scConditionalExpression
-    (scTok TYPE_QUAL *> scTypeSpecifier return) <?> "qualified expression"
+    (scTok TYPE_QUAL *> scTypeSpecifier (\t -> liftM (t,) (optionMaybe scSizes))) <?> "qualified expression"
 
 scConditionalExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scConditionalExpression = (do
@@ -730,7 +734,12 @@ scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1
                   <||> scPrimaryExpression) <?> "postfix expression"
 
 scQuantifiedExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
-scQuantifiedExpr = apA4 scQuantifier (sepBy1 (scTypeSpecifier $ \x -> do { y <- scVarId; return (x,y) }) (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)
+scQuantifiedExpr = apA4 scQuantifier (sepBy1 scQVar (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)
+    where
+    scQVar = scTypeSpecifier $ \x -> do
+        y <- scVarId
+        z <- optionMaybe scSizes
+        return (x,y,z)
     
 scQuantifier :: (Monad m,MonadCatch m) => ScParserT m (Quantifier Position)
 scQuantifier = apA (scTok FORALL) (\x1 -> ForallQ (loc x1))

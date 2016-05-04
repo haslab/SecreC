@@ -38,12 +38,26 @@ import Control.Monad
 import Control.Concurrent.Async
 import Control.Concurrent
 import Control.Monad.Trans
+import Control.Monad.Except
 
 import Unsafe.Coerce
 
 import System.Mem.Weak.Exts as Weak
 
 import Safe
+
+insNewNodeIO :: DynGraph gr => a -> gr a b -> IO (gr a b)
+insNewNodeIO x gr = do
+    n <- newNodeGrIO gr
+    return $ insNode (n,x) gr
+
+newNodeGrIO :: DynGraph gr => gr a b -> IO Int
+newNodeGrIO gr = aux
+    where
+    is = nodes gr
+    aux = do
+        i <- liftM hashUnique newUnique
+        if (elem i is) then aux else return i
 
 insLabEdges :: DynGraph gr => [(LNode a,LNode a,b)] -> gr a b -> gr a b
 insLabEdges [] gr = gr
@@ -585,3 +599,7 @@ dropHeadChunk lbs =
   case lbs of
     (BL.Chunk _ lbs') -> lbs'
     _ -> BL.Empty
+
+tryError :: MonadError e m => m a -> m (Either e a)
+tryError m = catchError (liftM Right m) (return . Left)
+

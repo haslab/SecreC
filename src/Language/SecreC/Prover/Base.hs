@@ -38,7 +38,6 @@ data ILit
     | IFloat32 Float 
     | IFloat64 Double
     | IBool Bool
-    | IArr [[ILit]]
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable ILit
 instance PP ILit where

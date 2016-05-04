@@ -54,15 +54,15 @@ constraintError :: (Typeable loc,VarsIdTcM m,VarsId (TcM m) a,VarsId (TcM m) b,L
 
 unifiesSCond :: (ProverK loc m) => loc -> SCond VarIdentifier Type -> SCond VarIdentifier Type -> TcM m ()
 
-unifiesSizes :: (ProverK loc m) => loc -> [(Expression VarIdentifier Type,IsVariadic)] -> [(Expression VarIdentifier Type,IsVariadic)] -> TcM m ()
+unifiesSizes :: (ProverK loc m) => loc -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> TcM m ()
 
 tryCstrBool :: (ProverK loc m) => loc -> TcM m a -> TcM m Bool
 
 tryCstrMaybe :: (ProverK loc m) => loc -> TcM m a -> TcM m (Maybe a)
 
-comparesExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
+comparesExpr :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
 
-unifiesExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m ()
+unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m ()
 
 unifiesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m ()
 
@@ -75,6 +75,8 @@ resolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m Type
 tryResolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe Type)
 
 solve :: (ProverK loc m) => loc -> TcM m ()
+
+solveStatic :: (ProverK loc m) => loc -> TcM m [SCond VarIdentifier Type]
 
 resolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
 
@@ -90,4 +92,4 @@ expandVariadicType :: (ProverK loc m) => loc -> (Type,IsVariadic) -> TcM m [Type
 
 resolveBVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m BaseType
 
-unifiesExprTy :: (ProverK loc m) => loc -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM m ()
+unifiesExprTy :: (ProverK loc m) => loc -> Bool -> SExpr VarIdentifier Type -> SExpr VarIdentifier Type -> TcM m ()

@@ -15,27 +15,31 @@ import Control.Monad.Except
 
 type ConversionK loc m = (Location loc,MonadError SecrecError m)
 
-type2TypeSpecifierNonVoid :: ConversionK loc m => Type -> m (TypeSpecifier VarIdentifier (Typed loc))
+type2TypeSpecifierNonVoid :: ConversionK loc m => Type -> m ((TypeSpecifier VarIdentifier (Typed loc)),Maybe (Sizes VarIdentifier (Typed loc)))
 type2TypeSpecifierNonVoid t = do
-    mb <- type2TypeSpecifier t
+    (mb,sz) <- type2TypeSpecifier t
     case mb of
-        Just x -> return x
+        Just x -> return (x,sz)
         Nothing -> genError noloc $ text "type2SizedTypeSpecifier: void type"
 
-type2TypeSpecifier :: ConversionK loc m => Type -> m (Maybe (TypeSpecifier VarIdentifier (Typed loc)))
+type2TypeSpecifier :: ConversionK loc m => Type -> m (Maybe (TypeSpecifier VarIdentifier (Typed loc)),Maybe (Sizes VarIdentifier (Typed loc)))
 type2TypeSpecifier (ComplexT t) = do
     complexType2TypeSpecifier t
 type2TypeSpecifier b@(BaseT t) = do
     b' <- baseType2DatatypeSpecifier t
-    return $ Just (TypeSpecifier (Typed noloc b) Nothing b' Nothing)
+    return (Just (TypeSpecifier (Typed noloc b) Nothing b' Nothing),Nothing)
 
-complexType2TypeSpecifier :: ConversionK loc m => ComplexType -> m (Maybe (TypeSpecifier VarIdentifier (Typed loc)))
-complexType2TypeSpecifier ct@(CType s t d) = do
+complexType2TypeSpecifier :: ConversionK loc m => ComplexType -> m (Maybe (TypeSpecifier VarIdentifier (Typed loc)),Maybe (Sizes VarIdentifier (Typed loc)))
+complexType2TypeSpecifier ct@(CType s t d sz) = do
     s' <- secType2SecTypeSpecifier s
     t' <- baseType2DatatypeSpecifier t
-    return $ Just (TypeSpecifier (Typed noloc $ ComplexT ct) (Just s') t' (Just $ DimSpecifier (Typed noloc $ BaseT index) $ fmap (Typed noloc) d))
-complexType2TypeSpecifier Void = return Nothing
+    sz' <- mapM sizes2Sizes sz
+    return (Just (TypeSpecifier (Typed noloc $ ComplexT ct) (Just s') t' (Just $ DimSpecifier (Typed noloc $ BaseT index) $ fmap (Typed noloc) d)),sz')
+complexType2TypeSpecifier Void = return (Nothing,Nothing)
 complexType2TypeSpecifier c@(CVar v) = genError noloc $ text "complexType2TypeSpecifier" <+> pp c
+
+sizes2Sizes :: ConversionK loc m => [(SExpr VarIdentifier Type,IsVariadic)] -> m (Sizes VarIdentifier (Typed loc))
+sizes2Sizes = undefined
 
 secType2SecTypeSpecifier :: ConversionK loc m => SecType -> m (SecTypeSpecifier VarIdentifier (Typed loc))
 secType2SecTypeSpecifier s@Public = do

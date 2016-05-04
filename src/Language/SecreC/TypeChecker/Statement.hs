@@ -41,7 +41,7 @@ import Prelude hiding (mapM)
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
-tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
+tcStmts :: (ProverK loc m) => Maybe Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
 tcStmts ret [s] = do
     (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
@@ -60,14 +60,14 @@ tcStmts ret (s:ss) = do
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
 -- | Typecheck a non-empty statement
-tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcNonEmptyStmt :: (ProverK loc m) => Maybe Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
     when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
-tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcLoopBodyStmt :: (ProverK loc m) => Maybe Type -> loc -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
@@ -77,7 +77,7 @@ tcLoopBodyStmt ret l s = do
     return (s',t')
     
 -- | Typechecks a @Statement@
-tcStmt :: (ProverK loc m) => Type -- ^ return type
+tcStmt :: (ProverK loc m) => Maybe Type -- ^ return type
     -> Statement Identifier loc -- ^ input statement
     -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcStmt ret (CompoundStatement l s) = do
@@ -141,18 +141,26 @@ tcStmt ret (VarStatement l decl) = do
     decl' <- tcVarDecl LocalScope decl
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (VarStatement (notTyped "tcStmt" l) decl',t)
-tcStmt ret (ReturnStatement l Nothing) = do
+tcStmt (Just ret) (ReturnStatement l Nothing) = do
     tcTopCstrM l $ Unifies (ComplexT Void) ret
-    let t = StmtType (Set.singleton StmtReturn)
+    let t = StmtType (Set.singleton $ StmtReturn $ ComplexT Void)
     return (ReturnStatement (Typed l t) Nothing,t)
-tcStmt ret (ReturnStatement l (Just e)) = do
+tcStmt Nothing (ReturnStatement l Nothing) = do
+    let t = StmtType (Set.singleton $ StmtReturn $ ComplexT Void)
+    return (ReturnStatement (Typed l t) Nothing,t)
+tcStmt (Just ret) (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
     x <- newTypedVar "ret" ret $ Just $ pp e
     tcTopCstrM l $ Coerces (fmap typed e') x
-    let t = StmtType (Set.singleton StmtReturn)
+    let t = StmtType (Set.singleton $ StmtReturn et')
     let ex = fmap (Typed l) $ RVariablePExpr ret x
     return (ReturnStatement (Typed l t) (Just ex),t)
+tcStmt Nothing (ReturnStatement l (Just e)) = do
+    e' <- tcExpr e
+    let et' = typed $ loc e'
+    let t = StmtType (Set.singleton $ StmtReturn et')
+    return (ReturnStatement (Typed l t) (Just e'),t)
 tcStmt ret (ContinueStatement l) = do
     let t = StmtType (Set.singleton StmtContinue)
     return (BreakStatement $ Typed l t,t)
@@ -225,9 +233,10 @@ tcVarDecl scope (VariableDeclaration l tyspec vars) = do
 tcVarInit :: (ProverK loc m) => Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization VarIdentifier (Typed loc))
 tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    (e') <- mapM (tcExprTy ty') e
+    e' <- mapM (tcExprTy ty) e
     -- add the array size to the type
-    let v' = VarName (Typed vl ty') $ mkVarId vn
+    -- do not store the size, since it can change dynamically
+    let v' = VarName (Typed vl ty) $ mkVarId vn
     -- add variable to the environment
     newVariable scope v' Nothing False -- don't add values to the environment
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
