@@ -30,7 +30,7 @@ import Data.Word
 
 import Safe
 
-import Text.PrettyPrint
+import Text.PrettyPrint hiding (equals)
 
 import Control.Monad hiding (mapM)
 import Control.Monad.IO.Class
@@ -46,15 +46,15 @@ extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 tcStmtsRet :: ProverK loc m => Type -> [Statement Identifier loc] -> TcM m [Statement VarIdentifier (Typed loc)]
 tcStmtsRet ret ss = do
     (ss',StmtType st) <- tcStmts ret ss
-    isReturnStmt (maybe noloc loc $ headMay ss) st
+    isReturnStmt (maybe noloc loc $ headMay ss) st ret 
     return ss'
 
-isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> TcM m ()
-isReturnStmt l cs = addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (pp cs)) $ do
-    aux $ Set.toList cs
+isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> Type -> TcM m ()
+isReturnStmt l cs ret = addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (pp ret)) $ aux $ Set.toList cs
   where
+    aux [StmtFallthru] = equals l ret (ComplexT Void) 
     aux [StmtReturn] = return ()
-    aux x = genTcError (locpos l) $ text "not a return stmt"
+    aux x = genTcError (locpos l) $ text "Unexpected return class"
 
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
