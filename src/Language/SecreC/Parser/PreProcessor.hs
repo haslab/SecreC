@@ -109,7 +109,7 @@ instance PP Options where
           <+> text "--debugparser=" <> pp (debugParser opts)
           <+> text "--debugtypechecker=" <> pp (debugTypechecker opts)
           <+> text "--debugtransformation=" <> pp (debugTransformation opts)
-          <+> text "--implicitclassify=" <> pp (implicitClassify opts)
+          <+> text "--implicitcoercions=" <> pp (implicitCoercions opts)
           <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
           <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
           <+> text "--evaltimeout=" <> pp (evalTimeOut opts)
@@ -139,7 +139,7 @@ optionsDecl  = Opts {
     , debugTransformation   = debugTransformation defaultOptions &= help "Print transformation result to stderr" &= groupname "Debugging"
     
     -- Typechecker
-    , implicitClassify   = implicitClassify defaultOptions &= name "implicit" &= help "Enables implicit classification of public data" &= groupname "Verification:Typechecker"
+    , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"

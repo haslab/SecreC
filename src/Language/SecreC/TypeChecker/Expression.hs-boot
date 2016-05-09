@@ -26,7 +26,9 @@ tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarI
 
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
-tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (SExpr VarIdentifier (Typed loc))
+allExprs :: ProverK loc m => loc -> [Expr] -> TcM m Expr
+
+tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
 tcExprTy :: (ProverK loc m) => Type -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 

@@ -180,20 +180,20 @@ simplifyExpression :: SimplifyK loc t m => Expression VarIdentifier (Typed loc) 
 simplifyExpression (ProcCallExpr l n ts es) = do
     (ss,ts') <- simplifyMaybe (simplifyList (simplifyVariadic simplifyTemplateTypeArgument)) ts
     (ss',es') <- simplifyVariadicExpressions es
-    mb <- inlineProcCall (Left $ procedureNameId n) (typed $ loc n) es'
+    mb <- inlineProcCall (unTyped l) (Left $ procedureNameId n) (typed $ loc n) es'
     case mb of
         Nothing -> return (ss++ss',Just $ ProcCallExpr l n ts' es')
         Just (ss'',res) -> return (ss++ss'++ss'',res)
 simplifyExpression e@(BinaryExpr l e1 o e2) = do
     (ss1,Just e1') <- simplifyExpression e1
     (ss2,Just e2') <- simplifyExpression e2
-    mb <- inlineProcCall (Right $ fmap typed o) (typed $ loc o) [(e1',False),(e2',False)]
+    mb <- inlineProcCall (unTyped l) (Right $ fmap typed o) (typed $ loc o) [(e1',False),(e2',False)]
     case mb of
         Nothing -> return (ss1++ss2,Just $ BinaryExpr l e1' o e2')
         Just (ss3,res) -> return (ss1++ss2++ss3,res)
 simplifyExpression (UnaryExpr l o e) = do
     (ss,Just e') <- simplifyExpression e
-    mb <- inlineProcCall (Right $ fmap typed o) (typed $ loc o) [(e',False)]
+    mb <- inlineProcCall (unTyped l) (Right $ fmap typed o) (typed $ loc o) [(e',False)]
     case mb of
         Nothing -> return (ss,Just $ UnaryExpr l o e')
         Just (ss',res) -> return (ss++ss',res)
@@ -212,15 +212,6 @@ simplifyExpression (PostIndexExpr l e s) = do
     (ss1,Just e') <- simplifyExpression e
     (ss2,s') <- simplifySubscript s
     return (ss1++ss2,Just $ PostIndexExpr l e' s')
-simplifyExpression (LambdaExpr l ss@(last -> ReturnStatement _ (Just e))) = do
-    let ret = typed $ loc e
-    res <- liftM (VarName (Typed noloc ret)) $ genVar (mkVarId "res")
-    (t,sz) <- type2TypeSpecifierNonVoid ret
-    (ss1,t') <- simplifyTypeSpecifier t
-    (ss2,sz') <- simplifySizes sz
-    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res sz' Nothing
-    ss' <- simplifyStatements (Just res) ss
-    return (ss1++ss2++[def,compoundStmt ss'],Just $ varExpr res)
 simplifyExpression e = return ([],Just e)
 
 simplifySubscript :: SimplifyT loc t m Subscript
@@ -238,29 +229,26 @@ unfoldVariadicExpr (e,False) = return [e]
 unfoldVariadicExpr (ArrayConstructorPExpr _ es,True) = return es
 unfoldVariadicExpr ve = genError noloc $ text "unfoldVariadicExpr"
 
-bindProcArgs :: SimplifyK loc t m => [(Bool,Cond (VarName VarIdentifier Type),IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> t m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
-bindProcArgs [] [] = return ([],Map.empty)
-bindProcArgs (v:vs) es = do
-    (es',ss,substs) <- bindProcArg v es
-    (ss',substs') <- bindProcArgs vs es'
+bindProcArgs :: SimplifyK loc t m => loc -> [(Bool,Constrained (Var),IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> t m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArgs l [] [] = return ([],Map.empty)
+bindProcArgs l (v:vs) es = do
+    (es',ss,substs) <- bindProcArg l v es
+    (ss',substs') <- bindProcArgs l vs es'
     return (ss++ss',Map.union substs substs')
 
-bindProcArg :: SimplifyK loc t m => (Bool,Cond (VarName VarIdentifier Type),IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
-bindProcArg (False,Cond v _,False) (e:es) = do
-    (t,sz) <- type2TypeSpecifierNonVoid (loc v)
+bindProcArg :: SimplifyK loc t m => loc -> (Bool,Constrained (Var),IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArg l (False,Constrained v _,False) (e:es) = do
+    (t) <- type2TypeSpecifierNonVoid (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
-    (ss2,sz') <- simplifySizes sz
-    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc (fmap (Typed noloc) v) sz' $ Just e
-    return (es,ss1++ss2++[def],Map.empty)
-bindProcArg (True,Cond v _,False) (e:es) = do
-    (t,sz) <- type2TypeSpecifierNonVoid (loc v)
+    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc (fmap (Typed noloc) v) Nothing $ Just e
+    return (es,ss1++[def],Map.empty)
+bindProcArg l (True,Constrained v _,False) (e:es) = do
+    (t) <- type2TypeSpecifierNonVoid (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
-    (ss2,sz') <- simplifySizes sz
-    let def = ConstStatement noloc $ ConstDeclaration noloc t' $ WrapNe $ ConstInitialization noloc (fmap (Typed noloc) v) sz' $ Just e
-    return (es,ss1++ss2++[def],Map.empty)
-bindProcArg (_,Cond v _,True) es = do
-    let p = noloc::Position
-    sz <- lift $ runSecrecM mempty $ runTcM $ evaluateIndexExpr p =<< typeSize p (loc v)
+    let def = ConstStatement noloc $ ConstDeclaration noloc t' $ WrapNe $ ConstInitialization noloc (fmap (Typed noloc) v) Nothing $ Just e
+    return (es,ss1++[def],Map.empty)
+bindProcArg l (_,Constrained v _,True) es = do
+    sz <- lift $ runSecrecM mempty $ runTcM $ evaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
     let (es1,es2) = splitAt (fromEnum sz) es
     return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed noloc $ loc v) es1)
 
@@ -271,31 +259,30 @@ splitProcAnns (EnsuresAnn p e:xs) = let (l,r) = splitProcAnns xs in (l,AnnStatem
 
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
-inlineProcCall :: SimplifyK loc t m => PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> t m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
-inlineProcCall n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann body c))) es | isNonRecursiveDecType d = do
+inlineProcCall :: SimplifyK loc t m => loc -> PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> t m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
+inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann body c))) es | isNonRecursiveDecType d = do
 --    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
-    (decls,substs) <- bindProcArgs args es'
+    (decls,substs) <- bindProcArgs l args es'
     ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) ann
     body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) body
-    (mb,sz) <- type2TypeSpecifier ret
+    (mb) <- type2TypeSpecifier ret
     let (reqs,ens) = splitProcAnns ann'
     case mb of
         Just t -> do
             (ss1,t') <- simplifyTypeSpecifier t
-            (ss2,sz') <- simplifySizes sz
             res <- liftM (VarName (Typed noloc ret)) $ genVar (mkVarId "res")
-            let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res sz' Nothing
+            let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res Nothing Nothing
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements (Just res) body'
             ens' <- simplifyStatements Nothing ens
-            return $ Just (decls++ss1++ss2++[def,compoundStmt (reqs'++ss++ens')],Just $ varExpr res)
+            return $ Just (decls++ss1++[def,compoundStmt (reqs'++ss++ens')],Just $ varExpr res)
         Nothing -> do
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements Nothing body'
             ens' <- simplifyStatements Nothing ens
             return $ Just ([compoundStmt (decls++reqs'++ss++ens')],Nothing)
-inlineProcCall n t es = do
+inlineProcCall l n t es = do
 --    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     return Nothing
 

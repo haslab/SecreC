@@ -281,28 +281,25 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             return $ ProcedureDeclaration l' t' n' args' anns' s'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
-    traverseVars f (ProcedureParameter l b t v sz) = do
+    traverseVars f (ProcedureParameter l b t v) = do
         l' <- f l
         b' <- f b
         t' <- f t
         v' <- inLHS $ f v
-        sz' <- mapM f sz
-        return $ ProcedureParameter l' b' t' v' sz'
-    traverseVars f (ConstProcedureParameter l b t v e sz) = do
+        return $ ProcedureParameter l' b' t' v'
+    traverseVars f (ConstProcedureParameter l b t v e) = do
         l' <- f l
         b' <- f b
         t' <- f t
         v' <- inLHS $ f v
         e' <- f e
-        sz' <- mapM f sz
-        return $ ConstProcedureParameter l' b' t' v' e' sz'
+        return $ ConstProcedureParameter l' b' t' v' e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
-    traverseVars f (ReturnType l mb sz) = do
+    traverseVars f (ReturnType l mb) = do
         l' <- f l
         mb' <- mapM f mb
-        sz' <- mapM f sz
-        return $ ReturnType l' mb' sz'
+        return $ ReturnType l' mb'
     
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (VarName iden loc) where
     traverseVars f v@(VarName l n) = do
@@ -493,22 +490,17 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         x' <- f x
         return $ LeakExpr l' x'
-    traverseVars f (LambdaExpr l x) = do
-        l' <- f l
-        x' <- f x
-        return $ LambdaExpr l' x'
     traverseVars f (BinaryAssign l e1 o e2) = do
         l' <- f l
         e1' <- inLVal $ f e1
         o' <- f o
         e2' <- f e2
         return $ BinaryAssign l' e1' o' e2'
-    traverseVars f (QualExpr l e t sz) = do
+    traverseVars f (QualExpr l e t) = do
         l' <- f l
         e' <- f e
         t' <- f t
-        sz' <- mapM f sz
-        return $ QualExpr l' e' t' sz'
+        return $ QualExpr l' e' t'
     traverseVars f (CondExpr l e1 e2 e3) = do
         l' <- f l
         e1' <- f e1
@@ -807,12 +799,11 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         return $ StructureDeclaration l' n' as'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Attribute iden loc) where
-    traverseVars f (Attribute l t a sz) = do
+    traverseVars f (Attribute l t a) = do
         l' <- f l
         t' <- f t
         a' <- inLHS $ f a
-        sz' <- mapM f sz
-        return $ Attribute l' t' a' sz'
+        return $ Attribute l' t' a'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateQuantifier iden loc) where
     traverseVars f (DomainQuantifier l b d k) = do

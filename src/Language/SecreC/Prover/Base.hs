@@ -56,7 +56,7 @@ instance PP ILit where
 
 data IExpr
     = ILit ILit -- index literal
-    | IIdx (VarName VarIdentifier Type) -- index variable
+    | IIdx (Var) -- index variable
     | IBinOp IBOp IExpr IExpr
     | IUnOp IUOp IExpr
     | ICond IExpr IExpr IExpr -- conditional

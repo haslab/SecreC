@@ -206,7 +206,7 @@ sbVal v (BaseT (TyPrim (DatatypeXorUint64 _))) = liftM SUint64 $ sWord64 v
 sbVal v (BaseT (TyPrim (DatatypeFloat32   _))) = liftM SFloat32 $ sFloat v
 sbVal v (BaseT (TyPrim (DatatypeFloat64   _))) = liftM SFloat64 $ sDouble v
 
-tryResolveIExprVar :: Position -> VarName VarIdentifier Type -> TcSBV SBVal
+tryResolveIExprVar :: Position -> Var -> TcSBV SBVal
 tryResolveIExprVar l v@(VarName t n) = do
     mb <- lift $ tryResolveEVar l n t
     case mb of

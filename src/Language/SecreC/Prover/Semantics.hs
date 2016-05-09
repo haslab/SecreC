@@ -38,16 +38,16 @@ import Control.Monad.Trans.Control
 
 -- * Exports
 
-evaluateIndexExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> TcM m Word64
+evaluateIndexExpr :: (ProverK loc m) => loc -> Expr -> TcM m Word64
 evaluateIndexExpr l e = do
     IUint64 w <- evaluateExpr l $ fmap (Typed l) e
     return w
 
 evaluateExpr :: (ProverK loc m) => loc -> Expression VarIdentifier (Typed loc) -> TcM m ILit
-evaluateExpr l e = evaluate l (text "evaluateExpr") (evalIExpr =<< expr2IExpr e)
+evaluateExpr l e = evaluate l (text "evaluateExpr") (evalIExpr l =<< expr2IExpr e)
 
 evaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
-evaluateIExpr l e = evaluate l (text "evaluateExpr") (evalIExpr e)
+evaluateIExpr l e = evaluate l (text "evaluateExpr") (evalIExpr l e)
 
 ---- * Internal declarations
 
@@ -64,50 +64,48 @@ evaluate l doc m = do
             State.put env'
             TcM (lift $ Writer.tell warns) >> return x
 
-evalIExpr :: (ProverK Position m) => IExpr -> TcM m ILit
-evalIExpr (ILit lit) = return lit
-evalIExpr (IIdx v@(VarName t n)) = do
-    let p = noloc :: Position
-    mb <- tryResolveEVar p n t
+evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
+evalIExpr l (ILit lit) = return lit
+evalIExpr l (IIdx v@(VarName t n)) = do
+    mb <- tryResolveEVar l n t
     case mb of
-        Nothing -> genTcError p $ text "variable binding not found"
-        Just e -> expr2IExpr e >>= evalIExpr
-evalIExpr (IBinOp o e1 e2) = do
-    e1' <- evalIExpr e1
-    e2' <- evalIExpr e2
-    evalIBinOp o e1' e2'
-evalIExpr (IUnOp o e1) = do
-    e1' <- evalIExpr e1
-    evalIUnOp o e1'
-evalIExpr (ICond c e1 e2) = do
-   c' <- evalIExpr c
+        Nothing -> tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) $ text "variable binding for" <+> pp v <+> text "not found"
+        Just e -> expr2IExpr e >>= evalIExpr l
+evalIExpr l (IBinOp o e1 e2) = do
+    e1' <- evalIExpr l e1
+    e2' <- evalIExpr l e2
+    evalIBinOp l o e1' e2'
+evalIExpr l (IUnOp o e1) = do
+    e1' <- evalIExpr l e1
+    evalIUnOp l o e1'
+evalIExpr l (ICond c e1 e2) = do
+   c' <- evalIExpr l c
    case c' of
-       IBool True -> evalIExpr e1
-       IBool False -> evalIExpr e2
-evalIExpr (ISize e) = do
-    let p = noloc :: Position
-    typeSize p (iExprTy e) >>= expr2IExpr  . fmap (Typed p) >>= evalIExpr
+       IBool True -> evalIExpr l e1
+       IBool False -> evalIExpr l e2
+evalIExpr l (ISize e) = do
+    typeSize l (iExprTy e) >>= expr2IExpr  . fmap (Typed l) >>= evalIExpr l
 
-evalIBinOp :: Monad m => IBOp -> ILit -> ILit -> TcM m ILit
-evalIBinOp IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2
-evalIBinOp IOr (IBool b1) (IBool b2) = return $ IBool $ b1 || b2
-evalIBinOp IImplies (IBool b1) (IBool b2) = return $ IBool $ b1 <= b2
-evalIBinOp IXor (IBool b1) (IBool b2) = return $ IBool $ (b1 || b2) && not (b1 && b2)
-evalIBinOp (ILeq) e1 e2 = return $ IBool $ ordILit (<=) e1 e2
-evalIBinOp (ILt) e1 e2 = return $ IBool $ ordILit (<) e1 e2
-evalIBinOp (IGeq) e1 e2 = return $ IBool $ ordILit (>=) e1 e2
-evalIBinOp (IGt) e1 e2 = return $ IBool $ ordILit (>) e1 e2
-evalIBinOp (IEq) e1 e2 = return $ IBool $ ordILit (==) e1 e2
-evalIBinOp (IPlus) e1 e2 = return $ numILit (+) e1 e2
-evalIBinOp (IMinus) e1 e2 = return $ numILit (-) e1 e2
-evalIBinOp (ITimes) e1 e2 = return $ numILit (*) e1 e2
-evalIBinOp (IPower) e1 e2 = return $ integralILit (^) e1 e2
-evalIBinOp (IDiv) e1 e2 = return $ integralILit div e1 e2
-evalIBinOp (IMod) e1 e2 = return $ integralILit mod e1 e2
+evalIBinOp :: ProverK loc m => loc -> IBOp -> ILit -> ILit -> TcM m ILit
+evalIBinOp l IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2
+evalIBinOp l IOr (IBool b1) (IBool b2) = return $ IBool $ b1 || b2
+evalIBinOp l IImplies (IBool b1) (IBool b2) = return $ IBool $ b1 <= b2
+evalIBinOp l IXor (IBool b1) (IBool b2) = return $ IBool $ (b1 || b2) && not (b1 && b2)
+evalIBinOp l (ILeq) e1 e2 = return $ IBool $ ordILit (<=) e1 e2
+evalIBinOp l (ILt) e1 e2 = return $ IBool $ ordILit (<) e1 e2
+evalIBinOp l (IGeq) e1 e2 = return $ IBool $ ordILit (>=) e1 e2
+evalIBinOp l (IGt) e1 e2 = return $ IBool $ ordILit (>) e1 e2
+evalIBinOp l (IEq) e1 e2 = return $ IBool $ ordILit (==) e1 e2
+evalIBinOp l (IPlus) e1 e2 = return $ numILit (+) e1 e2
+evalIBinOp l (IMinus) e1 e2 = return $ numILit (-) e1 e2
+evalIBinOp l (ITimes) e1 e2 = return $ numILit (*) e1 e2
+evalIBinOp l (IPower) e1 e2 = return $ integralILit (^) e1 e2
+evalIBinOp l (IDiv) e1 e2 = return $ integralILit div e1 e2
+evalIBinOp l (IMod) e1 e2 = return $ integralILit mod e1 e2
 
-evalIUnOp :: Monad m => IUOp -> ILit -> TcM m ILit
-evalIUnOp INot (IBool b) = return $ IBool $ not b
-evalIUnOp INeg i = return $ numILit (\x y -> -x) i (error "evalIUnOp INed")
+evalIUnOp :: ProverK loc m => loc -> IUOp -> ILit -> TcM m ILit
+evalIUnOp l INot (IBool b) = return $ IBool $ not b
+evalIUnOp l INeg i = return $ numILit (\x y -> -x) i (error "evalIUnOp INed")
 
 numILit :: (forall a . Num a => a -> a -> a) -> ILit -> ILit -> ILit
 numILit f (IInt8 i1)    (IInt8 i2)    = IInt8 $ f i1 i2

@@ -77,7 +77,7 @@ instance PP SecrecError where
     pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 msg
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
-    pp (OrWarn err) = pp err
+    pp (OrWarn err) = text "Warning: " <+> pp err
     pp (ErrToken) = text "<error>"
 
 data TypecheckerErr

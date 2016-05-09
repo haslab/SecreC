@@ -13,7 +13,7 @@ import Language.SecreC.Vars
 import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
-import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import Language.SecreC.Prover.Base
 import Language.SecreC.TypeChecker.Conversion
 
@@ -52,8 +52,8 @@ import Unsafe.Coerce
 
 import Safe
 
-import Text.PrettyPrint as PP hiding (float,int)
-import qualified Text.PrettyPrint as Pretty
+import Text.PrettyPrint as PP hiding (float,int,equals)
+import qualified Text.PrettyPrint as Pretty hiding (equals)
 
 import qualified Data.HashTable.Weak.IO as WeakHash
 import qualified System.Mem.Weak.Map as WeakMap
@@ -157,7 +157,7 @@ tcNoDeps m = do
     State.modify $ \env -> env { globalDeps = g, localDeps = l }
     return x
 
-tcAddDeps :: (VarsIdTcM m,Location loc) => loc -> String -> TcM m a -> TcM m a
+tcAddDeps :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m a
 tcAddDeps l msg m = do
     (x,ks) <- tcWithCstrs l msg m
     forM_ ks $ addDep LocalScope
@@ -297,7 +297,7 @@ noTSubsts d = d { pureSubsts = emptyTSubsts }
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
-addTemplateOperator :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
+addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
 addTemplateOperator vars hdeps op = do
     let Typed l t = loc op
     d <- typeToDecType l t
@@ -306,7 +306,7 @@ addTemplateOperator vars hdeps op = do
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
-    (hbsubsts,[]) <- appendTSubsts (pureSubsts hdict) (pureSubsts bdict)
+    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateOp" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
 --    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
@@ -319,8 +319,8 @@ newOperator hdeps op = do
     let Typed l t = loc op
     let o = funit op
     d <- typeToDecType l t
-    (_,recdict) <- tcProve l "newOp head" $ addHeadTCstrs hdeps
-    addHeadTDict recdict
+    (_,recdict) <- tcProve l "newOp head" $ addHeadTFlatCstrs l hdeps
+    addHeadTDict l recdict
     i <- newModuleTyVarId
     frees <- getFrees
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
@@ -329,7 +329,7 @@ newOperator hdeps op = do
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
     dirtyGDependencies $ Right $ Left $ Right o
     
-    solveStatic l
+    solve l
     dict <- liftM (head . tDict) State.get
     d'' <- substFromTDict "newOp body" l dict False Map.empty d'
     let td = DecT $ DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
@@ -357,7 +357,7 @@ checkOperator cl@(Proc isAnn) op = do
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
-addTemplateProcedure :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
+addTemplateProcedure :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
 addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     d <- typeToDecType l t
@@ -365,7 +365,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
-    (hbsubsts,[]) <- appendTSubsts (pureSubsts hdict) (pureSubsts bdict)
+    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateProc" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
 --    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
@@ -376,8 +376,8 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
 newProcedure :: (ProverK loc m) => Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
 newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     d <- typeToDecType l t
-    (_,recdict) <- tcProve l "newProc head" $ addHeadTCstrs hdeps
-    addHeadTDict recdict
+    (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l hdeps
+    addHeadTDict l recdict
     i <- newModuleTyVarId
     frees <- getFrees
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
@@ -386,7 +386,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
     dirtyGDependencies $ Right $ Left $ Left n
     
-    solveStatic l
+    solve l
     dict <- liftM (head . tDict) State.get
     d'' <- substFromTDict "newProc body" l dict False Map.empty d'
     let dt = DecT $ DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
@@ -433,9 +433,9 @@ withTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType _ (Ty
     modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(e,es) -> (e,Map.delete j es)) . fromJust) sn (structs env) }
     return x
 
-buildCstrGraph :: (ProverK Position m) => Set (LocIOCstr) -> TcM m (IOCstrGraph)
-buildCstrGraph cstrs = do
-    d <- concatTDict =<< liftM tDict State.get
+buildCstrGraph :: (ProverK loc m) => loc -> Set (LocIOCstr) -> TcM m (IOCstrGraph)
+buildCstrGraph l cstrs = do
+    d <- concatTDict l NoCheckS =<< liftM tDict State.get
     let gr = tCstrs d
     let tgr = Graph.trc gr 
     opens <- liftM openedCstrs State.get
@@ -459,14 +459,14 @@ splitHead deps = do
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStruct :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
+addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
-    (hbsubsts,[]) <- appendTSubsts (pureSubsts hdict) (pureSubsts bdict)
+    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateStruct" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
     ss <- getStructs
@@ -477,14 +477,14 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     
 -- Adds a new (possibly overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStructSpecialization :: (ProverK loc m) => [(Cond (VarName VarIdentifier Type),IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
+addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) = do
     d <- typeToDecType l t
     solve l
     (hdict,hfrees,bdict,bfrees) <- splitHead hdeps
     i <- newModuleTyVarId
     let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees specials d
-    (hbsubsts,[]) <- appendTSubsts (pureSubsts hdict) (pureSubsts bdict)
+    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateStructSpec" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\(b,s) -> Just (b,Map.insert i e s)) n (structs env) }
@@ -496,8 +496,8 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     addGDependencies $ Right $ Right n
     d <- typeToDecType l t
     -- solve head constraints
-    (_,recdict) <- tcProve l "newStruct head" $ addHeadTCstrs hdeps
-    addHeadTDict recdict
+    (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l hdeps
+    addHeadTDict l recdict
     i <- newModuleTyVarId
     -- add a temporary declaration for recursive invocations
     frees <- getFrees
@@ -508,7 +508,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
     dirtyGDependencies $ Right $ Right n
     
     -- solve the body
-    solveStatic l
+    solve l
     dict <- liftM (head . tDict) State.get
     ss <- getStructs
     case Map.lookup n ss of
@@ -521,37 +521,40 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Just e,Map.empty) (structs env) }
             return $ updLoc tn (Typed (unTyped $ loc tn) dt)
 
-addSubstM :: (ProverK loc m) => loc -> Bool -> VarName VarIdentifier Type -> Type -> TcM m ()
-addSubstM l dirty v t | varNameToType v == t = return ()
-addSubstM l dirty v@(VarName vt vn) t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
-    when dirty $ tcCstrM l $ Unifies (loc v) (tyOf t)
-    substs <- getTSubsts
-    t' <- substFromTSubsts "addSubst" l substs False Map.empty t
-    vns <- fvs t'
-    if Map.member vn vns
-        then do -- add verification condition
-            tcCstrM l $ Equals (varNameToType v) t'
-        else do -- add substitution
-            liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ show t' ++ " " ++ ppr vns
-            updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
-            when dirty $ dirtyGDependencies $ Left vn
+data SubstMode = CheckS | NoFailS | NoCheckS
+    deriving (Eq,Data,Typeable,Show)
 
-constExpr :: ProverK loc m => SExpr VarIdentifier (Typed loc) -> TcM m (SExpr VarIdentifier (Typed loc))
-constExpr e = do
-    let Typed l t = loc e
-    c <- newTypedVar "res" t $ Just $ pp e
-    let cl = fmap (Typed l) c
-    (ty,sz) <- type2TypeSpecifierNonVoid t
-    let def = ConstStatement noloc $ ConstDeclaration noloc ty $ WrapNe $ ConstInitialization noloc cl sz (Just e)
-    let st = StmtType (Set.singleton $ StmtReturn t)
-    return $ LambdaExpr (Typed noloc t) [def,ReturnStatement (Typed noloc st) (Just $ varExpr cl)]
-
+addSubstM :: (ProverK loc m) => loc -> Bool -> SubstMode -> Var -> Type -> TcM m ()
+addSubstM l dirty mode v t | varNameToType v == t = return ()
+addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
+    when dirty $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
+    t' <- case mode of
+        NoCheckS -> return t
+        otherwise -> do
+            substs <- getTSubsts l
+            substFromTSubsts "addSubst" l substs False Map.empty t
+    case mode of
+        NoCheckS -> add t'
+        otherwise -> do
+            vns <- fvs t'
+            if Map.member vn vns
+                then do -- add verification condition
+                    case mode of
+                        NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution" <+> pp v <+> text "=" <+> pp t'
+                        CheckS -> tcCstrM_ l $ Equals (varNameToType v) t'
+                else add t'
+  where
+    add t' = do -- add substitution
+--      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
+        updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
+        when dirty $ dirtyGDependencies $ Left vn
+    
 newDomainTyVar :: (MonadIO m) => SVarKind -> Maybe Doc -> TcM m SecType
 newDomainTyVar k doc = do
     n <- freeVarId "d" doc
     return $ SVar n k
 
-newDimVar :: (MonadIO m) => Maybe Doc -> TcM m (SExpr VarIdentifier Type)
+newDimVar :: (MonadIO m) => Maybe Doc -> TcM m Expr
 newDimVar doc = do
     n <- freeVarId "dim" doc
     let v = VarName (BaseT index) n
@@ -567,7 +570,7 @@ newVarOf str (SType k) doc = liftM SecT $ newDomainTyVar k doc
 newVarOf str t doc | typeClass "newVarOf" t == TypeC = liftM (IdxT . varExpr) $ newTypedVar str t doc
 newVarOf str (VAType b sz) doc = liftM VArrayT $ newArrayVar b sz doc
 
-newArrayVar :: (MonadIO m) => Type -> SExpr VarIdentifier Type -> Maybe Doc -> TcM m VArrayType
+newArrayVar :: (MonadIO m) => Type -> Expr -> Maybe Doc -> TcM m VArrayType
 newArrayVar b sz doc = do
     n <- freeVarId "varr" doc
     return $ VAVar n b sz
@@ -587,19 +590,19 @@ newBaseTyVar doc = do
     n <- freeVarId "b" doc
     return $ BVar n
 
-newIdxVar :: (MonadIO m) => Maybe Doc -> TcM m (VarName VarIdentifier Type)
+newIdxVar :: (MonadIO m) => Maybe Doc -> TcM m (Var)
 newIdxVar doc = do
     n <- freeVarId "idx" doc
     let v = VarName (BaseT index) n
     return v
     
-newSizeVar :: (MonadIO m) => Maybe Doc -> TcM m (SExpr VarIdentifier Type)
+newSizeVar :: (MonadIO m) => Maybe Doc -> TcM m Expr
 newSizeVar doc = do
     n <- freeVarId "sz" doc
     let v = VarName (BaseT index) n
     return (RVariablePExpr (BaseT index) v)
 
-newSizesVar :: (MonadIO m) => SExpr VarIdentifier Type -> Maybe Doc -> TcM m [(SExpr VarIdentifier Type,IsVariadic)]
+newSizesVar :: (MonadIO m) => Expr -> Maybe Doc -> TcM m [(Expr,IsVariadic)]
 newSizesVar dim doc = do
     n <- freeVarId "szs" doc
     let t = VAType (BaseT index) dim
@@ -612,15 +615,15 @@ mkVariadicTyArray True t = do
     sz <- newSizeVar Nothing
     return $ VAType t sz
     
-addValue :: (MonadIO m,Location loc) => loc -> VarIdentifier -> SExpr VarIdentifier Type -> TcM m ()
+addValue :: (MonadIO m,Location loc) => loc -> VarIdentifier -> Expr -> TcM m ()
 addValue l v e = do
 --    liftIO $ putStrLn $ "addValue " ++ ppr v ++ " " ++ ppr e
     updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert v (IdxT e) (unTSubsts $ tSubsts d) })
 
-addValueM :: (ProverK loc m) => Bool -> loc -> VarName VarIdentifier Type -> SExpr VarIdentifier Type -> TcM m ()
+addValueM :: (ProverK loc m) => Bool -> loc -> Var -> Expr -> TcM m ()
 addValueM checkTy l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
 addValueM checkTy l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
-    when checkTy $ tcCstrM l $ Unifies t (loc e)
+    when checkTy $ tcCstrM_ l $ Unifies t (loc e)
     addValue l n e
     addGDependencies $ Left n
     dirtyGDependencies $ Left n
@@ -637,7 +640,7 @@ closeCstr :: (MonadIO m) => TcM m ()
 closeCstr = do
     State.modify $ \e -> e { openedCstrs = tail (openedCstrs e) }
 
-resolveIOCstr :: (MonadIO m,Location loc) => loc -> IOCstr -> (TCstr -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
+resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
 resolveIOCstr l iok resolve = do
     st <- liftIO $ readUniqRef (kStatus iok)
     case st of
@@ -704,27 +707,30 @@ addIOCstrDependenciesM froms iok tos = do
 --    liftIO $ putStrLn $ "addIOCstrDependenciesM " ++ ppr (mapSet (ioCstrId . unLoc) froms) ++ " --> " ++ ppr (ioCstrId $ unLoc iok) ++ " --> " ++ ppr (mapSet (ioCstrId . unLoc) tos)
     updateHeadTDict $ \d -> return ((),addIOCstrDependencies d froms iok tos)
     
-addHeadTDict :: (ProverK Position m) => TDict -> TcM m ()
-addHeadTDict d = updateHeadTDict $ \x -> liftM ((),) $ appendTDict x d
+addHeadTDict :: (ProverK loc m) => loc -> TDict -> TcM m ()
+addHeadTDict l d = updateHeadTDict $ \x -> liftM ((),) $ appendTDict l NoFailS x d
 
-addHeadTCstrs :: (ProverK Position m) => Set (Loc Position IOCstr) -> TcM m ()
-addHeadTCstrs ks = addHeadTDict $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty)
+addHeadTCstrs :: (ProverK loc m) => loc -> IOCstrGraph -> TcM m ()
+addHeadTCstrs l ks = addHeadTDict l $ TDict ks Set.empty emptyTSubsts
+
+addHeadTFlatCstrs :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> TcM m ()
+addHeadTFlatCstrs l ks = addHeadTDict l $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty)
     where nodes = map (\n -> (ioCstrId $ unLoc n,n)) $ Set.toList ks
 
-getHyps :: (MonadIO m) => TcM m (Deps)
+getHyps :: (MonadIO m) => TcM m Deps
 getHyps = do
     deps <- getDeps
     return $ Set.filter (isHypCstr . kCstr . unLoc) deps
 
-getDeps :: (MonadIO m) => TcM m (Deps)
+getDeps :: (MonadIO m) => TcM m Deps
 getDeps = do
     env <- State.get
     return $ globalDeps env `Set.union` localDeps env
 
-tcWithCstrs :: (VarsIdTcM m,Location loc) => loc -> String -> TcM m a -> TcM m (a,Set (Loc Position IOCstr))
+tcWithCstrs :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,Set (Loc Position IOCstr))
 tcWithCstrs l msg m = do
     (x,d) <- tcWith (locpos l) msg m
-    addHeadTDict d
+    addHeadTDict l d
     return (x,flattenIOCstrGraphSet $ tCstrs d)
 
 cstrSetToGraph :: Location loc => loc -> Set IOCstr -> IOCstrGraph
@@ -743,6 +749,11 @@ newTemplateConstraint l c = do
 erroneousTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> SecrecError -> TcM m IOCstr
 erroneousTemplateConstraint l c err = do
     updateHeadTDict (insertTDictCstr (locpos l) c $ Erroneous err)
+
+updateHeadTCstrs :: (Monad m) => (IOCstrGraph -> TcM m (a,IOCstrGraph)) -> TcM m a
+updateHeadTCstrs upd = updateHeadTDict $ \d -> do
+    (x,gr') <- upd (tCstrs d)
+    return (x,d { tCstrs = gr' })
 
 updateHeadTDict :: (Monad m) => (TDict -> TcM m (a,TDict)) -> TcM m a
 updateHeadTDict upd = do
@@ -799,34 +810,37 @@ errWarn msg = do
     i <- getModuleCount
     TcM $ lift $ tell $ ScWarns $ Map.singleton i $ Map.singleton (loc msg) $ Set.singleton $ ErrWarn msg
 
-isChoice :: (ProverK Position m) => Unique -> TcM m Bool
-isChoice x = do
-    d <- concatTDict =<< liftM tDict State.get
+isChoice :: (ProverK loc m) => loc -> Unique -> TcM m Bool
+isChoice l x = do
+    d <- concatTDict l NoCheckS =<< liftM tDict State.get
     return $ Set.member (hashUnique x) $ tChoices d
 
 addChoice :: (Monad m) => Unique -> TcM m ()
 addChoice x = updateHeadTDict $ \d -> return ((),d { tChoices = Set.insert (hashUnique x) $ tChoices d })
 
 bytes :: ComplexType
-bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexSExpr 1) Nothing
+bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexExpr 1)
 
-appendTDict :: (ProverK Position m) => TDict -> TDict -> TcM m TDict
-appendTDict (TDict u1 c1 ss1) (TDict u2 c2 ss2) = do
+appendTDict :: (ProverK loc m) => loc -> SubstMode -> TDict -> TDict -> TcM m TDict
+appendTDict l noFail (TDict u1 c1 ss1) (TDict u2 c2 ss2) = do
     let u12 = unionGr u1 u2
-    (ss12,ks) <- appendTSubsts ss1 ss2
-    u12' <- foldM (\gr k -> insertCstr (noloc::Position) k Unevaluated gr) u12 ks
+    (ss12,ks) <- appendTSubsts l noFail ss1 ss2
+    u12' <- foldM (\gr k -> insertCstr l k Unevaluated gr) u12 ks
     return $ TDict u12' (Set.union c1 c2) ss12
 
-appendTSubsts :: (ProverK Position m) => TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
-appendTSubsts ss1 (TSubsts ss2) = foldM addSubst (ss1,[]) (Map.toList ss2)
+appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
+appendTSubsts l NoCheckS (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
+appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst mode) (ss1,[]) (Map.toList ss2)
   where
-    addSubst :: (ProverK Position m) => (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
-    addSubst (ss,ks) (v,t) = do
-        t' <- substFromTSubsts "appendTSubsts" (noloc::Position) ss False Map.empty t
+    addSubst :: (ProverK Position m) => SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
+    addSubst mode (ss,ks) (v,t) = do
+        t' <- substFromTSubsts "appendTSubsts" l ss False Map.empty t
         vs <- fvs t'
         if Map.member v vs
             then do
-                return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') v) t') : ks)
+                case mode of
+                    NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution " <+> pp v <+> text "=" <+> pp t'
+                    CheckS -> return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') v) t') : ks)
             else return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
 
 substFromTSubsts :: (Typeable loc,VarsIdTcM m,Location loc,VarsId (TcM m) a) => String -> loc -> TSubsts -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM m a
@@ -837,7 +851,7 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
     case Map.lookup x tys of
         Nothing -> return Nothing
         Just ty -> case proxy of
-            (eq (typeRep :: TypeOf (VarName VarIdentifier Type)) -> EqT) ->
+            (eq (typeRep :: TypeOf (Var)) -> EqT) ->
                 return $ typeToVarName ty
             (eq (typeRep :: TypeOf (SecTypeSpecifier VarIdentifier (Typed loc))) -> EqT) ->
                 case ty of
@@ -877,7 +891,7 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
                 case ty of
                     BaseT s -> return $ Just s
                     otherwise -> return Nothing
-            (eq (typeRep :: TypeOf (Expression VarIdentifier Type)) -> EqT) ->
+            (eq (typeRep :: TypeOf Expr) -> EqT) ->
                 case ty of
                     IdxT s -> return $ Just s
                     otherwise -> return Nothing
@@ -889,12 +903,12 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
   where
     eq x proxy = eqTypeOf x (typeOfProxy proxy)
 
-concatTDict :: (ProverK Position m) => [TDict] -> TcM m TDict
-concatTDict = Foldable.foldlM appendTDict emptyTDict
+concatTDict :: (ProverK loc m) => loc -> SubstMode -> [TDict] -> TcM m TDict
+concatTDict l noFail = Foldable.foldlM (appendTDict l noFail) emptyTDict
 
-appendPureTDict :: (ProverK Position m) => PureTDict -> PureTDict -> TcM m PureTDict
-appendPureTDict (PureTDict u1 ss1) (PureTDict u2 ss2) = do
-    (ss12,ks) <- appendTSubsts ss1 ss2
+appendPureTDict :: (ProverK loc m) => loc -> SubstMode -> PureTDict -> PureTDict -> TcM m PureTDict
+appendPureTDict l noFail (PureTDict u1 ss1) (PureTDict u2 ss2) = do
+    (ss12,ks) <- appendTSubsts l noFail ss1 ss2
     let u12 = unionGr u1 u2
     u12' <- liftIO $ foldM (\gr k -> insNewNodeIO (Loc noloc k) gr) u12 ks
     return $ PureTDict u12' ss12
@@ -910,24 +924,24 @@ newIOCstr c res = do
     let io = IOCstr c st
     return io
 
-getTSubsts :: (ProverK Position m) => TcM m TSubsts
-getTSubsts = do
+getTSubsts :: (ProverK loc m) => loc -> TcM m TSubsts
+getTSubsts l = do
     env <- State.get
-    d <- concatTDict $ tDict env
+    d <- concatTDict l NoCheckS $ tDict env
     return $ tSubsts d
 
-substFromTDict :: (Typeable loc,VarsIdTcM m,Location loc,VarsId (TcM m) a) => String -> loc -> TDict -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM m a
+substFromTDict :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => String -> loc -> TDict -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM m a
 substFromTDict msg l dict doBounds ssBounds = substFromTSubsts msg l (tSubsts dict) doBounds ssBounds
     
-specializeM :: (Typeable loc,VarsId (TcM m) a,VarsIdTcM m,Location loc) => loc -> a -> TcM m a
+specializeM :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> a -> TcM m a
 specializeM l a = do
-    ss <- getTSubsts
+    ss <- getTSubsts l
     substFromTSubsts "specialize" l ss False Map.empty a
 
-ppM :: (Typeable loc,VarsId (TcM m) a,VarsIdTcM m,PP a,Location loc) => loc -> a -> TcM m Doc
+ppM :: (Vars VarIdentifier (TcM m) a,PP a,ProverK loc m) => loc -> a -> TcM m Doc
 ppM l a = liftM pp $ specializeM l a
 
-ppArrayRangesM :: (Typeable loc,VarsIdTcM m,Location loc) => loc -> [ArrayProj] -> TcM m Doc
+ppArrayRangesM :: (ProverK loc m) => loc -> [ArrayProj] -> TcM m Doc
 ppArrayRangesM l = liftM (sepBy comma) . mapM (ppM l)
 
 removeTSubsts :: Monad m => Set VarIdentifier -> TcM m ()
@@ -938,12 +952,9 @@ removeTSubsts vs = do
     let ds' = map remSub ds
     State.put $ env { tDict = ds' }
 
-splitStaticCstrs :: IOCstrGraph -> (IOCstrGraph,[SCond VarIdentifier Type])
-splitStaticCstrs gr = (Graph.nfilter (\x -> not $ elem x $ map fst nonstatics) gr,cs)
-    where
-    labs = labNodes gr
-    nonstatics = filter (not . isStaticCstr . kCstr . unLoc . snd) labs
-    cs = map (aux . kCstr . unLoc . snd) nonstatics
-    aux (TcK (IsValid False c)) = c
-    aux (DelayedK c _) = aux c
-
+tcLocal :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
+tcLocal l msg m = do
+    env <- State.get
+    x <- m
+    State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
+    return x

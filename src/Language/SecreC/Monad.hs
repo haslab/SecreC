@@ -49,7 +49,7 @@ data Options
         , debugTransformation   :: Bool
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
-        , implicitClassify      :: Bool
+        , implicitCoercions      :: Bool
         , failTypechecker       :: Bool
         , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
@@ -75,7 +75,7 @@ instance Monoid Options where
         , debugTransformation = debugTransformation x || debugTransformation y
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
-        , implicitClassify = implicitClassify x && implicitClassify y
+        , implicitCoercions = implicitCoercions x && implicitCoercions y
         , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
         , failTypechecker = failTypechecker x || failTypechecker y
         , externalSMT = externalSMT x && externalSMT y
@@ -97,7 +97,7 @@ defaultOptions = Opts
     , debugTransformation = False
     , constraintStackSize = 20
     , evalTimeOut = 5
-    , implicitClassify = True
+    , implicitCoercions = True
     , implicitBuiltin = True
     , failTypechecker = False
     , externalSMT = True

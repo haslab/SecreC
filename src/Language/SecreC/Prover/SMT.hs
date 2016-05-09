@@ -60,7 +60,7 @@ isValid :: (ProverK loc m) => loc -> IExpr -> TcM m ()
 isValid l c = do
     hyp <- solveHypotheses l
     addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ iAnd hyp) (pp c)) $ do
-        checkEvalOrSMT (IBinOp IImplies (iAnd hyp) c) (\cfg -> checkValiditySBV l cfg (iAnd hyp) c)
+        checkEvalOrSMT l (IBinOp IImplies (iAnd hyp) c) (\cfg -> checkValiditySBV l cfg (iAnd hyp) c)
 
 -- * SBV interface
 --
@@ -98,7 +98,7 @@ isValid l c = do
 --        Nothing -> return True
 --        Just err -> throwError err
 
-checkValiditySBV :: (VarsIdTcM m,Location loc,SMTK loc) => loc -> SMTConfig -> IExpr -> IExpr -> TcM m ()
+checkValiditySBV :: (ProverK loc m) => loc -> SMTConfig -> IExpr -> IExpr -> TcM m ()
 checkValiditySBV l cfg hyp prop = do
     d1 <- ppM l hyp
     d2 <- ppM l prop
@@ -114,9 +114,8 @@ checkValiditySBV l cfg hyp prop = do
 
 validitySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV SBool -> TcM m ()
 validitySBV l cfg str sprop = do
-    opts <- TcM $ State.lift Reader.ask
-    when (debugTypechecker opts) $
-        liftIO $ hPutStr stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
+    opts <- askOpts
+    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
 --  smt <- compileToSMTLib True False sprop
 --  liftIO $ putStrLn smt
     r <- proveWithTcSBV cfg sprop
@@ -150,9 +149,9 @@ checkAny check = do
         Left x -> return x
         Right errs -> throwError $ MultipleErrors errs
 
-checkEvalOrSMT :: ProverK Position m => IExpr -> (SMTConfig -> TcM m ()) -> TcM m ()
-checkEvalOrSMT ie check = do
-    res <- catchError (liftM Right $ evalIExpr ie) (return . Left)
+checkEvalOrSMT :: ProverK loc m => loc -> IExpr -> (SMTConfig -> TcM m ()) -> TcM m ()
+checkEvalOrSMT l ie check = do
+    res <- catchError (liftM Right $ evalIExpr l ie) (return . Left)
     case res of
         Left err -> checkAny check
         Right (IBool True) -> return ()

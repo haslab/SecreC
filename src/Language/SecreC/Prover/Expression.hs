@@ -56,7 +56,7 @@ localExprM m = do
 expr2IExpr :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> TcM m IExpr
 expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
-    substs <- lift getTSubsts 
+    substs <- lift $ getTSubsts l
     subste <- lift $ substFromTSubsts "simplify" l substs False Map.empty e
     (ss',mbe') <- lift $ simplifyExpression subste
     stmts2Prover ss'

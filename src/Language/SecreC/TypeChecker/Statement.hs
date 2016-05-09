@@ -28,6 +28,8 @@ import qualified Data.Map as Map
 import Data.Int
 import Data.Word
 
+import Safe
+
 import Text.PrettyPrint
 
 import Control.Monad hiding (mapM)
@@ -41,7 +43,20 @@ import Prelude hiding (mapM)
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
-tcStmts :: (ProverK loc m) => Maybe Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
+tcStmtsRet :: ProverK loc m => Type -> [Statement Identifier loc] -> TcM m [Statement VarIdentifier (Typed loc)]
+tcStmtsRet ret ss = do
+    (ss',StmtType st) <- tcStmts ret ss
+    isReturnStmt (maybe noloc loc $ headMay ss) st
+    return ss'
+
+isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> TcM m ()
+isReturnStmt l cs = addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (pp cs)) $ do
+    aux $ Set.toList cs
+  where
+    aux [StmtReturn] = return ()
+    aux x = genTcError (locpos l) $ text "not a return stmt"
+
+tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.empty)
 tcStmts ret [s] = do
     (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
@@ -60,14 +75,14 @@ tcStmts ret (s:ss) = do
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
 -- | Typecheck a non-empty statement
-tcNonEmptyStmt :: (ProverK loc m) => Maybe Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
     when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
     return r
 
 -- | Typecheck a statement in the body of a loop
-tcLoopBodyStmt :: (ProverK loc m) => Maybe Type -> loc -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
@@ -77,46 +92,46 @@ tcLoopBodyStmt ret l s = do
     return (s',t')
     
 -- | Typechecks a @Statement@
-tcStmt :: (ProverK loc m) => Maybe Type -- ^ return type
+tcStmt :: (ProverK loc m) => Type -- ^ return type
     -> Statement Identifier loc -- ^ input statement
     -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcStmt ret (CompoundStatement l s) = do
-    (ss',t) <- tcLocal $ tcStmts ret s
+    (ss',t) <- tcLocal l "tcStmt compound" $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
 tcStmt ret (IfStatement l condE thenS Nothing) = do
     condE' <- tcGuard condE
-    (thenS',StmtType cs) <- tcLocal $ tcNonEmptyStmt ret thenS
+    (thenS',StmtType cs) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     -- an if statement falls through if the condition is not satisfied
     let t = StmtType $ Set.insert (StmtFallthru) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     condE' <- tcGuard condE
-    (thenS',StmtType cs1) <- tcLocal $ tcNonEmptyStmt ret thenS
-    (elseS',StmtType cs2) <- tcLocal $ tcNonEmptyStmt ret elseS 
+    (thenS',StmtType cs1) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
+    (elseS',StmtType cs2) <- tcLocal l "tcStmt if else" $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
-tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal $ do
+tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for" $ do
     startE' <- tcForInitializer startE
-    whileE' <- mapM tcGuard whileE
+    whileE' <- mapM (tcGuard) whileE
     incE' <- mapM (tcExpr) incE
     ann' <- mapM tcLoopAnn ann
-    (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
+    (bodyS',t') <- tcLocal l "tcStmt for body" $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' ann' bodyS',t')
 tcStmt ret (WhileStatement l condE ann bodyS) = do
     ann' <- mapM tcLoopAnn ann
     condE' <- tcGuard condE
-    (bodyS',t') <- tcLocal $ tcLoopBodyStmt ret l bodyS
+    (bodyS',t') <- tcLocal l "tcStmt while body" $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped "tcStmt" l) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- mapM (tcVariadicArg tcExpr) argsE
     xs <- forM argsE' $ \argE' -> do
         tx <- newTyVar Nothing
         newTypedVar "print" tx $ Just $ ppVariadicArg pp argE'
-    tcTopCstrM l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
+    topTcCstrM_ l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
-tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal $ do
+tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal l "tcStmt dowhile" $ do
     ann' <- mapM tcLoopAnn ann
     (bodyS',t') <- tcLoopBodyStmt ret l bodyS
     condE' <- tcGuard condE
@@ -124,7 +139,7 @@ tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal $ do
 tcStmt ret (AssertStatement l argE) = do
     (argE',cstrsargE) <- tcWithCstrs l "assert" $ tcGuard argE
     opts <- askOpts
-    when (checkAssertions opts) $ checkCstrM l cstrsargE $ CheckAssertion $ fmap typed argE'
+    when (checkAssertions opts) $ topCheckCstrM_ l cstrsargE $ CheckAssertion $ fmap typed argE'
     tryAddHypothesis l LocalScope cstrsargE $ HypCondition $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
@@ -141,26 +156,20 @@ tcStmt ret (VarStatement l decl) = do
     decl' <- tcVarDecl LocalScope decl
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (VarStatement (notTyped "tcStmt" l) decl',t)
-tcStmt (Just ret) (ReturnStatement l Nothing) = do
-    tcTopCstrM l $ Unifies (ComplexT Void) ret
-    let t = StmtType (Set.singleton $ StmtReturn $ ComplexT Void)
-    return (ReturnStatement (Typed l t) Nothing,t)
-tcStmt Nothing (ReturnStatement l Nothing) = do
-    let t = StmtType (Set.singleton $ StmtReturn $ ComplexT Void)
-    return (ReturnStatement (Typed l t) Nothing,t)
-tcStmt (Just ret) (ReturnStatement l (Just e)) = do
+tcStmt ret (ReturnStatement l Nothing) = do
+    topTcCstrM_ l $ Unifies (ComplexT Void) ret
+    let t = StmtType (Set.singleton $ StmtReturn)
+    let ret = ReturnStatement (Typed l t) Nothing
+    return (ret,t)
+tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- tcExpr e
     let et' = typed $ loc e'
     x <- newTypedVar "ret" ret $ Just $ pp e
-    tcTopCstrM l $ Coerces (fmap typed e') x
-    let t = StmtType (Set.singleton $ StmtReturn et')
+    topTcCstrM_ l $ Coerces (fmap typed e') x
+    let t = StmtType (Set.singleton $ StmtReturn)
     let ex = fmap (Typed l) $ RVariablePExpr ret x
-    return (ReturnStatement (Typed l t) (Just ex),t)
-tcStmt Nothing (ReturnStatement l (Just e)) = do
-    e' <- tcExpr e
-    let et' = typed $ loc e'
-    let t = StmtType (Set.singleton $ StmtReturn et')
-    return (ReturnStatement (Typed l t) (Just e'),t)
+    let ret = ReturnStatement (Typed l t) (Just ex)
+    return (ret,t)
 tcStmt ret (ContinueStatement l) = do
     let t = StmtType (Set.singleton StmtContinue)
     return (BreakStatement $ Typed l t,t)

@@ -383,8 +383,8 @@ instance PP iden => PP (VariableDeclaration iden loc) where
 type IsVariadic = Bool
 
 data ProcedureParameter iden loc
-    = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc))
-    | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
+    = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc)
+    | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (ProcedureParameter iden loc)  
@@ -392,14 +392,14 @@ instance (Hashable iden,Hashable loc) => Hashable (ProcedureParameter iden loc)
 
 instance Location loc => Located (ProcedureParameter iden loc) where
     type LocOf (ProcedureParameter iden loc) = loc
-    loc (ProcedureParameter l _ _ _ _) = l
-    loc (ConstProcedureParameter l _ _ _ _ _) = l
-    updLoc (ProcedureParameter _ b x y z) l = ProcedureParameter l b x y z
-    updLoc (ConstProcedureParameter _ b x y z w) l = ConstProcedureParameter l b x y z w
+    loc (ProcedureParameter l _ _ _) = l
+    loc (ConstProcedureParameter l _ _ _ _) = l
+    updLoc (ProcedureParameter _ b x y) l = ProcedureParameter l b x y
+    updLoc (ConstProcedureParameter _ b x y z) l = ConstProcedureParameter l b x y z
 
 instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ t b v sz) = ppVariadic (pp t) b <+> pp v <+> ppOpt sz pp
-    pp (ConstProcedureParameter _ t b v e sz) = text "const" <+> ppVariadic (pp t) b <+> pp v <+> ppOpt e (braces . pp) <+> ppOpt sz pp
+    pp (ProcedureParameter _ t b v) = ppVariadic (pp t) b <+> pp v
+    pp (ConstProcedureParameter _ t b v e) = text "const" <+> ppVariadic (pp t) b <+> pp v <+> ppOpt e (braces . pp)
 
 -- Types:                                                                      
 
@@ -681,7 +681,7 @@ ppStruct :: PP iden => Maybe [(TemplateTypeArgument iden loc,IsVariadic)] -> Str
 ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
 ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap (ppVariadicArg pp) specials)) <+> braces (vcat $ map pp as)
   
-data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc) (Maybe (Sizes iden loc))
+data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Attribute iden loc)  
@@ -689,15 +689,15 @@ instance (Hashable iden,Hashable loc) => Hashable (Attribute iden loc)
  
 instance Location loc => Located (Attribute iden loc) where
     type LocOf (Attribute iden loc) = loc
-    loc (Attribute l _ _ _) = l
-    updLoc (Attribute _ x y z) l = Attribute l x y z
+    loc (Attribute l _ _) = l
+    updLoc (Attribute _ x y) l = Attribute l x y
   
 instance PP iden => PP (Attribute iden loc) where
-    pp (Attribute _ t v sz) = pp t <+> pp v <+> ppOpt sz pp <> char ';'
+    pp (Attribute _ t v) = pp t <+> pp v <> char ';'
 
 -- Procedures:
 
-data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (TypeSpecifier iden loc)) (Maybe (Sizes iden loc))
+data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (TypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ReturnTypeSpecifier iden loc)  
@@ -705,12 +705,12 @@ instance (Hashable iden,Hashable loc) => Hashable (ReturnTypeSpecifier iden loc)
 
 instance Location loc => Located (ReturnTypeSpecifier iden loc) where
     type LocOf (ReturnTypeSpecifier iden loc) = loc
-    loc (ReturnType l _ _) = l
-    updLoc (ReturnType _ x y) l = ReturnType l x y
+    loc (ReturnType l _) = l
+    updLoc (ReturnType _ x) l = ReturnType l x
  
 instance PP iden => PP (ReturnTypeSpecifier iden loc) where
-    pp (ReturnType loc Nothing sz) = text "void"
-    pp (ReturnType loc (Just t) sz) = pp t <+> ppOpt sz (parens . pp)
+    pp (ReturnType loc Nothing) = text "void"
+    pp (ReturnType loc (Just t)) = pp t
   
 ppConst isConst = if isConst then text "const" else PP.empty
   
@@ -939,7 +939,7 @@ instance Location loc => Located (Statement iden loc) where
  
 instance PP iden => PP [Statement iden loc] where
     pp [] = semi
-    pp ss = vcat (lbrace : map pp ss ++ [rbrace])
+    pp ss = lbrace $+$ nest 4 (vcat $ map pp ss) $+$ rbrace
  
 instance PP iden => PP (Statement iden loc) where
     pp (CompoundStatement _ ss) = pp ss
@@ -1039,7 +1039,7 @@ instance Location loc => Located (Quantifier loc) where
 
 data Expression iden loc
     = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
-    | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc) (Maybe (Sizes iden loc))
+    | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
     | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
     | BinaryExpr loc (Expression iden loc) (Op iden loc) (Expression iden loc)
     | UnaryExpr loc (Op iden loc) (Expression iden loc)
@@ -1058,8 +1058,7 @@ data Expression iden loc
     | LitPExpr loc (Literal loc)
     | ArrayConstructorPExpr loc [Expression iden loc]
     | ResultExpr loc
-    | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc,Maybe (Sizes iden loc))] (Expression iden loc)
-    | LambdaExpr loc [Statement iden loc]
+    | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Expression iden loc)  
@@ -1069,7 +1068,7 @@ instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
     loc (BinaryAssign l _ _ _) = l
     loc (LeakExpr l _) = l
-    loc (QualExpr l _ _ _) = l
+    loc (QualExpr l _ _) = l
     loc (CondExpr l _ _ _) = l
     loc (BinaryExpr l _ _ _) = l
     loc (PreOp l _ _) = l
@@ -1088,10 +1087,9 @@ instance Location loc => Located (Expression iden loc) where
     loc (LitPExpr l _) = l
     loc (ResultExpr l) = l
     loc (QuantifiedExpr l _ _ _) = l
-    loc (LambdaExpr l _) = l
     updLoc (LeakExpr _ x) l = LeakExpr l x
     updLoc (BinaryAssign _ x y z) l = BinaryAssign l x y z
-    updLoc (QualExpr _ x y z) l = QualExpr l x y z
+    updLoc (QualExpr _ x y) l = QualExpr l x y
     updLoc (CondExpr _ x y z) l = CondExpr l x y z
     updLoc (BinaryExpr _ x y z) l = BinaryExpr l x y z
     updLoc (PreOp _ x y) l = PreOp l x y
@@ -1110,7 +1108,6 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (LitPExpr _ x) l = LitPExpr l x
     updLoc (ResultExpr _) l = ResultExpr l
     updLoc (QuantifiedExpr _ x y z) l = QuantifiedExpr l x y z
-    updLoc (LambdaExpr _ x) l = LambdaExpr l x
 
 
 ppVariadic :: Doc -> IsVariadic -> Doc
@@ -1122,7 +1119,7 @@ ppVariadicArg ppA (e,isVariadic) = ppVariadic (ppA e) isVariadic
  
 instance PP iden => PP (Expression iden loc) where
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
-    pp (QualExpr _ e t sz) = pp e <+> text "::" <+> pp t <+> ppOpt sz pp
+    pp (QualExpr _ e t) = pp e <+> text "::" <+> pp t
     pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
     pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
     pp (PreOp _ (OpAdd _) e) = text "++" <> pp e
@@ -1143,8 +1140,7 @@ instance PP iden => PP (Expression iden loc) where
     pp (LitPExpr _ l) = pp l
     pp (ResultExpr l) = text "\result"
     pp (LeakExpr l e) = text "leak" <> parens (pp e)
-    pp (QuantifiedExpr l q vs e) = text "forall" <+> sepBy comma (map (\(t,v,sz) -> pp t <+> pp v <+> ppOpt sz pp) vs) <+> char ';' <+> pp e
-    pp (LambdaExpr l ss) = vcat (lbrace : map pp ss ++ [rbrace])
+    pp (QuantifiedExpr l q vs e) = text "forall" <+> sepBy comma (map (\(t,v) -> pp t <+> pp v) vs) <+> char ';' <+> pp e
   
 data CastType iden loc
     = CastPrim (PrimitiveDatatype loc)
