@@ -70,6 +70,7 @@ stmts2Prover = mapM_ stmt2Prover
 stmt2Prover :: (ProverK loc m) => Statement VarIdentifier (Typed loc) -> ExprM m ()
 stmt2Prover (CompoundStatement l ss) = localExprM $ stmts2Prover ss
 stmt2Prover (VarStatement l (VariableDeclaration _ t vs)) = mapM_ varInit2Prover vs
+stmt2Prover (ConstStatement l (ConstDeclaration _ t vs)) = mapM_ constInit2Prover vs
 stmt2Prover (AssertStatement {}) = return ()
 stmt2Prover (SyscallStatement l n args) = syscall2Prover (unTyped l) n args
 stmt2Prover (ExpressionStatement l e) = expr2ProverMb e >> return ()
@@ -193,6 +194,11 @@ corecall2Prover l n es = lift $ genTcError (locpos l) $ text "failed to convert 
     
 varInit2Prover :: (ProverK loc m) => VariableInitialization VarIdentifier (Typed loc) -> ExprM m ()
 varInit2Prover (VariableInitialization _ v@(VarName l n) _ e) = do
+    ie <- mapM expr2Prover e
+    addVar n (ie,Just $ typed l)
+
+constInit2Prover :: (ProverK loc m) => ConstInitialization VarIdentifier (Typed loc) -> ExprM m ()
+constInit2Prover (ConstInitialization _ v@(VarName l n) _ e) = do
     ie <- mapM expr2Prover e
     addVar n (ie,Just $ typed l)
 

@@ -855,7 +855,7 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
                 return $ typeToVarName ty
             (eq (typeRep :: TypeOf (SecTypeSpecifier VarIdentifier (Typed loc))) -> EqT) ->
                 case ty of
-                    SecT s -> liftM Just $ secType2SecTypeSpecifier s
+                    SecT s -> liftM Just $ secType2SecTypeSpecifier l s
                     otherwise -> return Nothing
             (eq (typeRep :: TypeOf (VarName VarIdentifier (Typed loc))) -> EqT) ->
                 return $ fmap (fmap (Typed l)) $ typeToVarName ty
@@ -910,7 +910,7 @@ appendPureTDict :: (ProverK loc m) => loc -> SubstMode -> PureTDict -> PureTDict
 appendPureTDict l noFail (PureTDict u1 ss1) (PureTDict u2 ss2) = do
     (ss12,ks) <- appendTSubsts l noFail ss1 ss2
     let u12 = unionGr u1 u2
-    u12' <- liftIO $ foldM (\gr k -> insNewNodeIO (Loc noloc k) gr) u12 ks
+    u12' <- liftIO $ foldM (\gr k -> insNewNodeIO (Loc (locpos l) k) gr) u12 ks
     return $ PureTDict u12' ss12
 
 insertCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TCstrStatus -> IOCstrGraph -> TcM m IOCstrGraph

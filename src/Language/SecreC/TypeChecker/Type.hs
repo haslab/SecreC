@@ -109,7 +109,7 @@ tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
     (sec',tsec) <- tcMbSecType sec 
     (dta') <- tcDatatypeSpec dta
     let tdta = typed $ loc dta'
-    (dim',tdim) <- tcMbDimtypeSpec (pp tsec <+> pp tdta) dim
+    (dim',tdim) <- tcMbDimtypeSpec l (pp tsec <+> pp tdta) dim
     t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic
     return (TypeSpecifier (Typed l t) sec' dta' dim')
     
@@ -204,9 +204,9 @@ tcTemplateTypeArgument (PublicTemplateTypeArgument l) = do
     let t = SecT $ Public
     return $ PublicTemplateTypeArgument (Typed l t)
 
-tcMbDimtypeSpec :: (ProverK loc m) => Doc -> Maybe (DimtypeSpecifier Identifier loc) -> TcM m (Maybe (DimtypeSpecifier VarIdentifier (Typed loc)),Expression VarIdentifier (Typed loc))
-tcMbDimtypeSpec doc Nothing = return (Nothing,(indexExprLoc 0)) -- 0 by default
-tcMbDimtypeSpec doc (Just dim) = do
+tcMbDimtypeSpec :: (ProverK loc m) => loc -> Doc -> Maybe (DimtypeSpecifier Identifier loc) -> TcM m (Maybe (DimtypeSpecifier VarIdentifier (Typed loc)),Expression VarIdentifier (Typed loc))
+tcMbDimtypeSpec l doc Nothing = return (Nothing,(indexExprLoc l 0)) -- 0 by default
+tcMbDimtypeSpec l doc (Just dim) = do
     (dim',t) <- tcDimtypeSpec doc dim
     return (Just dim',t)
 

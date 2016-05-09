@@ -207,7 +207,7 @@ simplifyExpression (BinaryAssign l e1 bop e2) = do
     (ss,Just e2') <- case mb_op of
         Just op -> simplifyExpression (BinaryExpr l e1 op e2)
         Nothing -> simplifyExpression e2
-    return (ss,Just $ BinaryAssign l e1 (BinaryAssignEqual noloc) e2')
+    return (ss,Just $ BinaryAssign l e1 (BinaryAssignEqual l) e2')
 simplifyExpression (PostIndexExpr l e s) = do
     (ss1,Just e') <- simplifyExpression e
     (ss2,s') <- simplifySubscript s
@@ -227,7 +227,7 @@ simplifySubscript s = return ([],s)
 unfoldVariadicExpr :: SimplifyK loc t m => (Expression VarIdentifier loc,IsVariadic) -> t m [Expression VarIdentifier loc]
 unfoldVariadicExpr (e,False) = return [e]
 unfoldVariadicExpr (ArrayConstructorPExpr _ es,True) = return es
-unfoldVariadicExpr ve = genError noloc $ text "unfoldVariadicExpr"
+unfoldVariadicExpr ve = genError (locpos $ loc $ fst ve) $ text "unfoldVariadicExpr"
 
 bindProcArgs :: SimplifyK loc t m => loc -> [(Bool,Constrained (Var),IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> t m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArgs l [] [] = return ([],Map.empty)
@@ -238,19 +238,21 @@ bindProcArgs l (v:vs) es = do
 
 bindProcArg :: SimplifyK loc t m => loc -> (Bool,Constrained (Var),IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArg l (False,Constrained v _,False) (e:es) = do
-    (t) <- type2TypeSpecifierNonVoid (loc v)
+    (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
-    let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc (fmap (Typed noloc) v) Nothing $ Just e
+    let tl = notTyped "bind" l
+    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl (fmap (Typed l) v) Nothing $ Just e
     return (es,ss1++[def],Map.empty)
 bindProcArg l (True,Constrained v _,False) (e:es) = do
-    (t) <- type2TypeSpecifierNonVoid (loc v)
+    (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
-    let def = ConstStatement noloc $ ConstDeclaration noloc t' $ WrapNe $ ConstInitialization noloc (fmap (Typed noloc) v) Nothing $ Just e
+    let tl = notTyped "bind" l
+    let def = ConstStatement tl $ ConstDeclaration tl t' $ WrapNe $ ConstInitialization tl (fmap (Typed l) v) Nothing $ Just e
     return (es,ss1++[def],Map.empty)
 bindProcArg l (_,Constrained v _,True) es = do
     sz <- lift $ runSecrecM mempty $ runTcM $ evaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
     let (es1,es2) = splitAt (fromEnum sz) es
-    return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed noloc $ loc v) es1)
+    return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed l $ loc v) es1)
 
 splitProcAnns :: [ProcedureAnnotation iden loc] -> ([Statement iden loc],[Statement iden loc])
 splitProcAnns [] = ([],[])
@@ -264,24 +266,25 @@ inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann
 --    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs l args es'
-    ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) ann
-    body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos noloc))) body
-    (mb) <- type2TypeSpecifier ret
+    ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
+    body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
+    (mb) <- type2TypeSpecifier l ret
     let (reqs,ens) = splitProcAnns ann'
     case mb of
         Just t -> do
             (ss1,t') <- simplifyTypeSpecifier t
-            res <- liftM (VarName (Typed noloc ret)) $ genVar (mkVarId "res")
-            let def = VarStatement noloc $ VariableDeclaration noloc t' $ WrapNe $ VariableInitialization noloc res Nothing Nothing
+            res <- liftM (VarName (Typed l ret)) $ genVar (mkVarId "res")
+            let tl = notTyped "inline" l
+            let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements (Just res) body'
             ens' <- simplifyStatements Nothing ens
-            return $ Just (decls++ss1++[def,compoundStmt (reqs'++ss++ens')],Just $ varExpr res)
+            return $ Just (decls++ss1++[def,compoundStmt l (reqs'++ss++ens')],Just $ varExpr res)
         Nothing -> do
             reqs' <- simplifyStatements Nothing reqs
             ss <- simplifyStatements Nothing body'
             ens' <- simplifyStatements Nothing ens
-            return $ Just ([compoundStmt (decls++reqs'++ss++ens')],Nothing)
+            return $ Just ([compoundStmt l (decls++reqs'++ss++ens')],Nothing)
 inlineProcCall l n t es = do
 --    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     return Nothing
@@ -301,16 +304,16 @@ simplifyStatement ret (IfStatement l c s1 s2) = do
     (ss,Just c') <- simplifyExpression c
     s1' <- simplifyStatement ret s1
     s2' <- simplifyStatements ret $ maybeToList s2
-    return $ (ss++[IfStatement l c' (compoundStmt s1') (if null s2 then Nothing else Just (compoundStmt s2'))])
+    return $ (ss++[IfStatement l c' (compoundStmt (unTyped l) s1') (if null s2 then Nothing else Just (compoundStmt (unTyped l) s2'))])
 simplifyStatement Nothing (ReturnStatement l Nothing) = return []
 simplifyStatement Nothing (ReturnStatement l (Just e)) = return [ReturnStatement l (Just e)]
 simplifyStatement ret (ReturnStatement l (Just e)) = do
     (ss,e') <- simplifyExpression e
     case (ret,e') of
-        (Just v,Just e') -> return (ss++[ExpressionStatement l $ BinaryAssign (loc v) (varExpr v) (BinaryAssignEqual noloc) e'])
+        (Just v,Just e') -> return (ss++[ExpressionStatement l $ BinaryAssign (loc v) (varExpr v) (BinaryAssignEqual l) e'])
         (Nothing,Nothing) -> return ss
-        otherwise -> genError noloc $ text "simplifyStatement: mismamtching return type"
-simplifyStatement ret (ReturnStatement l e) = genError noloc $ text "simplifyStatement: return statement"
+        otherwise -> genError (locpos $ unTyped l) $ text "simplifyStatement: mismamtching return type"
+simplifyStatement ret (ReturnStatement l e) = genError (locpos $ unTyped l) $ text "simplifyStatement: return statement"
 simplifyStatement ret (AssertStatement l e) = do
     (ss,e') <- simplifyExpression e
     let s' = maybe [] (\e -> [AssertStatement l e]) e'
@@ -325,15 +328,15 @@ simplifyStatement ret (ConstStatement l v) = do
     simplifyConstDeclaration v
 simplifyStatement ret (WhileStatement l c ann s) = do
     s' <- simplifyStatement ret s
-    return [WhileStatement l c ann $ compoundStmt s']
+    return [WhileStatement l c ann $ compoundStmt (unTyped l) s']
 simplifyStatement ret (ForStatement l e c i ann s) = do
     ss <- simplifyForInitializer e
     s' <- simplifyStatement ret s
-    return (ss++[ForStatement l (InitializerExpression Nothing) c i ann $ compoundStmt s'])
+    return (ss++[ForStatement l (InitializerExpression Nothing) c i ann $ compoundStmt (unTyped l) s'])
 simplifyStatement ret (DowhileStatement l ann s c) = do
     s' <- simplifyStatement ret s
     (ss,Just c') <- simplifyExpression c
-    return [DowhileStatement l ann (compoundStmt $ s'++ss) c']
+    return [DowhileStatement l ann (compoundStmt (unTyped l) $ s'++ss) c']
 simplifyStatement ret (PrintStatement l es) = do
     (ss,es') <- simplifyVariadicExpressions es
     return (ss++[PrintStatement l es'])

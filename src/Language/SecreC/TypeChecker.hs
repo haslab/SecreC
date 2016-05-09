@@ -152,7 +152,7 @@ tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = do
         return (ps',ret',vars',top,tret)
     hdeps <- getDeps
     ann' <- mapM tcProcedureAnn ann
-    s' <- tcStmtsRet (tret) s
+    s' <- tcStmtsRet l tret s
     cl <- liftM procClass State.get
     let tproc = DecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
     let op' = updLoc top (Typed l tproc)
@@ -167,7 +167,7 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
         return (ps',ret',vars',tret)
     hdeps <- getDeps
     ann' <- mapM tcProcedureAnn ann
-    s' <- tcStmtsRet (tret) s
+    s' <- tcStmtsRet l (tret) s
     cl <- liftM procClass State.get
     let tproc = DecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn

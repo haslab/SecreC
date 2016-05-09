@@ -825,8 +825,8 @@ trueExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) True)
 falseExpr :: CondExpression iden Type
 falseExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) False)
 
-indexExprLoc :: Location loc => Word64 -> Expression iden (Typed loc)
-indexExprLoc i = (fmap (Typed noloc) $ indexExpr i)
+indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
+indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
     
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
     traverseVars f (TDec n args x) = do
@@ -2048,8 +2048,8 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
 --    gr' <- varsCstrGraph vs gr
 --    return $ Set.fromList $ map snd $ endsGr gr'
 
-compoundStmt :: Location loc => [Statement iden (Typed loc)] -> Statement iden (Typed loc)
-compoundStmt ss = CompoundStatement (Typed noloc t) ss
+compoundStmt :: Location loc => loc -> [Statement iden (Typed loc)] -> Statement iden (Typed loc)
+compoundStmt l ss = CompoundStatement (Typed l t) ss
     where t = StmtType $ mconcat $ map ((\(StmtType c) -> c) . typed . loc) ss
 
 assertStmtAnn e = AnnStatement ast [AssertAnn ast e]

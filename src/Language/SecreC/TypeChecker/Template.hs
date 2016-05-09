@@ -91,7 +91,7 @@ removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m (Maybe DecType)
 removeTemplate l t@(DecType i isrec targs hdict hfrees bdict bfrees specs d) = if (not isrec) && (isTemplateDecType t)
     then do
         j <- newModuleTyVarId
-        return $ Just $ DecType j False [] hdict hfrees emptyPureTDict bfrees [] d
+        return $ Just $ DecType j False [] emptyPureTDict hfrees emptyPureTDict bfrees [] d
     else return Nothing
 removeTemplate l (DVar v) = resolveDVar l v >>= removeTemplate l
 removeTemplate l t = genTcError (locpos l) $ text "removeTemplate" <+> pp t
@@ -286,19 +286,20 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
 --    liftIO $ putStrLn $ "inst " ++ show doc
 --    liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ " " ++ ppr (entryType e')
     (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs (entryLoc e') n (entryType e')
-    (hdict,bdict) <- templateTDict e'
+    (e',hdict,bdict) <- templateTDict e'
     let addDicts = do
         addHeadTDict l hdict
         addHeadTDict l $ TDict Graph.empty (tChoices bdict) (tSubsts bdict)
-    let matchName = unifiesTIdentifier l (templateIdentifier $ entryType e') n -- reverse unification
+    let matchName = unifiesTIdentifier l (templateIdentifier $ entryType e') n
     let proveHead = do
         (_,ks) <- tcWithCstrs l "instantiate" $ do   
-            -- if the instantiation has explicit template arguments, unify them with the base template
-            tcAddDeps l "tplt type args" $ when (isJust targs) $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
+            tcAddDeps l "tplt type args" $ do
+                -- unify the explicit invocation template arguments unify with the base template
+                when (isJust targs) $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
+                -- unify the procedure return type
+                unifiesList l (maybeToList tplt_ret) (maybeToList ret)
             -- coerce procedure arguments into the base procedure arguments
             coerceProcedureArgs doCoerce l (zip (concat pargs) rets) (concat tplt_pargs)
-            -- unify the procedure return type
-            unifiesList l (maybeToList tplt_ret) (maybeToList ret) -- reverse unification
         -- if there are no explicit template type arguments, we need to make sure to check the type invariants
         when (isNothing targs) $ do
             forM_ (maybe [] (catMaybes . map (\(Constrained x c,isVariadic) -> c)) tplt_targs) $ \c -> do
@@ -365,13 +366,14 @@ tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set VarIdentifier
 tpltTyVars Nothing = Set.empty
 tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName . unConstrained. fst) xs
 
-templateTDict :: (ProverK Position m) => EntryEnv -> TcM m (TDict,TDict)
+templateTDict :: (ProverK Position m) => EntryEnv -> TcM m (EntryEnv,TDict,TDict)
 templateTDict e = case entryType e of
-    DecT (DecType _ _ _ hd hfrees d bfrees _ _) -> do
+    DecT (DecType i isFree vars hd hfrees d bfrees specs ss) -> do
         hd' <- liftIO $ fromPureTDict hd
         d' <- liftIO $ fromPureTDict d
-        return (hd',d')
-    otherwise -> return (emptyTDict,emptyTDict)
+        let e' = e { entryType = DecT (DecType i isFree vars emptyPureTDict hfrees emptyPureTDict bfrees specs ss) }
+        return (e',hd',d')
+    otherwise -> return (e,emptyTDict,emptyTDict)
 
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n

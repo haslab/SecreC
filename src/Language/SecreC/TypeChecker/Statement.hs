@@ -43,10 +43,10 @@ import Prelude hiding (mapM)
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
-tcStmtsRet :: ProverK loc m => Type -> [Statement Identifier loc] -> TcM m [Statement VarIdentifier (Typed loc)]
-tcStmtsRet ret ss = do
+tcStmtsRet :: ProverK loc m => loc -> Type -> [Statement Identifier loc] -> TcM m [Statement VarIdentifier (Typed loc)]
+tcStmtsRet l ret ss = do
     (ss',StmtType st) <- tcStmts ret ss
-    isReturnStmt (maybe noloc loc $ headMay ss) st ret 
+    isReturnStmt l st ret 
     return ss'
 
 isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> Type -> TcM m ()
