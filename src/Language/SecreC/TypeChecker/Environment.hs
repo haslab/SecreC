@@ -859,6 +859,12 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
                 case ty of
                     SecT s -> liftM Just $ secType2SecTypeSpecifier l s
                     otherwise -> return Nothing
+            (eq (typeRep :: TypeOf (TypeSpecifier VarIdentifier (Typed loc))) -> EqT) ->
+                type2TypeSpecifier l ty
+            (eq (typeRep :: TypeOf (DatatypeSpecifier VarIdentifier (Typed loc))) -> EqT) ->
+                case ty of
+                    BaseT b -> liftM Just $ baseType2DatatypeSpecifier l b
+                    otherwise -> return Nothing
             (eq (typeRep :: TypeOf (VarName VarIdentifier (Typed loc))) -> EqT) ->
                 return $ fmap (fmap (Typed l)) $ typeToVarName ty
             (eq (typeRep :: TypeOf (DomainName VarIdentifier Type)) -> EqT) ->

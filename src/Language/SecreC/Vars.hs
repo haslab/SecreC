@@ -635,6 +635,8 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         t' <- f t
         return $ VariableSpecifier l' t'
+    substL (VariableSpecifier l (TypeName _ n)) = return $ Just n
+    substL s = return Nothing
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateTypeArgument iden loc) where
     traverseVars f (GenericTemplateTypeArgument l n) = do

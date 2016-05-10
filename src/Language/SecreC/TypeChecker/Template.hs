@@ -246,9 +246,7 @@ coercePArg doCoerce l isConst v2 (e,x2) = do
     if doCoerce
         then tcCstrM_ l $ Coerces e x2
         else unifiesExprTy l True (varExpr x2) e
-    if isConst
-        then unifiesExprTy l True v2 (varExpr x2)
-        else tcCstrM_ l $ Unifies (loc v2) (loc x2)
+    tcCstrM_ l $ Unifies (loc v2) (loc x2)
 
 expandPArgExpr :: (ProverK loc m) => loc -> ((Expr,IsVariadic),Var) -> TcM m [(Expr,Var)]
 expandPArgExpr l ((e,False),x) = return [(e,x)]
@@ -312,18 +310,20 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
             bgr' <- liftIO $ fromPureCstrs bgr'
             let depCstrs = TDict bgr' Set.empty subst'
             --depCstrs <- mergeDependentCstrs l subst' bgr''
-            dec <- typeToDecType l (entryType e')
-            -- to avoid substituting the template variables
-            dec1 <- substFromTSubsts "instantiate tplt" l subst' False Map.empty dec
-            --liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec1
+            dec1 <- typeToDecType l (entryType e')
             mb_dec1 <- removeTemplate l dec1
             (e'',doWrap) <- case mb_dec1 of
-                        Nothing -> return (e',False)
-                        Just dec' -> do
+                        Nothing -> do
+                            dec2 <- substFromTSubsts "instantiate tplt" l subst' False Map.empty dec1
+                            --liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
+                            return (e' { entryType = DecT dec2 },False)
+                        Just dec1 -> do
                             --dec'' <- substFromTDict "instantiate tplt" l subst False Map.empty dec'
 --                            liftIO $ putStrLn $ "instantiated declaration  " ++ ppr dec'' ++ "\n" ++ show (ppTSubsts (tSubsts subst))
-                            has <- hasCondsDecType dec'
-                            return (e' { entryType = DecT dec' },not has)
+                            dec2 <- substFromTSubsts "instantiate tplt" l subst' False Map.empty dec1
+                            --liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
+                            has <- hasCondsDecType dec2
+                            return (e' { entryType = DecT dec2 },not has)
             return $ Right (e,e'',doWrap,depCstrs)
 
 -- merge two dictionaries with the second depending on the first
