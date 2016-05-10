@@ -71,20 +71,23 @@ class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
             Nothing -> return x
             Just v -> do
                 b <- isBound v
-                if b 
+                isLHS <- getLHS
+                if (b || isLHS)
                     then do
+                        --liftIO $ putStrLn $ "isBound " ++ ppr v
                         (_,_,(_,ss),_,_) <- State.get
                         let v' = maybe v id (Map.lookup v ss)
                         State.lift $ unSubstL x v'
                     else do
+                        --liftIO $ putStrLn $ "isNotBound " ++ ppr v
                         r <- State.lift $ f v
                         case r of
                             Nothing -> return x
                             Just s -> do
                                 --liftIO $ putStrLn $ "substituted " ++ ppr v ++ " --> " ++ ppr s
-                                s' <- substVarsM f s -- recursive case on substitution
+                                s' <- substVarsM f s -- go recursively in case of substitution
                                 return s'
-        traverseVars (substVarsM f) x' -- go recursively
+        traverseVars (substVarsM f) x' -- descend into children
     
     subst :: Vars iden m iden => String -> Substs iden m -> Bool -> Map iden iden -> a -> m a
     subst msg f substBounds ss x = do
@@ -176,6 +179,7 @@ addFV x = State.modify $ \(lhs,lval,ss,fvs,bvs) -> if Set.member x bvs
  
 addBV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m ()
 addBV x = do
+    --liftIO $ putStrLn $ "addBV " ++ ppr x
     (lhs,lval,(substBounds,ss),fvs,bvs) <- State.get
     ss' <- if substBounds then liftM (\x' -> Map.insert x x' ss) (State.lift $ genVar x) else return ss
     State.put (lhs,lval,(substBounds,ss'),fvs,Set.insert x bvs)

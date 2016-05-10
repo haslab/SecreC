@@ -197,7 +197,7 @@ tcProcedureParam (ConstProcedureParameter l s isVariadic (VarName vl vi) c) = do
         Nothing -> return ()
         Just x -> do
             tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
-    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' c',(True,Constrained(fmap typed v') (fmap (fmap typed) c'),isVariadic))
+    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' c',(True,Constrained (fmap typed v') (fmap (fmap typed) c'),isVariadic))
 
 tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc)))
                 -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration VarIdentifier (Typed loc))
@@ -250,7 +250,7 @@ tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
     let vdn = mkVarId dn
     let v' = DomainName (Typed dl t') vdn
     newDomainVariable LocalScope v'
-    return (DomainQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' mbk',(Constrained(VarName t' vdn) Nothing,isVariadic))
+    return (DomainQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' mbk',(Constrained (VarName t' vdn) Nothing,isVariadic))
 tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
     let t = BaseT index -- variable is a dimension
     t' <- mkVariadicTyArray isVariadic t
@@ -262,14 +262,14 @@ tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
     case c' of
         Nothing -> return ()
         Just x -> tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
-    return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' c',(Constrained(VarName t' vdn) $ fmap (fmap typed) c',isVariadic))
+    return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' c',(Constrained (VarName t' vdn) $ fmap (fmap typed) c',isVariadic))
 tcTemplateQuantifier (DataQuantifier l isVariadic (TypeName tl tn)) = do
     let t = BType -- variable of any base type
     t' <- mkVariadicTyArray isVariadic t
     let vtn = mkVarId tn
     let v' = TypeName (Typed tl t') vtn
     newTypeVariable LocalScope v'
-    return (DataQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v',(Constrained(VarName t' vtn) Nothing,isVariadic))
+    return (DataQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v',(Constrained (VarName t' vtn) Nothing,isVariadic))
 
 tcTemplate :: (ProverK Position m) => TcM m a -> TcM m a
 tcTemplate m = do

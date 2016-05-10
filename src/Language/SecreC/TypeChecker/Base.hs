@@ -195,16 +195,16 @@ data TcEnv = TcEnv {
 data ModuleTcEnv = ModuleTcEnv {
       globalVars :: Map VarIdentifier (Bool,EntryEnv) -- ^ global variables: name |-> (isConst,type of the variable)
     , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
-    , kinds :: Map VarIdentifier (EntryEnv) -- ^ defined kinds: name |-> type of the kind
-    , domains :: Map VarIdentifier (EntryEnv) -- ^ defined domains: name |-> type of the domain
+    , kinds :: Map VarIdentifier EntryEnv -- ^ defined kinds: name |-> type of the kind
+    , domains :: Map VarIdentifier EntryEnv -- ^ defined domains: name |-> type of the domain
     -- a list of overloaded operators; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv)) -- ^ defined operators: name |-> procedure decl
+    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv) -- ^ defined operators: name |-> procedure decl
     -- a list of overloaded procedures; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , procedures :: Map VarIdentifier (Map ModuleTyVarId (EntryEnv)) -- ^ defined procedures: name |-> procedure decl
+    , procedures :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
-    , structs :: Map VarIdentifier (Maybe (EntryEnv),Map ModuleTyVarId (EntryEnv)) -- ^ defined structs: name |-> struct decl
+    , structs :: Map VarIdentifier (Maybe EntryEnv,Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
     } deriving (Generic,Data,Typeable,Eq,Ord,Show)
 
 instance PP ModuleTcEnv where
@@ -271,19 +271,19 @@ getModuleField f = do
 
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
-getStructs :: Monad m => TcM m (Map VarIdentifier (Maybe (EntryEnv),Map ModuleTyVarId (EntryEnv)))
+getStructs :: Monad m => TcM m (Map VarIdentifier (Maybe EntryEnv,Map ModuleTyVarId EntryEnv))
 getStructs = getModuleField structs
-getKinds :: Monad m => TcM m (Map VarIdentifier (EntryEnv))
+getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getKinds = getModuleField kinds
 getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Bool,EntryEnv))
 getGlobalVars = getModuleField globalVars
 getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField globalConsts
-getDomains :: Monad m => TcM m (Map VarIdentifier (EntryEnv))
+getDomains :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getDomains = getModuleField domains
-getOperators :: Monad m => TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId (EntryEnv)))
+getOperators :: Monad m => TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv))
 getOperators = getModuleField operators
-getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId (EntryEnv)))
+getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getProcedures = getModuleField procedures
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
@@ -377,7 +377,7 @@ varNameToType v = error $ "varNameToType " ++ show v
 condVarNameToType :: Constrained Var -> Type
 condVarNameToType (Constrained v c) = constrainedType (varNameToType v) c
 
-typeToVarName :: Type -> Maybe (Var)
+typeToVarName :: Type -> Maybe Var
 typeToVarName (SecT (SVar n k)) = Just (VarName (SType k) n)
 typeToVarName (ComplexT (CVar n)) = Just (VarName TType n)
 typeToVarName (BaseT (BVar n)) = Just (VarName BType n)
@@ -543,20 +543,20 @@ data TcCstr
     | Equals Type Type -- ^ types equal
     | Coerces -- ^ types coercible
         Expr
-        (Var)
+        Var
     | CoercesSecDimSizes
         Expr -- source expression
-        (Var) -- target variable where to store the resulting expression
+        Var -- target variable where to store the resulting expression
     | Coerces2 -- ^ bidirectional coercion
         Expr
         Expr
-        (Var)
-        (Var) 
+        Var
+        Var 
     | Coerces2SecDimSizes
         Expr
         Expr
-        (Var) -- variable to store the 1st resulting expression
-        (Var) -- variable to store the 2nd resulting expression
+        Var -- variable to store the 1st resulting expression
+        Var -- variable to store the 2nd resulting expression
     | CoercesLit -- coerce a literal expression into a specific type
         Expr -- literal expression with the base type given at the top-level
     | Unifies -- unification
@@ -988,9 +988,14 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m PureTDict wh
 
 fromPureTDict :: PureTDict -> IO TDict
 fromPureTDict (PureTDict g ss) = do
+    g' <- fromPureCstrs g
+    return $ TDict g' Set.empty ss
+
+fromPureCstrs :: TCstrGraph -> IO IOCstrGraph
+fromPureCstrs g = do
     (g',is) <- runStateT (mapGrM newIOCstr g) Map.empty
     let g'' = gmap (\(ins,j,x,outs) -> (fmapSnd (is!) ins,j,x,fmapSnd (is!) outs)) g'
-    return $ TDict g'' Set.empty ss
+    return g''
   where
     newIOCstr (ins,i,Loc l k,outs) = do
         st <- lift $ newUniqRef Unevaluated
@@ -1428,7 +1433,7 @@ instance PP DecType where
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained(VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
     pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) =
@@ -1437,15 +1442,15 @@ instance PP DecType where
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained(VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
     pp (ProcType _ (Left n) args ret ann stmts _) =
-            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained(VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
     pp (ProcType _ (Right n) args ret ann stmts _) =
-            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained(VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
     pp (DVar v) = pp v
@@ -1778,7 +1783,7 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m Type where
     substL e = return Nothing
 
 data ProcClass
-    -- | A pure function that does not read or write global variables
+    -- A procedure
     = Proc
         Bool -- is an annotation
   deriving (Show,Data,Typeable,Eq,Ord,Generic)

@@ -537,7 +537,7 @@ addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locp
         NoCheckS -> add t'
         otherwise -> do
             vns <- fvs t'
-            if Map.member vn vns
+            if (varIdTok vn || Map.member vn vns)
                 then do -- add verification condition
                     case mode of
                         NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution" <+> pp v <+> text "=" <+> pp t'
@@ -590,7 +590,7 @@ newBaseTyVar doc = do
     n <- freeVarId "b" doc
     return $ BVar n
 
-newIdxVar :: (MonadIO m) => Maybe Doc -> TcM m (Var)
+newIdxVar :: (MonadIO m) => Maybe Doc -> TcM m Var
 newIdxVar doc = do
     n <- freeVarId "idx" doc
     let v = VarName (BaseT index) n
@@ -836,7 +836,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst mode) (ss1,[]) (Map.toL
     addSubst mode (ss,ks) (v,t) = do
         t' <- substFromTSubsts "appendTSubsts" l ss False Map.empty t
         vs <- fvs t'
-        if Map.member v vs
+        if (varIdTok v || Map.member v vs)
             then do
                 case mode of
                     NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution " <+> pp v <+> text "=" <+> pp t'
@@ -851,7 +851,9 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
     case Map.lookup x tys of
         Nothing -> return Nothing
         Just ty -> case proxy of
-            (eq (typeRep :: TypeOf (Var)) -> EqT) ->
+            (eq (typeRep :: TypeOf VarIdentifier) -> EqT) ->
+                return $ fmap varNameId $ typeToVarName ty
+            (eq (typeRep :: TypeOf Var) -> EqT) ->
                 return $ typeToVarName ty
             (eq (typeRep :: TypeOf (SecTypeSpecifier VarIdentifier (Typed loc))) -> EqT) ->
                 case ty of

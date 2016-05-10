@@ -229,14 +229,14 @@ unfoldVariadicExpr (e,False) = return [e]
 unfoldVariadicExpr (ArrayConstructorPExpr _ es,True) = return es
 unfoldVariadicExpr ve = genError (locpos $ loc $ fst ve) $ text "unfoldVariadicExpr"
 
-bindProcArgs :: SimplifyK loc t m => loc -> [(Bool,Constrained (Var),IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> t m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArgs :: SimplifyK loc t m => loc -> [(Bool,Constrained Var,IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> t m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArgs l [] [] = return ([],Map.empty)
 bindProcArgs l (v:vs) es = do
     (es',ss,substs) <- bindProcArg l v es
     (ss',substs') <- bindProcArgs l vs es'
     return (ss++ss',Map.union substs substs')
 
-bindProcArg :: SimplifyK loc t m => loc -> (Bool,Constrained (Var),IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArg :: SimplifyK loc t m => loc -> (Bool,Constrained Var,IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArg l (False,Constrained v _,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier t

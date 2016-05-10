@@ -740,8 +740,8 @@ instance Location loc => Located (ProcedureDeclaration iden loc) where
     updLoc (ProcedureDeclaration _ x y z w s) l = ProcedureDeclaration l x y z w s
   
 instance PP iden => PP (ProcedureDeclaration iden loc) where
-    pp (OperatorDeclaration _ ret op params anns stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (lbrace : map pp stmts ++ [rbrace])
-    pp (ProcedureDeclaration _ ret proc params anns stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (lbrace : map pp stmts ++ [rbrace])
+    pp (OperatorDeclaration _ ret op params anns stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
+    pp (ProcedureDeclaration _ ret proc params anns stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
   
 data Op iden loc
     = OpAdd      loc
@@ -939,10 +939,10 @@ instance Location loc => Located (Statement iden loc) where
  
 instance PP iden => PP [Statement iden loc] where
     pp [] = semi
-    pp ss = lbrace $+$ nest 4 (vcat $ map pp ss) $+$ rbrace
+    pp ss = (vcat $ map pp ss)
  
 instance PP iden => PP (Statement iden loc) where
-    pp (CompoundStatement _ ss) = pp ss
+    pp (CompoundStatement _ ss) = lbrace $+$ nest 4 (pp ss) $+$ rbrace
     pp (IfStatement _ e thenS elseS) = text "if" <+> parens (pp e) <+> pp thenS <+> ppElse elseS
         where
         ppElse Nothing = empty
@@ -1131,7 +1131,7 @@ instance PP iden => PP (Expression iden loc) where
     pp (BytesFromStringExpr _ t) = text "__bytes_from_string" <> parens (pp t)
     pp (StringFromBytesExpr _ t) = text "__string_from_bytes" <> parens (pp t)
     pp (VArraySizeExpr _ e) = text "size..." <> parens (pp e)
-    pp (VArrayExpr _ e sz) = text "varray" <> parens (pp e <+> pp sz)
+    pp (VArrayExpr _ e sz) = text "varray" <> parens (pp e <> comma <> pp sz)
     pp (ProcCallExpr _ n ts es) = pp n <> ppOpt ts (\ts -> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)) <> parens (sepBy comma $ map (ppVariadicArg pp) es)
     pp (PostIndexExpr _ e s) = pp e <> pp s
     pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v
@@ -1264,12 +1264,10 @@ instance Location loc => Located (GlobalAnnotation iden loc) where
     updLoc (GlobalProcedureAnn _ x y)    l = (GlobalProcedureAnn l x y)  
 
 instance PP iden => PP (GlobalAnnotation iden loc) where
-    pp (GlobalProcedureAnn _ [] (ProcedureDeclaration _ ret n params anns e)) = ppAnn $ pp ret <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
-    pp (GlobalProcedureAnn _ qs (ProcedureDeclaration _ ret n params anns e)) = ppAnn $ text "template" <+> abrackets (sepBy comma (fmap pp qs))
-        <+> pp ret <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
-    pp (GlobalProcedureAnn _ [] (OperatorDeclaration _ ret n params anns e)) = ppAnn $ pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
-    pp (GlobalProcedureAnn _ qs (OperatorDeclaration _ ret n params anns e)) = ppAnn $ text "template" <+> abrackets (sepBy comma (fmap pp qs))
-        <+> pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ vcat (map ppAnn [lbrace,pp e,rbrace])
+    pp (GlobalProcedureAnn _ [] (ProcedureDeclaration _ ret n params anns e)) = ppAnns $ [pp ret <+> pp n <+> parens (sepBy comma $ map pp params),pp anns,lbrace] ++ map (nest 4 . pp) e ++ [rbrace]
+    pp (GlobalProcedureAnn _ qs (ProcedureDeclaration _ ret n params anns e)) = ppAnns $ [text "template" <+> abrackets (sepBy comma (fmap pp qs)),pp ret <+> pp n <+> parens (sepBy comma $ map pp params),pp anns,lbrace] ++ map (nest 4 . pp) e++ [rbrace]
+    pp (GlobalProcedureAnn _ [] (OperatorDeclaration _ ret n params anns e)) = ppAnns $ [pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params),pp anns,lbrace] ++ map (nest 4 . pp) e ++ [rbrace]
+    pp (GlobalProcedureAnn _ qs (OperatorDeclaration _ ret n params anns e)) = ppAnns $ [text "template" <+> abrackets (sepBy comma (fmap pp qs)),pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params),lbrace] ++ map (nest 4 . pp) e ++ [rbrace]
 
 instance PP iden => PP [GlobalAnnotation iden loc] where
     pp xs = vcat $ map pp xs
@@ -1340,6 +1338,7 @@ instance PP iden => PP (StatementAnnotation iden loc) where
 instance PP iden => PP [StatementAnnotation iden loc] where
     pp xs = vcat $ map pp xs
 
+ppAnns xs = vcat $ map ppAnn xs
 ppAnn x = text "//@" <+> pp x
 
 hasResult :: (Data iden,Data loc) => Expression iden loc -> Bool
