@@ -193,7 +193,7 @@ data TcEnv = TcEnv {
 
 -- module typechecking environment that can be exported to an interface file
 data ModuleTcEnv = ModuleTcEnv {
-      globalVars :: Map VarIdentifier (Bool,EntryEnv) -- ^ global variables: name |-> (isConst,type of the variable)
+      globalVars :: Map VarIdentifier (Maybe Expr,(Bool,EntryEnv)) -- ^ global variables: name |-> (isConst,type of the variable)
     , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
     , kinds :: Map VarIdentifier EntryEnv -- ^ defined kinds: name |-> type of the kind
     , domains :: Map VarIdentifier EntryEnv -- ^ defined domains: name |-> type of the domain
@@ -204,7 +204,7 @@ data ModuleTcEnv = ModuleTcEnv {
     -- we don't allow specialization of function templates
     , procedures :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
-    , structs :: Map VarIdentifier (Maybe EntryEnv,Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
+    , structs :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
     } deriving (Generic,Data,Typeable,Eq,Ord,Show)
 
 instance PP ModuleTcEnv where
@@ -227,15 +227,15 @@ instance Monoid (ModuleTcEnv) where
         , globalConsts = Map.union (globalConsts x) (globalConsts y)
         , kinds = Map.union (kinds x) (kinds y)
         , domains = Map.union (domains x) (domains y)
-        , operators = Map.unionWith (Map.union) (operators x) (operators y)
-        , procedures = Map.unionWith (Map.union) (procedures x) (procedures y)
-        , structs = Map.unionWith mergeStructs (structs x) (structs y)
+        , operators = Map.unionWith Map.union (operators x) (operators y)
+        , procedures = Map.unionWith Map.union (procedures x) (procedures y)
+        , structs = Map.unionWith Map.union (structs x) (structs y)
         }
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ModuleTcEnv where
     traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7) = do
         x1' <- f x1
-        x2' <- f x2
+        x2' <- traverseMap return f x2
         x3' <- f x3
         x4' <- f x4
         x5' <- f x5
@@ -249,7 +249,7 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m EntryEnv whe
         x2' <- f x2
         return $ EntryEnv x1' x2'
 
-mergeStructs (x,y) (z,w) = (unionMb x z,Map.union y w)
+--mergeStructs (x,y) (z,w) = (unionMb x z,Map.union y w)
 unionMb Nothing y = y
 unionMb x Nothing = x
 unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
@@ -271,11 +271,11 @@ getModuleField f = do
 
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
-getStructs :: Monad m => TcM m (Map VarIdentifier (Maybe EntryEnv,Map ModuleTyVarId EntryEnv))
+getStructs :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getStructs = getModuleField structs
 getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getKinds = getModuleField kinds
-getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Bool,EntryEnv))
+getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,EntryEnv)))
 getGlobalVars = getModuleField globalVars
 getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField globalConsts
@@ -300,7 +300,7 @@ chgAnnProcClass b (Proc _) = Proc b
 isAnnProcClass :: ProcClass -> Bool
 isAnnProcClass (Proc b) = b
 
-withDependencies :: Monad m => Set (Loc Position IOCstr) -> TcM m a -> TcM m a
+withDependencies :: Monad m => Set LocIOCstr -> TcM m a -> TcM m a
 withDependencies deps m = do
     State.modify $ \env -> env { localDeps = deps `Set.union` localDeps env }
     x <- m
@@ -433,6 +433,9 @@ askErrorM' :: Monad m => TcM m (Int,SecrecError -> SecrecError)
 askErrorM' = do
     (i,SecrecErrArr f) <- Reader.ask
     return (i,f)
+    
+askErrorM'' :: Monad m => TcM m (Int,SecrecErrArr)
+askErrorM'' = Reader.ask
 
 newErrorM :: TcM m a -> TcM m a
 newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
@@ -447,6 +450,9 @@ addErrorM' l (j,err) (TcM m) = do
     if (size + j) > constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
         else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
+
+addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
+addErrorM'' l (j,SecrecErrArr err) m = addErrorM' l (j,err) m
 
 --tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM m a
 --tcPos = tcLocM (locpos) (updpos noloc)
@@ -513,10 +519,19 @@ failTcM l m = do
 
 type PIdentifier = Either VarIdentifier (Op VarIdentifier Type)
 
+type DecIdentifier = Either PIdentifier VarIdentifier
+
 -- | Does a constraint depend on global template, procedure or struct definitions?
 -- I.e., can it be overloaded?
 isGlobalCstr :: TCstr -> Bool
 isGlobalCstr k = isCheckCstr k || isHypCstr k || everything (||) (mkQ False isGlobalTcCstr) k
+
+isMultipleSubstsCstr :: TCstr -> Bool
+isMultipleSubstsCstr k = everything (||) (mkQ False isMultipleSubstsTcCstr) k
+
+isMultipleSubstsTcCstr :: TcCstr -> Bool
+isMultipleSubstsTcCstr (MultipleSubstitutions {}) = True
+isMultipleSubstsTcCstr _ = False
 
 isGlobalTcCstr :: TcCstr -> Bool
 isGlobalTcCstr (TDec {}) = True
@@ -572,7 +587,7 @@ data TcCstr
         Type [ArrayProj]
         Type -- result
     | IsReturnStmt (Set StmtClass) -- ^ is return statement
-    | MultipleSubstitutions Type [(Maybe Type,[TcCstr])]
+    | MultipleSubstitutions Type [(Maybe Type,[TCstr])]
     | MatchTypeDimension
         Expr -- type dimension
         [(Expr,IsVariadic)] -- sequence of sizes
@@ -1003,13 +1018,16 @@ fromPureCstrs g = do
         State.modify $ \is -> Map.insert i j is
         return (ins,j,Loc l $ IOCstr k st,outs)
 
+toPureCstrs :: IOCstrGraph -> TCstrGraph
+toPureCstrs = nmap (fmap kCstr)
+
 toPureTDict :: TDict -> PureTDict
-toPureTDict (TDict ks _ ss) = PureTDict (nmap (fmap kCstr) ks) ss
+toPureTDict (TDict ks _ ss) = PureTDict (toPureCstrs ks) ss
 
 flattenIOCstrGraph :: IOCstrGraph -> [LocIOCstr]
 flattenIOCstrGraph = map snd . labNodes
 
-flattenIOCstrGraphSet :: IOCstrGraph -> Set (LocIOCstr)
+flattenIOCstrGraphSet :: IOCstrGraph -> Set LocIOCstr
 flattenIOCstrGraphSet = Set.fromList . flattenIOCstrGraph
 
 -- | mappings from variables to current substitution
@@ -1163,6 +1181,7 @@ freeVarId n doc = do
     return v
     
 addFree n = State.modify $ \env -> env { localFrees = Set.insert n (localFrees env) }
+removeFree n = State.modify $ \env -> env { localFrees = Set.delete n (localFrees env) }
 
 instance PP TDict where
     pp dict = text "Constraints:" $+$ nest 4 (ppGr pp (const PP.empty) $ tCstrs dict)
@@ -1172,7 +1191,7 @@ instance PP PureTDict where
     pp dict = text "Constraints:" $+$ nest 4 (ppGr pp (const PP.empty) $ pureCstrs dict)
           $+$ text "Substitutions:" $+$ nest 4 (ppTSubsts (pureSubsts dict))
 
-ppConstraints :: MonadIO m => TDict -> TcM m Doc
+ppConstraints :: MonadIO m => IOCstrGraph -> TcM m Doc
 ppConstraints d = do
     let ppK (Loc l c) = do
         s <- liftIO $ readUniqRef $ kStatus c
@@ -1181,7 +1200,7 @@ ppConstraints d = do
             Evaluated t -> return $ pre <+> char '=' <+> text (show t)
             Unevaluated -> return $ pre
             Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
-    ss <- ppGrM ppK (const $ return PP.empty) (tCstrs d)
+    ss <- ppGrM ppK (const $ return PP.empty) d
     return ss
 
 data VarIdentifier = VarIdentifier
@@ -1244,6 +1263,17 @@ tyProcClass :: Type -> ProcClass
 tyProcClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
 tyProcClass (DecT (ProcType _ _ _ _ _ _ cl)) = cl
 tyProcClass t = error $ "tyProcClass: " ++ show t
+
+decTypeId :: DecType -> Maybe (DecIdentifier,ModuleTyVarId)
+decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
+    (Just x,Just y) -> Just (x,y)
+    otherwise -> Nothing
+    
+decTypeDecId :: DecType -> Maybe DecIdentifier
+decTypeDecId (DecType _ _ _ _ _ _ _ _ d) = decTypeDecId d
+decTypeDecId (ProcType _ p _ _ _ _ _) = Just $ Left p
+decTypeDecId (StructType _ (TypeName _ s) _) = Just $ Right s
+decTypeDecId d = Nothing
 
 data DecType
     = ProcType -- ^ procedure type
@@ -2045,7 +2075,7 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
             else return True
 
 -- gets the terminal nodes in the constraint graph for all the variables in a given value
---getVarOutSet :: (VarsIdTcM m,VarsId (TcM m) a,Location loc) => a -> TcM m (Set (LocIOCstr))
+--getVarOutSet :: (VarsIdTcM m,VarsId (TcM m) a,Location loc) => a -> TcM m (Set LocIOCstr)
 --getVarOutSet x = do
 --    -- get the free variables
 --    vs <- liftM Map.keysSet $ fvs x

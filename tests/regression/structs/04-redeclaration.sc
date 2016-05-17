@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --failtypechecker
 
 struct foo { }
 

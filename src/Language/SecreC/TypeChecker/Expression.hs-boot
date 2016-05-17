@@ -20,13 +20,13 @@ import Control.Monad.IO.Class
 
 tcVariadicArg :: (PP (a VarIdentifier (Typed loc)),VarsIdTcM m,Located (a VarIdentifier (Typed loc)),Location loc,LocOf (a VarIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a VarIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a VarIdentifier (Typed loc),IsVariadic)
 
-landExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
+landExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
 
 tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
-allExprs :: ProverK loc m => loc -> [Expr] -> TcM m Expr
+allExprs :: ProverK loc m => loc -> Bool -> [Expr] -> TcM m Expr
 
 tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
@@ -38,10 +38,10 @@ tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM m
 
 tcSizes :: (ProverK loc m) => loc -> Sizes Identifier loc -> TcM m (Sizes VarIdentifier (Typed loc))
 
-sumIndexExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
+sumIndexExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
 
-subtractIndexExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
+subtractIndexExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
 
-multiplyIndexExprs :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
+multiplyIndexExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
 
 tcIndexCond :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))

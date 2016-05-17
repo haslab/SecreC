@@ -44,13 +44,13 @@ import Text.PrettyPrint as PP hiding (equals)
 
 import Prelude hiding (mapM)
 
-isBoolTypeM :: (ProverK loc m) => loc -> Type -> TcM m Bool
-isBoolTypeM l t | isBoolType t = return True
-isBoolTypeM l t = liftM isBoolBaseType (typeToBaseType l t) `mplus` return False
-
-isIntTypeM :: (ProverK loc m) => loc -> Type -> TcM m Bool
-isIntTypeM l t | isIntType t = return True
-isIntTypeM l t = liftM isIntBaseType (typeToBaseType l t) `mplus` return False
+--isBoolTypeM :: (ProverK loc m) => loc -> Type -> TcM m Bool
+--isBoolTypeM l t | isBoolType t = return True
+--isBoolTypeM l t = liftM isBoolBaseType (typeToBaseType l t) `mplus` return False
+--
+--isIntTypeM :: (ProverK loc m) => loc -> Type -> TcM m Bool
+--isIntTypeM l t | isIntType t = return True
+--isIntTypeM l t = liftM isIntBaseType (typeToBaseType l t) `mplus` return False
 
 castTypeToType :: CastType VarIdentifier Type -> Type
 castTypeToType (CastPrim p) = BaseT $ TyPrim $ funit p
@@ -80,10 +80,16 @@ typeToPrimType l t = do
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToBaseType l (BaseT s) = return s
 typeToBaseType l t@(ComplexT ct) = case ct of
-    (CType s b d) -> catchError
-        (newErrorM $ prove l "typeToBaseType" $ tcCstrM_ l (Equals t (ComplexT $ CType Public b (indexExpr 0))) >> return b)
-        (\err -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType))
-    CVar v -> resolveBVar l v
+    (CType s b d) -> do
+        tcCstrM_ l $ Equals (SecT s) (SecT Public)
+        tcCstrM_ l $ Equals (IdxT d) (IdxT $ indexExpr 0)
+        return b
+    CVar v -> do
+        mb <- tryResolveCVar l v
+        ct' <- case mb of
+            Just ct' -> return ct'
+            Nothing -> expandCTypeVar l v
+        typeToBaseType l (ComplexT ct')     
     otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
 typeToBaseType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
 
@@ -101,8 +107,7 @@ tcCastType (CastTy v) = do
 tcTypeName :: (MonadIO m,Location loc) => TypeName Identifier loc -> TcM m (TypeName VarIdentifier (Typed loc))
 tcTypeName v@(TypeName l n) = do
     let n' = mkVarId n
-    t <- checkNonTemplateType (TypeName l n')
-    return $ TypeName (Typed l t) n'
+    checkNonTemplateType (TypeName l n')
 
 tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM m (TypeSpecifier VarIdentifier (Typed loc))
 tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
@@ -154,9 +159,8 @@ tcSecType (PublicSpecifier l) = do
     return $ PublicSpecifier (Typed l $ SecT Public)
 tcSecType (PrivateSpecifier l d) = do
     let vd = bimap mkVarId id d
-    t <- checkDomain vd
-    let d' = fmap (flip Typed t) vd
-    return $ PrivateSpecifier (Typed l t) d'
+    vd' <- checkDomain vd
+    return $ PrivateSpecifier (Typed l $ typed $ loc vd') vd'
 
 tcDatatypeSpec :: (ProverK loc m) => DatatypeSpecifier Identifier loc -> TcM m (DatatypeSpecifier VarIdentifier (Typed loc))
 tcDatatypeSpec (PrimitiveSpecifier l p) = do
@@ -174,9 +178,8 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
 tcDatatypeSpec (VariableSpecifier l (TypeName nl n)) = do
     let n' = mkVarId n
-    t <- checkNonTemplateType (TypeName nl n')  
-    let v' = TypeName (Typed nl t) n'
-    return $ VariableSpecifier (Typed l t) v'
+    v' <- checkNonTemplateType (TypeName nl n')  
+    return $ VariableSpecifier (Typed l $ typed $ loc v') v'
 
 tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM m (PrimitiveDatatype (Typed loc))
 tcPrimitiveDatatype p = do
@@ -281,10 +284,10 @@ projectSize p t i (Just x) y1 y2 = do
     let eupp = arrayIndexExpr upp
     case (low,upp) of
         (DynArrayIndex el,DynArrayIndex eu) -> do
-            liftM Just $ subtractIndexExprs p eupp elow
+            liftM Just $ subtractIndexExprs p False eupp elow
         otherwise -> do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp t) i (pp elow <> char ':' <> pp eupp) arrerr
-            liftM Just $ subtractIndexExprs p eupp elow          
+            liftM Just $ subtractIndexExprs p False eupp elow          
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m Type
 structBody l d@(DecType _ _ _ _ _ _ _ _ b) | not (isTemplateDecType d) = structBody l b
@@ -318,9 +321,9 @@ tcTypeSizes l ty szs = do
     ty' <- refineTypeSizes l ty tszs'
     return (ty',szs')
 
-variadicExprsLength :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> TcM m Expr
-variadicExprsLength l [] = return $ indexExpr 0
-variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr0M (indexExpr 0) (sumIndexExprs l)
+variadicExprsLength :: (ProverK loc m) => loc -> Bool -> [(Expr,IsVariadic)] -> TcM m Expr
+variadicExprsLength l isTop [] = return $ indexExpr 0
+variadicExprsLength l isTop es = mapM (variadicExprLength l) es >>= foldr0M (indexExpr 0) (sumIndexExprs l isTop)
     where
     variadicExprLength :: (ProverK loc m) => loc -> (Expr,IsVariadic) -> TcM m Expr
     variadicExprLength l (e,False) = return $ indexExpr 1
@@ -342,7 +345,7 @@ variadicExprsLength l es = mapM (variadicExprLength l) es >>= foldr0M (indexExpr
 
 matchTypeDimension :: (ProverK loc m) => loc -> Expr -> [(Expr,IsVariadic)] -> TcM m ()
 matchTypeDimension l td szs = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp td) (pp szs) . Just) $ do
-    d <- variadicExprsLength l szs 
+    d <- variadicExprsLength l False szs 
 --    liftIO $ putStrLn $ "matchTypeDim " ++ ppr td ++ " " ++ ppr szs ++ " " ++ ppr d
     unifiesExpr l True td d
 

@@ -59,6 +59,13 @@ newNodeGrIO gr = aux
         i <- liftM hashUnique newUnique
         if (elem i is) then aux else return i
 
+tryInsEdge :: DynGraph gr => LEdge b -> gr a b -> gr a b
+tryInsEdge e@(from,to,b) gr = if gelem from gr && gelem to gr then insEdge e gr else gr
+
+tryInsEdges :: DynGraph gr => [LEdge b] -> gr a b -> gr a b
+tryInsEdges [] gr = gr
+tryInsEdges (x:xs) gr = tryInsEdges xs (tryInsEdge x gr)
+
 insLabEdges :: DynGraph gr => [(LNode a,LNode a,b)] -> gr a b -> gr a b
 insLabEdges [] gr = gr
 insLabEdges (x:xs) gr = insLabEdges xs (insLabEdge x gr)
@@ -116,6 +123,10 @@ grToList = ufold (:) []
 
 unionGr :: Gr a b -> Gr a b -> Gr a b
 unionGr x y = insEdges (labEdges x ++ labEdges y) $ insNodes (labNodes x ++ labNodes y) Graph.empty
+
+differenceGr :: Gr a b -> Gr a b -> Gr a b
+differenceGr x y = Graph.nfilter (\x -> not $ elem x ys) x
+    where ys = nodes y
 
 ppGr :: (a -> Doc) -> (b -> Doc) -> Gr a b -> Doc
 ppGr ppA ppB gr = vcat $ map ppNode $ grToList gr

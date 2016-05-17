@@ -1,4 +1,7 @@
+#OPTIONS_SECREC --failtypechecker
+
 kind a3p;
+
 domain p1 a3p;
 domain p2 a3p;
 void main () {

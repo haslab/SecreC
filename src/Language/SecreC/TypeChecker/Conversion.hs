@@ -78,7 +78,10 @@ type2TemplateTypeArgument l t@(BaseT (TyPrim p)) = do
 type2TemplateTypeArgument l t@(BaseT (TApp n ts d)) = do
     ts' <- fmapFstM (type2TemplateTypeArgument l) ts
     return $ TemplateTemplateTypeArgument (Typed l t) (fmap (const $ Typed l $ DecT d) n) ts'
-type2TemplateTypeArgument l t = genError (locpos l) $ text "type2TemplateTypeArgument"
+type2TemplateTypeArgument l t@(BaseT (BVar v)) = do
+    let tl = Typed l t
+    return $ GenericTemplateTypeArgument tl $ (TemplateArgName tl v)
+type2TemplateTypeArgument l t = genError (locpos l) $ text "type2TemplateTypeArgument" <+> pp t
 
 
 

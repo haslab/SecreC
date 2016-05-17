@@ -253,7 +253,7 @@ instance PP iden => PP (ProcedureName iden loc) where
     pp (ProcedureName _ iden) = pp iden
 
 data VarName iden loc = VarName loc iden
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic,Traversable,Foldable)
 
 instance (Binary iden,Binary loc) => Binary (VarName iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (VarName iden loc)
@@ -959,7 +959,7 @@ instance PP iden => PP (Statement iden loc) where
     pp (ReturnStatement _ e) = text "return" <+> ppMb e <> semi
     pp (ContinueStatement _) = text "continue" <> semi
     pp (BreakStatement _) = text "break" <> semi
-    pp (ExpressionStatement _ e) =  pp e
+    pp (ExpressionStatement _ e) =  pp e <> semi
     pp (AnnStatement _ ann) = pp ann
     
 ppSyscallParameters ps = sepBy comma $ map pp ps

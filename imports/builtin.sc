@@ -942,8 +942,7 @@ D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
 }
 
 bool operator ! (bool x) {
-    if (x==false) return true;
-    else return false;
+    return (x==false);
 }
 
 template <domain D,dim N { N > 0 }>

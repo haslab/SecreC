@@ -100,6 +100,7 @@ isValid l c = do
 
 checkValiditySBV :: (ProverK loc m) => loc -> SMTConfig -> IExpr -> IExpr -> TcM m ()
 checkValiditySBV l cfg hyp prop = do
+    opts <- askOpts
     d1 <- ppM l hyp
     d2 <- ppM l prop
     let str = d1 <+> text " => " <+> d2
@@ -115,9 +116,9 @@ checkValiditySBV l cfg hyp prop = do
 validitySBV :: (MonadIO m,Location loc) => loc -> SMTConfig -> String -> TcSBV SBool -> TcM m ()
 validitySBV l cfg str sprop = do
     opts <- askOpts
-    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
 --  smt <- compileToSMTLib True False sprop
 --  liftIO $ putStrLn smt
+    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
     r <- proveWithTcSBV cfg sprop
     case r of
         ThmResult (Unsatisfiable _) -> do

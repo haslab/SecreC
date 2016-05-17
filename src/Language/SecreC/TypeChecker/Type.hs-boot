@@ -16,9 +16,6 @@ import Control.Monad.IO.Class
 
 castTypeToType :: CastType VarIdentifier Type -> Type
 
-isBoolTypeM :: (ProverK loc m) => loc -> Type -> TcM m Bool
-isIntTypeM :: (ProverK loc m) => loc -> Type -> TcM m Bool
-
 typeToSecType :: (ProverK loc m) => loc -> Type -> TcM m SecType
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType

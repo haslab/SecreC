@@ -220,12 +220,15 @@ instance PP a => PP (Set a) where
     pp xs = sepBy space $ map pp $ Set.toList xs
 
 instance (Vars iden m a,Vars iden m b) => Vars iden m (Map a b) where
-    traverseVars f xs = liftM Map.fromList $ aux $ Map.toList xs
+    traverseVars f xs = traverseMap f f xs
+
+traverseMap :: (GenVar iden m,IsScVar a,IsScVar b,IsScVar iden,MonadIO m) => (a -> VarsM iden m a) -> (b -> VarsM iden m b) -> Map a b -> VarsM iden m (Map a b)
+traverseMap f g xs = liftM Map.fromList $ aux $ Map.toList xs
         where
         aux [] = return []
         aux ((k,v):xs) = do
             k' <- f k
-            v' <- f v
+            v' <- g v
             xs' <- aux xs
             return ((k',v'):xs')
 

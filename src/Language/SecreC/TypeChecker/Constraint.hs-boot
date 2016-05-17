@@ -78,13 +78,19 @@ unifiesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m ()
 
 isTyOf :: (ProverK loc m) => loc -> Type -> Type -> TcM m Bool
 
+expandCTypeVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
+
+unifies :: (ProverK loc m) => loc -> Type -> Type -> TcM m ()
+
 tcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 
 resolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m Type
 
+tryResolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe ComplexType)
+
 tryResolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe Type)
 
-solve :: (ProverK loc m) => loc -> TcM m ()
+solve :: (ProverK loc m) => loc -> String -> TcM m ()
 
 resolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
 
@@ -92,7 +98,7 @@ resolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m DecType
 
 unifiesTIdentifier :: (ProverK loc m) => loc -> TIdentifier -> TIdentifier -> TcM m ()
 
-topPDecCstrM :: (ProverK loc m) => loc -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
+pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
 
 expandVariadicExpr :: (ProverK loc m) => loc -> (Expression VarIdentifier Type,IsVariadic) -> TcM m [Expression VarIdentifier Type]
 

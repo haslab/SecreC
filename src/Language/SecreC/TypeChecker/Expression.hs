@@ -114,7 +114,7 @@ tcExpr (BinaryExpr l e1 op e2) = do
     let t2 = typed $ loc e2'
     top <- tcOp op
     v <- newTyVar Nothing
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr (PreOp l op e) = do
     e' <- tcLValue False e
@@ -135,7 +135,7 @@ tcExpr (UnaryExpr l op e) = do
         otherwise -> return ()
     
     v <- newTyVar Nothing
-    (dec,[(x,_)]) <- topPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
+    (dec,[(x,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
     let ex = fmap (Typed l) x
     return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
 tcExpr (DomainIdExpr l s) = do
@@ -164,7 +164,7 @@ tcExpr (QuantifiedExpr l q vs e) = tcLocal l "tcExpr quant" $ do
         let ty = typed $ loc t'
         let v' = bimap mkVarId (flip Typed ty) v
         topTcCstrM_ l $ IsPublic (fmap typed $ varExpr v') 
-        newVariable LocalScope v' Nothing True -- don't add values to the environment
+        newVariable LocalScope True v' Nothing -- don't add values to the environment
         return (t',v')
 tcExpr (LeakExpr l e) = do
     e' <- tcExpr e
@@ -183,7 +183,7 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     es' <- mapM (tcVariadicArg tcExpr) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
     v <- newTyVar Nothing
-    (dec,xs) <- topPDecCstrM l True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
+    (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
 tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
@@ -222,7 +222,7 @@ tcBinaryOp l isPre op e1 = do
     elit1 <- tcLiteral $ IntLit l 1
     top <- tcOp op
     let t1 = typed $ loc e1
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ fmap typed top) Nothing [(fmap typed e1,False),(fmap typed elit1,False)] t1
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1,False),(fmap typed elit1,False)] t1
     let ex1 = fmap (Typed l) x1
     let op' = updLoc top (Typed l $ DecT dec)
     let t' = typed $ loc ex1
@@ -324,63 +324,63 @@ tcSizes l (Sizes szs) = do
     --tcCstrM l $ MatchTypeDimension ty $ map (mapFst (fmap typed)) szs'
     return $ Sizes $ fromListNe szs'
 
-repeatExpr :: ProverK loc m => loc -> Expr -> ComplexType -> TcM m Expr
-repeatExpr l e t = do
+repeatExpr :: ProverK loc m => loc -> Bool -> Expr -> ComplexType -> TcM m Expr
+repeatExpr l isTop e t = do
     let repeat = mkVarId "repeat"
-    (dec,es') <- topPDecCstrM l False (Left repeat) Nothing [(e,False)] (ComplexT t)
+    (dec,es') <- pDecCstrM l isTop False (Left repeat) Nothing [(e,False)] (ComplexT t)
     return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () repeat) Nothing es'
 
-shapeExpr :: ProverK loc m => loc -> Expr -> TcM m Expr
-shapeExpr l e = do
+shapeExpr :: ProverK loc m => loc -> Bool -> Expr -> TcM m Expr
+shapeExpr l isTop e = do
     let shape = mkVarId "shape"
     let indexes = ComplexT $ CType Public index (indexExpr 1)
-    (dec,es') <- topPDecCstrM l False (Left shape) Nothing [(e,False)] indexes
+    (dec,es') <- pDecCstrM l isTop False (Left shape) Nothing [(e,False)] indexes
     return $ ProcCallExpr indexes (fmap (const $ DecT dec) $ ProcedureName () shape) Nothing es'
 
-productIndexExpr :: (ProverK loc m) => loc -> (Expr,IsVariadic) -> TcM m Expr
-productIndexExpr l (e,isVariadic) = do
+productIndexExpr :: (ProverK loc m) => loc -> Bool -> (Expr,IsVariadic) -> TcM m Expr
+productIndexExpr l isTop (e,isVariadic) = do
     let product = mkVarId "product"
-    (dec,es') <- topPDecCstrM l True (Left product) Nothing [(e,isVariadic)] (BaseT index)
+    (dec,es') <- pDecCstrM l isTop True (Left product) Nothing [(e,isVariadic)] (BaseT index)
     return $ ProcCallExpr (BaseT index) (fmap (const $ DecT dec) $ ProcedureName () product) Nothing es'
 
-sumIndexExprs :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m Expr
-sumIndexExprs l e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
-sumIndexExprs l (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 + i2)
-sumIndexExprs l e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ OpAdd $ NoType "sumIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
+sumIndexExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+sumIndexExprs l isTop e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
+sumIndexExprs l isTop (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 + i2)
+sumIndexExprs l isTop e1 e2 = do
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpAdd $ NoType "sumIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
     return (BinaryExpr (BaseT index) x1 (OpAdd $ DecT dec) x2)
 
-subtractIndexExprs :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m Expr
-subtractIndexExprs l e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
-subtractIndexExprs l (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 - i2)
-subtractIndexExprs l e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ OpSub $ NoType "subtractIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
+subtractIndexExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+subtractIndexExprs l isTop e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
+subtractIndexExprs l isTop (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 - i2)
+subtractIndexExprs l isTop e1 e2 = do
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpSub $ NoType "subtractIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
     return (BinaryExpr (BaseT index) x1 (OpSub $ DecT dec) x2)
 
-multiplyIndexExprs :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m Expr
-multiplyIndexExprs l e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
-multiplyIndexExprs l (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 * i2)
-multiplyIndexExprs l e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ OpMul $ NoType "multiplyIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
+multiplyIndexExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+multiplyIndexExprs l isTop e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
+multiplyIndexExprs l isTop (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 * i2)
+multiplyIndexExprs l isTop e1 e2 = do
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpMul $ NoType "multiplyIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
     return (BinaryExpr (BaseT index) x1 (OpMul $ DecT dec) x2)
     
-landExprs :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m Expr
-landExprs l e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ OpSub $ NoType "landExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
+landExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+landExprs l isTop e1 e2 = do
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpSub $ NoType "landExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpLand $ DecT dec) x2)
 
-allExprs :: ProverK loc m => loc -> [Expr] -> TcM m Expr
-allExprs l [] = return $ trueExpr
-allExprs l es = foldr1M (landExprs l) es
+allExprs :: ProverK loc m => loc -> Bool -> [Expr] -> TcM m Expr
+allExprs l isTop [] = return $ trueExpr
+allExprs l isTop es = foldr1M (landExprs l isTop) es
 
-eqExprs :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m Expr
-eqExprs l e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ OpEq $ NoType "eqExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
+eqExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+eqExprs l isTop e1 e2 = do
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpEq $ NoType "eqExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpEq $ DecT dec) x2)
     
-geExprs :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m Expr
-geExprs l e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- topPDecCstrM l True (Right $ OpGe $ NoType "geExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
+geExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+geExprs l isTop e1 e2 = do
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpGe $ NoType "geExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpGe $ DecT dec) x2)
     
 

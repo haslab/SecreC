@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, FlexibleContexts #-}
+{-# LANGUAGE ViewPatterns, ScopedTypeVariables, FlexibleContexts #-}
 
 module Language.SecreC.TypeChecker.Statement where
 
@@ -50,14 +50,15 @@ tcStmtsRet l ret ss = do
     return ss'
 
 isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> Type -> TcM m ()
-isReturnStmt l cs ret = addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (pp ret)) $ aux $ Set.toList cs
+isReturnStmt l cs ret = addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (pp ret <+> pp cs)) $ aux cs
   where
-    aux [StmtFallthru] = equals l ret (ComplexT Void) 
-    aux [StmtReturn] = return ()
+    aux (Set.toList -> [StmtFallthru]) = equals l ret (ComplexT Void) 
+    aux (Set.toList -> [StmtReturn,StmtFallthru]) = equals l ret (ComplexT Void) 
+    aux (Set.toList -> [StmtReturn]) = return ()
     aux x = genTcError (locpos l) $ text "Unexpected return class"
 
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
-tcStmts ret [] = return ([],StmtType $ Set.empty)
+tcStmts ret [] = return ([],StmtType $ Set.singleton StmtFallthru)
 tcStmts ret [s] = do
     (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
     return ([s'],StmtType c)
@@ -247,26 +248,26 @@ tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     -- do not store the size, since it can change dynamically
     let v' = VarName (Typed vl ty) $ mkVarId vn
     -- add variable to the environment
-    newVariable scope v' Nothing False -- don't add values to the environment
+    newVariable scope False v' Nothing -- don't add values to the environment
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
 tcConstDecl :: (ProverK loc m) => Scope -> ConstDeclaration Identifier loc -> TcM m (ConstDeclaration VarIdentifier (Typed loc))
 tcConstDecl scope (ConstDeclaration l tyspec vars) = do
-    (tyspec') <- tcTypeSpec tyspec False
+    tyspec' <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
-    (vars') <- mapM (tcConstInit scope ty) vars
+    vars' <- mapM (tcConstInit scope ty) vars
     return (ConstDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
 
 tcConstInit :: (ProverK loc m) => Scope -> Type -> ConstInitialization Identifier loc -> TcM m (ConstInitialization VarIdentifier (Typed loc))
 tcConstInit scope ty (ConstInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    (e') <- mapM (tcExprTy ty') e
+    e' <- mapM (tcExprTy ty') e
     -- add the array size to the type
     vn' <- addConst scope vn
     -- we issue new uniq variables for consts, since they are used in typechecking
     let v' = VarName (Typed vl ty') vn'
     -- add variable to the environment
-    newVariable scope v' e' True -- add values to the environment
+    newVariable scope True v' e' -- add values to the environment
     return (ConstInitialization (notTyped "tcVarInit" l) v' szs' e')
 
     
