@@ -24,6 +24,8 @@ landExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> 
 
 tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
+tcPureExpr :: ProverK loc m => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
 allExprs :: ProverK loc m => loc -> Bool -> [Expr] -> TcM m Expr

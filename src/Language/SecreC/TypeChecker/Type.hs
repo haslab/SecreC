@@ -215,7 +215,7 @@ tcMbDimtypeSpec l doc (Just dim) = do
 
 tcDimtypeSpec :: (ProverK loc m) => Doc -> DimtypeSpecifier Identifier loc -> TcM m (DimtypeSpecifier VarIdentifier (Typed loc),Expression VarIdentifier (Typed loc))
 tcDimtypeSpec doc (DimSpecifier l e) = do
-    e' <- tcExpr e -- we don't commit to a type yet
+    e' <- tcPureExpr e -- we don't commit to a type yet
     return (DimSpecifier (notTyped "tcDimtypeSpec" l) e',e') 
 
 tcRetTypeSpec :: (ProverK loc m) => ReturnTypeSpecifier Identifier loc -> TcM m (ReturnTypeSpecifier VarIdentifier (Typed loc))

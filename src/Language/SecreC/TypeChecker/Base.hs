@@ -186,6 +186,7 @@ data TcEnv = TcEnv {
     , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
+    , isPure :: Bool -- if typechecking pure expressions
     , procClass :: ProcClass -- class when typechecking procedures
     , tyVarId :: TyVarId
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
@@ -254,6 +255,20 @@ unionMb Nothing y = y
 unionMb x Nothing = x
 unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
+withPure :: Monad m => Bool -> TcM m a -> TcM m a
+withPure b m = do
+    env <- State.get
+    State.modify $ \env -> env { isPure = b }
+    x <- m
+    State.modify $ \env -> env { isPure = isPure env }
+    return x
+    
+getPure :: Monad m => TcM m Bool
+getPure = liftM isPure State.get
+
+getAnn :: Monad m => TcM m Bool
+getAnn = liftM (isAnnProcClass . procClass) State.get
+
 modifyModuleEnv :: Monad m => (ModuleTcEnv -> ModuleTcEnv) -> TcM m ()
 modifyModuleEnv f = State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
 
@@ -287,18 +302,21 @@ getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv
 getProcedures = getModuleField procedures
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
-insideAnnotation m = do
+insideAnnotation = withAnn True
+
+withAnn :: Monad m => Bool -> TcM m a -> TcM m a
+withAnn b m = do
     isAnn <- liftM (isAnnProcClass . procClass) State.get
-    State.modify $ \env -> env { procClass = chgAnnProcClass True (procClass env) }
+    State.modify $ \env -> env { procClass = chgAnnProcClass b (procClass env) }
     x <- m
     State.modify $ \env -> env { procClass = chgAnnProcClass isAnn (procClass env) }
     return x
 
 chgAnnProcClass :: Bool -> ProcClass -> ProcClass
-chgAnnProcClass b (Proc _) = Proc b
+chgAnnProcClass b (Proc _ r w) = Proc b r w
 
 isAnnProcClass :: ProcClass -> Bool
-isAnnProcClass (Proc b) = b
+isAnnProcClass (Proc b _ _) = b
 
 withDependencies :: Monad m => Set LocIOCstr -> TcM m a -> TcM m a
 withDependencies deps m = do
@@ -343,6 +361,7 @@ emptyTcEnv = TcEnv
     , openedCstrs = []
     , moduleCount = ("main",1)
     , inTemplate = False
+    , isPure = False
     , localConsts = Map.empty
     , procClass = mempty
     , tyVarId = 0
@@ -547,7 +566,6 @@ data TcCstr
         [(Type,IsVariadic)] -- template arguments
         DecType -- result
     | PDec -- ^ procedure declaration
-        ProcClass -- is a pure function call
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
         [(Expr,IsVariadic)] -- procedure arguments
@@ -659,10 +677,10 @@ isHypCstr (DelayedK k _) = isHypCstr k
 isHypCstr _ = False
 
 isTrivialCstr :: TCstr -> Bool
-isTrivialCstr (TcK c) = isTrivialTcCstr c
+isTrivialCstr (TcK c _ _) = isTrivialTcCstr c
 isTrivialCstr (DelayedK c _) = isTrivialCstr c
-isTrivialCstr (CheckK c) = isTrivialCheckCstr c
-isTrivialCstr (HypK c) = isTrivialHypCstr c
+isTrivialCstr (CheckK c _ _) = isTrivialCheckCstr c
+isTrivialCstr (HypK c _ _) = isTrivialHypCstr c
 
 type Var = VarName VarIdentifier Type
 type Expr = Expression VarIdentifier Type
@@ -671,11 +689,19 @@ type ExprL loc = Expression VarIdentifier (Typed loc)
 data TCstr
     = TcK
         TcCstr -- constraint
+        Bool -- is annotation
+        Bool -- is pure
     | DelayedK
         TCstr -- a constraint
         (Int,SecrecErrArr) -- an error message with updated context
-    | CheckK CheckCstr
-    | HypK HypCstr
+    | CheckK
+        CheckCstr
+        Bool -- is annotation
+        Bool -- is pure
+    | HypK
+        HypCstr
+        Bool -- is annotation
+        Bool -- is pure
   deriving (Data,Typeable,Show,Generic)
 
 instance Binary TCstr
@@ -683,23 +709,23 @@ instance Hashable TCstr
  
 instance Eq TCstr where
     (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
-    (TcK x) == (TcK y) = x == y
-    (HypK x) == (HypK y) = x == y
-    (CheckK x) == (CheckK y) = x == y
+    (TcK x b1 b2) == (TcK y b3 b4) = x == y && b1 == b3 && b2 == b4
+    (HypK x b1 b2) == (HypK y b3 b4) = x == y && b1 == b3 && b2 == b4
+    (CheckK x b1 b2) == (CheckK y b3 b4) = x == y && b1 == b3 && b2 == b4
     x == y = False
     
 instance Ord TCstr where
     compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
-    compare (TcK c1) (TcK c2) = mconcat [compare c1 c2]
-    compare (HypK x) (HypK y) = compare x y
-    compare (CheckK x) (CheckK y) = mconcat [compare x y]
+    compare (TcK x b1 b2) (TcK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
+    compare (HypK x b1 b2) (HypK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
+    compare (CheckK x b1 b2) (CheckK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 priorityTCstr :: TCstr -> TCstr -> Ordering
 priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
-priorityTCstr (TcK c1) (TcK c2) = priorityTcCstr c1 c2
-priorityTCstr (HypK x) (HypK y) = compare x y
-priorityTCstr (CheckK x) (CheckK y) = compare x y
+priorityTCstr (TcK c1 _ _) (TcK c2 _ _) = priorityTcCstr c1 c2
+priorityTCstr (HypK x _ _) (HypK y _ _) = compare x y
+priorityTCstr (CheckK x _ _) (CheckK y _ _) = compare x y
 priorityTCstr (TcK {}) y = LT
 priorityTCstr x (TcK {}) = GT
 priorityTCstr (HypK {}) y = LT
@@ -726,7 +752,7 @@ ppVarTy v = ppExprTy (varExpr v)
 
 instance PP TcCstr where
     pp (TDec n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
-    pp (PDec isPure n specs ts r x doCoerce xs) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> ppCoerce <+> parens (sepBy comma $ map ppExprTy xs)
+    pp (PDec n specs ts r x doCoerce xs) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> ppCoerce <+> parens (sepBy comma $ map ppExprTy xs)
         where ppCoerce = if doCoerce then text "~~>" else text "-->"
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces e1 v2) = text "coerces" <+> ppExprTy e1 <+> ppVarTy v2
@@ -756,11 +782,9 @@ instance PP HypCstr where
 
 instance PP TCstr where
     pp (DelayedK c f) = text "delayed" <+> pp c
-    pp (TcK k) = pp k
-    pp (CheckK c) = pp c
-    pp (HypK h) = pp h
---    pp (ClusterK xs) = char 'C' <> braces (vcat $ map pp $ Set.toList xs)
---    pp (GraphK xs) = char 'G' <> braces (pp xs)
+    pp (TcK k _ _) = pp k
+    pp (CheckK c _ _) = pp c
+    pp (HypK h _ _) = pp h
 
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
@@ -849,14 +873,14 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         args' <- mapM f args
         x' <- f x
         return $ TDec n' args' x'
-    traverseVars f (PDec isPure n ts args ret x doCoerce xs) = do
+    traverseVars f (PDec n ts args ret x doCoerce xs) = do
         n' <- f n
         x' <- f x
         ts' <- mapM (mapM (mapFstM f)) ts
         args' <- mapM (mapFstM f) args
         ret' <- f ret
         xs' <- mapM f xs
-        return $ PDec isPure n' ts' args' ret' x' doCoerce xs'
+        return $ PDec n' ts' args' ret' x' doCoerce xs'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -950,15 +974,15 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TCstr where
     traverseVars f (DelayedK c err) = do
         c' <- f c
         return $ DelayedK c' err
-    traverseVars f (TcK k) = do
+    traverseVars f (TcK k b1 b2) = do
         k' <- f k
-        return $ TcK k'
-    traverseVars f (CheckK k) = do
+        return $ TcK k' b1 b2
+    traverseVars f (CheckK k b1 b2) = do
         k' <- f k
-        return $ CheckK k'
-    traverseVars f (HypK k) = do
+        return $ CheckK k' b1 b2
+    traverseVars f (HypK k b1 b2) = do
         k' <- f k
-        return $ HypK k'
+        return $ HypK k' b1 b2
 --    traverseVars f (ClusterK xs) = do
 --        xs' <- liftM Set.fromList $ mapM f $ Set.toList xs
 --        return $ ClusterK xs'
@@ -1663,11 +1687,15 @@ instance PP [TcCstr] where
     pp xs = brackets (sepBy comma $ map pp xs)
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ProcClass where
-    traverseVars f (Proc x) = return (Proc x)
+    traverseVars f (Proc x y z) = do
+        x' <- f x
+        y' <- f y
+        z' <- f z
+        return (Proc x' y' z')
 
 instance PP ProcClass where
-    pp (Proc False) = text "procedure"
-    pp (Proc True) = text "annotation procedure"
+    pp (Proc False r w) = text "procedure" <+> pp r <+> pp w
+    pp (Proc True r w) = text "annotation procedure" <+> pp r <+> pp w
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType where
     traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
@@ -1816,13 +1844,15 @@ data ProcClass
     -- A procedure
     = Proc
         Bool -- is an annotation
+        (Set VarIdentifier) -- read global variables
+        (Set VarIdentifier) -- written global variables
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Binary ProcClass
 instance Hashable ProcClass
 
 instance Monoid ProcClass where
-    mempty = Proc False
-    mappend (Proc x) (Proc y) = Proc (x && y)
+    mempty = Proc False Set.empty Set.empty
+    mappend (Proc x r1 w1) (Proc y r2 w2) = Proc (x || y) (Set.union r1 r2) (Set.union w1 w2)
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement

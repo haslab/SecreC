@@ -44,24 +44,24 @@ tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression Var
 tcGuard e = tcExprTy (BaseT bool) e
 
 tcLValue :: (ProverK loc m) => Bool -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
-tcLValue isConst (PostIndexExpr l e s) = tcNoDeps $ do
-    e' <- tcAddDeps l "lvalue" $ tcLValue False e
+tcLValue isWrite (PostIndexExpr l e s) = tcNoDeps $ do
+    e' <- tcAddDeps l "lvalue" $ tcLValue isWrite e
     let t = typed $ loc e'
     (s',t') <- tcSubscript e' s
     return $ PostIndexExpr (Typed l t') e' s'
-tcLValue isConst (SelectionExpr l pe a) = do
+tcLValue isWrite (SelectionExpr l pe a) = do
     let va = bimap mkVarId id a
-    pe' <- tcLValue False pe
+    pe' <- tcLValue isWrite pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
     res <- newTyVar Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
     return $ SelectionExpr (Typed l res) pe' (fmap (notTyped "tcLValue") va)
-tcLValue isConst (RVariablePExpr l v) = do
-    v' <- tcVarName isConst v
+tcLValue isWrite (RVariablePExpr l v) = do
+    v' <- tcVarName isWrite v
     let t = typed $ loc v'
     return $ RVariablePExpr (Typed l t) v'
-tcLValue isConst e = genTcError (locpos $ loc e) $ text "Not a l-value expression: " <+> quotes (pp e)
+tcLValue isWrite e = genTcError (locpos $ loc e) $ text "Not a l-value expression: " <+> quotes (pp e)
 
 tcVariadicArg :: (PP (a VarIdentifier (Typed loc)),VarsIdTcM m,Located (a VarIdentifier (Typed loc)),Location loc,LocOf (a VarIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a VarIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a VarIdentifier (Typed loc),IsVariadic)
 tcVariadicArg tcA (e,isVariadic) = do
@@ -72,10 +72,15 @@ tcVariadicArg tcA (e,isVariadic) = do
         else when (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (pp e' `ppOf` pp t) <+> text "should not be variadic" 
     return (e',isVariadic)
 
+tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcPureExpr e = withPure True $ tcExpr e
+
 tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 tcExpr (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
     tcExpr $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
-tcExpr (BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
+tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
+    isPure <- getPure
+    when isPure $ genTcError (locpos l) $ text "assign expression is not pure" <+> pp ae
     pe' <- tcLValue True pe
     e' <- tcExpr e
     let tpe = typed $ loc pe'
@@ -116,11 +121,15 @@ tcExpr (BinaryExpr l e1 op e2) = do
     v <- newTyVar Nothing
     (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
-tcExpr (PreOp l op e) = do
-    e' <- tcLValue False e
+tcExpr pe@(PreOp l op e) = do
+    isPure <- getPure
+    when isPure $ genTcError (locpos l) $ text "preop is not pure" <+> pp pe
+    e' <- tcLValue True e
     tcBinaryOp l True op e'
-tcExpr (PostOp l op e) = do
-    e' <- tcLValue False e
+tcExpr pe@(PostOp l op e) = do
+    isPure <- getPure
+    when isPure $ genTcError (locpos l) $ text "postop is not pure" <+> pp pe
+    e' <- tcLValue True e
     tcBinaryOp l False op e'
 tcExpr (UnaryExpr l op e) = do
     e' <- tcExpr e
@@ -186,19 +195,19 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
-tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
-    e' <- tcAddDeps l "postindex" $ tcExpr e
-    let t = typed $ loc e'
-    (s',t') <- tcSubscript e' s
-    return $ PostIndexExpr (Typed l t') e' s'
-tcExpr (SelectionExpr l pe a) = do
-    let va = bimap mkVarId id a
-    pe' <- tcExpr pe
-    let tpe' = typed $ loc pe'
-    ctpe' <- typeToBaseType l tpe'
-    res <- newTyVar Nothing
-    topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
-    return $ SelectionExpr (Typed l res) pe' (fmap (notTyped "tcExpr") va)
+--tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
+--    e' <- tcAddDeps l "postindex" $ tcExpr e
+--    let t = typed $ loc e'
+--    (s',t') <- tcSubscript e' s
+--    return $ PostIndexExpr (Typed l t') e' s'
+--tcExpr (SelectionExpr l pe a) = do
+--    let va = bimap mkVarId id a
+--    pe' <- tcExpr pe
+--    let tpe' = typed $ loc pe'
+--    ctpe' <- typeToBaseType l tpe'
+--    res <- newTyVar Nothing
+--    topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
+--    return $ SelectionExpr (Typed l res) pe' (fmap (notTyped "tcExpr") va)
 tcExpr (ArrayConstructorPExpr l es) = do
     lit' <- tcArrayLiteral l es
     return lit'
@@ -279,7 +288,7 @@ tcArrayLiteral l es = do
     return $ ArrayConstructorPExpr (Typed l t) es'
 
 tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
-tcVarName isConst v@(VarName l n) = checkVariable isConst LocalScope (bimap mkVarId id v)
+tcVarName isWrite v@(VarName l n) = checkVariable isWrite LocalScope (bimap mkVarId id v)
 
 -- | returns the operation performed by a binary assignment operation
 binAssignOpToOp :: BinaryAssignOp loc -> Maybe (Op iden loc)

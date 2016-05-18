@@ -27,6 +27,7 @@ import Data.Set (Set(..))
 import Data.Map (Map(..))
 import Data.Foldable
 import Data.Graph.Inductive.Graph as Graph
+import Data.Generics
 
 import Control.Monad
 import Control.Monad.Except
@@ -87,6 +88,10 @@ resolveTemplateEntry p n targs pargs ret e doWrap dict = do
     let wrap = if doWrap then withTpltDecRec p dec else id
     -- prove the body (with a recursive declaration)
     wrap $ prove p "resolveTemplateEntry" $ addHeadTDict p $ templateCstrs arr def p dict
+    let tycl@(Proc _ rs ws) = tyProcClass $ DecT dec
+    isPure <- getPure
+    when isPure $ unless (Set.null rs && Set.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
+    addProcClass tycl
     return dec
 
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m (Maybe DecType)
@@ -286,7 +291,8 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = do
 --    liftIO $ putStrLn $ "inst " ++ show doc
     --liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ " " ++ ppr (entryType e)
     (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs (entryLoc e) n (entryType e)
-    (e',hdict,bdict,bgr) <- templateTDict e
+    isPure <- getPure
+    (e',hdict,bdict,bgr) <- templateTDict isPure e
     let addDicts = do
         addHeadTDict l hdict
         addHeadTDict l bdict
@@ -375,16 +381,25 @@ templateArgs l (Right name) t = case t of
 
 tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set VarIdentifier
 tpltTyVars Nothing = Set.empty
-tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName . unConstrained. fst) xs
+tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName . unConstrained . fst) xs
 
-templateTDict :: (ProverK Position m) => EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
-templateTDict e = case entryType e of
+templateTDict :: (ProverK Position m) => Bool -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
+templateTDict isPure e = case entryType e of
     DecT (DecType i isFree vars hd hfrees d bfrees specs ss) -> do
-        hd' <- liftIO $ fromPureTDict hd
+        hd' <- liftIO $ fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
         let d' = TDict Graph.empty Set.empty (pureSubsts d)
         let e' = e { entryType = DecT (DecType i isFree vars emptyPureTDict hfrees emptyPureTDict bfrees specs ss) }
-        return (e',hd',d',pureCstrs d)
+        return (e',hd',d',purify $ pureCstrs d)
     otherwise -> return (e,emptyTDict,emptyTDict,Graph.empty)
+  where
+    purify :: TCstrGraph -> TCstrGraph
+    purify = Graph.nmap (fmap add)
+    add :: TCstr -> TCstr
+    add (DelayedK c arr) = DelayedK (add c) arr
+    add (TcK c b1 b2) = TcK c b1 (b2 || isPure)
+    add (CheckK c b1 b2) = CheckK c b1 (b2 || isPure)
+    add (HypK c b1 b2) = HypK c b1 (b2 || isPure)
+  
 
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n
