@@ -393,15 +393,15 @@ resolveTcCstr l k = do
     resolveTcCstr' k@(Equals t1 t2) = do
         equals l t1 t2
     resolveTcCstr' k@(Coerces e1 x2) = do
-        coerces l e1 x2
+        coerces l (tokenizeExpr e1) x2
     resolveTcCstr' k@(Coerces2 e1 e2 x1 x2) = do
-        coerces2 l e1 e2 x1 x2
+        coerces2 l (tokenizeExpr e1) (tokenizeExpr e2) x1 x2
     resolveTcCstr' k@(CoercesLit e) = do
         coercesLit l e
     resolveTcCstr' k@(CoercesSecDimSizes e1 x2) = do
-        coercesSecDimSizes l e1 x2
+        coercesSecDimSizes l (tokenizeExpr e1) x2
     resolveTcCstr' k@(Coerces2SecDimSizes e1 e2 x1 x2) = do
-        coerces2SecDimSizes l e1 e2 x1 x2
+        coerces2SecDimSizes l (tokenizeExpr e1) (tokenizeExpr e2) x1 x2
     resolveTcCstr' k@(Unifies t1 t2) = do
         unifies l t1 t2
     resolveTcCstr' k@(UnifiesSizes szs1 szs2) = do
@@ -711,6 +711,17 @@ coerces2Type l t1 t2 = do
     x2 <- newTypedVar "x2" t3 $ Just $ pp e2
     coerces2 l e1 e2 x1 x2
     return t3
+    
+assignExpr :: ProverK loc m => loc -> Var -> Expr -> TcM m ()
+assignExpr l v e = tcCstrM_ l $ Unifies (IdxT $ varExpr v) (IdxT $ tokenizeExpr e)
+    
+tokenizeExpr :: Expr -> Expr
+tokenizeExpr e = everywhereBut (mkQ False q) (mkT f) e
+    where
+    q :: Type -> Bool
+    q t = True
+    f :: VarIdentifier -> VarIdentifier
+    f n = n { varIdTok = True }
     
 coercesNType :: ProverK loc m => loc -> [Type] -> TcM m Type
 coercesNType l [] = genTcError (locpos l) $ text "no types to coerce"

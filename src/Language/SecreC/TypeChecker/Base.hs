@@ -1671,7 +1671,7 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m SecType wher
         v' <- f v
         k' <- f k
         return $ SVar v' k'
-    substL (SVar v _) = return $ Just v
+    substL (SVar v _) | not (varIdTok v) = return $ Just v
     substL e = return $ Nothing
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m [TCstr] where
@@ -1722,7 +1722,7 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType wher
     traverseVars f (DVar v) = do
         v' <- f v
         return $ DVar v'
-    substL (DVar v) = return $ Just v
+    substL (DVar v) | not (varIdTok v) = return $ Just v
     substL _ = return Nothing
     
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m BaseType where
@@ -1737,7 +1737,7 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m BaseType whe
     traverseVars f (BVar v) = do
         v' <- f v
         return $ BVar v'
-    substL (BVar v) = return $ Just v
+    substL (BVar v) | not (varIdTok v) = return $ Just v
     substL e = return Nothing
  
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m VArrayType where
@@ -1750,7 +1750,7 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m VArrayType w
         b' <- f b
         sz' <- f sz
         return $ VAVar v' b' sz'
-    substL (VAVar v _ _) = return $ Just v
+    substL (VAVar v _ _) | not (varIdTok v) = return $ Just v
     substL e = return Nothing
  
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ComplexType where
@@ -1763,7 +1763,7 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ComplexType 
         v' <- f v
         return $ CVar v'
     traverseVars f Void = return Void
-    substL (CVar v) = return $ Just v
+    substL (CVar v) | not (varIdTok v) = return $ Just v
     substL e = return Nothing
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m SysType where
@@ -2092,7 +2092,8 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifie
         isLHS <- getLHS
         if isLHS then addBV n else addFV n
         return n
-    substL v = return $ Just v
+    substL v | not (varIdTok v) = return $ Just v
+    substL v = return Nothing
 
 -- filter the constraints that depend on a set of variables
 varsCstrGraph :: (VarsIdTcM m) => Set VarIdentifier -> IOCstrGraph -> TcM m IOCstrGraph

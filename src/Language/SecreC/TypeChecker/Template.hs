@@ -254,7 +254,9 @@ coercePArg doCoerce l isConst v2 (e,x2) = do
     tcCstrM_ l $ Unifies tx2 tt
     if doCoerce
         then tcCstrM_ l $ Coerces e x2
-        else unifiesExprTy l True (varExpr x2) e
+        else do
+            tcCstrM_ l $ Unifies (loc x2) (loc e)
+            assignExpr l x2 e
     tcCstrM_ l $ Unifies (loc v2) (loc x2)
 
 expandPArgExpr :: (ProverK loc m) => loc -> ((Expr,IsVariadic),Var) -> TcM m [(Expr,Var)]
@@ -265,7 +267,8 @@ expandPArgExpr l ((e,True),x) = do
     let at = VAType ct0 (indexExpr $ toEnum $ length vs)
     xs <- forM vs $ \v -> newTypedVar "xi" ct0 Nothing
     -- match array content
-    unifiesExprTy l True (varExpr x) (ArrayConstructorPExpr at $ map varExpr xs)
+    tcCstrM_ l $ Unifies (loc x) at
+    assignExpr l x (ArrayConstructorPExpr at $ map varExpr xs)
     return $ zip vs xs
 
 coerceProcedureArgs :: (ProverK loc m) => Bool -> loc -> [((Expr,IsVariadic),Var)] -> [(Bool,Constrained Var,IsVariadic)] -> TcM m ()

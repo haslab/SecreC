@@ -315,7 +315,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (VarName
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ VarName l' n'
-    substL (VarName _ n) = return $ Just n
+    substL (VarName _ n) = substL n
     
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ProcedureName iden loc) where
     traverseVars f v@(ProcedureName l n) = do
@@ -324,7 +324,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (Procedu
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ ProcedureName l' n'
-    substL (ProcedureName _ n) = return $ Just n
+    substL (ProcedureName _ n) = substL n
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (DomainName iden loc) where
     traverseVars f v@(DomainName l n) = do
@@ -333,7 +333,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (DomainN
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ DomainName l' n'
-    substL (DomainName _ n) = return $ Just n
+    substL (DomainName _ n) = substL n
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (KindName iden loc) where
     traverseVars f v@(KindName l n) = do
@@ -342,7 +342,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (KindNam
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ KindName l' n'
-    substL (KindName _ n) = return $ Just n
+    substL (KindName _ n) = substL n
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ModuleName iden loc) where
     traverseVars f v@(ModuleName l n) = do
@@ -351,7 +351,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ModuleN
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ ModuleName l' n'
-    substL (ModuleName _ n) = return $ Just n
+    substL (ModuleName _ n) = substL n
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateArgName iden loc) where
     traverseVars f v@(TemplateArgName l n) = do
@@ -360,7 +360,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (Templat
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ TemplateArgName l' n'
-    substL (TemplateArgName _ n) = return $ Just n
+    substL (TemplateArgName _ n) = substL n
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (AttributeName iden loc) where
     traverseVars f v@(AttributeName l n) = do
@@ -369,7 +369,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (Attribu
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ AttributeName l' n'
-    substL (AttributeName _ n) = return $ Just n
+    substL (AttributeName _ n) = substL n
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (TypeName iden loc) where
     traverseVars f v@(TypeName l n) = do
@@ -378,7 +378,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (TypeNam
         if isLHS then addBV n else addFV n
         n' <- f n
         return $ TypeName l' n'
-    substL (TypeName _ n) = return $ Just n
+    substL (TypeName _ n) = substL n
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TypeSpecifier iden loc) where
     traverseVars f (TypeSpecifier l sec d dim) = do
@@ -592,7 +592,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
             e' <- f e
             return $ QuantifiedExpr l' q' vs' e'
     
-    substL (RVariablePExpr _ v) = return $ Just $ varNameId v
+    substL (RVariablePExpr _ v) = substL $ varNameId v
     substL e = return Nothing
 
 instance (Location loc,Vars iden m loc) => Vars iden m (Quantifier loc) where
@@ -638,7 +638,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         t' <- f t
         return $ VariableSpecifier l' t'
-    substL (VariableSpecifier l (TypeName _ n)) = return $ Just n
+    substL (VariableSpecifier l (TypeName _ n)) = substL n
     substL s = return Nothing
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateTypeArgument iden loc) where
@@ -670,7 +670,7 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (SecType
         l' <- f l
         d' <- f d
         return $ PrivateSpecifier l' d'
-    substL (PrivateSpecifier l (DomainName _ n)) = return $ Just n
+    substL (PrivateSpecifier l (DomainName _ n)) = substL n
     substL s = return Nothing
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (VariableDeclaration iden loc) where
