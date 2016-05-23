@@ -684,6 +684,9 @@ ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t 
 data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
+attributeName :: Attribute iden loc -> AttributeName iden loc
+attributeName (Attribute _ t a) = a
+
 instance (Binary iden,Binary loc) => Binary (Attribute iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (Attribute iden loc)
  

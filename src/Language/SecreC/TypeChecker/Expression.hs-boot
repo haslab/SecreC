@@ -36,7 +36,7 @@ tcExprTy :: (ProverK loc m) => Type -> Expression Identifier loc -> TcM m (Expre
 
 tcExprTy' :: (ProverK loc m) => Type -> Expression VarIdentifier (Typed loc) -> TcM m (Expression VarIdentifier (Typed loc))
 
-tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
+tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
 
 tcSizes :: (ProverK loc m) => loc -> Sizes Identifier loc -> TcM m (Sizes VarIdentifier (Typed loc))
 

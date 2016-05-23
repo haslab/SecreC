@@ -34,7 +34,7 @@ tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM 
 
 refineTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes VarIdentifier Type) -> TcM m Type
 
-tcCastType :: (MonadIO m,Location loc) => CastType Identifier loc -> TcM m (CastType VarIdentifier (Typed loc))
+tcCastType :: (ProverK loc m) => CastType Identifier loc -> TcM m (CastType VarIdentifier (Typed loc))
 
 typeDim :: (ProverK loc m) => loc -> Type -> TcM m (Expression VarIdentifier Type)
 
@@ -42,7 +42,7 @@ matchTypeDimension :: (ProverK loc m) => loc -> Expression VarIdentifier Type ->
 
 projectMatrixType :: (ProverK loc m) => loc -> Type -> [ArrayProj] -> TcM m Type
 
-projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m Type
+projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m ComplexType
 
 tcTemplateTypeArgument :: (ProverK loc m) => TemplateTypeArgument Identifier loc -> TcM m (TemplateTypeArgument VarIdentifier (Typed loc))
 

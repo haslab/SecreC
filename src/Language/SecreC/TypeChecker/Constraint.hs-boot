@@ -80,6 +80,8 @@ isTyOf :: (ProverK loc m) => loc -> Type -> Type -> TcM m Bool
 
 expandCTypeVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
 
+assignsExprTy :: (ProverK loc m) => loc -> Var -> Expr -> TcM m ()
+
 unifies :: (ProverK loc m) => loc -> Type -> Type -> TcM m ()
 
 tcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()

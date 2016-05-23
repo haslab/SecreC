@@ -814,6 +814,18 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         a' <- inLHS $ f a
         return $ Attribute l' t' a'
 
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [AttributeName iden loc] where
+    traverseVars f = mapM f
+
+instance PP iden => PP [AttributeName iden loc] where
+    pp atts = vcat $ map pp atts
+
+instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [Attribute iden loc] where
+    traverseVars f = mapM f
+
+instance PP iden => PP [Attribute iden loc] where
+    pp atts = vcat $ map pp atts
+
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateQuantifier iden loc) where
     traverseVars f (DomainQuantifier l b d k) = do
         l' <- f l

@@ -98,16 +98,16 @@ typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
 typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp TType)
 
-tcCastType :: (MonadIO m,Location loc) => CastType Identifier loc -> TcM m (CastType VarIdentifier (Typed loc))
+tcCastType :: (ProverK loc m) => CastType Identifier loc -> TcM m (CastType VarIdentifier (Typed loc))
 tcCastType (CastPrim p) = do
     liftM CastPrim $ tcPrimitiveDatatype p
 tcCastType (CastTy v) = do
     liftM CastTy $ tcTypeName v
 
-tcTypeName :: (MonadIO m,Location loc) => TypeName Identifier loc -> TcM m (TypeName VarIdentifier (Typed loc))
-tcTypeName v@(TypeName l n) = do
+tcTypeName :: (ProverK loc m) => TypeName Identifier loc -> TcM m (TypeName VarIdentifier (Typed loc))
+tcTypeName tn@(TypeName l n) = do
     let n' = mkVarId n
-    checkNonTemplateType (TypeName l n')
+    checkTypeName (TypeName l n')
 
 tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM m (TypeSpecifier VarIdentifier (Typed loc))
 tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
@@ -127,7 +127,8 @@ buildTypeSpec l tsec tdta tdim True = do
     ts <- forM tzips $ \(s,b,dim) -> buildTypeSpec l s b dim False
     case ts of
         [t] -> do
-            sz <- newSizeVar Nothing
+            sz@(RVariablePExpr _ n) <- newSizeVar Nothing
+            removeFree $ varNameId n
             return $ VAType t sz
         otherwise -> return $ VArrayT $ VAVal ts TType
 buildTypeSpec l tsec tdta dim False = do
@@ -172,14 +173,13 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     let ts = map (mapFst (typed . loc)) args'
     let vn = bimap mkVarId id n
     dec <- newDecVar Nothing
-    topTcCstrM_ l $ TDec (funit vn) ts dec
+    topTcCstrM_ l $ TDec True (funit vn) ts dec
     let ret = TApp (funit vn) ts dec
     let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
-tcDatatypeSpec (VariableSpecifier l (TypeName nl n)) = do
-    let n' = mkVarId n
-    v' <- checkNonTemplateType (TypeName nl n')  
-    return $ VariableSpecifier (Typed l $ typed $ loc v') v'
+tcDatatypeSpec (VariableSpecifier l tn) = do
+    tn' <- tcTypeName tn
+    return $ VariableSpecifier (Typed l $ typed $ loc tn') tn'
 
 tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM m (PrimitiveDatatype (Typed loc))
 tcPrimitiveDatatype p = do
@@ -200,7 +200,7 @@ tcTemplateTypeArgument (PrimitiveTemplateTypeArgument l p) = do
     let t = typed $ loc p'
     return $ PrimitiveTemplateTypeArgument (Typed l t) p'
 tcTemplateTypeArgument (ExprTemplateTypeArgument l e) = do
-    e' <- tcExpr e
+    e' <- tcPureExpr e
     let t = IdxT (fmap typed e')
     return $ ExprTemplateTypeArgument (Typed l t) e'
 tcTemplateTypeArgument (PublicTemplateTypeArgument l) = do
@@ -290,28 +290,30 @@ projectSize p t i (Just x) y1 y2 = do
             liftM Just $ subtractIndexExprs p False eupp elow          
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m Type
-structBody l d@(DecType _ _ _ _ _ _ _ _ b) | not (isTemplateDecType d) = structBody l b
+structBody l d@(DecType _ False _ _ _ _ _ _ b) = structBody l b
+structBody l d@(DecType did True _ _ _ _ _ _ (StructType sl sid _)) = do
+    (DecType _ _ _ _ _ _ _ _ s@(StructType {})) <- checkStruct l sid did
+    return $ DecT s
 structBody l s@(StructType {}) = return $ DecT s
 structBody l (DVar v) = resolveDVar l v >>= structBody l
 structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
-projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m Type
+projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m ComplexType
 projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
-projectStructField l t@(BVar _) a = tcError (locpos l) $ Halt $ FieldNotFound (pp t) (pp a)
+projectStructField l t@(BVar v) a = do
+    b <- resolveBVar l v
+    projectStructField l b a
 projectStructField l (TApp _ _ d) a = do
     DecT r <- structBody l d
     projectStructFieldDec l r a
     
-projectStructFieldDec :: (ProverK loc m) => loc -> DecType -> AttributeName VarIdentifier () -> TcM m Type
+projectStructFieldDec :: (ProverK loc m) => loc -> DecType -> AttributeName VarIdentifier () -> TcM m ComplexType
 projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field
-    case List.find (\(Constrained (Attribute _ t f) c) -> attributeNameId f == a) atts of
+    case List.find (\(AttributeName t f) -> f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
-        Just (Constrained (Attribute _ t f) c) -> do
-            case c of
-                Nothing -> return ()
-                Just k -> getDeps >>= \deps -> checkCstrM_ l deps $ CheckAssertion k
-            return $ typeSpecifierLoc t 
+        Just (AttributeName t f) -> do
+            typeToComplexType l t
 
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM m (Type,Maybe (Sizes VarIdentifier (Typed loc)))

@@ -157,7 +157,7 @@ tcExpr (StringFromBytesExpr l e) = do
 tcExpr (BytesFromStringExpr l e) = do
     e' <- tcExprTy (BaseT string) e
     return $ BytesFromStringExpr (Typed l $ ComplexT bytes) e'
-tcExpr (VArraySizeExpr l e) = do
+tcExpr (VArraySizeExpr l e) = withPure False $ do -- the size of a variadic array is always pure
     e' <- tcExpr e
     let t = typed $ loc e'
     unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (pp e)
@@ -195,26 +195,29 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
---tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
---    e' <- tcAddDeps l "postindex" $ tcExpr e
---    let t = typed $ loc e'
---    (s',t') <- tcSubscript e' s
---    return $ PostIndexExpr (Typed l t') e' s'
---tcExpr (SelectionExpr l pe a) = do
---    let va = bimap mkVarId id a
---    pe' <- tcExpr pe
---    let tpe' = typed $ loc pe'
---    ctpe' <- typeToBaseType l tpe'
---    res <- newTyVar Nothing
---    topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
---    return $ SelectionExpr (Typed l res) pe' (fmap (notTyped "tcExpr") va)
+tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
+    e' <- tcAddDeps l "postindex" $ tcExpr e
+    let t = typed $ loc e'
+    (s',t') <- tcSubscript e' s
+    return $ PostIndexExpr (Typed l t') e' s'
+tcExpr (SelectionExpr l pe a) = do
+    let va = bimap mkVarId id a
+    pe' <- tcExpr pe
+    let tpe' = typed $ loc pe'
+    ctpe' <- typeToBaseType l tpe'
+    tres <- newTyVar Nothing
+    topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
+    return $ SelectionExpr (Typed l tres) pe' (fmap (notTyped "tcExpr") va)
 tcExpr (ArrayConstructorPExpr l es) = do
     lit' <- tcArrayLiteral l es
     return lit'
 tcExpr (LitPExpr l lit) = do
     lit' <- tcLiteral lit
     return lit'
-tcExpr e = tcLValue False e
+tcExpr (RVariablePExpr l v) = do
+    v' <- tcVarName False v
+    let t = typed $ loc v'
+    return $ RVariablePExpr (Typed l t) v'
 
 stmtsReturnExprs :: (Data iden,Data loc) => [Statement iden loc] -> [Expression iden loc]
 stmtsReturnExprs ss = concatMap stmtReturnExprs ss
@@ -287,8 +290,10 @@ tcArrayLiteral l es = do
     topTcCstrM_ l $ CoercesLit elit
     return $ ArrayConstructorPExpr (Typed l t) es'
 
-tcVarName :: (MonadIO m,Location loc) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
-tcVarName isWrite v@(VarName l n) = checkVariable isWrite LocalScope (bimap mkVarId id v)
+tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
+tcVarName isWrite v@(VarName l n) = do
+    isPure <- getPure
+    checkVariable isWrite isPure LocalScope (bimap mkVarId id v)
 
 -- | returns the operation performed by a binary assignment operation
 binAssignOpToOp :: BinaryAssignOp loc -> Maybe (Op iden loc)

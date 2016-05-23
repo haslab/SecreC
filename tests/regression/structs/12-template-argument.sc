@@ -1,6 +1,13 @@
 kind additive3p;
 domain pd_a3p additive3p;
 
+template <type T>
+pd_a3p T classify (public T x) {
+    //stub
+    pd_a3p T ret;
+    return ret;
+}
+
 template <domain D>
 struct point {
     D uint x;

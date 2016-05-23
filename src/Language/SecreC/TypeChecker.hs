@@ -209,7 +209,7 @@ tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc
 tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = do
     hdeps <- getDeps
     atts' <- mapM tcAttribute atts
-    let t = DecT $ StructType (locpos l) (TypeName () $ mkVarId tn) $ map (flip Constrained Nothing . fmap typed) atts'
+    let t = DecT $ StructType (locpos l) (TypeName () $ mkVarId tn) $ map (fmap typed) (map attributeName atts')
     let ty' = TypeName (Typed tl t) $ mkVarId tn
     ty'' <- addStruct hdeps ty'
     return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'

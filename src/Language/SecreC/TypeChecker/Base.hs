@@ -257,10 +257,10 @@ unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
 withPure :: Monad m => Bool -> TcM m a -> TcM m a
 withPure b m = do
-    env <- State.get
+    old <- liftM isPure State.get
     State.modify $ \env -> env { isPure = b }
     x <- m
-    State.modify $ \env -> env { isPure = isPure env }
+    State.modify $ \env -> env { isPure = old }
     return x
     
 getPure :: Monad m => TcM m Bool
@@ -562,9 +562,10 @@ isGlobalTcCstr _ = False
 -- | A template constraint with a result type
 data TcCstr
     = TDec -- ^ type template declaration
+        Bool -- is template
         (TypeName VarIdentifier ()) -- template name
         [(Type,IsVariadic)] -- template arguments
-        DecType -- result
+        DecType -- resulting type
     | PDec -- ^ procedure declaration
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
@@ -594,6 +595,8 @@ data TcCstr
         Expr -- literal expression with the base type given at the top-level
     | Unifies -- unification
         Type Type -- ^ type unification
+    | Assigns -- assignment
+        Type Type
     | UnifiesSizes (Maybe [(Expr,IsVariadic)]) (Maybe [(Expr,IsVariadic)])
     | SupportedPrint
         [(Expr,IsVariadic)] -- ^ can call tostring on the argument type
@@ -605,7 +608,7 @@ data TcCstr
         Type [ArrayProj]
         Type -- result
     | IsReturnStmt (Set StmtClass) -- ^ is return statement
-    | MultipleSubstitutions Type [(Maybe Type,[TCstr])]
+    | MultipleSubstitutions Type [(Maybe Type,[TCstr],Set VarIdentifier)]
     | MatchTypeDimension
         Expr -- type dimension
         [(Expr,IsVariadic)] -- sequence of sizes
@@ -625,6 +628,7 @@ isTrivialTcCstr (Equals t1 t2) = t1 == t2
 isTrivialTcCstr (Coerces e v) = e == varExpr v
 isTrivialTcCstr (CoercesSecDimSizes e v) = e == varExpr v
 isTrivialTcCstr (Unifies t1 t2) = t1 == t2
+isTrivialTcCstr (Assigns t1 t2) = t1 == t2
 isTrivialTcCstr (IsValid c) = c == trueExpr
 isTrivialTcCstr _ = False
  
@@ -751,7 +755,7 @@ ppExprTy e = pp e <+> text "::" <+> pp (loc e)
 ppVarTy v = ppExprTy (varExpr v)
 
 instance PP TcCstr where
-    pp (TDec n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
+    pp (TDec isTplt n ts x) = text "tdec" <+> pp n <+> sepBy space (map pp ts) <+> char '=' <+> pp x
     pp (PDec n specs ts r x doCoerce xs) = pp r <+> pp n <+> abrackets (sepBy comma (map pp $ maybe [] id specs)) <+> parens (sepBy comma (map (ppVariadicArg ppExprTy) ts)) <+> char '=' <+> pp x <+> ppCoerce <+> parens (sepBy comma $ map ppExprTy xs)
         where ppCoerce = if doCoerce then text "~~>" else text "-->"
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
@@ -761,11 +765,12 @@ instance PP TcCstr where
     pp (CoercesLit e) = text "coerceslit" <+> ppExprTy e
     pp (Coerces2 e1 e2 v1 v2) = text "coerces2" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
+    pp (Assigns t1 t2) = text "assigns" <+> pp t1 <+> pp t2
     pp (UnifiesSizes t1 t2) = text "unifiessizes" <+> pp t1 <+> pp t2
     pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
-    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> sepBy space (map (pp . fst) s)
+    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> sepBy space (map (pp . fst3) s)
     pp (MatchTypeDimension d sz) = text "matchtypedimension" <+> pp d <+> pp sz
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (NotEqual e1 e2) = text "not equal" <+> pp e1 <+> pp e2
@@ -868,11 +873,11 @@ indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
 indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
     
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
-    traverseVars f (TDec n args x) = do
+    traverseVars f (TDec isTplt n args x) = do
         n' <- f n
         args' <- mapM f args
         x' <- f x
-        return $ TDec n' args' x'
+        return $ TDec isTplt n' args' x'
     traverseVars f (PDec n ts args ret x doCoerce xs) = do
         n' <- f n
         x' <- f x
@@ -912,6 +917,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         t1' <- f t1
         t2' <- f t2
         return $ Unifies t1' t2'
+    traverseVars f (Assigns t1 t2) = do
+        t1' <- f t1
+        t2' <- f t2
+        return $ Assigns t1' t2'
     traverseVars f (UnifiesSizes t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -1288,6 +1297,9 @@ tyProcClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
 tyProcClass (DecT (ProcType _ _ _ _ _ _ cl)) = cl
 tyProcClass t = error $ "tyProcClass: " ++ show t
 
+decTypeFrees :: DecType -> Set VarIdentifier
+decTypeFrees (DecType _ _ _ _ hfs _ bfs _ _) = Set.union hfs bfs
+
 decTypeId :: DecType -> Maybe (DecIdentifier,ModuleTyVarId)
 decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
     (Just x,Just y) -> Just (x,y)
@@ -1311,7 +1323,7 @@ data DecType
     | StructType -- ^ Struct type
         Position -- ^ location of the procedure declaration
         SIdentifier
-        [Constrained (Attribute VarIdentifier Type)] -- ^ typed arguments
+        [AttributeName VarIdentifier Type] -- ^ typed arguments
     | DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
         Bool -- is a recursive invocation
@@ -1376,7 +1388,7 @@ instance (MonadIO m,Vars VarIdentifier m a) => Vars VarIdentifier m (Constrained
 
 data BaseType
     = TyPrim Prim
-    | TApp SIdentifier [(Type,IsVariadic)] DecType
+    | TApp SIdentifier [(Type,IsVariadic)] DecType -- template type application
     | BVar VarIdentifier
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
@@ -1480,7 +1492,9 @@ instance PP DecType where
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (text "...")
+        $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (vcat $ map ppAtt atts)
+      where
+        ppAtt (AttributeName t n) = pp t <+> pp n
     pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret ann stmts _)) =
         text "Frees:" <+> pp hfrees
         $+$ pp hdict
@@ -1508,7 +1522,9 @@ instance PP DecType where
         $+$ pp ann
         $+$ braces (pp stmts)
     pp (DVar v) = pp v
-    pp (StructType _ n atts) = text "struct" <+> pp n <+> braces (text "...")
+    pp (StructType _ n atts) = text "struct" <+> pp n <+> braces (vcat $ map ppAtt atts)
+        where
+        ppAtt (AttributeName t n) = pp t <+> pp n
     pp d = error $ "pp: " ++ show d
 instance PP BaseType where
     pp (TyPrim p) = pp p
@@ -2082,7 +2098,7 @@ withoutImplicitClassify :: Monad m => TcM m a -> TcM m a
 withoutImplicitClassify m = localOpts (\opts -> opts { implicitCoercions = False }) m
 
 instance MonadIO m => GenVar VarIdentifier (TcM m) where
-    genVar v = freeVarId (varIdBase v) (varIdPretty v)
+    genVar v = freshVarId (varIdBase v) (varIdPretty v)
 
 instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
     genVar v = freshVarIO v
