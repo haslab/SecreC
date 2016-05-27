@@ -386,8 +386,7 @@ noTSubsts d = d { pureSubsts = emptyTSubsts }
 -- adds the template constraints
 addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
 addTemplateOperator vars hdeps op = do
-    let Typed l t = loc op
-    d <- typeToDecType l t
+    let Typed l (IDecT d) = loc op
     let o = funit op
     solve l "addTemplateOperator"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
@@ -403,9 +402,8 @@ addTemplateOperator vars hdeps op = do
 -- | Adds a new (possibly overloaded) operator to the environment.
 newOperator :: (ProverK loc m) => Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
 newOperator hdeps op = do
-    let Typed l t = loc op
+    let (Typed l (IDecT d)) = loc op
     let o = funit op
-    d <- typeToDecType l t
     (_,recdict) <- tcProve l "newOp head" $ addHeadTFlatCstrs l hdeps
     addHeadTDict l recdict
     i <- newModuleTyVarId
@@ -446,9 +444,8 @@ checkOperator isAnn op = do
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
 addTemplateProcedure :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
-addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
+addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
-    d <- typeToDecType l t
     solve l "addTemplateProcedure"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
@@ -458,12 +455,11 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l t) n) = do
     let e = EntryEnv (locpos l) dt'
     liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e) ++ ppr hbsubsts
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
-    return $ updLoc pn (Typed (unTyped $ loc pn) dt')
+    return $ ProcedureName (Typed l dt') n
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
 newProcedure :: (ProverK loc m) => Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
-newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
-    d <- typeToDecType l t
+newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     -- prove the head constraints first
     (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l hdeps
     addHeadTDict l recdict
@@ -484,7 +480,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     noFrees e
     --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
-    return $ updLoc pn (Typed (unTyped $ loc pn) (DecT dt))
+    return $ ProcedureName (Typed l $ DecT dt) n
   
  -- | Checks that a procedure exists.
 checkProcedure :: (MonadIO m,Location loc) => Bool -> ProcedureName VarIdentifier loc -> TcM m [EntryEnv]
@@ -656,7 +652,7 @@ noFrees e = do
     let vs = Set.difference frees $ Map.keysSet ss
     unless (Set.null vs) $ genTcError (loc e) $ text "variables" <+> pp vs <+> text "should not be free in" $+$ pp e
     
-splitHead :: (ProverK loc m) => loc -> Set LocIOCstr -> DecType -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier)
+splitHead :: (ProverK loc m) => loc -> Set LocIOCstr -> InnerDecType -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier)
 splitHead l deps dec = do
     d <- liftM (head . tDict) State.get
     frees <- getFrees l
@@ -677,8 +673,7 @@ splitHead l deps dec = do
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
 addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
-addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
-    d <- typeToDecType l t
+addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
@@ -690,13 +685,12 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l t) n) = do
     case Map.lookup n ss of
         Just es -> tcError (locpos l) $ MultipleDefinedStructTemplate (pp n) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
-    return $ updLoc tn (Typed (unTyped $ loc tn) dt')
+    return $ TypeName (Typed l dt') n
     
 -- Adds a new (possibly overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
 addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
-addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) = do
-    d <- typeToDecType l t
+addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStructSpecialization"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
@@ -705,13 +699,12 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l t) n) 
     dt' <- substFromTSubsts "templateStructSpec" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
-    return $ updLoc tn (Typed (unTyped $ loc tn) dt')
+    return $ TypeName (Typed l dt') n
 
 -- | Defines a new struct type
 newStruct :: (ProverK loc m) => Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
-newStruct hdeps tn@(TypeName (Typed l t) n) = do
+newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     addGDependencies $ Right $ Right n
-    d <- typeToDecType l t
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l hdeps
     addHeadTDict l recdict
@@ -737,7 +730,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
             let e = EntryEnv (locpos l) dt
             liftIO $ putStrLn $ "newStruct: " ++ ppr l ++ " " ++ ppr e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
-            return $ updLoc tn (Typed (unTyped $ loc tn) dt)
+            return $ TypeName (Typed l dt) n
 
 data SubstMode = CheckS | NoFailS | NoCheckS
     deriving (Eq,Data,Typeable,Show)

@@ -1285,7 +1285,6 @@ instance Hashable SVarKind
 
 tyProcClass :: Type -> ProcClass
 tyProcClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
-tyProcClass (DecT (ProcType _ _ _ _ _ _ cl)) = cl
 tyProcClass t = error $ "tyProcClass: " ++ show t
 
 decTypeFrees :: DecType -> Set VarIdentifier
@@ -1297,12 +1296,28 @@ decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
     otherwise -> Nothing
     
 decTypeDecId :: DecType -> Maybe DecIdentifier
-decTypeDecId (DecType _ _ _ _ _ _ _ _ d) = decTypeDecId d
-decTypeDecId (ProcType _ p _ _ _ _ _) = Just $ Left p
-decTypeDecId (StructType _ (TypeName _ s) _) = Just $ Right s
+decTypeDecId (DecType _ _ _ _ _ _ _ _ d) = decTypeDecId' d
+    where
+    decTypeDecId' (ProcType _ p _ _ _ _ _) = Just $ Left p
+    decTypeDecId' (StructType _ (TypeName _ s) _) = Just $ Right s
 decTypeDecId d = Nothing
 
 data DecType
+    = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
+        ModuleTyVarId -- ^ unique template declaration id
+        Bool -- is a recursive invocation
+        [(Constrained Var,IsVariadic)] -- ^ template variables
+        PureTDict -- ^ constraints for the header
+        (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
+        PureTDict -- ^ constraints for the template
+        (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
+        [(Type,IsVariadic)] -- ^ template specializations
+        InnerDecType -- ^ template's type
+    | DVar -- declaration variable
+        VarIdentifier
+  deriving (Typeable,Show,Data,Generic)
+
+data InnerDecType
     = ProcType -- ^ procedure type
         Position
         PIdentifier
@@ -1315,19 +1330,7 @@ data DecType
         Position -- ^ location of the procedure declaration
         SIdentifier
         [AttributeName VarIdentifier Type] -- ^ typed arguments
-    | DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
-        ModuleTyVarId -- ^ unique template declaration id
-        Bool -- is a recursive invocation
-        [(Constrained Var,IsVariadic)] -- ^ template variables
-        PureTDict -- ^ constraints for the header
-        (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
-        PureTDict -- ^ constraints for the template
-        (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
-        [(Type,IsVariadic)] -- ^ template specializations
-        DecType -- ^ template's type
-    | DVar -- declaration variable
-        VarIdentifier
-  deriving (Typeable,Show,Data,Generic)
+  deriving (Typeable,Show,Data,Generic,Eq,Ord)
 
 isTemplateDecType :: DecType -> Bool
 isTemplateDecType (DecType _ _ ts _ _ _ _ specs _) = not (null ts && null specs)
@@ -1343,6 +1346,8 @@ isNonRecursiveDecType d = False
 
 instance Binary DecType
 instance Hashable DecType
+instance Binary InnerDecType
+instance Hashable InnerDecType
 
 instance Eq DecType where
     (DVar v1) == (DVar v2) = v1 == v2
@@ -1425,6 +1430,7 @@ data Type
     | BaseT BaseType
     | SecT SecType
     | DecT DecType
+    | IDecT InnerDecType -- internal only
     | SysT SysType
     | VArrayT VArrayType -- for variadic array types
     | IdxT Expr -- for index expressions
@@ -1504,6 +1510,13 @@ instance PP DecType where
         $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
+    pp (DVar v) = pp v
+    pp d = error $ "pp: " ++ show d
+
+instance PP InnerDecType where
+    pp (StructType _ n atts) = text "struct" <+> pp n <+> braces (vcat $ map ppAtt atts)
+        where
+        ppAtt (AttributeName t n) = pp t <+> pp n
     pp (ProcType _ (Left n) args ret ann stmts _) =
             pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
@@ -1512,11 +1525,7 @@ instance PP DecType where
             pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
-    pp (DVar v) = pp v
-    pp (StructType _ n atts) = text "struct" <+> pp n <+> braces (vcat $ map ppAtt atts)
-        where
-        ppAtt (AttributeName t n) = pp t <+> pp n
-    pp d = error $ "pp: " ++ show d
+        
 instance PP BaseType where
     pp (TyPrim p) = pp p
     pp (TApp n ts d) = pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)
@@ -1544,6 +1553,7 @@ instance PP Type where
     pp (ComplexT c) = pp c
     pp (SecT s) = pp s
     pp (DecT d) = pp d
+    pp (IDecT d) = pp d
     pp (SysT s) = pp s
     pp (IdxT e) = pp e
     pp (VArrayT a) = pp a
@@ -1598,7 +1608,6 @@ typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
 
 isStruct :: DecType -> Bool
 isStruct (DecType _ _ _ _ _ _ _ _ (StructType {})) = True
-isStruct (StructType {}) = True
 isStruct _ = False
 
 isStructTemplate :: Type -> Bool
@@ -1705,18 +1714,6 @@ instance PP ProcClass where
     pp (Proc True r w) = text "annotation procedure" <+> pp r <+> pp w
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType where
-    traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
-        n' <- f n
-        vs' <- inLHS $ mapM f vs
-        t' <- f t
-        ann' <- mapM f ann
-        stmts' <- f stmts
-        c' <- f c
-        return $ ProcType p n' vs' t' ann' stmts' c'
-    traverseVars f (StructType p n as) = varsBlock $ do
-        n' <- f n
-        as' <- inLHS $ mapM f as
-        return $ StructType p n' as'
     traverseVars f (DecType tid isrec vs hd hfrees d frees spes t) = varsBlock $ do
         vs' <- inLHS $ mapM f vs
         hfrees' <- liftM Set.fromList $ mapM f $ Set.toList hfrees
@@ -1731,6 +1728,20 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType wher
         return $ DVar v'
     substL (DVar v) | not (varIdTok v) = return $ Just v
     substL _ = return Nothing
+
+instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m InnerDecType where
+    traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
+        n' <- f n
+        vs' <- inLHS $ mapM f vs
+        t' <- f t
+        ann' <- mapM f ann
+        stmts' <- f stmts
+        c' <- f c
+        return $ ProcType p n' vs' t' ann' stmts' c'
+    traverseVars f (StructType p n as) = varsBlock $ do
+        n' <- f n
+        as' <- inLHS $ mapM f as
+        return $ StructType p n' as'
     
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m BaseType where
     traverseVars f (TyPrim p) = do
@@ -1950,8 +1961,6 @@ isPublicSecType _ = False
 type ModuleTyVarId = (Identifier,TyVarId)
 
 decTypeTyVarId :: DecType -> Maybe ModuleTyVarId
-decTypeTyVarId (StructType _ _ _) = Nothing
-decTypeTyVarId (ProcType _ _ _ _ _ _ _) = Nothing
 decTypeTyVarId (DecType i _ _ _ _ _ _ _ _) = Just i
 decTypeTyVarId (DVar _) = Nothing
 

@@ -123,7 +123,7 @@ removeTemplate l t@(DecType i isrec targs hdict hfrees bdict bfrees [] d@(Struct
 removeTemplate l t@(DecType i isrec targs hdict hfrees bdict bfrees specs d@(StructType {})) = do
     return $ DecType i False [] hdict hfrees bdict bfrees specs d
 removeTemplate l (DVar v) = resolveDVar l v >>= removeTemplate l
-removeTemplate l t = genTcError (locpos l) $ text "removeTemplate" <+> pp t
+--removeTemplate l t = genTcError (locpos l) $ text "removeTemplate" <+> pp t
 
 ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> TcM m Doc
 ppTpltAppM l pid args es ret = do
@@ -383,9 +383,10 @@ templateIdentifier :: Type -> TIdentifier
 templateIdentifier (DecT t) = templateIdentifier' t
     where
     templateIdentifier' :: DecType -> TIdentifier
-    templateIdentifier' (DecType _ _ _ _ _ _ _ _ t) = templateIdentifier' t
-    templateIdentifier' (ProcType _ n _ _ _ _ _) = Right n
-    templateIdentifier' (StructType _ n _) = Left n
+    templateIdentifier' (DecType _ _ _ _ _ _ _ _ t) = templateIdentifier'' t
+        where
+        templateIdentifier'' (ProcType _ n _ _ _ _ _) = Right n
+        templateIdentifier'' (StructType _ n _) = Left n
    
 -- has type or procedure constrained arguments     
 --hasCondsDecType :: (MonadIO m) => DecType -> TcM m Bool
@@ -458,22 +459,25 @@ localTemplateType (ss0::SubstsProxy VarIdentifier (TcM m)) ssBounds (l::loc) et 
         let ssBounds1 = ssBounds `Map.union` Map.fromList freelst
         (args',ss,ssBounds2) <- uniqueTyVars l freess ssBounds1 args
         specials' <- substProxy "localTplt" ss False ssBounds2 specials
-        (body',ss',ssBounds3) <- localTemplateType ss ssBounds2 l body
+        (body',ss',ssBounds3) <- localTemplateInnerType ss ssBounds2 l body
         hcstrs' <- substProxy "localTplt" ss' False ssBounds3 hcstrs
         cstrs' <- substProxy "localTplt" ss' False ssBounds3 cstrs
         return (DecType tpltid isrec args' hcstrs' (Set.fromList hfrees') cstrs' (Set.fromList bfrees') (zip specials' isVariadics2) body',ss',ssBounds3)
-    ProcType p pid args ret ann stmts c -> do
-        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
-        pid' <- substProxy "localTplt" ss False ssBounds1 pid
-        ret' <- substProxy "localTplt" ss False ssBounds1 ret
-        ann' <- substProxy "localTplt" ss False ssBounds1 ann
-        stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
-        return (ProcType p pid' args' ret' ann' stmts' c,ss,ssBounds1)
-    StructType p sid atts -> do
-        sid' <- substProxy "localTplt" ss0 False ssBounds sid
-        atts' <- substProxy "localTplt" ss0 False ssBounds atts
-        return (StructType p sid' atts',ss0,ssBounds)
   where
+    localTemplateInnerType :: (ProverK loc m) => SubstsProxy VarIdentifier (TcM m) -> Map VarIdentifier VarIdentifier -> loc -> InnerDecType -> TcM m (InnerDecType,SubstsProxy VarIdentifier (TcM m),Map VarIdentifier VarIdentifier)
+    localTemplateInnerType (ss0::SubstsProxy VarIdentifier (TcM m)) ssBounds (l::loc) et = case et of
+        ProcType p pid args ret ann stmts c -> do
+            (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
+            pid' <- substProxy "localTplt" ss False ssBounds1 pid
+            ret' <- substProxy "localTplt" ss False ssBounds1 ret
+            ann' <- substProxy "localTplt" ss False ssBounds1 ann
+            stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
+            return (ProcType p pid' args' ret' ann' stmts' c,ss,ssBounds1)
+        StructType p sid atts -> do
+            sid' <- substProxy "localTplt" ss0 False ssBounds sid
+            atts' <- substProxy "localTplt" ss0 False ssBounds atts
+            return (StructType p sid' atts',ss0,ssBounds)
+            
     freeVar v = do
         (mn,j) <- newModuleTyVarId
         let v' = v { varIdUniq = Just j, varIdModule = Just mn }

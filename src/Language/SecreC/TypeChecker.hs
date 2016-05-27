@@ -154,7 +154,7 @@ tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = do
     ann' <- mapM tcProcedureAnn ann
     s' <- tcStmtsRet l tret s
     cl <- liftM procClass State.get
-    let tproc = DecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
+    let tproc = IDecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
     let op' = updLoc top (Typed l tproc)
     op'' <- addOp hdeps op'
     let dec' = OperatorDeclaration (notTyped "tcProcedureDecl" l) ret' op'' ps' ann' s'
@@ -169,7 +169,7 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
     ann' <- mapM tcProcedureAnn ann
     s' <- tcStmtsRet l tret s
     cl <- liftM procClass State.get
-    let tproc = DecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
+    let tproc = IDecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     proc'' <- addProc hdeps proc'
     let dec' = ProcedureDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' ann' s'
@@ -209,7 +209,7 @@ tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc
 tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = do
     hdeps <- getDeps
     atts' <- mapM tcAttribute atts
-    let t = DecT $ StructType (locpos l) (TypeName () $ mkVarId tn) $ map (fmap typed) (map attributeName atts')
+    let t = IDecT $ StructType (locpos l) (TypeName () $ mkVarId tn) $ map (fmap typed) (map attributeName atts')
     let ty' = TypeName (Typed tl t) $ mkVarId tn
     ty'' <- addStruct hdeps ty'
     return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'

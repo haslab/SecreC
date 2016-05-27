@@ -289,12 +289,11 @@ projectSize p t i (Just x) y1 y2 = do
             errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp t) i (pp elow <> char ':' <> pp eupp) arrerr
             liftM Just $ subtractIndexExprs p False eupp elow          
 
-structBody :: (ProverK loc m) => loc -> DecType -> TcM m Type
-structBody l d@(DecType _ False _ _ _ _ _ _ b) = structBody l b
+structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
+structBody l d@(DecType _ False _ _ _ _ _ _ b) = return b
 structBody l d@(DecType did True _ _ _ _ _ _ (StructType sl sid _)) = do
     (DecType _ _ _ _ _ _ _ _ s@(StructType {})) <- checkStruct l sid did
-    return $ DecT s
-structBody l s@(StructType {}) = return $ DecT s
+    return s
 structBody l (DVar v) = resolveDVar l v >>= structBody l
 structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
 
@@ -305,10 +304,10 @@ projectStructField l t@(BVar v) a = do
     b <- resolveBVar l v
     projectStructField l b a
 projectStructField l (TApp _ _ d) a = do
-    DecT r <- structBody l d
+    r <- structBody l d
     projectStructFieldDec l r a
     
-projectStructFieldDec :: (ProverK loc m) => loc -> DecType -> AttributeName VarIdentifier () -> TcM m ComplexType
+projectStructFieldDec :: (ProverK loc m) => loc -> InnerDecType -> AttributeName VarIdentifier () -> TcM m ComplexType
 projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field
     case List.find (\(AttributeName t f) -> f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
