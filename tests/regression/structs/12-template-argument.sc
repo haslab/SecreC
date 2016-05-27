@@ -8,6 +8,29 @@ pd_a3p T classify (public T x) {
     return ret;
 }
 
+template <type T>
+public T declassify (pd_a3p T x) {
+    //stub
+    public T ret;
+    return ret;
+}
+
+pd_a3p uint operator + (pd_a3p uint x,pd_a3p uint y) {
+    //stub
+    pd_a3p uint ret;
+    return ret;
+}
+pd_a3p uint operator * (pd_a3p uint x,pd_a3p uint y) {
+    //stub
+    pd_a3p uint ret;
+    return ret;
+}
+pd_a3p bool operator == (pd_a3p uint x,pd_a3p uint y) {
+    //stub
+    pd_a3p bool ret;
+    return ret;
+}
+
 template <domain D>
 struct point {
     D uint x;

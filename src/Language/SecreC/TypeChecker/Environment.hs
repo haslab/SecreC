@@ -35,7 +35,7 @@ import Data.Map (Map(..),(!))
 import qualified Data.Map as Map
 import Data.Bifunctor
 
-import Data.Graph.Inductive              as Graph
+import Data.Graph.Inductive              as Graph hiding (mapSnd)
 import Data.Graph.Inductive.Graph        as Graph
 import Data.Graph.Inductive.PatriciaTree as Graph
 import Data.Graph.Inductive.Query.DFS    as Graph
@@ -61,10 +61,29 @@ import qualified System.Mem.Weak.Map as WeakMap
 
 import System.Mem.Weak.Exts as Weak
 
+withFrees :: Monad m => TcM m a -> TcM m a
+withFrees m = do
+    old <- State.gets localFrees
+    State.modify $ \env -> env { localFrees = Set.empty }
+    x <- m
+    State.modify $ \env -> env { localFrees = old }
+    return x
+
+getDoSolve :: Monad m => TcM m Bool
+getDoSolve = State.gets (\e -> length (tDict e) <= 1)
+
 getDoAll :: Monad m => TcM m Bool
 getDoAll = do
     env <- State.get
     return $ not (inTemplate env)
+
+withInTemplate :: (ProverK Position m) => Bool -> TcM m a -> TcM m a
+withInTemplate b m = do
+    old <- liftM inTemplate State.get
+    State.modify $ \env -> env { inTemplate = b }
+    x <- m
+    State.modify $ \env -> env { inTemplate = old }
+    return x
 
 getAllVars scope = getVarsPred scope (const True)
 getVars scope cl = getVarsPred scope (== cl)
@@ -105,7 +124,10 @@ getFrees l = do
 replaceCstrWithGraph :: (MonadIO m,Location loc) => loc -> Bool -> Int -> Set LocIOCstr -> IOCstrGraph -> Set LocIOCstr -> TcM m ()
 replaceCstrWithGraph l filterDeps kid ins gr outs = do
     let cs = flattenIOCstrGraph gr
---    liftIO $ putStrLn $ "replaceCstrWithGraph " ++ ppr kid ++ " for " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) cs)
+    --liftIO $ putStrLn $ "replaceCstrWithGraph " ++ ppr kid
+    --    ++ " from " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) $ Set.toList ins)
+    --    ++ " to " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) $ Set.toList outs)
+    --    ++ " for " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) cs)
     updateHeadTDict $ \d -> return ((),d { tCstrs = unionGr gr $ delNode kid (tCstrs d) })
     forM_ cs $ \c -> addIOCstrDependenciesM filterDeps (Set.filter (\x -> ioCstrId (unLoc x) /= kid) ins) c (Set.filter (\x -> ioCstrId (unLoc x) /= kid) outs)
 --    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
@@ -197,7 +219,7 @@ tryAddHypothesis l scope deps hyp = do
     when (checkAssertions opts) $ do
         isAnn <- getAnn
         isPure <- getPure
-        iok <- updateHeadTDict $ \d -> insertTDictCstr (locpos l) (HypK hyp isAnn isPure) Unevaluated d
+        iok <- updateHeadTDict $ \d -> newTDictCstr (locpos l) (HypK hyp isAnn isPure) d
         addDep scope $ Loc (locpos l) iok
         addIOCstrDependenciesM True deps (Loc (locpos l) iok) Set.empty
 
@@ -374,7 +396,7 @@ addTemplateOperator vars hdeps op = do
     (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateOp" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
-    --liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
+    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
@@ -394,13 +416,13 @@ newOperator hdeps op = do
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
     dirtyGDependencies $ Right $ Left $ Right o
     
-    solve l "newOperator"
+    solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
     d'' <- substFromTDict "newOp body" l dict False Map.empty d'
     let td = DecT $ DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) td
     noFrees e
---    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
+    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) td)
   
@@ -454,7 +476,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l t) n) = do
     dirtyGDependencies $ Right $ Left $ Left n
     doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     liftIO $ putStrLn $ "newProc: " ++ show doc
-    solve l "newProcedure"
+    solveTop l "newProcedure"
     dict <- liftM (head . tDict) State.get
     d'' <- substFromTDict "newProc body" l dict False Map.empty d'
     let dt = DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
@@ -481,6 +503,7 @@ withoutEntry e m = do
     let DecT d = entryType e
     env <- State.get
     let (x,y) = moduleEnv env
+    let z = recEnv env
     case decTypeId d of
         Just (Right tn,i) -> case Map.lookup tn (structs x) of
             Just es -> case Map.lookup i es of
@@ -498,7 +521,15 @@ withoutEntry e m = do
                         State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { structs = Map.update (Just . Map.insert i e) tn $ structs y }) } 
                         return a
                     Nothing -> m
-                Nothing -> m
+                Nothing -> case Map.lookup tn (structs z) of
+                    Just es -> case Map.lookup i es of
+                        Just e -> do
+                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { structs = Map.update (Just . Map.delete i) tn $ structs z } } 
+                            a <- m
+                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { structs = Map.update (Just . Map.insert i e) tn $ structs z } } 
+                            return a
+                        Nothing -> m
+                    Nothing -> m
         Just (Left (Left pn),i) -> case Map.lookup pn (procedures x) of
             Just es -> case Map.lookup i es of
                 Just e -> do
@@ -515,7 +546,15 @@ withoutEntry e m = do
                         State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { procedures = Map.update (Just . Map.insert i e) pn $ procedures y }) } 
                         return a
                     Nothing -> m
-                Nothing -> m
+                Nothing -> case Map.lookup pn (procedures z) of
+                    Just es -> case Map.lookup i es of
+                        Just e -> do
+                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { procedures = Map.update (Just . Map.delete i) pn $ procedures z } } 
+                            a <- m
+                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { procedures = Map.update (Just . Map.insert i e) pn $ procedures z } } 
+                            return a
+                        Nothing -> m
+                    Nothing -> m
         Just (Left (Right (funit -> on)),i) -> case Map.lookup on (operators x) of
             Just es -> case Map.lookup i es of
                 Just e -> do
@@ -532,64 +571,80 @@ withoutEntry e m = do
                         State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { operators = Map.update (Just . Map.insert i e) on $ operators y }) } 
                         return a
                     Nothing -> m
-                Nothing -> m
+                Nothing -> case Map.lookup on (operators z) of
+                    Just es -> case Map.lookup i es of
+                        Just e -> do
+                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { operators = Map.update (Just . Map.delete i) on $ operators z } } 
+                            a <- m
+                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { operators = Map.update (Just . Map.insert i e) on $ operators z } } 
+                            return a
+                        Nothing -> m
+                    Nothing -> m
         Nothing -> error $ "withoutEntry " ++ ppr e
 
 decIsRec :: DecType -> Bool
 decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isfree
 
-mkTpltDecRec :: (MonadIO m,Location loc) => loc -> DecType -> TcM m EntryEnv
+mkTpltDecRec :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
 mkTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) = do
     j <- newModuleTyVarId
-    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (ProcType pl (Left pn) pargs pret panns body cl)
+    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (ProcType pl (Left pn) pargs pret panns [] cl)
     let rece = EntryEnv (locpos l) (DecT recd)
-    return rece
+    return $ mempty { procedures = Map.singleton pn $ Map.singleton j rece }
 mkTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) = do
     j <- newModuleTyVarId
     let o = funit op
-    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (ProcType pl (Right op) pargs pret panns body cl)
+    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (ProcType pl (Right op) pargs pret panns [] cl)
     let rece = EntryEnv (locpos l) (DecT recd)
-    return rece
+    return $ mempty { operators = Map.singleton (funit op) $ Map.singleton j rece }
 mkTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts)) = do
     j <- newModuleTyVarId
-    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (StructType sl sid atts)
+    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (StructType sl sid [])
     --es <- liftM ((!sn) . structs . snd . moduleEnv) State.get
     let rece = EntryEnv (locpos l) (DecT recd)
-    return rece
+    return $ mempty { structs = Map.singleton sn $ Map.singleton j rece }
 
 -- adds a recursive declaration for processing recursive constraints
-withTpltDecRec :: (ProverK Position m) => EntryEnv -> TcM m a -> TcM m a
-withTpltDecRec rece m = do
-    dec <- typeToDecType (entryLoc rece) (entryType rece)
-    case decTypeId dec of
-        Just (Left (Left pn),j) -> do
-            modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert j rece . maybe Map.empty id) pn (procedures env) }
-            x <- m
-            modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
-            return x
-        Just (Left (Right on),j) -> do
-            let o = funit on
-            modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert j rece . maybe Map.empty id) o (operators env) }
-            x <- m
-            modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.delete j . maybe Map.empty id) o (operators env) }
-            return x
-        Just (Right sn,j) -> do
-            modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(es) -> (Map.insert j rece es)) . fromJust) sn (structs env) }
-            x <- m
-            modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(es) -> (Map.delete j es)) . fromJust) sn (structs env) }
-            return x
-        Nothing -> error $ "withTpltDecRec: " ++ ppr rece
+--withTpltDecRec :: (ProverK Position m) => EntryEnv -> TcM m a -> TcM m a
+--withTpltDecRec rece m = do
+--    dec <- typeToDecType (entryLoc rece) (entryType rece)
+--    case decTypeId dec of
+--        Just (Left (Left pn),j) -> do
+--            modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert j rece . maybe Map.empty id) pn (procedures env) }
+--            x <- m
+--            modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.delete j . maybe Map.empty id) pn (procedures env) }
+--            return x
+--        Just (Left (Right on),j) -> do
+--            let o = funit on
+--            modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert j rece . maybe Map.empty id) o (operators env) }
+--            x <- m
+--            modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.delete j . maybe Map.empty id) o (operators env) }
+--            return x
+--        Just (Right sn,j) -> do
+--            modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(es) -> (Map.insert j rece es)) . fromJust) sn (structs env) }
+--            x <- m
+--            modifyModuleEnv $ \env -> env { structs = Map.alter (Just . (\(es) -> (Map.delete j es)) . fromJust) sn (structs env) }
+--            return x
+--        Nothing -> error $ "withTpltDecRec: " ++ ppr rece
+    
+---- build an undirected graph between all variables related through substitutions or constraints
+--dictVarGraph :: PureTDict -> Gr VarIdentifier ()
+--dictVarGraph = undefined
+--
+---- selects all constraints that depend on a set of variables
+--selectDependentCstrs :: Set VarIdentifier -> TcM m (Set LocIOCstr)
+--selectDependentCstrs vs = do
+--    dictVarGraph
     
 buildCstrGraph :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m IOCstrGraph
 buildCstrGraph l cstrs = do
     d <- concatTDict l NoCheckS =<< liftM tDict State.get
     let gr = tCstrs d
     let tgr = Graph.trc gr 
-    opens <- liftM openedCstrs State.get
-    let cs = Set.difference (mapSet unLoc cstrs) (Set.fromList opens)
+    let cs = mapSet unLoc cstrs
     let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,ioCstrId h)) cs) tgr
     let ns = nodes gr'
-    let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (tCstrs d) }
+    let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) }
     State.modify $ \env -> env { tDict = map remHeadCstrs $ tDict env }
     return gr'
     
@@ -612,7 +667,7 @@ splitHead l deps dec = do
     let hfrees = Set.intersection frees hvs
     let bfrees = Set.difference frees hfrees
     opens <- liftM openedCstrs State.get
-    let cs = Set.difference (mapSet unLoc deps) (Set.fromList opens)
+    let cs = Set.difference (mapSet unLoc deps) (Set.fromList $ map fst opens)
     let gr = Graph.trc $ tCstrs d
     let hgr = nmap (fmap kCstr) $ Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,ioCstrId h)) cs) gr
     let bgr = differenceGr (nmap (fmap kCstr) gr) hgr
@@ -674,7 +729,7 @@ newStruct hdeps tn@(TypeName (Typed l t) n) = do
             dirtyGDependencies $ Right $ Right n
     
             -- solve the body
-            solve l "newStruct"
+            solveTop l "newStruct"
             dict <- liftM (head . tDict) State.get
             --i <- newModuleTyVarId
             d'' <- substFromTDict "newStruct body" (locpos l) dict False Map.empty d'
@@ -713,6 +768,8 @@ addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locp
         updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
         removeFree vn
         when dirty $ dirtyGDependencies $ Left vn
+        -- register variable assignment in the top-most open constraint
+        State.modify $ \env -> env { openedCstrs = mapHead (mapSnd $ Set.insert vn) (openedCstrs env) }
     
 newDomainTyVar :: (MonadIO m) => String -> SVarKind -> Maybe Doc -> TcM m SecType
 newDomainTyVar str k doc = do
@@ -803,38 +860,44 @@ openCstr l o = do
     size <- liftM (length . openedCstrs) State.get
     if size >= constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "opened constraints"
-        else State.modify $ \e -> e { openedCstrs = o : openedCstrs e }
+        else State.modify $ \e -> e { openedCstrs = (o,Set.empty) : openedCstrs e }
 
 closeCstr :: (MonadIO m) => TcM m ()
 closeCstr = do
     State.modify $ \e -> e { openedCstrs = tail (openedCstrs e) }
 
-resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
+resolveIOCstr_ :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
+resolveIOCstr_ l iok resolve = resolveIOCstr l iok resolve >> return ()
+
+resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
 resolveIOCstr l iok resolve = do
     st <- liftIO $ readUniqRef (kStatus iok)
     case st of
-        Evaluated x -> do
+        Evaluated rest x -> do
             remove
+            addHeadTDict l rest
             return x
         Erroneous err -> throwError err
         Unevaluated -> trySolve
   where
     trySolve = do
         openCstr l iok
-        t <- resolve $ kCstr iok
-        liftIO $ writeUniqRef (kStatus iok) $ Evaluated t
-        closeCstr
-        -- register constraints dependencies from the dictionary into the global state
-        registerIOCstrDependencies iok
+        gr <- liftM (tCstrs . head . tDict) State.get
+        let ctx = contextGr gr (ioCstrId iok)
         remove
+        (x,rest) <- tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
+        liftIO $ writeUniqRef (kStatus iok) $ Evaluated rest x
+        closeCstr
+        addHeadTDict l rest
+        -- register constraints dependencies from the dictionary into the global state
+        registerIOCstrDependencies iok gr ctx
         --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
-        return t
+        return x
     remove = updateHeadTDict $ \d -> return ((),d { tCstrs = delNode (ioCstrId iok) (tCstrs d) })
 
-registerIOCstrDependencies :: (MonadIO m) => IOCstr -> TcM m ()
-registerIOCstrDependencies iok = do
-    gr <- liftM (tCstrs . head . tDict) State.get
-    case contextGr gr (ioCstrId iok) of
+registerIOCstrDependencies :: (MonadIO m) => IOCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ()
+registerIOCstrDependencies iok gr ctx = do
+    case ctx of
         Nothing -> return ()
         Just (deps,_,_,_) -> forM_ deps $ \(_,d) -> case lab gr d of
             Nothing -> return ()
@@ -844,7 +907,7 @@ registerIOCstrDependencies iok = do
 addGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 addGDependencies v = do
     cstrs <- liftM openedCstrs State.get
-    addGDependency v cstrs
+    addGDependency v (map fst cstrs)
     
 addGDependency :: (MonadIO m) => GIdentifier -> [IOCstr] -> TcM m ()
 addGDependency v cstrs = do
@@ -915,19 +978,19 @@ tcWithCstrs l msg m = do
 cstrSetToGraph :: Location loc => loc -> Set IOCstr -> IOCstrGraph
 cstrSetToGraph l xs = foldr (\x gr -> insNode (ioCstrId x,Loc (locpos l) x) gr) Graph.empty (Set.toList xs)
 
-insertTDictCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TCstrStatus -> TDict -> TcM m (IOCstr,TDict)
-insertTDictCstr l c res dict = do
-    iok <- liftIO $ newIOCstr c res
+newTDictCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TDict -> TcM m (IOCstr,TDict)
+newTDictCstr l c dict = do
+    iok <- liftIO $ newIOCstr c
     return (iok,dict { tCstrs = insNode (ioCstrId iok,Loc (locpos l) iok) (tCstrs dict) })
 
 ---- | Adds a new template constraint to the environment
 newTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> TcM m IOCstr
 newTemplateConstraint l c = do
-    updateHeadTDict (insertTDictCstr (locpos l) c Unevaluated)
+    updateHeadTDict (newTDictCstr (locpos l) c)
 
-erroneousTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> SecrecError -> TcM m IOCstr
-erroneousTemplateConstraint l c err = do
-    updateHeadTDict (insertTDictCstr (locpos l) c $ Erroneous err)
+--erroneousTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> SecrecError -> TcM m IOCstr
+--erroneousTemplateConstraint l c err = do
+--    updateHeadTDict (insertTDictCstr (locpos l) c $ Erroneous err)
 
 removeCstr :: ProverK Position m => Unique -> TcM m ()
 removeCstr i = do
@@ -958,7 +1021,7 @@ dirtyGDependencies v = do
         Just m -> do
             liftIO $ WeakMap.forM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
-                dirtyIOCstrDependencies opens x
+                dirtyIOCstrDependencies (map fst opens) x
     --liftIO $ putStrLn "\n"
 
 dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
@@ -1023,7 +1086,7 @@ appendTDict :: (ProverK loc m) => loc -> SubstMode -> TDict -> TDict -> TcM m TD
 appendTDict l noFail (TDict u1 c1 ss1) (TDict u2 c2 ss2) = do
     let u12 = unionGr u1 u2
     (ss12,ks) <- appendTSubsts l noFail ss1 ss2
-    u12' <- foldM (\gr k -> insertCstr l k Unevaluated gr) u12 ks
+    u12' <- foldM (\gr k -> insertNewCstr l k gr) u12 ks
     return $ TDict u12' (Set.union c1 c2) ss12
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
@@ -1082,6 +1145,8 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
                 return $ fmap funit $ typeToTypeName ty
             (eq (typeRep :: TypeOf (TypeName VarIdentifier (Typed loc))) -> EqT) ->
                 return $ fmap (fmap (Typed l)) $ typeToTypeName ty
+            (eq (typeRep :: TypeOf Type) -> EqT) ->
+                return $ Just ty
             (eq (typeRep :: TypeOf SecType) -> EqT) ->
                 case ty of
                     SecT s -> return $ Just s
@@ -1124,16 +1189,19 @@ appendPureTDict l noFail (PureTDict u1 ss1) (PureTDict u2 ss2) = do
     u12' <- liftIO $ foldM (\gr k -> insNewNodeIO (Loc (locpos l) k) gr) u12 ks
     return $ PureTDict u12' ss12
 
-insertCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TCstrStatus -> IOCstrGraph -> TcM m IOCstrGraph
-insertCstr l c res gr = do
-    iok <- liftIO $ newIOCstr c res
+insertNewCstr :: (MonadIO m,Location loc) => loc -> TCstr -> IOCstrGraph -> TcM m IOCstrGraph
+insertNewCstr l c gr = do
+    iok <- liftIO $ newIOCstr c
     return $ insNode (ioCstrId iok,Loc (locpos l) iok) gr
 
-newIOCstr :: TCstr -> TCstrStatus -> IO IOCstr
-newIOCstr c res = do
-    st <- newUniqRef res
-    let io = IOCstr c st
-    return io
+newIOCstr :: TCstr -> IO IOCstr
+--newIOCstr c = liftM (IOCstr c) $ newUniqRef Unevaluated
+newIOCstr c = do
+    cstrs <- liftM gCstrs $ liftIO $ readIORef globalEnv
+    mb <- liftIO $ WeakHash.lookup cstrs c
+    case mb of
+        Nothing -> liftM (IOCstr c) $ newUniqRef Unevaluated
+        Just (IOCstr _ st) -> return $ IOCstr c st
 
 getTSubsts :: (ProverK loc m) => loc -> TcM m TSubsts
 getTSubsts l = do
@@ -1172,3 +1240,68 @@ tcLocal l msg m = do
     x <- m
     State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
     return x
+
+withRecs :: Monad m => ModuleTcEnv -> TcM m a -> TcM m a
+withRecs rec m = do
+    old <- liftM recEnv State.get
+    State.modify $ \env -> env { recEnv = old `mappend` rec }
+    x <- m
+    State.modify $ \env -> env { recEnv = old }
+    return x
+
+askRecs :: Monad m => TcM m ModuleTcEnv
+askRecs = liftM recEnv State.get
+
+tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
+tcError pos msg = throwTcError $ TypecheckerError pos msg  
+
+genTcError :: (MonadIO m) => Position -> Doc -> TcM m a
+genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg  
+
+throwTcError :: (MonadIO m) => SecrecError -> TcM m a
+throwTcError err = do
+    (i,SecrecErrArr f) <- Reader.ask
+    let err2 = f err
+    ios <- liftM openedCstrs State.get
+    let add (io,vs) = do
+        -- write error to the constraint's result
+        liftIO $ writeUniqRef (kStatus io) (Erroneous err2)
+        -- dirty variables assigned by this constraint
+        forM_ vs (dirtyGDependencies . Left)
+    mapM_ add ios
+    throwError err2     
+
+-- a new dictionary
+newDict l msg = do
+    opts <- TcM $ lift Reader.ask
+    size <- liftM (length . tDict) State.get
+    if size >= constraintStackSize opts
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "dictionaries"
+        else do
+            State.modify $ \e -> e { tDict = emptyTDict : tDict e }
+--            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
+
+tcWith :: (VarsIdTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict)
+tcWith l msg m = do
+    newDict l $ "tcWith " ++ msg
+    x <- m
+    d <- liftM (head . tDict) State.get
+    State.modify $ \e -> e { tDict = dropDict (tDict e) }
+    return (x,d)
+  where
+    dropDict (x:xs) = xs
+
+
+addErrorM :: (MonadIO m,Location loc) => loc -> (SecrecError -> SecrecError) -> TcM m a -> TcM m a
+addErrorM l err m = addErrorM' l (1,err) m
+
+addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecError -> SecrecError) -> TcM m a -> TcM m a
+addErrorM' l (j,err) (TcM m) = do
+    size <- liftM fst Reader.ask
+    opts <- askOpts
+    if (size + j) > constraintStackSize opts
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
+        else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
+
+addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
+addErrorM'' l (j,SecrecErrArr err) m = addErrorM' l (j,err) m

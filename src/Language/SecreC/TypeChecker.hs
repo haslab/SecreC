@@ -290,7 +290,7 @@ tcGlobal l m = do
     State.modify $ \e -> e { procClass = mempty }
     newDict l "tcGlobal"
     x <- m
-    solve l "tcGlobal"
+    solveTop l "tcGlobal"
     dict <- liftM ((\[a] -> a) . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)

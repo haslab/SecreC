@@ -261,6 +261,10 @@ updHeadM f (x:xs) = do
     (r,x') <- f x
     return (r,x':xs)
 
+mapHead :: (a -> a) -> [a] -> [a]
+mapHead f [] = []
+mapHead f (x:xs) = (f x:xs)
+
 snocNe :: NeList a -> a -> NeList a
 snocNe (WrapNe x) y = ConsNe x (WrapNe y)
 snocNe (ConsNe x xs) y = ConsNe x (snocNe xs y)

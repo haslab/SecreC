@@ -19,6 +19,7 @@ import Control.Monad.Base
 import Control.Monad.Catch as Catch
 
 import Language.SecreC.TypeChecker.Base
+import Language.SecreC.TypeChecker.Environment
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint hiding (proveWith)
 import Language.SecreC.Pretty
@@ -130,6 +131,7 @@ iBinOp2SBV l ILt e1 e2 = return $ SBool $ ordSBVal (.<) e1 e2
 iBinOp2SBV l IGeq e1 e2 = return $ SBool $ ordSBVal (.>=) e1 e2
 iBinOp2SBV l IGt e1 e2 = return $ SBool $ ordSBVal (.>) e1 e2
 iBinOp2SBV l IEq e1 e2 = return $ SBool $ ordSBVal (.==) e1 e2
+iBinOp2SBV l INeq e1 e2 = return $ SBool $ ordSBVal (./=) e1 e2
 iBinOp2SBV l IPlus e1 e2 = return $ numSBVal (+) e1 e2
 iBinOp2SBV l IMinus e1 e2 = return $ numSBVal (-) e1 e2
 iBinOp2SBV l ITimes e1 e2 = return $ numSBVal (*) e1 e2

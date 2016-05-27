@@ -44,6 +44,8 @@ compares :: (ProverK loc m) => loc -> Type -> Type -> TcM m (Comparison (TcM m))
 
 equals :: (ProverK loc m) => loc -> Type -> Type -> TcM m ()
 
+solveTop :: ProverK loc m => loc -> String -> TcM m ()
+
 comparesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
 
 constraintList :: (ProverK loc m,VarsId (TcM m) [a],VarsId (TcM m) [b]) =>

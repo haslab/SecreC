@@ -99,7 +99,9 @@ instance PP IOCstr where
 
 data TCstrStatus
     = Unevaluated -- has never been evaluated
-    | Evaluated ShowOrdDyn  -- has been evaluated
+    | Evaluated -- has been evaluated
+        TDict -- resolved dictionary (variables bindings and recursive constraints)
+        ShowOrdDyn -- result value
     | Erroneous -- has failed
         SecrecError -- failure error
   deriving (Data,Typeable,Show,Generic)
@@ -124,7 +126,8 @@ newGlobalEnv :: IO GlobalEnv
 newGlobalEnv = do
     m <- WeakHash.newSized (1024*4)
     iom <- WeakHash.newSized (1024*4)
-    return $ GlobalEnv m iom
+    cstrs <- WeakHash.newSized 2048
+    return $ GlobalEnv m iom cstrs
 
 resetGlobalEnv :: IO ()
 --resetGlobalEnv = newGlobalEnv >>= writeIORef globalEnv
@@ -135,7 +138,8 @@ resetGlobalEnv = do
     g <- readIORef globalEnv
     deps <- WeakHash.newSized 1024
     iodeps <- WeakHash.newSized 512
-    writeIORef globalEnv $ g { tDeps = deps, ioDeps = iodeps }
+    cstrs <- WeakHash.newSized 2048
+    writeIORef globalEnv $ g { tDeps = deps, ioDeps = iodeps, gCstrs = cstrs }
 
 orWarn :: (MonadIO m) => TcM m a -> TcM m (Maybe a)
 orWarn m = (liftM Just m) `catchError` \e -> do
@@ -160,6 +164,7 @@ type GIdentifier = Either
 data GlobalEnv = GlobalEnv
     { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on variables
     , ioDeps :: WeakHash.BasicHashTable Unique (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on other IOCstrs
+    , gCstrs :: WeakHash.BasicHashTable TCstr IOCstr -- hashtable of generated constraints for possbile reuse
     }
 
 --varIdDeps :: VarIdentifier -> IO (Set IOCstr)
@@ -183,13 +188,14 @@ data TcEnv = TcEnv {
     , globalDeps :: Deps -- ^ global dependencies
     , localDeps :: Deps -- ^ local dependencies
     , tDict :: [TDict] -- ^ A stack of dictionaries
-    , openedCstrs :: [IOCstr] -- constraints being resolved, for dependency tracking
+    , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , isPure :: Bool -- if typechecking pure expressions
     , procClass :: ProcClass -- class when typechecking procedures
     , tyVarId :: TyVarId
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
+    , recEnv :: ModuleTcEnv
     }
 
 -- module typechecking environment that can be exported to an interface file
@@ -207,6 +213,8 @@ data ModuleTcEnv = ModuleTcEnv {
     -- | a base template and a list of specializations; akin to Haskell type functions
     , structs :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
     } deriving (Generic,Data,Typeable,Eq,Ord,Show)
+
+instance Hashable ModuleTcEnv
 
 instance PP ModuleTcEnv where
     pp = text . show
@@ -281,8 +289,9 @@ modifyModuleEnvM f = do
 getModuleField :: (Monad m) => (ModuleTcEnv -> x) -> TcM m x
 getModuleField f = do
     (x,y) <- State.gets moduleEnv
-    let xy = mappend x y
-    return $ f xy
+    z <- State.gets recEnv
+    let xyz = mappend x (mappend y z)
+    return $ f xyz
 
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
@@ -366,6 +375,7 @@ emptyTcEnv = TcEnv
     , procClass = mempty
     , tyVarId = 0
     , moduleEnv = (mempty,mempty)
+    , recEnv = mempty
     }
 
 data EntryEnv = EntryEnv {
@@ -459,20 +469,6 @@ askErrorM'' = Reader.ask
 newErrorM :: TcM m a -> TcM m a
 newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 
-addErrorM :: (MonadIO m,Location loc) => loc -> (SecrecError -> SecrecError) -> TcM m a -> TcM m a
-addErrorM l err m = addErrorM' l (1,err) m
-
-addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecError -> SecrecError) -> TcM m a -> TcM m a
-addErrorM' l (j,err) (TcM m) = do
-    size <- liftM fst Reader.ask
-    opts <- askOpts
-    if (size + j) > constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
-        else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
-
-addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
-addErrorM'' l (j,SecrecErrArr err) m = addErrorM' l (j,err) m
-
 --tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM m a
 --tcPos = tcLocM (locpos) (updpos noloc)
 
@@ -497,26 +493,6 @@ tcBlock m = do
     (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
     Writer.tell w'
     return x
-
--- a new dictionary
-newDict l msg = do
-    opts <- TcM $ lift Reader.ask
-    size <- liftM (length . tDict) State.get
-    if size >= constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "dictionaries"
-        else do
-            State.modify $ \e -> e { tDict = emptyTDict : tDict e }
---            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
-
-tcWith :: (VarsIdTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict)
-tcWith l msg m = do
-    newDict l $ "tcWith " ++ msg
-    x <- m
-    d <- liftM (head . tDict) State.get
-    State.modify $ \e -> e { tDict = dropDict (tDict e) }
-    return (x,d)
-  where
-    dropDict (x:xs) = xs
 
 execTcM :: (MonadIO m) => TcM m a -> (Int,SecrecErrArr) -> TcEnv -> SecrecM m (a,TcEnv)
 execTcM m arr env = do
@@ -608,7 +584,8 @@ data TcCstr
         Type [ArrayProj]
         Type -- result
     | IsReturnStmt (Set StmtClass) -- ^ is return statement
-    | MultipleSubstitutions Type [(Maybe Type,[TCstr],Set VarIdentifier)]
+    | MultipleSubstitutions
+        [([TCstr],[TCstr],Set VarIdentifier)] -- mapping from multiple matching conditions to their dependencies and free variables
     | MatchTypeDimension
         Expr -- type dimension
         [(Expr,IsVariadic)] -- sequence of sizes
@@ -665,24 +642,24 @@ isTrivialHypCstr (HypEqual e1 e2) = e1 == e2
  
 isTcCstr :: TCstr -> Bool
 isTcCstr (TcK {}) = True
-isTcCstr (DelayedK k _) = isTcCstr k
+isTcCstr (DelayedK k _ _) = isTcCstr k
 isTcCstr (CheckK {}) = False
 isTcCstr (HypK {}) = False
 
 isCheckCstr :: TCstr -> Bool
 isCheckCstr (CheckK {}) = True
-isCheckCstr (DelayedK k _) = isCheckCstr k
+isCheckCstr (DelayedK k _ _) = isCheckCstr k
 isCheckCstr (HypK {}) = False
 isCheckCstr (TcK {}) = False
 
 isHypCstr :: TCstr -> Bool
 isHypCstr (HypK {}) = True
-isHypCstr (DelayedK k _) = isHypCstr k
+isHypCstr (DelayedK k _ _) = isHypCstr k
 isHypCstr _ = False
 
 isTrivialCstr :: TCstr -> Bool
 isTrivialCstr (TcK c _ _) = isTrivialTcCstr c
-isTrivialCstr (DelayedK c _) = isTrivialCstr c
+isTrivialCstr (DelayedK c _ _) = isTrivialCstr c
 isTrivialCstr (CheckK c _ _) = isTrivialCheckCstr c
 isTrivialCstr (HypK c _ _) = isTrivialHypCstr c
 
@@ -698,6 +675,7 @@ data TCstr
     | DelayedK
         TCstr -- a constraint
         (Int,SecrecErrArr) -- an error message with updated context
+        ModuleTcEnv -- optional recursive declarations only in scope for solving this constraint
     | CheckK
         CheckCstr
         Bool -- is annotation
@@ -709,24 +687,34 @@ data TCstr
   deriving (Data,Typeable,Show,Generic)
 
 instance Binary TCstr
-instance Hashable TCstr
+instance Hashable TCstr where
+    hashWithSalt i (TcK c _ _) = i `hashWithSalt` (0::Int) `hashWithSalt` c
+    hashWithSalt i (DelayedK c _ _) = i `hashWithSalt` (1::Int) `hashWithSalt` c
+    hashWithSalt i (CheckK c _ _) = i `hashWithSalt` (2::Int) `hashWithSalt` c
+    hashWithSalt i (HypK c _ _) = i `hashWithSalt` (3::Int) `hashWithSalt` c
+ 
+coreTCstr :: TCstr -> TCstr
+coreTCstr (DelayedK c _ _) = coreTCstr c
+coreTCstr c = c
+ 
+instance Hashable EntryEnv
  
 instance Eq TCstr where
-    (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
+    (DelayedK c1 _ e1) == (DelayedK c2 _ e2) = c1 == c2 && e1 == e2
     (TcK x b1 b2) == (TcK y b3 b4) = x == y && b1 == b3 && b2 == b4
     (HypK x b1 b2) == (HypK y b3 b4) = x == y && b1 == b3 && b2 == b4
     (CheckK x b1 b2) == (CheckK y b3 b4) = x == y && b1 == b3 && b2 == b4
     x == y = False
     
 instance Ord TCstr where
-    compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
+    compare (DelayedK c1 _ _) (DelayedK c2 _ _) = c1 `compare` c2
     compare (TcK x b1 b2) (TcK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare (HypK x b1 b2) (HypK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare (CheckK x b1 b2) (CheckK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 priorityTCstr :: TCstr -> TCstr -> Ordering
-priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
+priorityTCstr (DelayedK c1 _ _) (DelayedK c2 _ _) = priorityTCstr c1 c2
 priorityTCstr (TcK c1 _ _) (TcK c2 _ _) = priorityTcCstr c1 c2
 priorityTCstr (HypK x _ _) (HypK y _ _) = compare x y
 priorityTCstr (CheckK x _ _) (CheckK y _ _) = compare x y
@@ -770,7 +758,7 @@ instance PP TcCstr where
     pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
-    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> sepBy space (map (pp . fst3) s)
+    pp (MultipleSubstitutions s) = text "multiplesubstitutions" <+> sepBy space (map (pp . fst3) s)
     pp (MatchTypeDimension d sz) = text "matchtypedimension" <+> pp d <+> pp sz
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (NotEqual e1 e2) = text "not equal" <+> pp e1 <+> pp e2
@@ -786,7 +774,7 @@ instance PP HypCstr where
     pp (HypEqual e1 e2) = text "hypothesis" <+> pp e1 <+> text "==" <+> pp e2
 
 instance PP TCstr where
-    pp (DelayedK c f) = text "delayed" <+> pp c
+    pp (DelayedK c f rec) = text "delayed" <+> pp c
     pp (TcK k _ _) = pp k
     pp (CheckK c _ _) = pp c
     pp (HypK h _ _) = pp h
@@ -939,10 +927,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         is' <- mapM f is
         x' <- f x
         return $ ProjectMatrix t' is' x'
-    traverseVars f (MultipleSubstitutions v s) = do
-        v' <- f v
-        s' <- mapM f s
-        return $ MultipleSubstitutions v' s'
+    traverseVars f (MultipleSubstitutions ss) = do
+        ss' <- mapM f ss
+        return $ MultipleSubstitutions ss'
     traverseVars f (MatchTypeDimension t d) = do
         t' <- f t
         d' <- f d
@@ -980,9 +967,10 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m HypCstr wher
         return $ HypEqual e1' e2'
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TCstr where
-    traverseVars f (DelayedK c err) = do
+    traverseVars f (DelayedK c err rec) = do
         c' <- f c
-        return $ DelayedK c' err
+        rec' <- f rec
+        return $ DelayedK c' err rec'
     traverseVars f (TcK k b1 b2) = do
         k' <- f k
         return $ TcK k' b1 b2
@@ -1110,6 +1098,9 @@ emptyTSubsts = TSubsts Map.empty
 ioCstrId :: IOCstr -> Int
 ioCstrId = hashUnique . uniqId . kStatus
 
+ioCstrUnique :: IOCstr -> Unique
+ioCstrUnique = uniqId . kStatus
+
 --type IOCstrSubsts = Map Int IOCstr
 --
 --newIOCstrSubst :: (GenVar VarIdentifier m,MonadIO m) => Int -> (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstr -> VarsM VarIdentifier (StateT IOCstrSubsts m) IOCstr
@@ -1230,7 +1221,7 @@ ppConstraints d = do
         s <- liftIO $ readUniqRef $ kStatus c
         let pre = pp c
         case s of
-            Evaluated t -> return $ pre <+> char '=' <+> text (show t)
+            Evaluated rest t -> return $ pre <+> char '=' <+> text (show t)
             Unevaluated -> return $ pre
             Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
     ss <- ppGrM ppK (const $ return PP.empty) d
@@ -1964,6 +1955,10 @@ decTypeTyVarId (ProcType _ _ _ _ _ _ _) = Nothing
 decTypeTyVarId (DecType i _ _ _ _ _ _ _ _) = Just i
 decTypeTyVarId (DVar _) = Nothing
 
+typeTyVarId :: Type -> Maybe ModuleTyVarId
+typeTyVarId (DecT dec) = decTypeTyVarId dec
+typeTyVarId t = error $ "typeTyVarId" ++ ppr t
+
 instance Location Type where
     locpos = const noloc
     noloc = NoType "noloc"
@@ -2064,21 +2059,6 @@ instance Hashable VarIdentifier where
     hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)
 
 type Prim = PrimitiveDatatype ()
-
-tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
-tcError pos msg = throwTcError $ TypecheckerError pos msg  
-
-genTcError :: (MonadIO m) => Position -> Doc -> TcM m a
-genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg  
-
-throwTcError :: (MonadIO m) => SecrecError -> TcM m a
-throwTcError err = do
-    (i,SecrecErrArr f) <- Reader.ask
-    let err2 = f err
-    ios <- liftM openedCstrs State.get
-    let add io = liftIO $ writeUniqRef (kStatus io) (Erroneous err2)
-    mapM_ add ios
-    throwError err2     
 
 removeOrWarn :: SecrecError -> SecrecError
 removeOrWarn = everywhere (mkT f) where
