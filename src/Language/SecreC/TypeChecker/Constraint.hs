@@ -141,8 +141,9 @@ solveCstrs l msg failOnError = do
             case go of
                 Left _ -> solveCstrs l msg failOnError
                 Right errs -> do
-                    liftIO $ putStrLn $ "solvesCstrs: exit"
-                    guessError errs
+                    mb <- guessError errs
+                    liftIO $ putStrLn $ "solvesCstrs exit " ++ ppr mb
+                    return mb
 
 -- Left True = one constraint solved
 -- Left False = no remaining unsolved constraints
@@ -274,7 +275,8 @@ tCstrM_ :: ProverK loc m => loc -> TCstr -> TcM m ()
 tCstrM_ l (TcK c isAnn isPure) = withAnn isAnn $ withPure isPure $ tcCstrM_ l c
 tCstrM_ l (CheckK c isAnn isPure) = withAnn isAnn $ withPure isPure $ checkCstrM_ l Set.empty c
 tCstrM_ l (HypK c isAnn isPure) = withAnn isAnn $ withPure isPure $ hypCstrM_ l c
-tCstrM_ l (DelayedK c arr rec) = withRecs rec $ addErrorM'' l arr (tCstrM_ l c)
+tCstrM_ l (DelayedK c arr) = --withRecs rec $
+    addErrorM'' l arr (tCstrM_ l c)
 
 checkCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
 checkCstrM_ l deps k = checkCstrM l deps k >> return ()
@@ -331,8 +333,7 @@ newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe IOCstr)
 newTCstr l k = do
     deps <- getDeps
     (i,delay) <- askErrorM'
-    rec <- askRecs
-    let k' = DelayedK k (i,SecrecErrArr delay) rec
+    let k' = DelayedK k (i,SecrecErrArr delay)
     iok <- newTemplateConstraint l k'
     addIOCstrDependenciesM True deps (Loc (locpos l) iok) Set.empty
     
@@ -349,7 +350,8 @@ resolveTCstr l (HypK h isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $
     resolveHypCstr l h
 resolveTCstr l (CheckK c isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
     resolveCheckCstr l c
-resolveTCstr l (DelayedK k (i,SecrecErrArr err) rec) = withRecs rec $ addErrorM' l (i,err) $ resolveTCstr l k
+resolveTCstr l (DelayedK k (i,SecrecErrArr err)) = --withRecs rec $
+    addErrorM' l (i,err) $ resolveTCstr l k
 
 -- tests if a constraint is only used as part of an hypothesis
 --isHypInGraph :: Int -> IOCstrGraph loc -> Bool
@@ -539,11 +541,13 @@ matchOne l doSolve (match,deps,_) = do
     --dict <- liftM (head . tDict) State.get
     --ss <- ppConstraints (tCstrs dict)
     --liftIO $ putStrLn $ "matchOne [" ++ show ss ++ "\n]"
-    prove l "matchOneHead" $ mapM_ (tCstrM_ l) match
+    prove l "matchOneHead" $ do
+        (_,ks) <- tcWithCstrs l "matchOneHead" $ mapM_ (tCstrM_ l) match
+        withDependencies ks $ mapM_ (tCstrM_ l) deps
     
-    mapM_ (tCstrM_ l) deps
     -- solve all other dependencies
     -- solve all other dependencies
+    --noRecs $
     when doSolve $ solveAll l "matchone"
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
@@ -872,6 +876,7 @@ coercesSecDimSizes l e1 x2@(loc -> ComplexT (CVar v2)) = do
 coercesSecDimSizes l e1@(loc -> ComplexT (CType s1 b1 d1)) x2@(loc -> ComplexT (CType s2 b2 d2)) = do
     let t3 = ComplexT $ CType s1 b2 d2 -- intermediate type
     x3 <- newTypedVar "e" t3 $ Just $ pp e1
+    liftIO $ putStrLn $ "coercesSecDimSizes: " ++ ppr l ++ " " ++ ppr e1 ++ " " ++ ppr x2 ++ " " ++ ppr x3
     coercesDimSizes l e1 x3
     coercesSec l (varExpr x3) x2
 coercesSecDimSizes l e1 x2 = constraintError (CoercionException "complex type security dimension") l e1 ppExprTy x2 ppVarTy Nothing
@@ -1012,9 +1017,9 @@ classifiesCstrs l e1 ct1 x2 s2 = do
     dec@(DVar dv) <- newDecVar Nothing
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
     v1 <- newTypedVar "cl" (loc e1) $ Just $ pp e1
-    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) isAnn isPure) arr mempty
-    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) isAnn isPure) arr mempty
-    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) isAnn isPure) arr mempty
+    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) isAnn isPure) arr
+    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) isAnn isPure) arr
+    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) isAnn isPure) arr
     return ([k1,k2,k3],Set.fromList [dv,varNameId v1])
 
 repeatsCstrs :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> Expr -> TcM m ([TCstr],Set VarIdentifier)
@@ -1026,9 +1031,9 @@ repeatsCstrs l e1 ct1 x2 d2 = do
     dec@(DVar dv) <- newDecVar Nothing
     let repeat' = ProcedureName (DecT dec) $ mkVarId "repeat"
     v1 <- newTypedVar "rp" (loc e1) $ Just $ pp e1
-    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) isAnn isPure) arr mempty
-    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) isAnn isPure) arr mempty
-    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) isAnn isPure) arr mempty
+    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) isAnn isPure) arr
+    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) isAnn isPure) arr
+    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) isAnn isPure) arr
     return ([k1,k2,k3],Set.fromList [dv,varNameId v1])
 
 coercesLit :: (ProverK loc m) => loc -> Expr -> TcM m ()
@@ -1074,42 +1079,42 @@ coercesLitBase l l1 t2 = constraintError (CoercionException "literal base type")
 
 decToken :: MonadIO m => TcM m DecType
 decToken = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ DVar v
 
 secToken :: MonadIO m => TcM m SecType
 secToken = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ SVar v AnyKind
     
 baseToken :: MonadIO m => TcM m BaseType
 baseToken = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ BVar v
 
 arrayToken :: MonadIO m => Type -> Expr -> TcM m VArrayType
 arrayToken b sz = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ VAVar v b sz
 
 complexToken :: MonadIO m => TcM m ComplexType
 complexToken = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     return $ CVar v
 
 exprToken :: MonadIO m => TcM m Expr
 exprToken = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
     let t = BaseT $ BVar v
@@ -1822,10 +1827,11 @@ satisfiesCondExpressions l is = do
 
 assignsExpr :: ProverK loc m => loc -> Var -> Expr -> TcM m ()
 assignsExpr l v1 e2 = do
+    liftIO $ putStrLn $ "assignsExpr " ++ ppr l ++ " " ++ ppr v1 ++ " " ++ ppr e2
     mb <- tryResolveEVar l (varNameId v1) (loc v1)
     case mb of
         Nothing -> addValueM l True NoFailS v1 e2
-        Just e1' -> genTcError (locpos l) $ text "cannot assign expression" <+> pp e2 <+> text "to bound variable" <+> pp v1
+        Just e1' -> genTcError (locpos l) $ text "cannot assign expression" <+> pp e2 <+> text "to bound variable" <+> pp v1 <+> text "=" <+> pp e1'
 
 unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
 unifiesExpr l doStatic e1@(RVariablePExpr t1 v1@(VarName _ n)) e2@(RVariablePExpr t2 v2) = do
@@ -1889,14 +1895,15 @@ comparesTpltArgs l ts1 ts2 = do
         compares l t1 t2
 
 comparesDim :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m (Comparison (TcM m))
-comparesDim l e1 e2 = do
-    z1 <- tryError $ equalsExpr l True e1 (indexExpr 0)
-    z2 <- tryError $ equalsExpr l True e2 (indexExpr 0)
-    case (z1,z2) of
-        (Right _,Right _) -> return (Comparison e1 e2 EQ)
-        (Right _,Left _) -> return (Comparison e1 e2 LT)
-        (Left _,Right _) -> return (Comparison e1 e2 GT)
-        otherwise -> comparesExpr l True e1 e2
+--comparesDim l e1 e2 = do
+--    z1 <- tryError $ equalsExpr l True e1 (indexExpr 0)
+--    z2 <- tryError $ equalsExpr l True e2 (indexExpr 0)
+--    case (z1,z2) of
+--        (Right _,Right _) -> return (Comparison e1 e2 EQ)
+--        (Right _,Left _) -> return (Comparison e1 e2 LT)
+--        (Left _,Right _) -> return (Comparison e1 e2 GT)
+--        otherwise -> comparesExpr l True e1 e2
+comparesDim l e1 e2 = comparesExpr l True e1 e2
     
 comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
 comparesExpr l doStatic e1 e2 = addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp e1) (pp e2) . Just) (comparesExpr' l doStatic e1 e2)

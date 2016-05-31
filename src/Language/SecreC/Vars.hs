@@ -136,7 +136,8 @@ type VarsM iden m = StateT
     ,Bool -- is l-value
     ,(Bool,Map iden iden) -- bound substitutions
     ,Map iden Bool -- free vars (read=False or written=True)
-    ,Set iden)-- bound vars
+    ,Set iden -- bound vars
+    )
     m
 
 type IsScVar a = (Data a,Show a,PP a,Eq a,Ord a,Typeable a)

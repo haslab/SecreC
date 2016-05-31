@@ -17,6 +17,7 @@ import Language.SecreC.Error
 import Language.SecreC.Position
 import Language.SecreC.Monad
 import Language.SecreC.Modules
+import Language.SecreC.Prover.Base
 
 import Data.Foldable as Foldable
 import Data.Map (Map(..))
@@ -35,24 +36,24 @@ import qualified Control.Monad.Reader as Reader
 
 import System.IO
 
-type SimplifyK loc t m = (Monad (t m),Typeable t,MonadTrans t,MonadBaseControl IO m,Typeable m,MonadIO m,Location loc,Vars VarIdentifier (t m) loc,MonadError SecrecError (t m))
+type SimplifyK loc m = ProverK loc m
 
-type SimplifyM loc t m a = SimplifyK loc t m => a -> t m ([Statement VarIdentifier (Typed loc)],a)
-type SimplifyT loc t m a = SimplifyM loc t m (a VarIdentifier (Typed loc))
+type SimplifyM loc m a = SimplifyK loc m => a -> TcM m ([Statement VarIdentifier (Typed loc)],a)
+type SimplifyT loc m a = SimplifyM loc m (a VarIdentifier (Typed loc))
 
-type SimplifyG loc t m a = SimplifyK loc t m => a VarIdentifier (Typed loc) -> t m (a VarIdentifier (Typed loc))
+type SimplifyG loc m a = SimplifyK loc m => a VarIdentifier (Typed loc) -> TcM m (a VarIdentifier (Typed loc))
 
-simplifyModuleFile :: SimplifyK Position t m => Options -> TypedModuleFile -> t m TypedModuleFile
+simplifyModuleFile :: SimplifyK Position m => Options -> TypedModuleFile -> TcM m TypedModuleFile
 simplifyModuleFile opts (Left (t,args,m)) = do
     (args',m') <- simplifyModuleWithPPArgs opts (args,m)
     return $ Left (t,args',m')
 simplifyModuleFile opts (Right sci) = return $ Right sci
 
-simplifyModuleWithPPArgs :: SimplifyK loc t m => Options -> (PPArgs,Module VarIdentifier (Typed loc)) -> t m (PPArgs,Module VarIdentifier (Typed loc))
+simplifyModuleWithPPArgs :: SimplifyK loc m => Options -> (PPArgs,Module VarIdentifier (Typed loc)) -> TcM m (PPArgs,Module VarIdentifier (Typed loc))
 simplifyModuleWithPPArgs opts (ppargs,x) = liftM (ppargs,) $ simplifyModule opts' x
     where opts' = mappend opts (ppOptions ppargs)
 
-simplifyModule :: Options -> SimplifyG loc t m Module
+simplifyModule :: Options -> SimplifyG loc m Module
 simplifyModule opts m@(Module l n p) = do
     if (simplify opts)
         then do
@@ -62,12 +63,12 @@ simplifyModule opts m@(Module l n p) = do
             return $ Module l n p'
         else return m
 
-simplifyProgram :: SimplifyG loc t m Program
+simplifyProgram :: SimplifyG loc m Program
 simplifyProgram (Program l is gs) = do
     gs' <- mapM simplifyGlobalDeclaration gs
     return $ Program l is gs'
 
-simplifyGlobalDeclaration :: SimplifyG loc t m GlobalDeclaration
+simplifyGlobalDeclaration :: SimplifyG loc m GlobalDeclaration
 simplifyGlobalDeclaration (GlobalProcedure l p) = do
     p' <- simplifyProcedureDeclaration p
     return $ GlobalProcedure l p'
@@ -82,7 +83,7 @@ simplifyGlobalDeclaration g = return g
 --    | GlobalKind loc (KindDeclaration iden loc)
 --    | GlobalStructure loc (StructureDeclaration iden loc)
 
-simplifyTemplateDeclaration :: SimplifyG loc t m TemplateDeclaration
+simplifyTemplateDeclaration :: SimplifyG loc m TemplateDeclaration
 simplifyTemplateDeclaration (TemplateProcedureDeclaration l args p) = do
     p' <- simplifyProcedureDeclaration p
     return $ TemplateProcedureDeclaration l args p'
@@ -93,10 +94,10 @@ simplifyTemplateDeclaration (TemplateStructureSpecialization l targs tspecs s) =
     s' <- simplifyStructureDeclaration s
     return $ TemplateStructureSpecialization l targs tspecs s'
 
-simplifyStructureDeclaration :: SimplifyG loc t m StructureDeclaration
+simplifyStructureDeclaration :: SimplifyG loc m StructureDeclaration
 simplifyStructureDeclaration s = return s
 
-simplifyProcedureDeclaration :: SimplifyG loc t m ProcedureDeclaration
+simplifyProcedureDeclaration :: SimplifyG loc m ProcedureDeclaration
 simplifyProcedureDeclaration (OperatorDeclaration l ret op args ann body) = do
     body' <- simplifyStatements Nothing body
     return $ OperatorDeclaration l ret op args ann body'
@@ -104,13 +105,13 @@ simplifyProcedureDeclaration (ProcedureDeclaration l ret op args ann body) = do
     body' <- simplifyStatements Nothing body
     return $ ProcedureDeclaration l ret op args ann body'
 
-simplifyVariableDeclaration :: SimplifyK loc t m => VariableDeclaration VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
+simplifyVariableDeclaration :: SimplifyK loc m => VariableDeclaration VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyVariableDeclaration (VariableDeclaration l t vs) = do
     (xs,t') <- simplifyTypeSpecifier t
     xs' <- concatMapM (simplifyVariableInitialization t') $ Foldable.toList vs
     return $ xs ++ xs'  
     
-simplifyVariableInitialization :: SimplifyK loc t m => TypeSpecifier VarIdentifier (Typed loc) -> VariableInitialization VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
+simplifyVariableInitialization :: SimplifyK loc m => TypeSpecifier VarIdentifier (Typed loc) -> VariableInitialization VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyVariableInitialization t (VariableInitialization l v szs mbe) = do
     (ss,szs') <- simplifyMaybeSizes szs
     let def = VariableDeclaration l t $ WrapNe $ VariableInitialization l v szs' Nothing
@@ -122,13 +123,13 @@ simplifyVariableInitialization t (VariableInitialization l v szs mbe) = do
             return (ss'++ass')
     return (ss ++ VarStatement l def:ass)
 
-simplifyConstDeclaration :: SimplifyK loc t m => ConstDeclaration VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
+simplifyConstDeclaration :: SimplifyK loc m => ConstDeclaration VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyConstDeclaration (ConstDeclaration l t vs) = do
     (xs,t') <- simplifyTypeSpecifier t
     xs' <- concatMapM (simplifyConstInitialization t) $ Foldable.toList vs
     return $ xs ++ xs'  
     
-simplifyConstInitialization :: SimplifyK loc t m => TypeSpecifier VarIdentifier (Typed loc) -> ConstInitialization VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
+simplifyConstInitialization :: SimplifyK loc m => TypeSpecifier VarIdentifier (Typed loc) -> ConstInitialization VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyConstInitialization t (ConstInitialization l v szs mbe) = do
     (ss,szs') <- simplifyMaybeSizes szs
     let def = ConstDeclaration l t $ WrapNe $ ConstInitialization l v szs' Nothing
@@ -140,25 +141,25 @@ simplifyConstInitialization t (ConstInitialization l v szs mbe) = do
             return (ss'++ass')
     return (ss ++ ConstStatement l def:ass)
 
-simplifyTypeSpecifier :: SimplifyT loc t m TypeSpecifier
+simplifyTypeSpecifier :: SimplifyT loc m TypeSpecifier
 simplifyTypeSpecifier (TypeSpecifier l s t d) = do
     (ss,t') <- simplifyDatatypeSpecifier t
     (ss',d') <- simplifyMaybe simplifyDimtypeSpecifier d
     return (ss++ss',TypeSpecifier l s t' d')
 
-simplifyDimtypeSpecifier :: SimplifyT loc t m DimtypeSpecifier
+simplifyDimtypeSpecifier :: SimplifyT loc m DimtypeSpecifier
 simplifyDimtypeSpecifier (DimSpecifier l e) = do
     (ss,Just e') <- simplifyExpression e
     return (ss,DimSpecifier l e')
 
-simplifyDatatypeSpecifier :: SimplifyT loc t m DatatypeSpecifier
+simplifyDatatypeSpecifier :: SimplifyT loc m DatatypeSpecifier
 simplifyDatatypeSpecifier t@(PrimitiveSpecifier {}) = return ([],t)
 simplifyDatatypeSpecifier t@(VariableSpecifier {}) = return ([],t)
 simplifyDatatypeSpecifier (TemplateSpecifier l n args) = do
     (ss,args') <- simplifyList (simplifyVariadic simplifyTemplateTypeArgument) args
     return (ss,TemplateSpecifier l n args')
 
-simplifyTemplateTypeArgument :: SimplifyT loc t m TemplateTypeArgument
+simplifyTemplateTypeArgument :: SimplifyT loc m TemplateTypeArgument
 simplifyTemplateTypeArgument a@(GenericTemplateTypeArgument l arg) = return ([],a)
 simplifyTemplateTypeArgument a@(TemplateTemplateTypeArgument l n args) = return ([],a)
 simplifyTemplateTypeArgument a@(PrimitiveTemplateTypeArgument {}) = return ([],a)
@@ -167,7 +168,7 @@ simplifyTemplateTypeArgument (ExprTemplateTypeArgument l e) = do
     return (ss,ExprTemplateTypeArgument l e')
 simplifyTemplateTypeArgument a@(PublicTemplateTypeArgument {}) = return ([],a)
 
-simplifyMaybeSizes :: SimplifyM loc t m (Maybe (Sizes VarIdentifier (Typed loc)))
+simplifyMaybeSizes :: SimplifyM loc m (Maybe (Sizes VarIdentifier (Typed loc)))
 simplifyMaybeSizes Nothing = return ([],Nothing)
 simplifyMaybeSizes (Just (Sizes es)) = do
     (ss,es') <- simplifyVariadicExpressions $ Foldable.toList es
@@ -176,7 +177,7 @@ simplifyMaybeSizes (Just (Sizes es)) = do
         else return (ss,Just $ Sizes $ fromListNe es')
 
 -- the splitted statements and expression must be pure
-simplifyExpression :: SimplifyK loc t m => Expression VarIdentifier (Typed loc) -> t m ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc)))
+simplifyExpression :: SimplifyK loc m => Expression VarIdentifier (Typed loc) -> TcM m ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc)))
 simplifyExpression (ProcCallExpr l n ts es) = do
     (ss,ts') <- simplifyMaybe (simplifyList (simplifyVariadic simplifyTemplateTypeArgument)) ts
     (ss',es') <- simplifyVariadicExpressions es
@@ -214,7 +215,7 @@ simplifyExpression (PostIndexExpr l e s) = do
     return (ss1++ss2,Just $ PostIndexExpr l e' s')
 simplifyExpression e = return ([],Just e)
 
-simplifySubscript :: SimplifyT loc t m Subscript
+simplifySubscript :: SimplifyT loc m Subscript
 simplifySubscript s = return ([],s)
 
 --simplifyExpression (QualExpr l e t) = do
@@ -224,19 +225,19 @@ simplifySubscript s = return ([],s)
 --    | VArraySizeExpr loc (Expression VarIdentifier loc)
 --    | SelectionExpr loc (Expression VarIdentifier loc) (AttributeName VarIdentifier loc)
 
-unfoldVariadicExpr :: SimplifyK loc t m => (Expression VarIdentifier loc,IsVariadic) -> t m [Expression VarIdentifier loc]
+unfoldVariadicExpr :: SimplifyK loc m => (Expression VarIdentifier loc,IsVariadic) -> TcM m [Expression VarIdentifier loc]
 unfoldVariadicExpr (e,False) = return [e]
 unfoldVariadicExpr (ArrayConstructorPExpr _ es,True) = return es
 unfoldVariadicExpr ve = genError (locpos $ loc $ fst ve) $ text "unfoldVariadicExpr"
 
-bindProcArgs :: SimplifyK loc t m => loc -> [(Bool,Constrained Var,IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> t m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArgs :: SimplifyK loc m => loc -> [(Bool,Constrained Var,IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArgs l [] [] = return ([],Map.empty)
 bindProcArgs l (v:vs) es = do
     (es',ss,substs) <- bindProcArg l v es
     (ss',substs') <- bindProcArgs l vs es'
     return (ss++ss',Map.union substs substs')
 
-bindProcArg :: SimplifyK loc t m => loc -> (Bool,Constrained Var,IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> t m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArg :: SimplifyK loc m => loc -> (Bool,Constrained Var,IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArg l (False,Constrained v _,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier t
@@ -250,7 +251,7 @@ bindProcArg l (True,Constrained v _,False) (e:es) = do
     let def = ConstStatement tl $ ConstDeclaration tl t' $ WrapNe $ ConstInitialization tl (fmap (Typed l) v) Nothing $ Just e
     return (es,ss1++[def],Map.empty)
 bindProcArg l (_,Constrained v _,True) es = do
-    sz <- lift $ runSecrecM mempty $ runTcM $ evaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
+    sz <- evaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
     let (es1,es2) = splitAt (fromEnum sz) es
     return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed l $ loc v) es1)
 
@@ -261,7 +262,7 @@ splitProcAnns (EnsuresAnn p e:xs) = let (l,r) = splitProcAnns xs in (l,AnnStatem
 
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
-inlineProcCall :: SimplifyK loc t m => loc -> PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> t m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
+inlineProcCall :: SimplifyK loc m => loc -> PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> TcM m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
 inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann body c))) es | isNonRecursiveDecType d = do
 --    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
@@ -289,14 +290,14 @@ inlineProcCall l n t es = do
 --    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     return Nothing
 
-simplifyStatements :: SimplifyK loc t m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> t m [Statement VarIdentifier (Typed loc)]
+simplifyStatements :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyStatements ret [] = return []
 simplifyStatements ret (s:ss) = do
     ss1 <- simplifyStatement ret s
     ss2 <- simplifyStatements ret ss
     return (ss1++ss2)
 
-simplifyStatement :: SimplifyK loc t m => Maybe (VarName VarIdentifier (Typed loc)) -> Statement VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
+simplifyStatement :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> Statement VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyStatement ret (CompoundStatement l ss) = do
     ss' <- simplifyStatements ret ss
     return [CompoundStatement l ss']
@@ -344,7 +345,7 @@ simplifyStatement ret s = return [s]
 
 --    | SyscallStatement loc String [SyscallParameter iden loc]
 
-simplifyForInitializer :: SimplifyK loc t m => ForInitializer VarIdentifier (Typed loc) -> t m [Statement VarIdentifier (Typed loc)]
+simplifyForInitializer :: SimplifyK loc m => ForInitializer VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyForInitializer i@(InitializerExpression Nothing) = return []
 simplifyForInitializer (InitializerExpression (Just e)) = do
     (ss,e') <- simplifyExpression e
@@ -353,35 +354,35 @@ simplifyForInitializer (InitializerExpression (Just e)) = do
 simplifyForInitializer (InitializerVariable vd) = do
     simplifyVariableDeclaration vd
 
-simplifyList :: SimplifyM loc t m a -> SimplifyM loc t m [a]
+simplifyList :: SimplifyM loc m a -> SimplifyM loc m [a]
 simplifyList m xs = do
     (ss,xs') <- mapAndUnzipM m xs
     return (concat ss,xs')
 
-simplifyVariadic :: SimplifyM loc t m a -> SimplifyM loc t m (a,IsVariadic)
+simplifyVariadic :: SimplifyM loc m a -> SimplifyM loc m (a,IsVariadic)
 simplifyVariadic m (x,isVariadic) = do
     (ss,x') <- m x
     return (ss,(x',isVariadic))
 
-simplifyVariadicExpressions :: SimplifyM loc t m [(Expression VarIdentifier (Typed loc),IsVariadic)]
+simplifyVariadicExpressions :: SimplifyM loc m [(Expression VarIdentifier (Typed loc),IsVariadic)]
 simplifyVariadicExpressions es = do
     (ss,es') <- mapAndUnzipM simplifyVariadicExpression es
     return (concat ss,concat es')
 
-simplifyVariadicExpression :: SimplifyK loc t m => (Expression VarIdentifier (Typed loc),IsVariadic) -> t m ([Statement VarIdentifier (Typed loc)],[(Expression VarIdentifier (Typed loc),IsVariadic)])
+simplifyVariadicExpression :: SimplifyK loc m => (Expression VarIdentifier (Typed loc),IsVariadic) -> TcM m ([Statement VarIdentifier (Typed loc)],[(Expression VarIdentifier (Typed loc),IsVariadic)])
 simplifyVariadicExpression (e,isVariadic) = do
     (ss,Just e') <- simplifyExpression e
     case (e',isVariadic) of
         (ArrayConstructorPExpr l es,True) -> return (ss,map (,False) es)
         p -> return (ss,[p])
         
-simplifyMaybe :: SimplifyM loc t m a -> SimplifyM loc t m (Maybe a) 
+simplifyMaybe :: SimplifyM loc m a -> SimplifyM loc m (Maybe a) 
 simplifyMaybe m Nothing = return ([],Nothing)
 simplifyMaybe m (Just x) = do
     (ss,x') <- m x
     return (ss,Just x')
 
-simplifySizes :: SimplifyM loc t m (Maybe (Sizes VarIdentifier (Typed loc)))
+simplifySizes :: SimplifyM loc m (Maybe (Sizes VarIdentifier (Typed loc)))
 simplifySizes = simplifyMaybe $ \(Sizes xs) -> do
     (ss,xs') <- simplifyVariadicExpressions (Foldable.toList xs)
     return (ss,Sizes $ fromListNe xs')

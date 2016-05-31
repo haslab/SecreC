@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, Rank2Types, UndecidableInstances, DeriveFoldable, DeriveTraversable, FlexibleContexts, ConstraintKinds, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE MagicHash, DeriveGeneric, Rank2Types, UndecidableInstances, DeriveFoldable, DeriveTraversable, FlexibleContexts, ConstraintKinds, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
 
 module Language.SecreC.TypeChecker.Base where
 
@@ -38,6 +38,8 @@ import Data.Graph.Inductive.Query as Graph hiding (mapSnd)
 import Data.Text.Unsafe
 
 import GHC.Generics (Generic)
+import GHC.Base hiding (mapM)
+import GHC.Num
 
 import Control.Applicative
 import Control.Monad.State (State(..),StateT(..),MonadState(..))
@@ -193,7 +195,6 @@ data TcEnv = TcEnv {
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , isPure :: Bool -- if typechecking pure expressions
     , procClass :: ProcClass -- class when typechecking procedures
-    , tyVarId :: TyVarId
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     , recEnv :: ModuleTcEnv
     }
@@ -293,10 +294,24 @@ getModuleField f = do
     let xyz = mappend x (mappend y z)
     return $ f xyz
 
+filterRecBody :: Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
+filterRecBody True xs = xs
+filterRecBody False xs = Map.map (Map.map aux) xs
+    where
+    aux (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec d
+
+remDecRec :: DecType -> DecType
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns (if isJust isRec then [] else body) cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns (if isJust isRec then [] else body) cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid (if isJust isRec then [] else atts))
+
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
-getStructs :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs = getModuleField structs
+getStructs :: Monad m => Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs withBody = liftM (filterRecBody withBody) $ getModuleField structs
 getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getKinds = getModuleField kinds
 getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,EntryEnv)))
@@ -305,10 +320,10 @@ getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField globalConsts
 getDomains :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getDomains = getModuleField domains
-getOperators :: Monad m => TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv))
-getOperators = getModuleField operators
-getProcedures :: Monad m => TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getProcedures = getModuleField procedures
+getOperators :: Monad m => Bool -> TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv))
+getOperators withBody = liftM (filterRecBody withBody) $ getModuleField operators
+getProcedures :: Monad m => Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getProcedures withBody = liftM (filterRecBody withBody) $ getModuleField procedures
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation = withAnn True
@@ -373,7 +388,6 @@ emptyTcEnv = TcEnv
     , isPure = False
     , localConsts = Map.empty
     , procClass = mempty
-    , tyVarId = 0
     , moduleEnv = (mempty,mempty)
     , recEnv = mempty
     }
@@ -486,13 +500,13 @@ newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 --    return x
 
 -- | Typechecks a code block, with local declarations only within its scope
-tcBlock :: Monad m => TcM m a -> TcM m a
-tcBlock m = do
-    r <- Reader.ask
-    s <- State.get
-    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
-    Writer.tell w'
-    return x
+--tcBlock :: Monad m => TcM m a -> TcM m a
+--tcBlock m = do
+--    r <- Reader.ask
+--    s <- State.get
+--    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
+--    Writer.tell w'
+--    return x
 
 execTcM :: (MonadIO m) => TcM m a -> (Int,SecrecErrArr) -> TcEnv -> SecrecM m (a,TcEnv)
 execTcM m arr env = do
@@ -642,24 +656,24 @@ isTrivialHypCstr (HypEqual e1 e2) = e1 == e2
  
 isTcCstr :: TCstr -> Bool
 isTcCstr (TcK {}) = True
-isTcCstr (DelayedK k _ _) = isTcCstr k
+isTcCstr (DelayedK k _) = isTcCstr k
 isTcCstr (CheckK {}) = False
 isTcCstr (HypK {}) = False
 
 isCheckCstr :: TCstr -> Bool
 isCheckCstr (CheckK {}) = True
-isCheckCstr (DelayedK k _ _) = isCheckCstr k
+isCheckCstr (DelayedK k _) = isCheckCstr k
 isCheckCstr (HypK {}) = False
 isCheckCstr (TcK {}) = False
 
 isHypCstr :: TCstr -> Bool
 isHypCstr (HypK {}) = True
-isHypCstr (DelayedK k _ _) = isHypCstr k
+isHypCstr (DelayedK k _) = isHypCstr k
 isHypCstr _ = False
 
 isTrivialCstr :: TCstr -> Bool
 isTrivialCstr (TcK c _ _) = isTrivialTcCstr c
-isTrivialCstr (DelayedK c _ _) = isTrivialCstr c
+isTrivialCstr (DelayedK c _) = isTrivialCstr c
 isTrivialCstr (CheckK c _ _) = isTrivialCheckCstr c
 isTrivialCstr (HypK c _ _) = isTrivialHypCstr c
 
@@ -675,7 +689,7 @@ data TCstr
     | DelayedK
         TCstr -- a constraint
         (Int,SecrecErrArr) -- an error message with updated context
-        ModuleTcEnv -- optional recursive declarations only in scope for solving this constraint
+        --ModuleTcEnv -- optional recursive declarations only in scope for solving this constraint
     | CheckK
         CheckCstr
         Bool -- is annotation
@@ -689,32 +703,32 @@ data TCstr
 instance Binary TCstr
 instance Hashable TCstr where
     hashWithSalt i (TcK c _ _) = i `hashWithSalt` (0::Int) `hashWithSalt` c
-    hashWithSalt i (DelayedK c _ _) = i `hashWithSalt` (1::Int) `hashWithSalt` c
+    hashWithSalt i (DelayedK c _) = i `hashWithSalt` (1::Int) `hashWithSalt` c
     hashWithSalt i (CheckK c _ _) = i `hashWithSalt` (2::Int) `hashWithSalt` c
     hashWithSalt i (HypK c _ _) = i `hashWithSalt` (3::Int) `hashWithSalt` c
  
 coreTCstr :: TCstr -> TCstr
-coreTCstr (DelayedK c _ _) = coreTCstr c
+coreTCstr (DelayedK c _) = coreTCstr c
 coreTCstr c = c
  
 instance Hashable EntryEnv
  
 instance Eq TCstr where
-    (DelayedK c1 _ e1) == (DelayedK c2 _ e2) = c1 == c2 && e1 == e2
+    (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
     (TcK x b1 b2) == (TcK y b3 b4) = x == y && b1 == b3 && b2 == b4
     (HypK x b1 b2) == (HypK y b3 b4) = x == y && b1 == b3 && b2 == b4
     (CheckK x b1 b2) == (CheckK y b3 b4) = x == y && b1 == b3 && b2 == b4
     x == y = False
     
 instance Ord TCstr where
-    compare (DelayedK c1 _ _) (DelayedK c2 _ _) = c1 `compare` c2
+    compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
     compare (TcK x b1 b2) (TcK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare (HypK x b1 b2) (HypK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare (CheckK x b1 b2) (CheckK y b3 b4) = mconcat[compare x y,compare b1 b3,compare b2 b4]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 priorityTCstr :: TCstr -> TCstr -> Ordering
-priorityTCstr (DelayedK c1 _ _) (DelayedK c2 _ _) = priorityTCstr c1 c2
+priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
 priorityTCstr (TcK c1 _ _) (TcK c2 _ _) = priorityTcCstr c1 c2
 priorityTCstr (HypK x _ _) (HypK y _ _) = compare x y
 priorityTCstr (CheckK x _ _) (CheckK y _ _) = compare x y
@@ -774,7 +788,7 @@ instance PP HypCstr where
     pp (HypEqual e1 e2) = text "hypothesis" <+> pp e1 <+> text "==" <+> pp e2
 
 instance PP TCstr where
-    pp (DelayedK c f rec) = text "delayed" <+> pp c
+    pp (DelayedK c f) = text "delayed" <+> pp c
     pp (TcK k _ _) = pp k
     pp (CheckK c _ _) = pp c
     pp (HypK h _ _) = pp h
@@ -967,10 +981,9 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m HypCstr wher
         return $ HypEqual e1' e2'
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TCstr where
-    traverseVars f (DelayedK c err rec) = do
+    traverseVars f (DelayedK c err) = do
         c' <- f c
-        rec' <- f rec
-        return $ DelayedK c' err rec'
+        return $ DelayedK c' err
     traverseVars f (TcK k b1 b2) = do
         k' <- f k
         return $ TcK k' b1 b2
@@ -1173,29 +1186,17 @@ instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier
 --        ref' <- liftIO $ readUniqRef ref >>= newUniqRef
 --        return $ IOCstr k' ref'
 
-newTyVarId :: MonadIO m => TcM m TyVarId
-newTyVarId = do
-    i <- State.gets tyVarId
-    State.modify' $ \g -> g { tyVarId = succ (tyVarId g) }
-    return i
-
 newModuleTyVarId :: MonadIO m => TcM m ModuleTyVarId
 newModuleTyVarId = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     return (mn,i)
 
 freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 freshVarId n doc = do
-    i <- newTyVarId
+    i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v' = VarIdentifier n (Just mn) (Just i) False doc
-    return v'
-
-freshVarIO :: MonadIO m => VarIdentifier -> m VarIdentifier
-freshVarIO v = do
-    i <- liftIO $ liftM hashUnique newUnique
-    let v' = VarIdentifier (varIdBase v) Nothing (Just i) False (varIdPretty v)
     return v'
 
 freeVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
@@ -1255,9 +1256,35 @@ instance PP VarIdentifier where
         Nothing -> ppVarId v
       where
         ppVarId (VarIdentifier n m Nothing _ _) = ppOpt m (\x -> text x <> char '.') <> text n
-        ppVarId (VarIdentifier n m (Just i) _ _) = ppOpt m (\x -> text x <> char '.') <> text n <> char '_' <> PP.int i
+        ppVarId (VarIdentifier n m (Just i) _ _) = ppOpt m (\x -> text x <> char '.') <> text n <> char '_' <> pp i
 
-type TyVarId = Int
+newtype TyVarId = TyVarId Integer deriving (Eq,Ord,Data,Generic)
+instance Show TyVarId where
+    show (TyVarId i) = show i
+instance PP TyVarId where
+    pp (TyVarId i) = pp i
+instance Binary TyVarId
+instance Hashable TyVarId
+
+instance (GenVar iden m,MonadIO m,IsScVar iden) => Vars iden m TyVarId where
+    traverseVars f x = return x
+
+uniqTyVarId :: IORef Integer
+uniqTyVarId = unsafePerformIO (newIORef 0)
+{-# NOINLINE uniqTyVarId #-}
+
+resetTyVarId :: IO ()
+resetTyVarId = do
+    atomicModifyIORef' uniqTyVarId $ \x -> (0,0)
+    return ()
+
+newTyVarId :: IO TyVarId
+newTyVarId = do
+  r <- atomicModifyIORef' uniqTyVarId $ \x -> let z = x+1 in (z,z)
+  return (TyVarId r)
+
+hashTyVarId :: TyVarId -> Int
+hashTyVarId (TyVarId i) = I# (hashInteger i)
 
 secTypeKind :: SecType -> SVarKind
 secTypeKind Public = AnyKind
@@ -1305,7 +1332,7 @@ decTypeDecId d = Nothing
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
-        Bool -- is a recursive invocation
+        (Maybe ModuleTyVarId) -- is a recursive invocation = Just original
         [(Constrained Var,IsVariadic)] -- ^ template variables
         PureTDict -- ^ constraints for the header
         (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
@@ -1340,7 +1367,7 @@ isNonRecursiveDecType :: DecType -> Bool
 isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
     where
     aux :: DecType -> Bool
-    aux (DecType j True _ _ _ _ _ _ _) = i == j
+    aux (DecType _ (Just j) _ _ _ _ _ _ _) = i == j
     aux d = False
 isNonRecursiveDecType d = False
 
@@ -1483,8 +1510,9 @@ instance PP SecType where
     pp (Private d k) = pp d
     pp (SVar v k) = parens (pp v <+> text "::" <+> pp k)
 instance PP DecType where
-    pp (DecType _ isrec vars hdict hfrees dict frees specs body@(StructType _ n atts)) =
-        text "Frees:" <+> pp hfrees
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(StructType _ n atts)) =
+        pp did
+        $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
@@ -1492,8 +1520,9 @@ instance PP DecType where
         $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> braces (vcat $ map ppAtt atts)
       where
         ppAtt (AttributeName t n) = pp t <+> pp n
-    pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret ann stmts _)) =
-        text "Frees:" <+> pp hfrees
+    pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret ann stmts _)) =
+        pp did
+        $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
@@ -1501,8 +1530,9 @@ instance PP DecType where
         $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
         $+$ braces (pp stmts)
-    pp (DecType _ isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) =
-        text "Frees:" <+> pp hfrees
+    pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) =
+        pp did
+        $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
@@ -1528,7 +1558,7 @@ instance PP InnerDecType where
         
 instance PP BaseType where
     pp (TyPrim p) = pp p
-    pp (TApp n ts d) = pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)
+    pp (TApp n ts d) = braces (pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts) <+> pp d)
     pp (BVar v) = pp v
 instance PP ComplexType where
     pp Void = text "void"
@@ -2065,7 +2095,7 @@ defCType :: BaseType -> ComplexType
 defCType t = CType Public t (indexExpr 0)
 
 instance Hashable VarIdentifier where
-    hashWithSalt i v = hashWithSalt (maybe i (i+) $ varIdUniq v) (varIdBase v)
+    hashWithSalt i v = hashWithSalt (maybe i ((i+) . hashTyVarId) $ varIdUniq v) (varIdBase v)
 
 type Prim = PrimitiveDatatype ()
 
@@ -2089,8 +2119,8 @@ withoutImplicitClassify m = localOpts (\opts -> opts { implicitCoercions = False
 instance MonadIO m => GenVar VarIdentifier (TcM m) where
     genVar v = freshVarId (varIdBase v) (varIdPretty v)
 
-instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
-    genVar v = freshVarIO v
+--instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
+--    genVar v = freshVarIO v
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do

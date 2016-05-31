@@ -72,8 +72,8 @@ tcModule m@(Module l name prog) = failTcM l $ do
     State.modify $ \env -> env
         { moduleCount = (moduleId m,succ $ snd $ moduleCount env)
         , moduleEnv = let (x,y) = moduleEnv env in (x `mappend` y,mempty)
-        , tyVarId = 0
         }
+    liftIO resetTyVarId
     prog' <- tcProgram prog
     -- substitute the module's environment with the module's dictionary
     --ss <- getTSubsts
@@ -294,6 +294,6 @@ tcGlobal l m = do
     dict <- liftM ((\[a] -> a) . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { procClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
+    State.modify $ \e -> e { procClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [], recEnv = mempty }
     liftIO resetGlobalEnv
     return x'

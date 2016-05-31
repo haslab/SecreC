@@ -59,7 +59,8 @@ evaluate l doc m = do
     mb <- lift $ timeout (evalTimeOut opts * 10^6) $ runSecrecMWith opts $ execTcM m arr env
     case mb of
         Nothing -> tcError (locpos l) $ Halt $ StaticEvalError doc $ Just $ TimedOut $ evalTimeOut opts
-        Just (Left err) -> tcError (locpos l) $ Halt $ StaticEvalError doc $ Just err
+        Just (Left err) -> do
+            tcError (locpos l) $ Halt $ StaticEvalError doc $ Just err
         Just (Right ((x,env'),warns)) -> do
             State.put env'
             TcM (lift $ Writer.tell warns) >> return x

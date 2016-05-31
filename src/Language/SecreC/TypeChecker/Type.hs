@@ -290,12 +290,12 @@ projectSize p t i (Just x) y1 y2 = do
             liftM Just $ subtractIndexExprs p False eupp elow          
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
-structBody l d@(DecType _ False _ _ _ _ _ _ b) = return b
-structBody l d@(DecType did True _ _ _ _ _ _ (StructType sl sid _)) = do
-    (DecType _ _ _ _ _ _ _ _ s@(StructType {})) <- checkStruct l sid did
-    return s
+structBody l d@(DecType _ Nothing _ _ _ _ _ _ b) = return b
+structBody l d@(DecType j (Just i) _ _ _ _ _ _ (StructType sl sid _)) = do
+    (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True sid j
+    return s        
 structBody l (DVar v) = resolveDVar l v >>= structBody l
-structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
+--structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
 projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m ComplexType

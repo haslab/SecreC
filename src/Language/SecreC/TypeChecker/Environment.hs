@@ -240,7 +240,7 @@ newDomainVariable scope (DomainName (Typed l t) n) = do
 newTypeVariable :: (ProverK loc m) => Scope -> TypeName VarIdentifier (Typed loc) -> TcM m ()
 newTypeVariable scope (TypeName (Typed l t) n) = do
     removeFree n
-    ss <- getStructs
+    ss <- getStructs False
     case Map.lookup n ss of
         Just (es) -> tcError (locpos l) $ InvalidTypeVariableName (pp n) (map (locpos . entryLoc) (Map.elems es))
         Nothing -> do
@@ -278,9 +278,9 @@ checkDomain (DomainName l n) = do
                 Nothing -> tcError (locpos l) $ NotDefinedDomain (pp n)
     return $ DomainName (Typed l t) n
 
-checkStruct :: ProverK loc m => loc -> SIdentifier -> ModuleTyVarId -> TcM m DecType
-checkStruct l sid@(TypeName _ sn) mid = do
-    ss <- getStructs
+checkStruct :: ProverK loc m => loc -> Bool -> SIdentifier -> ModuleTyVarId -> TcM m DecType
+checkStruct l withBody sid@(TypeName _ sn) mid = do
+    ss <- getStructs withBody
     case Map.lookup sn ss of
         Just es -> case Map.lookup mid es of
             Just e -> typeToDecType l (entryType e)
@@ -291,7 +291,7 @@ checkStruct l sid@(TypeName _ sn) mid = do
 -- Searches for both user-defined types and type variables
 checkType :: (ProverK loc m) => TypeName VarIdentifier loc -> TcM m [EntryEnv]
 checkType (TypeName l n) = do
-    ss <- getStructs
+    ss <- getStructs False
     case Map.lookup n ss of
         Just (es) -> return (Map.elems es)
         Nothing -> tcError (locpos l) $ NotDefinedType (pp n)
@@ -391,7 +391,7 @@ addTemplateOperator vars hdeps op = do
     solve l "addTemplateOperator"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
+    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateOp" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
@@ -409,7 +409,7 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     frees <- getFrees l
     d'@(ProcType pl on pargs pret panns body cl) <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i True [] emptyPureTDict frees emptyPureTDict Set.empty [] $ ProcType pl on pargs pret panns [] cl
+    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ ProcType pl on pargs pret panns [] cl
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
     dirtyGDependencies $ Right $ Left $ Right o
@@ -417,7 +417,7 @@ newOperator hdeps op = do
     solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
     d'' <- substFromTDict "newOp body" l dict False Map.empty d'
-    let td = DecT $ DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+    let td = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) td
     noFrees e
     liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
@@ -428,14 +428,14 @@ newOperator hdeps op = do
 checkOperator :: (VarsIdTcM m,Location loc) => Bool -> Op VarIdentifier loc -> TcM m [EntryEnv]
 checkOperator isAnn op@(OpCast l t) = do
     addGDependencies $ Right $ Left $ Right $ funit op
-    ps <- getOperators
+    ps <- getOperators False
     let cop = funit op
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCast k) ps
     return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) casts
 checkOperator isAnn op = do
     addGDependencies $ Right $ Left $ Right $ funit op
-    ps <- getOperators
+    ps <- getOperators False
     let cop = funit op
     case Map.lookup cop ps of
         Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
@@ -449,7 +449,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     solve l "addTemplateProcedure"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
+    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateProc" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
@@ -466,7 +466,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     frees <- getFrees l
     d'@(ProcType pl ppn pargs pret panns body cl) <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i True [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ ProcType pl ppn pargs pret panns [] cl
+    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ ProcType pl ppn pargs pret panns [] cl
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
     dirtyGDependencies $ Right $ Left $ Left n
@@ -475,7 +475,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     solveTop l "newProcedure"
     dict <- liftM (head . tDict) State.get
     d'' <- substFromTDict "newProc body" l dict False Map.empty d'
-    let dt = DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+    let dt = DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     noFrees e
     --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
@@ -486,7 +486,7 @@ newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 checkProcedure :: (MonadIO m,Location loc) => Bool -> ProcedureName VarIdentifier loc -> TcM m [EntryEnv]
 checkProcedure isAnn pn@(ProcedureName l n) = do
     addGDependencies $ Right $ Left $ Left n
-    ps <- getProcedures
+    ps <- getProcedures False
     case Map.lookup n ps of
         Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp n)
         Just es -> return $ filter (\e -> isAnnProcClass (tyProcClass $ entryType e) <= isAnn) $ Map.elems es
@@ -579,26 +579,18 @@ withoutEntry e m = do
         Nothing -> error $ "withoutEntry " ++ ppr e
 
 decIsRec :: DecType -> Bool
-decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isfree
+decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isJust isfree
 
-mkTpltDecRec :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
-mkTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) = do
-    j <- newModuleTyVarId
-    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (ProcType pl (Left pn) pargs pret panns [] cl)
-    let rece = EntryEnv (locpos l) (DecT recd)
-    return $ mempty { procedures = Map.singleton pn $ Map.singleton j rece }
-mkTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) = do
-    j <- newModuleTyVarId
-    let o = funit op
-    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (ProcType pl (Right op) pargs pret panns [] cl)
-    let rece = EntryEnv (locpos l) (DecT recd)
-    return $ mempty { operators = Map.singleton (funit op) $ Map.singleton j rece }
-mkTpltDecRec l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts)) = do
-    j <- newModuleTyVarId
-    let recd = DecType j True ts hd hfrees emptyPureTDict Set.empty specs (StructType sl sid [])
-    --es <- liftM ((!sn) . structs . snd . moduleEnv) State.get
-    let rece = EntryEnv (locpos l) (DecT recd)
-    return $ mempty { structs = Map.singleton sn $ Map.singleton j rece }
+mkDecEnv :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
+mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) = do
+    let e = EntryEnv (locpos l) (DecT d)
+    return $ mempty { procedures = Map.singleton pn $ Map.singleton i e }
+mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) = do
+    let e = EntryEnv (locpos l) (DecT d)
+    return $ mempty { operators = Map.singleton (funit op) $ Map.singleton i e }
+mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts)) = do
+    let e = EntryEnv (locpos l) (DecT d)
+    return $ mempty { structs = Map.singleton sn $ Map.singleton i e }
 
 -- adds a recursive declaration for processing recursive constraints
 --withTpltDecRec :: (ProverK Position m) => EntryEnv -> TcM m a -> TcM m a
@@ -677,11 +669,11 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
+    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
     (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateStruct" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
-    ss <- getStructs
+    ss <- getStructs False
     case Map.lookup n ss of
         Just es -> tcError (locpos l) $ MultipleDefinedStructTemplate (pp n) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
@@ -694,7 +686,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT
     solve l "addTemplateStructSpecialization"
     (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i False vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees specials d
+    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees specials d
     (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateStructSpec" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
@@ -712,9 +704,9 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     frees <- getFrees l
     d'@(StructType sl sid atts) <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i True [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ StructType sl sid []
+    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ StructType sl sid []
     let rece = EntryEnv (locpos l) recdt
-    ss <- getStructs
+    ss <- getStructs False
     case Map.lookup n ss of
         Just es -> tcError (locpos l) $ MultipleDefinedStruct (pp n) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> do
@@ -726,7 +718,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             dict <- liftM (head . tDict) State.get
             --i <- newModuleTyVarId
             d'' <- substFromTDict "newStruct body" (locpos l) dict False Map.empty d'
-            let dt = DecT $ DecType i False [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+            let dt = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
             let e = EntryEnv (locpos l) dt
             liftIO $ putStrLn $ "newStruct: " ++ ppr l ++ " " ++ ppr e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
@@ -1138,8 +1130,6 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
                 return $ fmap funit $ typeToTypeName ty
             (eq (typeRep :: TypeOf (TypeName VarIdentifier (Typed loc))) -> EqT) ->
                 return $ fmap (fmap (Typed l)) $ typeToTypeName ty
-            (eq (typeRep :: TypeOf Type) -> EqT) ->
-                return $ Just ty
             (eq (typeRep :: TypeOf SecType) -> EqT) ->
                 case ty of
                     SecT s -> return $ Just s
@@ -1168,6 +1158,8 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
                 case ty of
                     IdxT s -> return $ Just $ fmap (Typed l) s
                     otherwise -> return Nothing
+            (eq (typeRep :: TypeOf Type) -> EqT) ->
+                return $ Just ty
             otherwise -> return Nothing
   where
     eq x proxy = eqTypeOf x (typeOfProxy proxy)
@@ -1234,10 +1226,21 @@ tcLocal l msg m = do
     State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
     return x
 
+addRec :: Monad m => ModuleTcEnv -> TcM m ()
+addRec rec = State.modify $ \env -> env { recEnv = recEnv env `mappend` rec }
+
 withRecs :: Monad m => ModuleTcEnv -> TcM m a -> TcM m a
 withRecs rec m = do
     old <- liftM recEnv State.get
     State.modify $ \env -> env { recEnv = old `mappend` rec }
+    x <- m
+    State.modify $ \env -> env { recEnv = old }
+    return x
+
+noRecs :: Monad m => TcM m a -> TcM m a
+noRecs m = do
+    old <- liftM recEnv State.get
+    State.modify $ \env -> env { recEnv = mempty }
     x <- m
     State.modify $ \env -> env { recEnv = old }
     return x

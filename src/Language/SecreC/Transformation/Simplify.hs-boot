@@ -8,6 +8,7 @@ import Language.SecreC.Syntax
 import Language.SecreC.Location
 import Language.SecreC.Vars
 import Language.SecreC.Monad
+import Language.SecreC.Prover.Base
 
 import Control.Monad.Except
 import Control.Monad.Reader as Reader
@@ -16,11 +17,11 @@ import Control.Monad.Base
 
 import Data.Typeable
 
-type SimplifyK loc t m = (Monad (t m),Typeable t,MonadTrans t,MonadBaseControl IO m,Typeable m,MonadIO m,Location loc,Vars VarIdentifier (t m) loc,MonadError SecrecError (t m))
+type SimplifyK loc m = ProverK loc m
 
-type SimplifyM loc t m a = SimplifyK loc t m => a -> t m ([Statement VarIdentifier (Typed loc)],a)
-type SimplifyT loc t m a = SimplifyM loc t m (a VarIdentifier (Typed loc))
+type SimplifyM loc m a = SimplifyK loc m => a -> TcM m ([Statement VarIdentifier (Typed loc)],a)
+type SimplifyT loc m a = SimplifyM loc m (a VarIdentifier (Typed loc))
 
-type SimplifyG loc t m a = SimplifyK loc t m => a VarIdentifier (Typed loc) -> t m (a VarIdentifier (Typed loc))
+type SimplifyG loc m a = SimplifyK loc m => a VarIdentifier (Typed loc) -> TcM m (a VarIdentifier (Typed loc))
 
-simplifyExpression :: SimplifyK loc t m => Expression VarIdentifier (Typed loc) -> t m ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc)))
+simplifyExpression :: SimplifyK loc m => Expression VarIdentifier (Typed loc) -> TcM m ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc)))

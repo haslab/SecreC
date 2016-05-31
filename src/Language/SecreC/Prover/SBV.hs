@@ -65,7 +65,8 @@ proveWithTcM cfg m = do
     res <- liftIO $ proveWith cfg sym
     e <- liftIO $ readIORef st
     case e of
-        Left err -> throwError err
+        Left err -> do
+            throwError err
         Right (env',warns) -> do
             State.put env'
             TcM $ lift $ tell warns

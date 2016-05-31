@@ -7,7 +7,6 @@ import Language.SecreC.Syntax
 import Language.SecreC.Pretty
 import Language.SecreC.Utils
 import Language.SecreC.Location
-import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
 import Language.SecreC.Vars
 
 import Data.Hashable
@@ -195,8 +194,9 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IBOp where
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IUOp where
     traverseVars f o = return o
 
-type ProverK loc m = (SMTK loc,SimplifyK loc (TcM) m,VarsIdTcM m,Location loc)
-type SMTK loc = (Vars VarIdentifier Symbolic loc,VarsIdTcM Symbolic,Location loc)
+type ProverK loc m = (SMTK loc,Vars VarIdentifier (TcM m) loc,VarsIdTcM m,Location loc)
+type SMTK loc = (VarsIdTcM Symbolic,Location loc)
+--Vars VarIdentifier Symbolic loc,
 
 instance MonadBase IO Symbolic where
     liftBase = liftIO
@@ -206,6 +206,6 @@ instance MonadBaseControl IO Symbolic where
     liftBaseWith f = liftIO $ f return
     restoreM       = id
 
-instance GenVar VarIdentifier Symbolic where
-    genVar v = freshVarIO v
+--instance GenVar VarIdentifier Symbolic where
+--    genVar v = freshVarIO v
     

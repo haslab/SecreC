@@ -93,21 +93,21 @@ resolveOutput inputs outputs modules = map res modules
     res (Right sci) = (Right sci,NoOutput)
 
 passes :: [(ModuleFile,OutputType)] -> SecrecM IO ()
-passes modules = do
+passes modules = runTcM $ failTcM (noloc::Position) $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
     tc <- typecheck modules
     case tc of
         Nothing -> return ()
         Just typedModules -> do
-            opts <- Reader.ask
+            opts <- askOpts
             simpleModules <- fmapFstM (simplifyModuleFile opts) typedModules
             liftIO $ output simpleModules
 
-typecheck :: [(ModuleFile,OutputType)] -> SecrecM IO (Maybe [(TypedModuleFile,OutputType)])
+typecheck :: [(ModuleFile,OutputType)] -> TcM IO (Maybe [(TypedModuleFile,OutputType)])
 typecheck modules = do
-    opts <- Reader.ask
+    opts <- askOpts
     let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ map fst modules) <+> text str <> char '.'
     if (typeCheck opts)
-        then runTcM $ failTcM (noloc::Position) $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
+        then do
             typedModules <- fmapFstM tcModuleFile modules
             printMsg "are well-typed"
             return $ Just typedModules
