@@ -503,6 +503,9 @@ tcProveTop l msg m = do
   where
     dropDict (x:xs) = xs
 
+proveWithRec :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict,ModuleTcEnv))
+proveWithRec l msg proof = withRecs $ proveWith l msg proof
+
 proveWith :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict))
 proveWith l msg proof = try `catchError` (return . Left)
     where
@@ -876,7 +879,7 @@ coercesSecDimSizes l e1 x2@(loc -> ComplexT (CVar v2)) = do
 coercesSecDimSizes l e1@(loc -> ComplexT (CType s1 b1 d1)) x2@(loc -> ComplexT (CType s2 b2 d2)) = do
     let t3 = ComplexT $ CType s1 b2 d2 -- intermediate type
     x3 <- newTypedVar "e" t3 $ Just $ pp e1
-    liftIO $ putStrLn $ "coercesSecDimSizes: " ++ ppr l ++ " " ++ ppr e1 ++ " " ++ ppr x2 ++ " " ++ ppr x3
+--    liftIO $ putStrLn $ "coercesSecDimSizes: " ++ ppr l ++ " " ++ ppr e1 ++ " " ++ ppr x2 ++ " " ++ ppr x3
     coercesDimSizes l e1 x3
     coercesSec l (varExpr x3) x2
 coercesSecDimSizes l e1 x2 = constraintError (CoercionException "complex type security dimension") l e1 ppExprTy x2 ppVarTy Nothing
@@ -1619,7 +1622,7 @@ unifiesBase l t1 (BVar v) = do
 unifiesBase l (TApp n1 ts1 d1) (TApp n2 ts2 d2) = do
     unifiesTIdentifier l (Left n1) (Left n2)
     unifiesTpltArgs l ts1 ts2
-    equalsDec l d1 d2
+    unifiesDec l d1 d2
 unifiesBase l t1 t2 = constraintError (UnificationException "base type") l t1 pp t2 pp Nothing
 
 unifiesTpltArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Type,IsVariadic)] -> TcM m ()

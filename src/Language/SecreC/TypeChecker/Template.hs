@@ -128,12 +128,12 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
 -- removes type arguments from a template declaration, as a step of instantiation
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m DecType
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(ProcType {})) = do
-    return $ DecType i isRec [] hdict hfrees bdict bfrees [] d
+    return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees [] d@(StructType {})) = do
     let specs' = map (mapFst (varNameToType . unConstrained)) targs
-    return $ DecType i isRec [] hdict hfrees bdict bfrees specs' d
+    return $ DecType i isRec [] hdict Set.empty bdict Set.empty specs' d
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(StructType {})) = do
-    return $ DecType i isRec [] hdict hfrees bdict bfrees specs d
+    return $ DecType i isRec [] hdict Set.empty bdict Set.empty specs d
 removeTemplate l (DVar v) = resolveDVar l v >>= removeTemplate l
 
 ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> TcM m Doc
@@ -165,8 +165,9 @@ compareProcedureArgs l ((_,Constrained v1@(VarName t1 n1) c1,isVariadic1):xs) ((
 --    liftIO $ putStrLn $ "comparePArgExp " ++ ppr v1 ++ " " ++ ppr v2 ++ " "
     o0 <- comparesExpr l True (varExpr v1) (varExpr v2)
 --    liftIO $ putStr $ show (compOrdering o0)
---    liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " "
+    ss <- getTSubsts l
     o1 <- compares l t1 t2
+    liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
 --    liftIO $ putStr $ show (compOrdering o1)
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
     o2 <- compareProcedureArgs l xs ys
@@ -182,14 +183,16 @@ compareProcedureArgs l xs ys = constraintError (ComparisonException "procedure a
 -- bool f (T [[N]] x) { ... } (3)
 -- We would be choosing choosing (1), even though the best match is in principle (2), that does not instantiate T.
 -- doesn't take into consideration index conditions
+-- compare original declarations, not instantiated ones
 compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> TIdentifier -> (EntryEnv,EntryEnv,TDict,Set VarIdentifier) -> (EntryEnv,EntryEnv,TDict,Set VarIdentifier) -> TcM m Ordering
-compareTemplateDecls def l n (e1,_,_,_) (e2,_,_,_) = liftM fst $ tcProveTop l "compare" $ do
+compareTemplateDecls def l n (e1,_,_,_) (e2,_,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
     --liftIO $ putStrLn $ "compareTemplateDecls " ++ ppr e1 ++ "\n" ++ ppr e2
     State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
     --e1' <- localTemplate e1
     --e2' <- localTemplate e2
     (targs1,pargs1,ret1) <- templateArgs (entryLoc e1) n (entryType e1)
     (targs2,pargs2,ret2) <- templateArgs (entryLoc e2) n (entryType e2)
+    unless (isJust ret1 == isJust ret2) $ error $ "declarations should have the same type " ++ ppr e1 ++ "\n" ++ ppr e2
     --removeTSubsts $ tpltTyVars targs1
     --removeTSubsts $ tpltTyVars targs2
     let defs = map (\e -> (locpos $ entryLoc e,pp (entryType e))) [e1,e2]
@@ -357,22 +360,26 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = withFrees $ do
                     forM_ (maybe [] (catMaybes . map (\(Constrained x c,isVariadic) -> c)) tplt_targs) $ \c -> do
                         withDependencies ks $ tcCstrM_ l $ IsValid c
                 return ()
-            ok <- newErrorM $ proveWith l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
+            ok <- newErrorM $ proveWithRec l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
                 Left err -> do
                     --liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++ "\n" ++ ppr err
                     return $ Left (e,err)
-                Right (_,TDict hgr _ subst) -> do
+                Right (_,TDict hgr _ subst,recs) -> do
                         --removeIOCstrGraphFrees hgr
-                        (e',(subst',bgr')) <- localTemplateWith l e' (subst,bgr)
-                        hgr' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty (toPureCstrs hgr)
---                        liftIO $ putStrLn $ "worked " ++ ppr l -- ++ " % " ++ show (ppTSubsts (tSubsts subst)) ++ " %"
-                        gr' <- liftIO $ fromPureCstrs $ unionGr bgr' hgr'
-                        let depCstrs = TDict gr' Set.empty subst'
+                        (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
+                        bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
+                        hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
+                        recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
+                        addRec recs''
+                        bgr1 <- liftIO $ fromPureCstrs bgr''
+                        hgr1 <- liftIO $ fromPureCstrs hgr''
+                        let gr1 = unionGr bgr1 hgr1
+                        let depCstrs = TDict gr1 Set.empty subst'
                         --depCstrs <- mergeDependentCstrs l subst' bgr''
-                        remainder <- ppConstraints gr'
+                        remainder <- ppConstraints gr1
                         liftIO $ putStrLn $ "remainder" ++ ppr n ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         dec2 <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
@@ -428,7 +435,7 @@ templateTDict isPure e = case entryType e of
     DecT (DecType i isRec vars hd hfrees d bfrees specs ss) -> do
         hd' <- liftIO $ fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
         let d' = TDict Graph.empty Set.empty (pureSubsts d)
-        let e' = e { entryType = DecT (DecType i isRec vars emptyPureTDict Set.empty emptyPureTDict Set.empty specs ss) }
+        let e' = e { entryType = DecT (DecType i isRec vars emptyPureTDict hfrees emptyPureTDict bfrees specs ss) }
         return (e',hd',d',purify $ pureCstrs d)
     otherwise -> return (e,emptyTDict,emptyTDict,Graph.empty)
   where

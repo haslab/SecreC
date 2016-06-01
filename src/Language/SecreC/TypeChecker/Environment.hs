@@ -1229,13 +1229,17 @@ tcLocal l msg m = do
 addRec :: Monad m => ModuleTcEnv -> TcM m ()
 addRec rec = State.modify $ \env -> env { recEnv = recEnv env `mappend` rec }
 
-withRecs :: Monad m => ModuleTcEnv -> TcM m a -> TcM m a
+getRec :: Monad m => TcM m ModuleTcEnv
+getRec = State.gets recEnv
+
+withRecs :: Monad m => ModuleTcEnv -> TcM m a -> TcM m (a,ModuleTcEnv)
 withRecs rec m = do
-    old <- liftM recEnv State.get
+    old <- getRec
     State.modify $ \env -> env { recEnv = old `mappend` rec }
     x <- m
+    new <- getRec
     State.modify $ \env -> env { recEnv = old }
-    return x
+    return (x,differenceRec old new)
 
 noRecs :: Monad m => TcM m a -> TcM m a
 noRecs m = do

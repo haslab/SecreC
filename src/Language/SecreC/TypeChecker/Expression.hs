@@ -12,7 +12,7 @@ import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Statement
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
-import {-# SOURCE #-} Language.SecreC.TypeChecker.Conversion
+import Language.SecreC.TypeChecker.Conversion
 import {-# SOURCE #-} Language.SecreC.Prover.Expression
 import Language.SecreC.Prover.SMT
 import Language.SecreC.Prover.Base

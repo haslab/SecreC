@@ -500,13 +500,13 @@ newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 --    return x
 
 -- | Typechecks a code block, with local declarations only within its scope
---tcBlock :: Monad m => TcM m a -> TcM m a
---tcBlock m = do
---    r <- Reader.ask
---    s <- State.get
---    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
---    Writer.tell w'
---    return x
+tcBlock :: Monad m => TcM m a -> TcM m a
+tcBlock m = do
+    r <- Reader.ask
+    s <- State.get
+    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
+    Writer.tell w'
+    return x
 
 execTcM :: (MonadIO m) => TcM m a -> (Int,SecrecErrArr) -> TcEnv -> SecrecM m (a,TcEnv)
 execTcM m arr env = do
@@ -772,7 +772,7 @@ instance PP TcCstr where
     pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
-    pp (MultipleSubstitutions s) = text "multiplesubstitutions" <+> sepBy space (map (pp . fst3) s)
+    pp (MultipleSubstitutions s) = text "multiplesubstitutions" <+> sepBy space (map (\(x,y,z) -> pp x $+$ nest 4 (text "=>" $+$ pp y)) s)
     pp (MatchTypeDimension d sz) = text "matchtypedimension" <+> pp d <+> pp sz
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (NotEqual e1 e2) = text "not equal" <+> pp e1 <+> pp e2
