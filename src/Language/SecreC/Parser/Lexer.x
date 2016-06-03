@@ -119,7 +119,9 @@ tokens :-
 <0>                     requires              { lexerTokenInfo REQUIRES }
 <0>                     ensures               { lexerTokenInfo ENSURES }
 <0>                     leaks                 { lexerTokenInfo LEAKS }
-<0>                     leak                 { lexerTokenInfo LEAK }
+<0>                     leak                  { lexerTokenInfo LEAK }
+<0>                     multiset              { lexerTokenInfo MULTISET }
+<0>                     free                  { lexerTokenInfo FREE }
 <0>                     assume                { lexerTokenInfo ASSUME }
 
 -- built-in functions:
@@ -259,7 +261,7 @@ unembedComment input len = do
 
 lineComment :: AlexInput -> Int -> Alex TokenInfo
 lineComment input@(AlexPn a ln c, _, _, s) len = do
-    let com = take len s
+    let com = drop 2 $ take len s
     case isAnnotation com of
         Nothing -> skip input len
         Just ann -> lexerTokenInfo (ANNOTATION ann) input len

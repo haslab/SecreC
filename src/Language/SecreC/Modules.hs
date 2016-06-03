@@ -34,7 +34,7 @@ import qualified Control.Monad.State as State
 import Control.Monad.Reader (Reader(..),ReaderT(..),ask)
 import qualified Control.Monad.Reader as Reader
 
-import System.FilePath.Find as FilePath hiding (modificationTime)
+import System.FilePath.Find as FilePath hiding (modificationTime,canonicalPath)
 import System.FilePath
 import System.Directory
 import System.IO
@@ -73,7 +73,8 @@ resolveModule :: ModK m => FilePath -> SecrecM m FilePath
 resolveModule file = do
     let m = ModuleName (UnhelpfulPos "resolveModule") (takeBaseName file)
     opts <- ask
-    findModule (takeDirectory file : paths opts) m   
+    f <- findModule (takeDirectory file : paths opts) m   
+    liftIO $ canonicalPath f
 
 -- | Opens a list of modules by filename
 openModuleFiles :: ModK m => [FilePath] -> ModuleGraph -> ModuleM m ModuleGraph
@@ -92,7 +93,8 @@ openModule parent g f n pos load = do
     g' <- case Map.lookup n ns of
         Just (f',i,False) -> if f == f'
             -- open an already closed module
-            then return $ insParent parent i g
+            then do
+                return $ insParent parent i g
             -- two files with the same module name
             else modError pos $ DuplicateModuleName n f f'
         -- dependency cycle
@@ -135,13 +137,18 @@ parseModuleFile fn = do
                 Just x -> return $ Right x
   where
     parse = do
-        opts <- ask
-        (args,m) <- parseFile fn
+        (args,m) <- parseFileWithBuiltin fn
         t <- liftIO $ fileModificationTime fn
-        let m' = if (implicitBuiltin (opts `mappend` ppOptions args) && moduleIdMb m /= Just "builtin")
-            then addModuleImport (Import noloc $ ModuleName noloc "builtin") m
-            else m
-        return $ Left (t,args,m')
+        return $ Left (t,args,m)
+
+parseFileWithBuiltin :: ModK m => FilePath -> SecrecM m (PPArgs,Module Identifier Position)
+parseFileWithBuiltin fn = do
+    opts <- ask
+    (args,m) <- parseFile fn
+    let m' = if (implicitBuiltin (opts `mappend` ppOptions args) && moduleIdMb m /= Just "builtin")
+        then addModuleImport (Import noloc $ ModuleName noloc "builtin") m
+        else m
+    return (args,m')
 
 -- recursively update the modification time of parent modules
 dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph
@@ -153,17 +160,17 @@ dirtyParents i g = case contextGr g i of
     dirtyParents' [] t g = return g
     dirtyParents' (i:is) t g = case contextGr g i of
         Nothing -> dirtyParents' is t g
-        Just (_,_,n,parents) -> if moduleFileModificationTime n >= t
+        Just (_,_,inode,iparents) -> if moduleFileModificationTime inode >= t
             -- we can stop if the parent module has a more recent modification time
             then dirtyParents' is t g
             -- dirty recursively
             else do
-                n' <- lift $ update n t
-                dirtyParents' (is++map snd parents) t (insNode (i,n') g)
+                inode' <- lift $ update inode t
+                dirtyParents' (is++map snd iparents) t (insNode (i,inode') g)
     update (Left (_,args,m)) t = return $ Left (t,args,m)
     update (Right sci) t = do
         sciError $ "A dependency of the SecreC file " ++ show (sciFile sci) ++ " has changed"
-        (args,m) <- parseFile (sciFile sci)
+        (args,m) <- parseFileWithBuiltin (sciFile sci)
         return $ Left (t,args,m)
 
 -- | Finds a file in the path from a module name

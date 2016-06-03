@@ -244,6 +244,9 @@ instance (PP a,PP b) => PP (a,b) where
 
 instance (PP a,PP b,PP c) => PP (a,b,c) where
     pp (x,y,z) = pp x <+> pp y <+> pp z
+    
+instance (PP a,PP b,PP c,PP d) => PP (a,b,c,d) where
+    pp (x,y,z,w) = pp x <+> pp y <+> pp z <+> pp w
    
 instance (Vars iden m a,Vars iden m b) => Vars iden m (a,b) where
     traverseVars f (x,y) = do
@@ -257,6 +260,14 @@ instance (Vars iden m a,Vars iden m b,Vars iden m c) => Vars iden m (a,b,c) wher
         y' <- f y
         z' <- f z
         return (x',y',z')
+
+instance (Vars iden m a,Vars iden m b,Vars iden m c,Vars iden m d) => Vars iden m (a,b,c,d) where
+    traverseVars f (x,y,z,w) = do
+        x' <- f x
+        y' <- f y
+        z' <- f z
+        w' <- f w
+        return (x',y',z',w')
     
 instance (PP a,PP b) => PP (Either a b) where
     pp = either pp pp
@@ -577,6 +588,14 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         es' <- mapM f es
         return $ ArrayConstructorPExpr l' es'
+    traverseVars f (MultisetConstructorPExpr l es) = do
+        l' <- f l
+        es' <- mapM f es
+        return $ MultisetConstructorPExpr l' es'
+    traverseVars f (ToMultisetExpr l e) = do
+        l' <- f l
+        e' <- f e
+        return $ ToMultisetExpr l' e'
     traverseVars f (RVariablePExpr l v) = do
         l' <- f l
         v' <- f v
@@ -890,14 +909,14 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m SecrecError where
     traverseVars f x = return x
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (LoopAnnotation iden loc) where
-    traverseVars f (DecreasesAnn l e) = do
+    traverseVars f (DecreasesAnn l isFree e) = do
         l' <- f l
         e' <- f e
-        return $ DecreasesAnn l' e'
-    traverseVars f (InvariantAnn l e) = do
+        return $ DecreasesAnn l' isFree e'
+    traverseVars f (InvariantAnn l isFree e) = do
         l' <- f l
         e' <- f e
-        return $ InvariantAnn l' e'
+        return $ InvariantAnn l' isFree e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (StatementAnnotation iden loc) where
     traverseVars f (AssertAnn l e) = do
@@ -910,14 +929,14 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         return $ AssumeAnn l' e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ProcedureAnnotation iden loc) where
-    traverseVars f (RequiresAnn l e) = do
+    traverseVars f (RequiresAnn l isFree e) = do
         l' <- f l
         e' <- f e
-        return $ RequiresAnn l' e'
-    traverseVars f (EnsuresAnn l e) = do
+        return $ RequiresAnn l' isFree e'
+    traverseVars f (EnsuresAnn l isFree e) = do
         l' <- f l
         e' <- f e
-        return $ EnsuresAnn l' e'
+        return $ EnsuresAnn l' isFree e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [StatementAnnotation iden loc] where
     traverseVars f xs = mapM f xs

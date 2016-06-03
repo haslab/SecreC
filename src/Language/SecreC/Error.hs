@@ -143,9 +143,9 @@ data TypecheckerErr
         String --label
         Doc Doc -- types
         (Maybe SecrecError) -- sub-error
-    | BiCoercionException -- ^ @coerces@ fails to prove equality
+    | NCoercionException -- ^ @coerces@ fails to prove equality
         String -- label
-        (Maybe Doc) Doc Doc -- types
+        (Maybe Doc) [Doc]
         (Maybe SecrecError) -- sub-error
     | UnificationException -- ^ @unifies@ fails to unify two types
         String -- label
@@ -292,13 +292,11 @@ instance PP TypecheckerErr where
            (text "From:" <+> t1
         $+$ text "To:" <+> t2
         $+$ ppConstraintEnv env)
-    pp e@(BiCoercionException i Nothing t1 t2 env) = text "Failed to apply bidirectional" <+> text i <+> text "coercion:" $+$ nest 4
-           (text "Left:" <+> t1
-        $+$ text "Right:" <+> t2
+    pp e@(NCoercionException i Nothing ts env) = text "Failed to apply multidirectional" <+> text i <+> text "coercion:" $+$ nest 4
+           (vcat (map (\(i,t) -> text "Direction" <+> pp i <> char ':' <+> pp t) $ zip [(1::Int)..] ts)
         $+$ ppConstraintEnv env)
-    pp e@(BiCoercionException i (Just t3) t1 t2 env) = text "Failed to apply bidirectional" <+> text i <+> text "coercion:" $+$ nest 4
-           (text "Left:" <+> t1
-        $+$ text "Right:" <+> t2
+    pp e@(NCoercionException i (Just t3) ts env) = text "Failed to apply multidirectional" <+> text i <+> text "coercion:" $+$ nest 4
+           (vcat (map (\(i,t) -> text "Direction" <+> pp i <> char ':' <+> pp t) $ zip [(1::Int)..] ts)
         $+$ text "Result:" <+> t3
         $+$ ppConstraintEnv env)
     pp e@(UnificationException i t1 t2 env) = text "Failed to unify " <+> text i <+> text ":" $+$ nest 4

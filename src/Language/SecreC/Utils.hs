@@ -43,6 +43,8 @@ import Control.Monad.Except
 import Unsafe.Coerce
 
 import System.Mem.Weak.Exts as Weak
+import System.Directory
+import System.IO.Error
 
 import Safe
 
@@ -215,6 +217,13 @@ foldSepM f g (ConsSep x sep xs) = do
 foldr0M :: (Monad m) => a -> (a -> a -> m a) -> [a] -> m a
 foldr0M x f [] = return x
 foldr0M x f xs = foldr1M f xs
+
+foldr0M_ :: (Monad m) => (a -> a -> m a) -> [a] -> m ()
+foldr0M_ f [] = return ()
+foldr0M_ f xs = foldr1M_ f xs
+
+foldr1M_ :: (Monad m,Foldable t) => (a -> a -> m a) -> t a -> m ()
+foldr1M_ f xs = foldr1M f xs >> return ()
 
 foldr1M :: (Monad m,Foldable t) => (a -> a -> m a) -> t a -> m a
 foldr1M f xs = liftM (fromMaybe (error "foldr1M: empty structure"))
@@ -618,3 +627,15 @@ dropHeadChunk lbs =
 tryError :: MonadError e m => m a -> m (Either e a)
 tryError m = catchError (liftM Right m) (return . Left)
 
+data Lns s v = Lns { getLns :: s -> v, putLns :: s -> v -> s }
+
+compLns :: Lns a b -> Lns b c -> Lns a c
+compLns l1 l2 = Lns get put
+    where
+    get = getLns l2 . getLns l1
+    put a c = putLns l1 a (putLns l2 (getLns l1 a) c)
+    
+
+canonicalPath :: FilePath -> IO FilePath
+canonicalPath f = catchIOError (canonicalizePath f) (const $ return f)
+    

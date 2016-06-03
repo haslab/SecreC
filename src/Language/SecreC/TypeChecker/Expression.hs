@@ -108,7 +108,7 @@ tcExpr (CondExpr l c e1 e2) = do
     t3 <- newTyVar Nothing
     x1 <- newTypedVar "then" t3 $ Just $ pp e1'
     x2 <- newTypedVar "else" t3 $ Just $ pp e2'
-    topTcCstrM_ l $ Coerces2 (fmap typed e1') (fmap typed e2') x1 x2
+    topTcCstrM_ l $ CoercesN [(fmap typed e1',x1),(fmap typed e2',x2)] 
     let ex1 = fmap (Typed l) $ varExpr x1
     let ex2 = fmap (Typed l) $ varExpr x2
     return $ CondExpr (Typed l t3) c' ex1 ex2
@@ -211,6 +211,9 @@ tcExpr (SelectionExpr l pe a) = do
 tcExpr (ArrayConstructorPExpr l es) = do
     lit' <- tcArrayLiteral l es
     return lit'
+tcExpr (MultisetConstructorPExpr l es) = do
+    lit' <- tcMultisetLiteral l es
+    return lit'
 tcExpr (LitPExpr l lit) = do
     lit' <- tcLiteral lit
     return lit'
@@ -284,8 +287,20 @@ tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
+    s <- newDomainTyVar "s" AnyKind Nothing
     b <- newBaseTyVar Nothing
-    let t = ComplexT $ CType Public b (indexExpr 1)
+    let t = ComplexT $ CType s b (indexExpr 1)
+    let elit = ArrayConstructorPExpr t es''
+    topTcCstrM_ l $ CoercesLit elit
+    return $ ArrayConstructorPExpr (Typed l t) es'
+
+tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression VarIdentifier (Typed loc))
+tcMultisetLiteral l es = do
+    es' <- mapM tcExpr es
+    let es'' = fmap (fmap typed) es'
+    s <- newDomainTyVar "s" AnyKind Nothing
+    b <- newBaseTyVar Nothing
+    let t = ComplexT $ CType s b (indexExpr 1)
     let elit = ArrayConstructorPExpr t es''
     topTcCstrM_ l $ CoercesLit elit
     return $ ArrayConstructorPExpr (Typed l t) es'

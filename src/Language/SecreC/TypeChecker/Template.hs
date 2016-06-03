@@ -86,8 +86,8 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
 discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,TDict,Set VarIdentifier) -> TcM m ()
 discardMatchingEntry (e,e',dict,frees) = forM_ frees removeFree
 
-templateCstrs :: Location loc => (Int,SecrecError -> SecrecError) -> Doc -> loc -> TDict -> TDict
-templateCstrs (i,arr) doc p d = d { tCstrs = Graph.nmap upd (tCstrs d) }
+templateCstrs :: Location loc => (Int,SecrecError -> SecrecError) -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
+templateCstrs (i,arr) rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
     where
     upd (Loc l k) = Loc l $ k { kCstr = DelayedK (kCstr k) (succ i,SecrecErrArr arr) }
 
@@ -95,6 +95,7 @@ mkRecDec :: ProverK loc m => loc -> DecType -> TcM m DecType
 mkRecDec l dec@(DecType j (Just i) targs hdict hfrees bdict bfrees specs d) = return dec
 mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) = do
     j <- newModuleTyVarId
+    liftIO $ putStrLn $ "mkRecDec " ++ ppr j
     return $ DecType j (Just i) targs hdict hfrees bdict bfrees specs d
 
 resolveTemplateEntry :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> TDict -> Set VarIdentifier -> TcM m DecType
@@ -109,13 +110,13 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
     liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr targs ++ " " ++ ppr pargs ++ " " ++ ppr dec
     -- prove the body (with a recursive declaration)
     let doWrap = isTemplateDecType olddec && not (decIsRec olddec)
-    decrec <- if doWrap
+    (decrec,rec) <- if doWrap
         then do
             decrec <- mkRecDec p dec
-            mkDecEnv p decrec >>= addRec
-            return decrec
-        else return dec
-    addHeadTDict p $ templateCstrs arr def p dict
+            rec <- mkDecEnv p decrec
+            return (decrec,rec)
+        else return (dec,mempty)
+    addHeadTDict p $ templateCstrs arr rec def p dict
     case n of
         Right _ -> do
             let tycl@(Proc _ rs ws) = tyProcClass $ DecT decrec
@@ -153,7 +154,7 @@ ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets
 compareTypeArgs :: ProverK loc m => loc -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
 compareTypeArgs l xs@[] ys@[] = return (Comparison xs ys EQ)
 compareTypeArgs l ((Constrained t1 c1,isVariadic1):xs) ((Constrained t2 c2,isVariadic2):ys) = do
-    o1 <- compares l t1 t2
+    o1 <- compares l False t1 t2
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "type argument") l t1 pp t2 pp Nothing
     o2 <- compareTypeArgs l xs ys
     appendComparisons l [o1,o2]
@@ -166,7 +167,7 @@ compareProcedureArgs l ((_,Constrained v1@(VarName t1 n1) c1,isVariadic1):xs) ((
     o0 <- comparesExpr l True (varExpr v1) (varExpr v2)
 --    liftIO $ putStr $ show (compOrdering o0)
     ss <- getTSubsts l
-    o1 <- compares l t1 t2
+    o1 <- compares l False t1 t2
     liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
 --    liftIO $ putStr $ show (compOrdering o1)
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
@@ -206,7 +207,7 @@ compareTemplateDecls def l n (e1,_,_,_) (e2,_,_,_) = liftM fst $ tcProveTop l "c
             then compareProcedureArgs l (concat pargs1) (concat pargs2)
             -- for structs, compare the specialization types
             else compareTypeArgs l (concat targs1) (concat targs2)
-        ord3 <- comparesList l (maybeToList ret1) (maybeToList ret2)
+        ord3 <- comparesList l False (maybeToList ret1) (maybeToList ret2)
         appendComparison l ord2 ord3
     when (compOrdering ord == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
     --liftIO $ putStrLn $ "finished comparing " ++ ppr e1 ++ "\n" ++ ppr e2
@@ -360,24 +361,23 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = withFrees $ do
                     forM_ (maybe [] (catMaybes . map (\(Constrained x c,isVariadic) -> c)) tplt_targs) $ \c -> do
                         withDependencies ks $ tcCstrM_ l $ IsValid c
                 return ()
-            ok <- newErrorM $ proveWithRec l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
+            ok <- newErrorM $ proveWith l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
                 Left err -> do
                     --liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++ "\n" ++ ppr err
                     return $ Left (e,err)
-                Right (_,TDict hgr _ subst,recs) -> do
+                Right (_,TDict hgr _ subst recs) -> do
                         --removeIOCstrGraphFrees hgr
                         (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
                         bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
                         hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
                         recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
-                        addRec recs''
                         bgr1 <- liftIO $ fromPureCstrs bgr''
                         hgr1 <- liftIO $ fromPureCstrs hgr''
                         let gr1 = unionGr bgr1 hgr1
-                        let depCstrs = TDict gr1 Set.empty subst'
+                        let depCstrs = TDict gr1 Set.empty subst' recs''
                         --depCstrs <- mergeDependentCstrs l subst' bgr''
                         remainder <- ppConstraints gr1
                         liftIO $ putStrLn $ "remainder" ++ ppr n ++ " " ++ show remainder
@@ -434,7 +434,7 @@ templateTDict :: (ProverK Position m) => Bool -> EntryEnv -> TcM m (EntryEnv,TDi
 templateTDict isPure e = case entryType e of
     DecT (DecType i isRec vars hd hfrees d bfrees specs ss) -> do
         hd' <- liftIO $ fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
-        let d' = TDict Graph.empty Set.empty (pureSubsts d)
+        let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d)
         let e' = e { entryType = DecT (DecType i isRec vars emptyPureTDict hfrees emptyPureTDict bfrees specs ss) }
         return (e',hd',d',purify $ pureCstrs d)
     otherwise -> return (e,emptyTDict,emptyTDict,Graph.empty)

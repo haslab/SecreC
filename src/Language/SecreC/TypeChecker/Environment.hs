@@ -120,6 +120,13 @@ getFrees l = do
     TSubsts ss <- getTSubsts l
     return $ Set.difference frees $ Map.keysSet ss
 
+chooseVar :: ProverK loc m => loc -> VarIdentifier -> VarIdentifier -> TcM m Ordering
+chooseVar l v1 v2 = do
+    vs <- getFrees l
+    if Set.member v2 vs
+        then return GT
+        else return LT
+
 -- replaces a constraint in the constraint graph by a constraint graph
 replaceCstrWithGraph :: (MonadIO m,Location loc) => loc -> Bool -> Int -> Set LocIOCstr -> IOCstrGraph -> Set LocIOCstr -> TcM m ()
 replaceCstrWithGraph l filterDeps kid ins gr outs = do
@@ -380,8 +387,6 @@ newKind (KindName (Typed l t) n) = do
             let e = EntryEnv (locpos l) t
             modifyModuleEnv $ \env -> env { kinds = Map.insert n e (kinds env) } 
 
-noTSubsts d = d { pureSubsts = emptyTSubsts }
-
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
 addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
@@ -389,11 +394,9 @@ addTemplateOperator vars hdeps op = do
     let Typed l (IDecT d) = loc op
     let o = funit op
     solve l "addTemplateOperator"
-    (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
-    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
-    dt' <- substFromTSubsts "templateOp" l hbsubsts False Map.empty dt
+    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
@@ -447,9 +450,9 @@ addTemplateProcedure :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Dep
 addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
-    (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
+    let dt = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees [] d
     (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
     dt' <- substFromTSubsts "templateProc" l hbsubsts False Map.empty dt
     let e = EntryEnv (locpos l) dt'
@@ -494,89 +497,159 @@ checkProcedure isAnn pn@(ProcedureName l n) = do
 addProcClass :: Monad m => ProcClass -> TcM m ()
 addProcClass cl = State.modify $ \env -> env { procClass = mappend cl $ procClass env }
 
+entryLens :: (DecIdentifier,ModuleTyVarId) -> Lns TcEnv [Maybe (Map ModuleTyVarId EntryEnv)]
+entryLens (dn,i) = Lns get put
+    where
+    get env = case dn of
+        Right tn ->
+            let (x,y) = moduleEnv env
+                zs = map tRec $ tDict env
+            in  map (Map.lookup tn . structs) (x:y:zs)
+        Left (Left pn) ->
+            let (x,y) = moduleEnv env
+                zs = map tRec $ tDict env
+            in  map (Map.lookup pn . procedures) (x:y:zs)
+        Left (Right (funit -> on)) -> 
+            let (x,y) = moduleEnv env
+                zs = map tRec $ tDict env
+            in  map (Map.lookup on . operators) (x:y:zs)
+    put env (x':y':zs') | length zs' == length (tDict env) = case dn of
+        Right tn ->
+            let (x,y) = moduleEnv env
+                upd a' a = a { structs = Map.alter (const a') tn $ structs a }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+        Left (Left pn) ->
+            let (x,y) = moduleEnv env
+                upd a' a = a { procedures = Map.alter (const a') pn $ procedures a }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+        Left (Right (funit -> on)) ->
+            let (x,y) = moduleEnv env
+                upd a' a = a { operators = Map.alter (const a') on $ operators a }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+    put env xs' = error "unsupported view in entryLens"
+
+findListLens :: (a -> Bool) -> Lns [Maybe a] (Maybe (a,Int))
+findListLens p = Lns (get 0) put
+    where
+    get i [] = Nothing
+    get i (Nothing:xs) = get (succ i) xs
+    get i (Just x:xs) = if p x then Just (x,i) else get (succ i) xs
+    put xs Nothing = xs
+    put (Just x:xs) (Just (x',0)) = Just x' : xs
+    put (x:xs) (Just (x',i)) = x : put xs (Just (x',pred i))
+    put xs v = error $ "findListLens unsupported view"
+
+indexLens :: Int -> Lns [a] a
+indexLens i = Lns (get i) (put i)
+    where
+    get 0 (x:xs) = x
+    get i (x:xs) = get (pred i) xs
+    get i xs = error "get indexLens"
+    put 0 (x:xs) x' = x':xs
+    put i (x:xs) x' = x : put (pred i) xs x'
+    put i xs x' = error "put indexLens"
+
 withoutEntry :: Monad m => EntryEnv -> TcM m a -> TcM m a
 withoutEntry e m = do
     let DecT d = entryType e
     env <- State.get
-    let (x,y) = moduleEnv env
-    let z = recEnv env
     case decTypeId d of
-        Just (Right tn,i) -> case Map.lookup tn (structs x) of
-            Just es -> case Map.lookup i es of
-                Just e -> do
-                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { structs = Map.update (Just . Map.delete i) tn $ structs x },y) } 
-                    a <- m
-                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { structs = Map.update (Just . Map.insert i e) tn $ structs x },y) } 
-                    return a
+        Just did@(dn,i) -> do
+            let lns = entryLens did `compLns` findListLens (Map.member i)
+            case getLns lns env of
                 Nothing -> m
-            Nothing -> case Map.lookup tn (structs y) of
-                Just es -> case Map.lookup i es of
-                    Just e -> do
-                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { structs = Map.update (Just . Map.delete i) tn $ structs y }) } 
-                        a <- m
-                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { structs = Map.update (Just . Map.insert i e) tn $ structs y }) } 
-                        return a
-                    Nothing -> m
-                Nothing -> case Map.lookup tn (structs z) of
-                    Just es -> case Map.lookup i es of
-                        Just e -> do
-                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { structs = Map.update (Just . Map.delete i) tn $ structs z } } 
-                            a <- m
-                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { structs = Map.update (Just . Map.insert i e) tn $ structs z } } 
-                            return a
-                        Nothing -> m
-                    Nothing -> m
-        Just (Left (Left pn),i) -> case Map.lookup pn (procedures x) of
-            Just es -> case Map.lookup i es of
-                Just e -> do
-                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { procedures = Map.update (Just . Map.delete i) pn $ procedures x },y) } 
+                Just (es,trace) -> do
+                    let e = es!i
+                    let lns2 = entryLens did `compLns` indexLens trace
+                    State.modify $ \env -> putLns lns env $ Just (Map.delete i es,trace)
                     a <- m
-                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { procedures = Map.update (Just . Map.insert i e) pn $ procedures x },y) } 
+                    State.modify $ \env -> putLns lns2 env $ Just $ Map.insert i e $ fromJustNote "withoutEntry" $ getLns lns2 env
                     return a
-                Nothing -> m
-            Nothing -> case Map.lookup pn (procedures y) of
-                Just es -> case Map.lookup i es of
-                    Just e -> do
-                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { procedures = Map.update (Just . Map.delete i) pn $ procedures y }) } 
-                        a <- m
-                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { procedures = Map.update (Just . Map.insert i e) pn $ procedures y }) } 
-                        return a
-                    Nothing -> m
-                Nothing -> case Map.lookup pn (procedures z) of
-                    Just es -> case Map.lookup i es of
-                        Just e -> do
-                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { procedures = Map.update (Just . Map.delete i) pn $ procedures z } } 
-                            a <- m
-                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { procedures = Map.update (Just . Map.insert i e) pn $ procedures z } } 
-                            return a
-                        Nothing -> m
-                    Nothing -> m
-        Just (Left (Right (funit -> on)),i) -> case Map.lookup on (operators x) of
-            Just es -> case Map.lookup i es of
-                Just e -> do
-                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { operators = Map.update (Just . Map.delete i) on $ operators x },y) } 
-                    a <- m
-                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { operators = Map.update (Just . Map.insert i e) on $ operators x },y) } 
-                    return a
-                Nothing -> m
-            Nothing -> case Map.lookup on (operators y) of
-                Just es -> case Map.lookup i es of
-                    Just e -> do
-                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { operators = Map.update (Just . Map.delete i) on $ operators y }) } 
-                        a <- m
-                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { operators = Map.update (Just . Map.insert i e) on $ operators y }) } 
-                        return a
-                    Nothing -> m
-                Nothing -> case Map.lookup on (operators z) of
-                    Just es -> case Map.lookup i es of
-                        Just e -> do
-                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { operators = Map.update (Just . Map.delete i) on $ operators z } } 
-                            a <- m
-                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { operators = Map.update (Just . Map.insert i e) on $ operators z } } 
-                            return a
-                        Nothing -> m
-                    Nothing -> m
-        Nothing -> error $ "withoutEntry " ++ ppr e
+    
+
+--withoutEntry :: Monad m => EntryEnv -> TcM m a -> TcM m a
+--withoutEntry e m = do
+--    let DecT d = entryType e
+--    env <- State.get
+--    let (x,y) = moduleEnv env
+--    let z = recEnv env
+--    case decTypeId d of
+--        Just (Right tn,i) -> case Map.lookup tn (structs x) of
+--            Just es -> case Map.lookup i es of
+--                Just e -> do
+--                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { structs = Map.update (Just . Map.delete i) tn $ structs x },y) } 
+--                    a <- m
+--                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { structs = Map.update (Just . Map.insert i e) tn $ structs x },y) } 
+--                    return a
+--                Nothing -> m
+--            Nothing -> case Map.lookup tn (structs y) of
+--                Just es -> case Map.lookup i es of
+--                    Just e -> do
+--                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { structs = Map.update (Just . Map.delete i) tn $ structs y }) } 
+--                        a <- m
+--                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { structs = Map.update (Just . Map.insert i e) tn $ structs y }) } 
+--                        return a
+--                    Nothing -> m
+--                Nothing -> case Map.lookup tn (structs z) of
+--                    Just es -> case Map.lookup i es of
+--                        Just e -> do
+--                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { structs = Map.update (Just . Map.delete i) tn $ structs z } } 
+--                            a <- m
+--                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { structs = Map.update (Just . Map.insert i e) tn $ structs z } } 
+--                            return a
+--                        Nothing -> m
+--                    Nothing -> m
+--        Just (Left (Left pn),i) -> case Map.lookup pn (procedures x) of
+--            Just es -> case Map.lookup i es of
+--                Just e -> do
+--                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { procedures = Map.update (Just . Map.delete i) pn $ procedures x },y) } 
+--                    a <- m
+--                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { procedures = Map.update (Just . Map.insert i e) pn $ procedures x },y) } 
+--                    return a
+--                Nothing -> m
+--            Nothing -> case Map.lookup pn (procedures y) of
+--                Just es -> case Map.lookup i es of
+--                    Just e -> do
+--                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { procedures = Map.update (Just . Map.delete i) pn $ procedures y }) } 
+--                        a <- m
+--                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { procedures = Map.update (Just . Map.insert i e) pn $ procedures y }) } 
+--                        return a
+--                    Nothing -> m
+--                Nothing -> case Map.lookup pn (procedures z) of
+--                    Just es -> case Map.lookup i es of
+--                        Just e -> do
+--                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { procedures = Map.update (Just . Map.delete i) pn $ procedures z } } 
+--                            a <- m
+--                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { procedures = Map.update (Just . Map.insert i e) pn $ procedures z } } 
+--                            return a
+--                        Nothing -> m
+--                    Nothing -> m
+--        Just (Left (Right (funit -> on)),i) -> case Map.lookup on (operators x) of
+--            Just es -> case Map.lookup i es of
+--                Just e -> do
+--                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { operators = Map.update (Just . Map.delete i) on $ operators x },y) } 
+--                    a <- m
+--                    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x { operators = Map.update (Just . Map.insert i e) on $ operators x },y) } 
+--                    return a
+--                Nothing -> m
+--            Nothing -> case Map.lookup on (operators y) of
+--                Just es -> case Map.lookup i es of
+--                    Just e -> do
+--                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { operators = Map.update (Just . Map.delete i) on $ operators y }) } 
+--                        a <- m
+--                        State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y { operators = Map.update (Just . Map.insert i e) on $ operators y }) } 
+--                        return a
+--                    Nothing -> m
+--                Nothing -> case Map.lookup on (operators z) of
+--                    Just es -> case Map.lookup i es of
+--                        Just e -> do
+--                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { operators = Map.update (Just . Map.delete i) on $ operators z } } 
+--                            a <- m
+--                            State.modify $ \env -> env { recEnv = let z = recEnv env in z { operators = Map.update (Just . Map.insert i e) on $ operators z } } 
+--                            return a
+--                        Nothing -> m
+--                    Nothing -> m
+--        Nothing -> error $ "withoutEntry " ++ ppr e
 
 decIsRec :: DecType -> Bool
 decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isJust isfree
@@ -644,34 +717,34 @@ noFrees e = do
     let vs = Set.difference frees $ Map.keysSet ss
     unless (Set.null vs) $ genTcError (loc e) $ text "variables" <+> pp vs <+> text "should not be free in" $+$ pp e
     
-splitHead :: (ProverK loc m) => loc -> Set LocIOCstr -> InnerDecType -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier)
+splitHead :: (ProverK loc m) => loc -> Set LocIOCstr -> InnerDecType -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier,InnerDecType)
 splitHead l deps dec = do
     d <- liftM (head . tDict) State.get
+    let hbsubsts = tSubsts d
     frees <- getFrees l
-    freevars <- fvs $ toPureCstrs $ tCstrs d
-    doc <- ppConstraints (tCstrs d)
-    forM_ frees $ \v -> unless (Map.member v freevars) $ genTcError (locpos l) $ text "free variable" <+> pp v <+> text "not dependent on a constraint from" <+> pp d <+> text "in declaration" <+> pp dec
+    dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec
+    cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty $ toPureCstrs $ tCstrs d
+    freevars <- fvs cstrs
+    forM_ frees $ \v -> unless (Map.member v freevars) $ genTcError (locpos l) $ text "free variable" <+> pp v <+> text "not dependent on a constraint from" <+> pp d $+$ text "in declaration" <+> pp dec'
     hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
     let hfrees = Set.intersection frees hvs
     let bfrees = Set.difference frees hfrees
     opens <- liftM openedCstrs State.get
     let cs = Set.difference (mapSet unLoc deps) (Set.fromList $ map fst opens)
-    let gr = Graph.trc $ tCstrs d
-    let hgr = nmap (fmap kCstr) $ Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,ioCstrId h)) cs) gr
-    let bgr = differenceGr (nmap (fmap kCstr) gr) hgr
+    let gr = Graph.trc cstrs
+    let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,ioCstrId h)) cs) gr
+    let bgr = differenceGr gr hgr
 --    liftIO $ putStrLn $ "splitHead " ++ ppr hgr ++ "\n|\n" ++ ppr bgr
-    return (PureTDict hgr (tSubsts d),hfrees,PureTDict bgr emptyTSubsts,bfrees)
+    return (PureTDict hgr hbsubsts (tRec d),hfrees,PureTDict bgr emptyTSubsts mempty,bfrees,dec')
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
 addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
-    (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees [] d
-    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
-    dt' <- substFromTSubsts "templateStruct" l hbsubsts False Map.empty dt
+    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     ss <- getStructs False
     case Map.lookup n ss of
@@ -684,11 +757,9 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
 addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStructSpecialization"
-    (hdict,hfrees,bdict,bfrees) <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
     i <- newModuleTyVarId
-    let dt = DecT $ DecType i Nothing vars (noTSubsts hdict) hfrees (noTSubsts bdict) bfrees specials d
-    (hbsubsts,[]) <- appendTSubsts l NoCheckS (pureSubsts hdict) (pureSubsts bdict)
-    dt' <- substFromTSubsts "templateStructSpec" l hbsubsts False Map.empty dt
+    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees specials d'
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
     return $ TypeName (Typed l dt') n
@@ -938,10 +1009,10 @@ addHeadTDict :: (ProverK loc m) => loc -> TDict -> TcM m ()
 addHeadTDict l d = updateHeadTDict $ \x -> liftM ((),) $ appendTDict l NoFailS x d
 
 addHeadTCstrs :: (ProverK loc m) => loc -> IOCstrGraph -> TcM m ()
-addHeadTCstrs l ks = addHeadTDict l $ TDict ks Set.empty emptyTSubsts
+addHeadTCstrs l ks = addHeadTDict l $ TDict ks Set.empty emptyTSubsts mempty
 
 addHeadTFlatCstrs :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m ()
-addHeadTFlatCstrs l ks = addHeadTDict l $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty)
+addHeadTFlatCstrs l ks = addHeadTDict l $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty) mempty
     where nodes = map (\n -> (ioCstrId $ unLoc n,n)) $ Set.toList ks
 
 getHyps :: (MonadIO m) => TcM m Deps
@@ -1068,11 +1139,11 @@ bytes :: ComplexType
 bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexExpr 1)
 
 appendTDict :: (ProverK loc m) => loc -> SubstMode -> TDict -> TDict -> TcM m TDict
-appendTDict l noFail (TDict u1 c1 ss1) (TDict u2 c2 ss2) = do
+appendTDict l noFail (TDict u1 c1 ss1 rec1) (TDict u2 c2 ss2 rec2) = do
     let u12 = unionGr u1 u2
     (ss12,ks) <- appendTSubsts l noFail ss1 ss2
     u12' <- foldM (\gr k -> insertNewCstr l k gr) u12 ks
-    return $ TDict u12' (Set.union c1 c2) ss12
+    return $ TDict u12' (Set.union c1 c2) ss12 (mappend rec1 rec2)
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
 appendTSubsts l NoCheckS (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
@@ -1168,11 +1239,11 @@ concatTDict :: (ProverK loc m) => loc -> SubstMode -> [TDict] -> TcM m TDict
 concatTDict l noFail = Foldable.foldlM (appendTDict l noFail) emptyTDict
 
 appendPureTDict :: (ProverK loc m) => loc -> SubstMode -> PureTDict -> PureTDict -> TcM m PureTDict
-appendPureTDict l noFail (PureTDict u1 ss1) (PureTDict u2 ss2) = do
+appendPureTDict l noFail (PureTDict u1 ss1 rec1) (PureTDict u2 ss2 rec2) = do
     (ss12,ks) <- appendTSubsts l noFail ss1 ss2
     let u12 = unionGr u1 u2
     u12' <- liftIO $ foldM (\gr k -> insNewNodeIO (Loc (locpos l) k) gr) u12 ks
-    return $ PureTDict u12' ss12
+    return $ PureTDict u12' ss12 (mappend rec1 rec2)
 
 insertNewCstr :: (MonadIO m,Location loc) => loc -> TCstr -> IOCstrGraph -> TcM m IOCstrGraph
 insertNewCstr l c gr = do
@@ -1226,31 +1297,11 @@ tcLocal l msg m = do
     State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
     return x
 
-addRec :: Monad m => ModuleTcEnv -> TcM m ()
-addRec rec = State.modify $ \env -> env { recEnv = recEnv env `mappend` rec }
+--addRecs :: Monad m => ModuleTcEnv -> TcM m ()
+--addRecs rec = undefined --State.modify $ \env -> env { recEnv = recEnv env `mappend` rec }
 
-getRec :: Monad m => TcM m ModuleTcEnv
-getRec = State.gets recEnv
-
-withRecs :: Monad m => ModuleTcEnv -> TcM m a -> TcM m (a,ModuleTcEnv)
-withRecs rec m = do
-    old <- getRec
-    State.modify $ \env -> env { recEnv = old `mappend` rec }
-    x <- m
-    new <- getRec
-    State.modify $ \env -> env { recEnv = old }
-    return (x,differenceRec old new)
-
-noRecs :: Monad m => TcM m a -> TcM m a
-noRecs m = do
-    old <- liftM recEnv State.get
-    State.modify $ \env -> env { recEnv = mempty }
-    x <- m
-    State.modify $ \env -> env { recEnv = old }
-    return x
-
-askRecs :: Monad m => TcM m ModuleTcEnv
-askRecs = liftM recEnv State.get
+--askRecs :: Monad m => TcM m ModuleTcEnv
+--askRecs = undefined --liftM recEnv State.get
 
 tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
 tcError pos msg = throwTcError $ TypecheckerError pos msg  

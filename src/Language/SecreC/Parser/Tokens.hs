@@ -131,6 +131,8 @@ data Token
     | IMPLIES_OP
     | EQUIV_OP
     | LEAK
+    | MULTISET
+    | FREE
     | ANNOTATION [String]
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
@@ -231,6 +233,8 @@ instance PP Token where
     pp FORALL = text "forall"
     pp EXISTS = text "exists"
     pp LEAK = text "leak"
+    pp MULTISET = text "multiset"
+    pp FREE = text "free"
     pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]

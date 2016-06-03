@@ -188,12 +188,12 @@ tcStmt ret (AnnStatement l ann) = do
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation VarIdentifier (Typed loc))
-tcLoopAnn (DecreasesAnn l e) = insideAnnotation $ do
+tcLoopAnn (DecreasesAnn l isFree e) = insideAnnotation $ do
     (e') <- tcGuard e
-    return (DecreasesAnn (Typed l $ typed $ loc e') e')
-tcLoopAnn (InvariantAnn l e) = insideAnnotation $ do
+    return (DecreasesAnn (Typed l $ typed $ loc e') isFree e')
+tcLoopAnn (InvariantAnn l isFree e) = insideAnnotation $ do
     (e') <- tcGuard e
-    return (InvariantAnn (Typed l $ typed $ loc e') e')
+    return (InvariantAnn (Typed l $ typed $ loc e') isFree e')
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
 tcStmtAnn (AssumeAnn l e) = insideAnnotation $ do

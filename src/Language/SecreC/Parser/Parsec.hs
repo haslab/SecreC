@@ -725,12 +725,21 @@ scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1
                   <|> apA2 (scTok VSIZE) (scParens scExpression) (\x1 x2 -> VArraySizeExpr (loc x1) x2)
                   <|> apA2 (scTok LEAK) (scParens scExpression) (\x1 x2 -> LeakExpr (loc x1) x2)
                   <|> apA2 (scTok VARRAY) (scParens (apA2 scExpression (scChar ',' >> scExpression) (,))) (\x1 (x2,x3) -> VArrayExpr (loc x1) x2 x3)
+                  <|> scMultiSetExpr
                   <|> apA3 scProcedureId
                       (optionMaybe $ scABrackets scTemplateTypeArguments)
                       (scParens (optionMaybe scVariadicExpressionList))
                       (\x1 x2 x3 -> ProcCallExpr (loc x1) x1 x2 (maybe [] id x3))
                   <||> scQuantifiedExpr
                   <||> scPrimaryExpression) <?> "postfix expression"
+
+scMultiSetExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
+scMultiSetExpr = do
+    x1 <- scTok MULTISET
+    o1 x1 <|> o2 x1
+  where
+    o1 x1 = apA (scParens scExpression) (\x2 -> ToMultisetExpr (loc x1) x2)
+    o2 x1 = scCBrackets' (\_ -> apA scExpressionList (MultisetConstructorPExpr (loc x1)))
 
 scQuantifiedExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scQuantifiedExpr = apA4 scQuantifier (sepBy1 scQVar (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)
@@ -783,19 +792,22 @@ scLoopAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [LoopAnnotation Ide
 scLoopAnnotations = scAnnotations0 $ many "scLoopAnnotations" scLoopAnnotation
 
 scLoopAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (LoopAnnotation Identifier Position)
-scLoopAnnotation = apA3 (scTok DECREASES) scExpression (scChar ';') (\x1 x2 x3 -> DecreasesAnn (loc x1) x2)
-               <|> apA3 (scTok INVARIANT) scExpression (scChar ';') (\x1 x2 x3 -> InvariantAnn (loc x1) x2)
+scLoopAnnotation = apA4 scFree (scTok DECREASES) scExpression (scChar ';') (\x0 x1 x2 x3 -> DecreasesAnn (loc x1) x0 x2)
+               <|> apA4 scFree (scTok INVARIANT) scExpression (scChar ';') (\x0 x1 x2 x3 -> InvariantAnn (loc x1) x0 x2)
 
 scProcedureAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [ProcedureAnnotation Identifier Position]
 scProcedureAnnotations = scAnnotations0 $ many "scProcedureAnnotations" scProcedureAnnotation
 
 scProcedureAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureAnnotation Identifier Position)
-scProcedureAnnotation = apA3 (scTok REQUIRES) scExpression (scChar ';') (\x1 x2 x3 -> RequiresAnn (loc x1) x2)
-                    <|> apA3 (scTok ENSURES) scExpression (scChar ';') (\x1 x2 x3 -> EnsuresAnn (loc x1) x2)
-                    <|> apA3 (scTok LEAKS) scExpression (scChar ';') (\x1 x2 x3 -> parseLeaks (loc x1) x2)
+scProcedureAnnotation = apA4 scFree (scTok REQUIRES) scExpression (scChar ';') (\x0 x1 x2 x3 -> RequiresAnn (loc x1) x0 x2)
+                    <|> apA4 scFree (scTok ENSURES) scExpression (scChar ';') (\x0 x1 x2 x3 -> EnsuresAnn (loc x1) x0 x2)
+                    <|> apA4 scFree (scTok LEAKS) scExpression (scChar ';') (\x0 x1 x2 x3 -> parseLeaks (loc x1) x0 x2)
 
-parseLeaks :: Position -> Expression Identifier Position -> ProcedureAnnotation Identifier Position
-parseLeaks l e = mk l $ LeakExpr l e
+scFree :: (MonadIO m,MonadCatch m) => ScParserT m Bool
+scFree = liftM isJust $ optionMaybe (scTok FREE)
+
+parseLeaks :: Position -> Bool -> Expression Identifier Position -> ProcedureAnnotation Identifier Position
+parseLeaks l isFree e = mk l isFree $ LeakExpr l e
     where mk = if hasResult e then EnsuresAnn else RequiresAnn
 
 scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnnotation Identifier Position]

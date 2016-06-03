@@ -255,10 +255,13 @@ bindProcArg l (_,Constrained v _,True) es = do
     let (es1,es2) = splitAt (fromEnum sz) es
     return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed l $ loc v) es1)
 
-splitProcAnns :: [ProcedureAnnotation iden loc] -> ([Statement iden loc],[Statement iden loc])
-splitProcAnns [] = ([],[])
-splitProcAnns (RequiresAnn p e:xs) = let (l,r) = splitProcAnns xs in (AnnStatement p [AssertAnn p e]:l,r)
-splitProcAnns (EnsuresAnn p e:xs) = let (l,r) = splitProcAnns xs in (l,AnnStatement p [AssertAnn p e]:r)
+splitProcAnns :: Bool -> [ProcedureAnnotation iden loc] -> ([Statement iden loc],[Statement iden loc])
+splitProcAnns isTplt [] = ([],[])
+splitProcAnns isTplt (RequiresAnn p isFree e:xs) = let (l,r) = splitProcAnns isTplt xs in (AnnStatement p [k p e]:l,r)
+    where k = if (not isFree) then AssertAnn else AssumeAnn
+splitProcAnns isTplt (EnsuresAnn p isFree e:xs) = let (l,r) = splitProcAnns isTplt xs in (l,AnnStatement p [k p e]:r)
+    -- since we don't convert templates to Dafny, we can't discard their post-conditions
+    where k = if (isTplt && not isFree) then AssertAnn else AssumeAnn
 
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
@@ -270,7 +273,7 @@ inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann
     ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
     body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
     (mb) <- type2TypeSpecifier l ret
-    let (reqs,ens) = splitProcAnns ann'
+    let (reqs,ens) = splitProcAnns (isTemplateDecType d) ann'
     case mb of
         Just t -> do
             (ss1,t') <- simplifyTypeSpecifier t

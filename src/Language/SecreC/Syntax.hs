@@ -1060,6 +1060,8 @@ data Expression iden loc
     | RVariablePExpr loc (VarName iden loc)
     | LitPExpr loc (Literal loc)
     | ArrayConstructorPExpr loc [Expression iden loc]
+    | ToMultisetExpr loc (Expression iden loc)
+    | MultisetConstructorPExpr loc [Expression iden loc]
     | ResultExpr loc
     | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -1069,6 +1071,8 @@ instance (Hashable iden,Hashable loc) => Hashable (Expression iden loc)
 
 instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
+    loc (ToMultisetExpr l _) = l
+    loc (MultisetConstructorPExpr l _) = l
     loc (BinaryAssign l _ _ _) = l
     loc (LeakExpr l _) = l
     loc (QualExpr l _ _) = l
@@ -1090,6 +1094,8 @@ instance Location loc => Located (Expression iden loc) where
     loc (LitPExpr l _) = l
     loc (ResultExpr l) = l
     loc (QuantifiedExpr l _ _ _) = l
+    updLoc (ToMultisetExpr _ x) l = ToMultisetExpr l x
+    updLoc (MultisetConstructorPExpr _ x) l = MultisetConstructorPExpr l x
     updLoc (LeakExpr _ x) l = LeakExpr l x
     updLoc (BinaryAssign _ x y z) l = BinaryAssign l x y z
     updLoc (QualExpr _ x y) l = QualExpr l x y
@@ -1121,6 +1127,8 @@ ppVariadicArg :: (a -> Doc) -> (a,IsVariadic) -> Doc
 ppVariadicArg ppA (e,isVariadic) = ppVariadic (ppA e) isVariadic
  
 instance PP iden => PP (Expression iden loc) where
+    pp (ToMultisetExpr l e) = text "multiset" <> parens (pp e)
+    pp (MultisetConstructorPExpr l es) = text "multiset" <> braces (sepBy comma $ map pp es)
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
     pp (QualExpr _ e t) = pp e <+> text "::" <+> pp t
     pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
@@ -1276,8 +1284,8 @@ instance PP iden => PP [GlobalAnnotation iden loc] where
     pp xs = vcat $ map pp xs
 
 data ProcedureAnnotation iden loc
-    = RequiresAnn loc (Expression iden loc)
-    | EnsuresAnn loc (Expression iden loc)
+    = RequiresAnn loc Bool (Expression iden loc)
+    | EnsuresAnn loc Bool (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ProcedureAnnotation iden loc)  
@@ -1285,21 +1293,23 @@ instance (Hashable iden,Hashable loc) => Hashable (ProcedureAnnotation iden loc)
 
 instance Location loc => Located (ProcedureAnnotation iden loc) where
     type LocOf (ProcedureAnnotation iden loc) = loc
-    loc (RequiresAnn l _)    = l
-    loc (EnsuresAnn l _) = l
-    updLoc (RequiresAnn _ x)    l = (RequiresAnn l x)   
-    updLoc (EnsuresAnn _ x)    l = (EnsuresAnn l x)   
+    loc (RequiresAnn l _ _)    = l
+    loc (EnsuresAnn l _ _) = l
+    updLoc (RequiresAnn _ isFree x)    l = (RequiresAnn l isFree x)   
+    updLoc (EnsuresAnn _ isFree x)    l = (EnsuresAnn l isFree x)   
 
 instance PP iden => PP (ProcedureAnnotation iden loc) where
-    pp (RequiresAnn _ e) = ppAnn $ text "requires" <+> pp e
-    pp (EnsuresAnn _ e) = ppAnn $ text "ensures" <+> pp e
+    pp (RequiresAnn _ isFree e) = ppAnn $ ppFree isFree $ text "requires" <+> pp e
+    pp (EnsuresAnn _ isFree e) = ppAnn $ ppFree isFree $ text "ensures" <+> pp e
+
+ppFree isFree doc = if isFree then text "free" <+> doc else doc
 
 instance PP iden => PP [ProcedureAnnotation iden loc] where
     pp xs = vcat $ map pp xs
 
 data LoopAnnotation iden loc
-    = DecreasesAnn loc (Expression iden loc)
-    | InvariantAnn loc (Expression iden loc)
+    = DecreasesAnn loc Bool (Expression iden loc)
+    | InvariantAnn loc Bool (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (LoopAnnotation iden loc)  
@@ -1307,14 +1317,14 @@ instance (Hashable iden,Hashable loc) => Hashable (LoopAnnotation iden loc)
 
 instance Location loc => Located (LoopAnnotation iden loc) where
     type LocOf (LoopAnnotation iden loc) = loc
-    loc (DecreasesAnn l _)    = l
-    loc (InvariantAnn l _) = l
-    updLoc (DecreasesAnn _ x)    l = (DecreasesAnn l x)   
-    updLoc (InvariantAnn _ x)    l = (InvariantAnn l x)   
+    loc (DecreasesAnn l _ _)    = l
+    loc (InvariantAnn l _ _) = l
+    updLoc (DecreasesAnn _ isFree x)    l = (DecreasesAnn l isFree x)   
+    updLoc (InvariantAnn _ isFree x)    l = (InvariantAnn l isFree x)   
 
 instance PP iden => PP (LoopAnnotation iden loc) where
-    pp (DecreasesAnn _ e) = ppAnn $ text "decreases" <+> pp e
-    pp (InvariantAnn _ e) = ppAnn $ text "invariant" <+> pp e
+    pp (DecreasesAnn _ free e) = ppAnn $ ppFree free $ text "decreases" <+> pp e
+    pp (InvariantAnn _ free e) = ppAnn $ ppFree free $ text "invariant" <+> pp e
     
 instance PP iden => PP [LoopAnnotation iden loc] where
     pp xs = vcat $ map pp xs

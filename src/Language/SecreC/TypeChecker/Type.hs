@@ -98,6 +98,11 @@ typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
 typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp TType)
 
+isComplex :: Type -> Bool
+isComplex (ComplexT s) = True
+isComplex (BaseT b) = True
+isComplex _ = False
+
 tcCastType :: (ProverK loc m) => CastType Identifier loc -> TcM m (CastType VarIdentifier (Typed loc))
 tcCastType (CastPrim p) = do
     liftM CastPrim $ tcPrimitiveDatatype p

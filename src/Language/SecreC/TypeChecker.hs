@@ -176,12 +176,12 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
     return dec'
 
 tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (ProcedureAnnotation VarIdentifier (Typed loc))
-tcProcedureAnn (RequiresAnn l e) = insideAnnotation $ do
+tcProcedureAnn (RequiresAnn l isFree e) = insideAnnotation $ do
     e' <- tcExpr e
-    return $ RequiresAnn (Typed l $ typed $ loc e') e'
-tcProcedureAnn (EnsuresAnn l e) = insideAnnotation $ do
+    return $ RequiresAnn (Typed l $ typed $ loc e') isFree e'
+tcProcedureAnn (EnsuresAnn l isFree e) = insideAnnotation $ do
     e' <- tcExpr e
-    return $ EnsuresAnn (Typed l $ typed $ loc e') e'
+    return $ EnsuresAnn (Typed l $ typed $ loc e') isFree e'
 
 tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Constrained Var,IsVariadic))
 tcProcedureParam (ProcedureParameter l s isVariadic (VarName vl vi)) = do
@@ -294,6 +294,6 @@ tcGlobal l m = do
     dict <- liftM ((\[a] -> a) . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { procClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [], recEnv = mempty }
+    State.modify $ \e -> e { procClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
     liftIO resetGlobalEnv
     return x'

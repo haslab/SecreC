@@ -24,6 +24,7 @@ import Language.SecreC.Transformation.Simplify
 import System.Console.CmdArgs
 import System.Environment
 import System.FilePath
+import System.IO
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -82,57 +83,65 @@ defaultOutputType = NoOutput
 -- * inputs with explicit output files write to the file
 -- * inputs without explicit output files write to stdout
 -- * non-input modules do not output
-resolveOutput :: [FilePath] -> [FilePath] -> [ModuleFile] -> [(ModuleFile,OutputType)]
-resolveOutput inputs outputs modules = map res modules
-    where
-    db = zipLeft inputs outputs
-    res (Left (time,ppargs,m)) = case List.lookup (moduleFile m) db of
-        Just (Just o) -> (Left (time,ppargs,m),OutputFile o) -- input with matching output
-        Just Nothing -> (Left (time,ppargs,m),OutputStdout) -- intput without matching output
-        Nothing -> (Left (time,ppargs,m),NoOutput) -- non-input loaded module
-    res (Right sci) = (Right sci,NoOutput)
+resolveOutput :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)]
+resolveOutput inputs outputs modules = do
+    inputs' <- mapM canonicalPath inputs
+    let db = zipLeft inputs' outputs
+    let res (Left (time,ppargs,m)) = case List.lookup (moduleFile m) db of
+            Just (Just o) -> return (Left (time,ppargs,m),OutputFile o) -- input with matching output
+            Just Nothing -> return (Left (time,ppargs,m),OutputStdout) -- intput without matching output
+            Nothing -> do
+                return (Left (time,ppargs,m),NoOutput) -- non-input loaded module
+        res (Right sci) = do
+            return (Right sci,NoOutput)
+    mapM res modules
 
-passes :: [(ModuleFile,OutputType)] -> SecrecM IO ()
-passes modules = runTcM $ failTcM (noloc::Position) $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
+passes :: [FilePath] -> [FilePath] -> [ModuleFile] -> SecrecM IO ()
+passes secrecIns secrecOuts modules = runTcM $ failTcM (noloc::Position) $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
     tc <- typecheck modules
     case tc of
         Nothing -> return ()
         Just typedModules -> do
             opts <- askOpts
-            simpleModules <- fmapFstM (simplifyModuleFile opts) typedModules
-            liftIO $ output simpleModules
+            simpleModules <- mapM (simplifyModuleFile opts) typedModules
+            liftIO $ output secrecIns secrecOuts simpleModules
 
-typecheck :: [(ModuleFile,OutputType)] -> TcM IO (Maybe [(TypedModuleFile,OutputType)])
+typecheck :: [ModuleFile] -> TcM IO (Maybe [TypedModuleFile])
 typecheck modules = do
     opts <- askOpts
-    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ map fst modules) <+> text str <> char '.'
+    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ modules) <+> text str <> char '.'
     if (typeCheck opts)
         then do
-            typedModules <- fmapFstM tcModuleFile modules
+            typedModules <- mapM tcModuleFile modules
             printMsg "are well-typed"
             return $ Just typedModules
         else do
             printMsg "parsed OK" 
             return Nothing
 
-output :: [(TypedModuleFile,OutputType)] -> IO () 
-output modules = forM_ modules $ \(mfile,o) -> case mfile of
-    Left (time,ppargs,m) -> case o of
-        NoOutput -> return ()
-        OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
-        OutputStdout -> do
-            putStrLn $ show (moduleFile m) ++ ":"
-            putStrLn $ show $ pp ppargs $+$ pp m
-    Right sci -> return ()
+output :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO () 
+output secrecIns secrecOuts modules = do
+    moduleso <- resolveOutput secrecIns secrecOuts modules
+    forM_ moduleso $ \(mfile,o) -> case mfile of
+        Left (time,ppargs,m) -> case o of
+            NoOutput -> do
+                hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
+                return ()
+            OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
+            OutputStdout -> do
+                putStrLn $ show (moduleFile m) ++ ":"
+                putStrLn $ show $ pp ppargs $+$ pp m
+        Right sci -> do
+            hPutStrLn stderr $ "No output for unchanged module " ++ show (sciFile sci)
+            return ()
 
 secrec :: Options -> IO ()
 secrec opts = do
-    let secrecFiles = inputs opts
+    let secrecIns = inputs opts
     let secrecOuts = outputs opts
-    when (List.null secrecFiles) $ throwError $ userError "no SecreC input files"
+    when (List.null secrecIns) $ throwError $ userError "no SecreC input files"
     runSecrecM opts $ do
-        modules <- parseModuleFiles secrecFiles
-        let moduleso = resolveOutput secrecFiles secrecOuts modules
-        passes moduleso
+        modules <- parseModuleFiles secrecIns
+        passes secrecIns secrecOuts modules
         
 

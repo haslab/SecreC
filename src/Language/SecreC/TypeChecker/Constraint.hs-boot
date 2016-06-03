@@ -20,8 +20,6 @@ import Data.Set
 
 isZeroIdxExpr :: ProverK loc m => loc -> Expr -> TcM m ()
 
-coercesNType :: ProverK loc m => loc -> [Type] -> TcM m Type
-
 solveHypotheses :: (ProverK loc m) => loc -> TcM m [IExpr]
 
 topTcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
@@ -40,13 +38,13 @@ topCheckCstrM_ :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> CheckCs
 
 tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Maybe (Expression VarIdentifier (Typed loc)))
 
-compares :: (ProverK loc m) => loc -> Type -> Type -> TcM m (Comparison (TcM m))
+compares :: (ProverK loc m) => loc -> Bool -> Type -> Type -> TcM m (Comparison (TcM m))
 
 equals :: (ProverK loc m) => loc -> Type -> Type -> TcM m ()
 
 solveTop :: ProverK loc m => loc -> String -> TcM m ()
 
-comparesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
+comparesList :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
 
 constraintList :: (ProverK loc m,VarsId (TcM m) [a],VarsId (TcM m) [b]) =>
     (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr)

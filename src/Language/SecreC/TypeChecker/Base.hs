@@ -1,4 +1,4 @@
-{-# LANGUAGE MagicHash, DeriveGeneric, Rank2Types, UndecidableInstances, DeriveFoldable, DeriveTraversable, FlexibleContexts, ConstraintKinds, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE TemplateHaskell, MagicHash, DeriveGeneric, Rank2Types, UndecidableInstances, DeriveFoldable, DeriveTraversable, FlexibleContexts, ConstraintKinds, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
 
 module Language.SecreC.TypeChecker.Base where
 
@@ -196,7 +196,6 @@ data TcEnv = TcEnv {
     , isPure :: Bool -- if typechecking pure expressions
     , procClass :: ProcClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
-    , recEnv :: ModuleTcEnv
     }
 
 -- module typechecking environment that can be exported to an interface file
@@ -290,9 +289,12 @@ modifyModuleEnvM f = do
 getModuleField :: (Monad m) => (ModuleTcEnv -> x) -> TcM m x
 getModuleField f = do
     (x,y) <- State.gets moduleEnv
-    z <- State.gets recEnv
+    z <- getRecs
     let xyz = mappend x (mappend y z)
     return $ f xyz
+
+getRecs :: Monad m => TcM m ModuleTcEnv
+getRecs = State.gets (mconcat . map tRec . tDict)
 
 filterRecBody :: Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
 filterRecBody True xs = xs
@@ -389,7 +391,6 @@ emptyTcEnv = TcEnv
     , localConsts = Map.empty
     , procClass = mempty
     , moduleEnv = (mempty,mempty)
-    , recEnv = mempty
     }
 
 data EntryEnv = EntryEnv {
@@ -571,16 +572,10 @@ data TcCstr
     | CoercesSecDimSizes
         Expr -- source expression
         Var -- target variable where to store the resulting expression
-    | Coerces2 -- ^ bidirectional coercion
-        Expr
-        Expr
-        Var
-        Var 
-    | Coerces2SecDimSizes
-        Expr
-        Expr
-        Var -- variable to store the 1st resulting expression
-        Var -- variable to store the 2nd resulting expression
+    | CoercesN -- ^ multidirectional coercion
+        [(Expr,Var)]
+    | CoercesNSecDimSizes
+        [(Expr,Var)]
     | CoercesLit -- coerce a literal expression into a specific type
         Expr -- literal expression with the base type given at the top-level
     | Unifies -- unification
@@ -762,10 +757,10 @@ instance PP TcCstr where
         where ppCoerce = if doCoerce then text "~~>" else text "-->"
     pp (Equals t1 t2) = text "equals" <+> pp t1 <+> pp t2
     pp (Coerces e1 v2) = text "coerces" <+> ppExprTy e1 <+> ppVarTy v2
-    pp (CoercesSecDimSizes e1 v2) = text "coercessec" <+> ppExprTy e1 <+> ppVarTy v2
-    pp (Coerces2SecDimSizes e1 e2 v1 v2) = text "coerces2sec" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
+    pp (CoercesSecDimSizes e1 v2) = text "coercessecdimsizes" <+> ppExprTy e1 <+> ppVarTy v2
+    pp (CoercesNSecDimSizes exs) = text "coerces2secdimsizes" <+> sepBy comma (map (ppExprTy . fst) exs) <+> char '=' <+> sepBy comma (map (ppVarTy . snd) exs)
     pp (CoercesLit e) = text "coerceslit" <+> ppExprTy e
-    pp (Coerces2 e1 e2 v1 v2) = text "coerces2" <+> ppExprTy e1 <+> ppExprTy e2 <+> char '=' <+> ppVarTy v1 <+> ppVarTy v2
+    pp (CoercesN exs) = text "coercesn" <+> sepBy comma (map (ppExprTy . fst) exs) <+> char '=' <+> sepBy comma (map (ppVarTy . snd) exs)
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
     pp (Assigns t1 t2) = text "assigns" <+> pp t1 <+> pp t2
     pp (UnifiesSizes t1 t2) = text "unifiessizes" <+> pp t1 <+> pp t2
@@ -900,18 +895,12 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         e1' <- f e1
         e2' <- f e2
         return $ CoercesSecDimSizes e1' e2'
-    traverseVars f (Coerces2 e1 e2 v1 v2) = do
-        e1' <- f e1
-        e2' <- f e2
-        v1' <- f v1
-        v2' <- f v2
-        return $ Coerces2 e1' e2' v1' v2'
-    traverseVars f (Coerces2SecDimSizes e1 e2 v1 v2) = do
-        e1' <- f e1
-        e2' <- f e2
-        v1' <- f v1
-        v2' <- f v2
-        return $ Coerces2SecDimSizes e1' e2' v1' v2'
+    traverseVars f (CoercesN exs) = do
+        exs' <- mapM f exs
+        return $ CoercesN exs'
+    traverseVars f (CoercesNSecDimSizes exs) = do
+        exs' <- mapM f exs
+        return $ CoercesNSecDimSizes exs'
     traverseVars f (CoercesLit e) = do
         e' <- f e
         return $ CoercesLit e'
@@ -1012,6 +1001,7 @@ data TDict = TDict
     { tCstrs :: IOCstrGraph -- a list of constraints
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
+    , tRec :: ModuleTcEnv -- recursive environment
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1021,6 +1011,7 @@ instance Hashable TDict
 data PureTDict = PureTDict
     { pureCstrs :: TCstrGraph
     , pureSubsts :: TSubsts
+    , pureRec :: ModuleTcEnv
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable PureTDict
@@ -1030,15 +1021,16 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m TCstrGraph w
     traverseVars f g = nmapM f g
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m PureTDict where
-    traverseVars f (PureTDict ks ss) = do
+    traverseVars f (PureTDict ks ss rec) = do
         ks' <- f ks
         ss' <- f ss
-        return $ PureTDict ks' ss'
+        rec' <- f rec
+        return $ PureTDict ks' ss' rec'
 
 fromPureTDict :: PureTDict -> IO TDict
-fromPureTDict (PureTDict g ss) = do
+fromPureTDict (PureTDict g ss rec) = do
     g' <- fromPureCstrs g
-    return $ TDict g' Set.empty ss
+    return $ TDict g' Set.empty ss rec
 
 fromPureCstrs :: TCstrGraph -> IO IOCstrGraph
 fromPureCstrs g = do
@@ -1056,7 +1048,7 @@ toPureCstrs :: IOCstrGraph -> TCstrGraph
 toPureCstrs = nmap (fmap kCstr)
 
 toPureTDict :: TDict -> PureTDict
-toPureTDict (TDict ks _ ss) = PureTDict (toPureCstrs ks) ss
+toPureTDict (TDict ks _ ss rec) = PureTDict (toPureCstrs ks) ss rec
 
 flattenIOCstrGraph :: IOCstrGraph -> [LocIOCstr]
 flattenIOCstrGraph = map snd . labNodes
@@ -1087,10 +1079,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TSubsts wher
             return ((k',v'):xs')
 
 emptyTDict :: TDict
-emptyTDict = TDict Graph.empty Set.empty emptyTSubsts
+emptyTDict = TDict Graph.empty Set.empty emptyTSubsts mempty
 
 emptyPureTDict :: PureTDict
-emptyPureTDict = PureTDict Graph.empty emptyTSubsts
+emptyPureTDict = PureTDict Graph.empty emptyTSubsts mempty
 
 emptyTSubsts :: TSubsts
 emptyTSubsts = TSubsts Map.empty
@@ -1412,6 +1404,7 @@ instance (MonadIO m,Vars VarIdentifier m a) => Vars VarIdentifier m (Constrained
 data BaseType
     = TyPrim Prim
     | TApp SIdentifier [(Type,IsVariadic)] DecType -- template type application
+    | MSet Type -- multiset type
     | BVar VarIdentifier
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
@@ -1559,6 +1552,7 @@ instance PP InnerDecType where
 instance PP BaseType where
     pp (TyPrim p) = pp p
     pp (TApp n ts d) = braces (pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts) <+> pp d)
+    pp (MSet t) = text "multiset" <> braces (pp t)
     pp (BVar v) = pp v
 instance PP ComplexType where
     pp Void = text "void"
@@ -1647,6 +1641,23 @@ isStructTemplate _ = False
 isVoid :: ComplexType -> Bool
 isVoid Void = True
 isVoid _ = False
+
+isCVar (CVar v) = True
+isCVar _ = False
+
+isCType (CType {}) = True
+isCType _ = False
+
+baseCType (CType s b _) = b
+baseCType x = error $ "baseCType: " ++ show x
+
+secCType (CType s b _) = s
+secCType x = error $ "secCType: " ++ show x
+
+dimCType (CType s b d) = d
+dimCType x = error $ "baseCType: " ++ show x
+
+unComplexT (ComplexT ct) = ct
 
 isBoolType :: Type -> Bool
 isBoolType (BaseT b) = isBoolBaseType b
@@ -1777,6 +1788,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m BaseType whe
     traverseVars f (TyPrim p) = do
         p' <- f p
         return $ TyPrim p'
+    traverseVars f (MSet t) = do
+        t' <- f t
+        return $ MSet t'
     traverseVars f (TApp n ts d) = do
         n' <- f n
         ts' <- mapM f ts
