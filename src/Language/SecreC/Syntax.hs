@@ -143,6 +143,7 @@ data GlobalDeclaration iden loc
     | GlobalKind loc (KindDeclaration iden loc)
     | GlobalProcedure loc (ProcedureDeclaration iden loc)
     | GlobalStructure loc (StructureDeclaration iden loc)
+    | GlobalFunction loc (FunctionDeclaration iden loc)
     | GlobalTemplate loc (TemplateDeclaration iden loc)
     | GlobalAnnotations loc [GlobalAnnotation iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -157,6 +158,7 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
     loc (GlobalDomain l dd) = l
     loc (GlobalKind l kd) = l
     loc (GlobalProcedure l pd) = l
+    loc (GlobalFunction l pd) = l
     loc (GlobalStructure l sd) = l
     loc (GlobalTemplate l td) = l
     loc (GlobalAnnotations l ann) = l
@@ -165,6 +167,7 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
     updLoc (GlobalDomain _ dd) l = GlobalDomain l dd
     updLoc (GlobalKind _ kd) l = GlobalKind l kd
     updLoc (GlobalProcedure _ pd) l = GlobalProcedure l pd
+    updLoc (GlobalFunction _ pd) l = GlobalFunction l pd
     updLoc (GlobalStructure _ sd) l = GlobalStructure l sd
     updLoc (GlobalTemplate _ td) l = GlobalTemplate l td
     updLoc (GlobalAnnotations _ ann) l = GlobalAnnotations l ann
@@ -442,6 +445,7 @@ instance PP iden => PP (SecTypeSpecifier iden loc) where
 data DatatypeSpecifier iden loc
     = PrimitiveSpecifier loc (PrimitiveDatatype loc)
     | TemplateSpecifier loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
+    | MultisetSpecifier loc (DatatypeSpecifier iden loc)
     | VariableSpecifier loc (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
@@ -452,10 +456,12 @@ instance Location loc => Located (DatatypeSpecifier iden loc) where
     type LocOf (DatatypeSpecifier iden loc) = loc
     loc (PrimitiveSpecifier l _) = l
     loc (TemplateSpecifier l _ _) = l
+    loc (MultisetSpecifier l _) = l
     loc (VariableSpecifier l _) = l
     updLoc (PrimitiveSpecifier _ x) l = PrimitiveSpecifier l x
     updLoc (TemplateSpecifier _ x y) l = TemplateSpecifier l x y
     updLoc (VariableSpecifier _ x) l = VariableSpecifier l x
+    updLoc (MultisetSpecifier _ x) l = MultisetSpecifier l x
 
 instance PP iden => PP (DatatypeSpecifier iden loc) where
     pp (PrimitiveSpecifier _ prim) = pp prim
@@ -615,6 +621,7 @@ data TemplateDeclaration iden loc
     = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
     | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
     | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
+    | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (FunctionDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TemplateDeclaration iden loc)  
@@ -625,9 +632,11 @@ instance Location loc => Located (TemplateDeclaration iden loc) where
     loc (TemplateStructureDeclaration l _ _) = l
     loc (TemplateStructureSpecialization l _ _ _) = l
     loc (TemplateProcedureDeclaration l _ _) = l
+    loc (TemplateFunctionDeclaration l _ _) = l
     updLoc (TemplateStructureDeclaration _ x y) l = TemplateStructureDeclaration l x y
     updLoc (TemplateStructureSpecialization _ x y z) l = TemplateStructureSpecialization l x y z
     updLoc (TemplateProcedureDeclaration _ x y) l = TemplateProcedureDeclaration l x y
+    updLoc (TemplateFunctionDeclaration _ x y) l = TemplateFunctionDeclaration l x y
   
 instance PP iden => PP (TemplateDeclaration iden loc) where
     pp (TemplateStructureDeclaration _ qs struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct Nothing struct
@@ -745,6 +754,35 @@ instance Location loc => Located (ProcedureDeclaration iden loc) where
 instance PP iden => PP (ProcedureDeclaration iden loc) where
     pp (OperatorDeclaration _ ret op params anns stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
     pp (ProcedureDeclaration _ ret proc params anns stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
+    
+data FunctionDeclaration iden loc
+    = OperatorFunDeclaration loc
+        (TypeSpecifier iden loc)
+        (Op iden loc)
+        [ProcedureParameter iden loc]
+        [ProcedureAnnotation iden loc]
+        (Expression iden loc)
+    | FunDeclaration loc
+        (TypeSpecifier iden loc)
+        (ProcedureName iden loc)
+        [ProcedureParameter iden loc]
+        [ProcedureAnnotation iden loc]
+        (Expression iden loc)
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Binary iden,Binary loc) => Binary (FunctionDeclaration iden loc)  
+instance (Hashable iden,Hashable loc) => Hashable (FunctionDeclaration iden loc)
+
+instance Location loc => Located (FunctionDeclaration iden loc) where
+    type LocOf (FunctionDeclaration iden loc) = loc
+    loc (OperatorFunDeclaration l _ _ _ _ _) = l
+    loc (FunDeclaration l _ _ _ _ _) = l
+    updLoc (OperatorFunDeclaration _ x y z w s) l = OperatorFunDeclaration l x y z w s
+    updLoc (FunDeclaration _ x y z w s) l = FunDeclaration l x y z w s
+  
+instance PP iden => PP (FunctionDeclaration iden loc) where
+    pp (OperatorFunDeclaration _ ret op params anns stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
+    pp (FunDeclaration _ ret proc params anns stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
   
 data Op iden loc
     = OpAdd      loc
@@ -1060,10 +1098,11 @@ data Expression iden loc
     | RVariablePExpr loc (VarName iden loc)
     | LitPExpr loc (Literal loc)
     | ArrayConstructorPExpr loc [Expression iden loc]
-    | ToMultisetExpr loc (Expression iden loc)
     | MultisetConstructorPExpr loc [Expression iden loc]
     | ResultExpr loc
     | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
+    | BuiltinExpr loc String [Expression iden loc]
+    | ToMultisetExpr loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Expression iden loc)  
@@ -1071,6 +1110,7 @@ instance (Hashable iden,Hashable loc) => Hashable (Expression iden loc)
 
 instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
+    loc (BuiltinExpr l _ _) = l
     loc (ToMultisetExpr l _) = l
     loc (MultisetConstructorPExpr l _) = l
     loc (BinaryAssign l _ _ _) = l
@@ -1094,6 +1134,7 @@ instance Location loc => Located (Expression iden loc) where
     loc (LitPExpr l _) = l
     loc (ResultExpr l) = l
     loc (QuantifiedExpr l _ _ _) = l
+    updLoc (BuiltinExpr _ n x) l = BuiltinExpr l n x
     updLoc (ToMultisetExpr _ x) l = ToMultisetExpr l x
     updLoc (MultisetConstructorPExpr _ x) l = MultisetConstructorPExpr l x
     updLoc (LeakExpr _ x) l = LeakExpr l x
@@ -1127,6 +1168,7 @@ ppVariadicArg :: (a -> Doc) -> (a,IsVariadic) -> Doc
 ppVariadicArg ppA (e,isVariadic) = ppVariadic (ppA e) isVariadic
  
 instance PP iden => PP (Expression iden loc) where
+    pp (BuiltinExpr l n e) = text "__builtin" <> parens (text (show n) <>  char ',' <> pp e)
     pp (ToMultisetExpr l e) = text "multiset" <> parens (pp e)
     pp (MultisetConstructorPExpr l es) = text "multiset" <> braces (sepBy comma $ map pp es)
     pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
@@ -1263,7 +1305,10 @@ varExpr v = RVariablePExpr (loc v) v
 -- ** Annotations
 
 data GlobalAnnotation iden loc
-    = GlobalProcedureAnn loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
+    = GlobalFunctionAnn loc (FunctionDeclaration iden loc)
+    | GlobalStructureAnn loc (StructureDeclaration iden loc)
+    | GlobalProcedureAnn loc (ProcedureDeclaration iden loc)
+    | GlobalTemplateAnn loc (TemplateDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (GlobalAnnotation iden loc)  
@@ -1271,14 +1316,20 @@ instance (Hashable iden,Hashable loc) => Hashable (GlobalAnnotation iden loc)
 
 instance Location loc => Located (GlobalAnnotation iden loc) where
     type LocOf (GlobalAnnotation iden loc) = loc
-    loc (GlobalProcedureAnn l _ _)    = l
-    updLoc (GlobalProcedureAnn _ x y)    l = (GlobalProcedureAnn l x y)  
+    loc (GlobalFunctionAnn l _)    = l
+    loc (GlobalStructureAnn l _) = l
+    loc (GlobalProcedureAnn l _) = l
+    loc (GlobalTemplateAnn l _)    = l
+    updLoc (GlobalFunctionAnn _ x)    l = (GlobalFunctionAnn l x)  
+    updLoc (GlobalTemplateAnn _ x)    l = (GlobalTemplateAnn l x)  
+    updLoc (GlobalStructureAnn _ x)   l = (GlobalStructureAnn l x)
+    updLoc (GlobalProcedureAnn _ x)   l = (GlobalProcedureAnn l x)
 
 instance PP iden => PP (GlobalAnnotation iden loc) where
-    pp (GlobalProcedureAnn _ [] (ProcedureDeclaration _ ret n params anns e)) = ppAnns $ [pp ret <+> pp n <+> parens (sepBy comma $ map pp params),pp anns,lbrace] ++ map (nest 4 . pp) e ++ [rbrace]
-    pp (GlobalProcedureAnn _ qs (ProcedureDeclaration _ ret n params anns e)) = ppAnns $ [text "template" <+> abrackets (sepBy comma (fmap pp qs)),pp ret <+> pp n <+> parens (sepBy comma $ map pp params),pp anns,lbrace] ++ map (nest 4 . pp) e++ [rbrace]
-    pp (GlobalProcedureAnn _ [] (OperatorDeclaration _ ret n params anns e)) = ppAnns $ [pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params),pp anns,lbrace] ++ map (nest 4 . pp) e ++ [rbrace]
-    pp (GlobalProcedureAnn _ qs (OperatorDeclaration _ ret n params anns e)) = ppAnns $ [text "template" <+> abrackets (sepBy comma (fmap pp qs)),pp ret <+> text "operator" <+> pp n <+> parens (sepBy comma $ map pp params),lbrace] ++ map (nest 4 . pp) e ++ [rbrace]
+    pp (GlobalFunctionAnn _ f) = ppAnns $ pp f
+    pp (GlobalStructureAnn _ s) = ppAnns $ pp s
+    pp (GlobalProcedureAnn _ p) = ppAnns $ pp p
+    pp (GlobalTemplateAnn _ t) = ppAnns $ pp t
 
 instance PP iden => PP [GlobalAnnotation iden loc] where
     pp xs = vcat $ map pp xs
@@ -1351,8 +1402,8 @@ instance PP iden => PP (StatementAnnotation iden loc) where
 instance PP iden => PP [StatementAnnotation iden loc] where
     pp xs = vcat $ map pp xs
 
-ppAnns xs = vcat $ map ppAnn xs
-ppAnn x = text "//@" <+> pp x
+ppAnns doc = vcat $ map (\x -> text "//@" <+> text x) $ lines $ show doc
+ppAnn doc = text "//@" <+> doc
 
 hasResult :: (Data iden,Data loc) => Expression iden loc -> Bool
 hasResult (x::Expression iden loc) = everything (||) (mkQ False $ res (Proxy::Proxy iden) (Proxy::Proxy loc)) x
@@ -1400,6 +1451,7 @@ $(deriveBifunctor ''Index)
 $(deriveBifunctor ''Op) 
 $(deriveBifunctor ''Expression) 
 $(deriveBifunctor ''GlobalAnnotation) 
+$(deriveBifunctor ''FunctionDeclaration) 
 $(deriveBifunctor ''ProcedureAnnotation) 
 $(deriveBifunctor ''LoopAnnotation) 
 $(deriveBifunctor ''StatementAnnotation) 

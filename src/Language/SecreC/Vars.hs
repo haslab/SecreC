@@ -299,6 +299,26 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             s' <- mapM f s
             return $ ProcedureDeclaration l' t' n' args' anns' s'
 
+instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (FunctionDeclaration iden loc) where
+    traverseVars f (OperatorFunDeclaration l t o args anns e) = do
+        l' <- f l
+        t' <- f t
+        o' <- f o
+        varsBlock $ do
+            args' <- mapM f args
+            anns' <- mapM f anns
+            e' <- f e
+            return $ OperatorFunDeclaration l' t' o' args' anns' e'
+    traverseVars f (FunDeclaration l t n args anns e) = do
+        l' <- f l
+        t' <- f t
+        n' <- inLHS $ f n
+        varsBlock $ do
+            args' <- mapM f args
+            anns' <- mapM f anns
+            e' <- f e
+            return $ FunDeclaration l' t' n' args' anns' e'
+
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l b t v) = do
         l' <- f l
@@ -555,6 +575,11 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         e' <- f e
         return $ VArraySizeExpr l' e'
+    traverseVars f (BuiltinExpr l n e) = do
+        l' <- f l
+        n <- f n
+        e' <- f e
+        return $ BuiltinExpr l' n e'
     traverseVars f (VArrayExpr l e sz) = do
         l' <- f l
         e' <- f e
@@ -604,6 +629,9 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         lit' <- f lit
         return $ LitPExpr l' lit'
+    traverseVars f (ResultExpr l) = do
+        l' <- f l
+        return $ ResultExpr l'
     traverseVars f (QuantifiedExpr l q vs e) = do
         l' <- f l
         q' <- f q
@@ -658,6 +686,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         t' <- f t
         return $ VariableSpecifier l' t'
+    traverseVars f (MultisetSpecifier l t) = do
+        l' <- f l
+        t' <- f t
+        return $ MultisetSpecifier l' t'
     substL (VariableSpecifier l (TypeName _ n)) = substL n
     substL s = return Nothing
     
@@ -789,6 +821,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         p' <- f p
         return $ GlobalProcedure l' p'
+    traverseVars f (GlobalFunction l p) = do
+        l' <- f l
+        p' <- f p
+        return $ GlobalFunction l' p'
     traverseVars f (GlobalStructure l s) = do
         l' <- f l
         s' <- f s
@@ -819,6 +855,11 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         qs' <- inLHS $ mapM f qs
         p' <- f p
         return $ TemplateProcedureDeclaration l' qs' p'
+    traverseVars f (TemplateFunctionDeclaration l qs p) = do
+        l' <- f l
+        qs' <- inLHS $ mapM f qs
+        p' <- f p
+        return $ TemplateFunctionDeclaration l' qs' p'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (StructureDeclaration iden loc) where
     traverseVars f (StructureDeclaration l n as) = do
@@ -945,11 +986,22 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
     traverseVars f xs = mapM f xs
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (GlobalAnnotation iden loc) where
-    traverseVars f (GlobalProcedureAnn l qs p) = do
+    traverseVars f (GlobalFunctionAnn l p) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
         p' <- f p
-        return $ GlobalProcedureAnn l' qs' p'
+        return $ GlobalFunctionAnn l' p'
+    traverseVars f (GlobalProcedureAnn l p) = do
+        l' <- f l
+        p' <- f p
+        return $ GlobalProcedureAnn l' p'
+    traverseVars f (GlobalStructureAnn l p) = do
+        l' <- f l
+        p' <- f p
+        return $ GlobalStructureAnn l' p'
+    traverseVars f (GlobalTemplateAnn l p) = do
+        l' <- f l
+        p' <- f p
+        return $ GlobalTemplateAnn l' p'
 
 
 

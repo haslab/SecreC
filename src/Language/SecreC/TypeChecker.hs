@@ -116,12 +116,18 @@ tcGlobalDeclaration (GlobalAnnotations l ann) = do
     return $ GlobalAnnotations (notTyped "tcGlobalAnnotation" l) ann'
 
 tcGlobalAnn :: ProverK loc m => GlobalAnnotation Identifier loc -> TcM m (GlobalAnnotation VarIdentifier (Typed loc))
-tcGlobalAnn (GlobalProcedureAnn l [] proc) = insideAnnotation $ do
-    GlobalProcedure l' proc' <- tcGlobalDeclaration (GlobalProcedure l proc)
-    return $ GlobalProcedureAnn l' [] proc'
-tcGlobalAnn (GlobalProcedureAnn l targs proc) = insideAnnotation $ do
-    TemplateProcedureDeclaration l' targs' proc' <- tcTemplateDecl (TemplateProcedureDeclaration l targs proc)
-    return $ GlobalProcedureAnn l' targs' proc'
+tcGlobalAnn (GlobalFunctionAnn l proc) = insideAnnotation $ do
+    proc' <- tcFunctionDecl newOperator newProcedure proc
+    return $ GlobalFunctionAnn (notTyped "tcGlobalAnn" l) proc'
+tcGlobalAnn (GlobalProcedureAnn l proc) = insideAnnotation $ do
+    proc' <- tcProcedureDecl newOperator newProcedure proc
+    return $ GlobalProcedureAnn (notTyped "tcGlobalAnn" l) proc'
+tcGlobalAnn (GlobalStructureAnn l proc) = insideAnnotation $ do
+    proc' <- tcStructureDecl newStruct proc
+    return $ GlobalStructureAnn (notTyped "tcGlobalAnn" l) proc'
+tcGlobalAnn (GlobalTemplateAnn l proc) = insideAnnotation $ do
+    proc' <- tcTemplateDecl proc
+    return $ GlobalTemplateAnn (notTyped "tcGlobalAnn" l) proc'
 
 tcDomainDecl :: (MonadIO m,Location loc) => DomainDeclaration Identifier loc -> TcM m (DomainDeclaration VarIdentifier (Typed loc))
 tcDomainDecl (Domain l (DomainName dl dn) k) = do
@@ -141,6 +147,44 @@ tcKindDecl (Kind l k) = do
 tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (KindName VarIdentifier (Typed loc))
 tcKindName (KindName kl kn) = return $ KindName (Typed kl KType) $ mkVarId kn
 
+--newVariable :: (ProverK loc m) => Scope -> Bool -> VarName VarIdentifier (Typed loc) -> Maybe (Expression VarIdentifier (Typed loc)) -> TcM m ()
+
+tcFunctionDecl :: (ProverK loc m) => (Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))) -> (Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc)))
+                -> FunctionDeclaration Identifier loc -> TcM m (FunctionDeclaration VarIdentifier (Typed loc))
+tcFunctionDecl addOp _ (OperatorFunDeclaration l ret op ps ann s) = do
+    (ps',ret',vars',top,tret) <- tcAddDeps l "tcProcedureDecl" $ do
+        top <- tcOp op
+        (ps',vars') <- mapAndUnzipM tcProcedureParam ps
+        ret' <- tcTypeSpec ret False
+        let tret = typed $ loc ret'
+        newVariable LocalScope True True (VarName (Typed l tret) (mkVarId "\result")) Nothing
+        return (ps',ret',vars',top,tret)
+    hdeps <- getDeps
+    ann' <- mapM tcProcedureAnn ann
+    s' <- tcExprTy tret s
+    cl <- liftM decClass State.get
+    let tproc = IDecT $ FunType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
+    let op' = updLoc top (Typed l tproc)
+    op'' <- addOp hdeps op'
+    let dec' = OperatorFunDeclaration (notTyped "tcProcedureDecl" l) ret' op'' ps' ann' s'
+    return dec'
+tcFunctionDecl _ addProc (FunDeclaration l ret (ProcedureName pl pn) ps ann s) = do
+    (ps',ret',vars',tret) <- tcAddDeps l "tcProcedureDecl" $ do
+        (ps',vars') <- mapAndUnzipM tcProcedureParam ps
+        ret' <- tcTypeSpec ret False
+        let tret = typed $ loc ret'
+        newVariable LocalScope True True (VarName (Typed l tret) (mkVarId "\result")) Nothing
+        return (ps',ret',vars',tret)
+    hdeps <- getDeps
+    ann' <- mapM tcProcedureAnn ann
+    s' <- tcExprTy tret s
+    cl <- liftM decClass State.get
+    let tproc = IDecT $ FunType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
+    let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
+    proc'' <- addProc hdeps proc'
+    let dec' = FunDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' ann' s'
+    return dec'
+
 tcProcedureDecl :: (ProverK loc m) => (Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))) -> (Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc)))
                 -> ProcedureDeclaration Identifier loc -> TcM m (ProcedureDeclaration VarIdentifier (Typed loc))
 tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = do
@@ -149,12 +193,13 @@ tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = do
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         ret' <- tcRetTypeSpec ret
         let tret = typed $ loc ret'
+        newVariable LocalScope True True (VarName (Typed l tret) (mkVarId "\result")) Nothing
         return (ps',ret',vars',top,tret)
     hdeps <- getDeps
     ann' <- mapM tcProcedureAnn ann
     s' <- tcStmtsRet l tret s
-    cl <- liftM procClass State.get
-    let tproc = IDecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
+    cl <- liftM decClass State.get
+    let tproc = IDecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
     let op' = updLoc top (Typed l tproc)
     op'' <- addOp hdeps op'
     let dec' = OperatorDeclaration (notTyped "tcProcedureDecl" l) ret' op'' ps' ann' s'
@@ -164,12 +209,13 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         ret' <- tcRetTypeSpec ret
         let tret = typed $ loc ret'
+        newVariable LocalScope True True (VarName (Typed l tret) (mkVarId "\result")) Nothing
         return (ps',ret',vars',tret)
     hdeps <- getDeps
     ann' <- mapM tcProcedureAnn ann
     s' <- tcStmtsRet l tret s
-    cl <- liftM procClass State.get
-    let tproc = IDecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (map (fmap (fmap locpos)) s') cl
+    cl <- liftM decClass State.get
+    let tproc = IDecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
     let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
     proc'' <- addProc hdeps proc'
     let dec' = ProcedureDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' ann' s'
@@ -177,10 +223,10 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
 
 tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (ProcedureAnnotation VarIdentifier (Typed loc))
 tcProcedureAnn (RequiresAnn l isFree e) = insideAnnotation $ do
-    e' <- tcExpr e
+    e' <- tcAnnGuard e
     return $ RequiresAnn (Typed l $ typed $ loc e') isFree e'
 tcProcedureAnn (EnsuresAnn l isFree e) = insideAnnotation $ do
-    e' <- tcExpr e
+    e' <- tcAnnGuard e
     return $ EnsuresAnn (Typed l $ typed $ loc e') isFree e'
 
 tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Constrained Var,IsVariadic))
@@ -189,15 +235,17 @@ tcProcedureParam (ProcedureParameter l s isVariadic (VarName vl vi)) = do
     let ty = typed $ loc s'
     let vi' = mkVarId vi
     let v' = VarName (Typed vl ty) vi'
-    newVariable LocalScope False v' Nothing
+    isAnn <- getAnn
+    newVariable LocalScope False isAnn v' Nothing
     return (ProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v',(False,Constrained (fmap typed v') Nothing,isVariadic))
 tcProcedureParam (ConstProcedureParameter l s isVariadic (VarName vl vi) c) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
     vi' <- addConst LocalScope vi
     let v' = VarName (Typed vl ty) vi'
-    newVariable LocalScope True v' Nothing
-    (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM tcIndexCond c
+    isAnn <- getAnn
+    newVariable LocalScope True isAnn v' Nothing
+    (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM (withPure True . tcIndexCond) c
     case c' of
         Nothing -> return ()
         Just x -> do
@@ -209,7 +257,8 @@ tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc
 tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = do
     hdeps <- getDeps
     atts' <- mapM tcAttribute atts
-    let t = IDecT $ StructType (locpos l) (TypeName () $ mkVarId tn) $ map (fmap typed) (map attributeName atts')
+    cl <- liftM decClass State.get
+    let t = IDecT $ StructType (locpos l) (TypeName () $ mkVarId tn) (Just $ map (fmap typed) (map attributeName atts')) cl
     let ty' = TypeName (Typed tl t) $ mkVarId tn
     ty'' <- addStruct hdeps ty'
     return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'
@@ -239,6 +288,11 @@ tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate $ do
     let tvars' = toList tvars
     p' <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedure tvars') p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
+tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate $ do
+    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
+    let tvars' = toList tvars
+    p' <- tcFunctionDecl (addTemplateOperator tvars') (addTemplateProcedure tvars') p
+    return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' p'
     
 tcTemplateQuantifier :: (ProverK loc m) => TemplateQuantifier Identifier loc -> TcM m (TemplateQuantifier VarIdentifier (Typed loc),(Constrained Var,IsVariadic))
 tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
@@ -254,7 +308,8 @@ tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
     t' <- mkVariadicTyArray isVariadic t
     vdn <- addConst LocalScope dn
     let v' = DomainName (Typed dl t') vdn
-    newDomainVariable LocalScope v'
+    isAnn <- getAnn
+    newDomainVariable isAnn LocalScope v'
     return (DomainQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' mbk',(Constrained (VarName t' vdn) Nothing,isVariadic))
 tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
     let t = BaseT index -- variable is a dimension
@@ -262,7 +317,8 @@ tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
     vdn <- addConst LocalScope dn
     let tl = Typed dl t'
     let v' = VarName tl vdn
-    newVariable LocalScope True v' Nothing
+    isAnn <- getAnn
+    newVariable LocalScope True isAnn v' Nothing
     (c',cstrsc) <- tcWithCstrs l "tcTemplateQuantifier" $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
@@ -273,7 +329,8 @@ tcTemplateQuantifier (DataQuantifier l isVariadic (TypeName tl tn)) = do
     t' <- mkVariadicTyArray isVariadic t
     vtn <- addConst LocalScope tn
     let v' = TypeName (Typed tl t') vtn
-    newTypeVariable LocalScope v'
+    isAnn <- getAnn
+    newTypeVariable isAnn LocalScope v'
     return (DataQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v',(Constrained (VarName t' vtn) Nothing,isVariadic))
 
 tcTemplate :: (ProverK Position m) => TcM m a -> TcM m a
@@ -287,13 +344,13 @@ tcTemplate m = do
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
 tcGlobal :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
 tcGlobal l m = do
-    State.modify $ \e -> e { procClass = mempty }
+    State.modify $ \e -> e { decClass = mempty }
     newDict l "tcGlobal"
     x <- m
     solveTop l "tcGlobal"
     dict <- liftM ((\[a] -> a) . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { procClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
+    State.modify $ \e -> e { decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
     liftIO resetGlobalEnv
     return x'

@@ -119,16 +119,18 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
     addHeadTDict p $ templateCstrs arr rec def p dict
     case n of
         Right _ -> do
-            let tycl@(Proc _ rs ws) = tyProcClass $ DecT decrec
+            let tycl@(DecClass isAnn rs ws) = tyDecClass $ DecT decrec
             isPure <- getPure
             when isPure $ unless (Set.null rs && Set.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
-            addProcClass tycl
+            addDecClass tycl
         Left _ -> return ()
     return decrec
 
 -- removes type arguments from a template declaration, as a step of instantiation
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m DecType
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(ProcType {})) = do
+    return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
+removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(FunType {})) = do
     return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees [] d@(StructType {})) = do
     let specs' = map (mapFst (varNameToType . unConstrained)) targs
@@ -333,7 +335,7 @@ coerceProcedureArgs doCoerce l lhs rhs = do
     forM_ cs $ \c -> withDependencies ks $ checkCstrM_ l ks $ CheckAssertion c
 
 instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,TDict,Set VarIdentifier))
-instantiateTemplateEntry p doCoerce n targs pargs ret rets e = withFrees $ do
+instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withFrees $ do
             let l = entryLoc e
             --e <- localTemplate l e
 --            doc <- liftM ppTSubsts getTSubsts
@@ -361,7 +363,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = withFrees $ do
                     forM_ (maybe [] (catMaybes . map (\(Constrained x c,isVariadic) -> c)) tplt_targs) $ \c -> do
                         withDependencies ks $ tcCstrM_ l $ IsValid c
                 return ()
-            ok <- newErrorM $ proveWith l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
+            ok <- proveWith l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
@@ -404,7 +406,8 @@ templateIdentifier (DecT t) = templateIdentifier' t
     templateIdentifier' (DecType _ _ _ _ _ _ _ _ t) = templateIdentifier'' t
         where
         templateIdentifier'' (ProcType _ n _ _ _ _ _) = Right n
-        templateIdentifier'' (StructType _ n _) = Left n
+        templateIdentifier'' (FunType _ n _ _ _ _ _) = Right n
+        templateIdentifier'' (StructType _ n _ _) = Left n
    
 -- has type or procedure constrained arguments     
 --hasCondsDecType :: (MonadIO m) => DecType -> TcM m Bool
@@ -423,6 +426,8 @@ templateArgs l (Left name) t = case t of
         return (Just $ map (mapFst (flip Constrained Nothing)) specials,Nothing,Nothing)
 templateArgs l (Right name) t = case t of
     DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
+        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
+    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (FunType _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
     otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
 
@@ -495,11 +500,21 @@ localTemplateInnerType (ss0::SubstsProxy VarIdentifier (TcM m)) ssBounds (l::loc
         ret' <- substProxy "localTplt" ss False ssBounds1 ret
         ann' <- substProxy "localTplt" ss False ssBounds1 ann
         stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
-        return (ProcType p pid' args' ret' ann' stmts' c,ss,ssBounds1)
-    StructType p sid atts -> do
+        c' <- substProxy "localTplt" ss False ssBounds1 c
+        return (ProcType p pid' args' ret' ann' stmts' c',ss,ssBounds1)
+    FunType p pid args ret ann stmts c -> do
+        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
+        pid' <- substProxy "localTplt" ss False ssBounds1 pid
+        ret' <- substProxy "localTplt" ss False ssBounds1 ret
+        ann' <- substProxy "localTplt" ss False ssBounds1 ann
+        stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
+        c' <- substProxy "localTplt" ss False ssBounds1 c
+        return (FunType p pid' args' ret' ann' stmts' c',ss,ssBounds1)
+    StructType p sid atts c -> do
         sid' <- substProxy "localTplt" ss0 False ssBounds sid
         atts' <- substProxy "localTplt" ss0 False ssBounds atts
-        return (StructType p sid' atts',ss0,ssBounds)
+        c' <- substProxy "localTplt" ss0 False ssBounds c
+        return (StructType p sid' atts' c',ss0,ssBounds)
        
 freeVar :: ProverK Position m => VarIdentifier -> TcM m (VarIdentifier,(VarIdentifier,VarIdentifier))
 freeVar v = do

@@ -189,18 +189,18 @@ tcStmt ret (AnnStatement l ann) = do
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation VarIdentifier (Typed loc))
 tcLoopAnn (DecreasesAnn l isFree e) = insideAnnotation $ do
-    (e') <- tcGuard e
+    (e') <- tcAnnExpr e
     return (DecreasesAnn (Typed l $ typed $ loc e') isFree e')
 tcLoopAnn (InvariantAnn l isFree e) = insideAnnotation $ do
-    (e') <- tcGuard e
+    (e') <- tcAnnGuard e
     return (InvariantAnn (Typed l $ typed $ loc e') isFree e')
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
 tcStmtAnn (AssumeAnn l e) = insideAnnotation $ do
-    (e') <- tcGuard e
+    (e') <- tcAnnGuard e
     return (AssumeAnn (Typed l $ typed $ loc e') e')
 tcStmtAnn (AssertAnn l e) = insideAnnotation $ do
-    (e') <- tcGuard e
+    (e') <- tcAnnGuard e
     return (AssertAnn (Typed l $ typed $ loc e') e')
 
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
@@ -248,7 +248,8 @@ tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     -- do not store the size, since it can change dynamically
     let v' = VarName (Typed vl ty) $ mkVarId vn
     -- add variable to the environment
-    newVariable scope False v' Nothing -- don't add values to the environment
+    isAnn <- getAnn
+    newVariable scope False isAnn v' Nothing -- don't add values to the environment
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
 tcConstDecl :: (ProverK loc m) => Scope -> ConstDeclaration Identifier loc -> TcM m (ConstDeclaration VarIdentifier (Typed loc))
@@ -261,12 +262,13 @@ tcConstDecl scope (ConstDeclaration l tyspec vars) = do
 tcConstInit :: (ProverK loc m) => Scope -> Type -> ConstInitialization Identifier loc -> TcM m (ConstInitialization VarIdentifier (Typed loc))
 tcConstInit scope ty (ConstInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- mapM (tcExprTy ty') e
+    e' <- mapM (withPure True . tcExprTy ty') e
     -- add the array size to the type
     vn <- addConst scope n
     let v' = VarName (Typed vl ty') vn
     -- add variable to the environment
-    newVariable scope True v' e'
+    isAnn <- getAnn
+    newVariable scope True isAnn v' e'
     return (ConstInitialization (notTyped "tcVarInit" l) v' szs' e')
 
     

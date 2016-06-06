@@ -89,6 +89,7 @@ data Token
     | STRINGFROMBYTES
     | SYSCALL_RETURN
     | SYSCALL
+    | BUILTIN
     | IDENTIFIER String
     | BIN_LITERAL Integer
     | OCT_LITERAL Integer
@@ -134,6 +135,7 @@ data Token
     | MULTISET
     | FREE
     | ANNOTATION [String]
+    | FUNCTION
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP Token where
@@ -191,6 +193,7 @@ instance PP Token where
     pp STRINGFROMBYTES = text "__string_from_bytes"
     pp SYSCALL_RETURN = text "__return"
     pp SYSCALL = text "__syscall"
+    pp BUILTIN = text "__builtin"
     pp (IDENTIFIER s) = text s
     pp (BIN_LITERAL i) = text (convert_from_base 2 i)
     pp (OCT_LITERAL i) = text (convert_from_base 8 i)
@@ -235,6 +238,7 @@ instance PP Token where
     pp LEAK = text "leak"
     pp MULTISET = text "multiset"
     pp FREE = text "free"
+    pp FUNCTION = text "function"
     pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]

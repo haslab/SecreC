@@ -68,7 +68,10 @@ solveHypotheses l = do
 -- | solves the whole constraint stack
 solveAll :: ProverK loc m => loc -> String -> TcM m ()
 solveAll l msg = do
-    depth <- liftM (length . tDict) State.get
+    env <- State.get
+    let dicts = tDict env
+    let depth = length dicts
+    liftIO $ putStrLn $ "solveAll " ++ msg ++ " " ++ show depth ++ " " ++ ppr (vcat $ map (\x -> text ">" <> pp x) dicts)
     replicateM_ depth $ do
         solve' l msg True
         env <- State.get
@@ -115,7 +118,7 @@ solveMb l msg failOnError = do
             --liftIO $ putStrLn $ "solve " ++ show msg ++ " " ++ ppr l ++ " " ++ show (inTemplate env) ++ " [" ++ show ss ++ "\n]"
             mb <- solveCstrs l msg failOnError
             --liftIO $ putStrLn $ "solved " ++ show msg ++ " " ++ ppr l
-            updateHeadTCstrs $ \d -> return ((),Graph.nfilter (`elem` Graph.nodes gr) d)
+            --updateHeadTCstrs $ \d -> return ((),Graph.nfilter (`elem` Graph.nodes gr) d)
             --liftIO $ putStrLn $ "solved " ++ msg ++ " " ++ ppr l ++ ppr (isJust mb)
             return mb
 
@@ -258,7 +261,7 @@ solveIOCstr_ l iok = do
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
         let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
-        (res,rest) <- tcWith (locpos l) ("solveIOCstr " ++ ppr iok) $ resolveTCstr l k
+        (res,rest) <- tcWith (locpos l) ("solveIOCstr " ++ ppr iok) $ resolveTCstr l (ioCstrId iok) k
         addHeadTDict l $ rest { tCstrs = Graph.empty }
         --doc <- ppConstraints $ tCstrs rest
         --liftIO $ putStrLn $ "solvedIOCstr " ++ ppr (ioCstrId iok) ++ " -->" ++ show doc
@@ -267,7 +270,7 @@ solveIOCstr_ l iok = do
         return res
 
 solveNewCstr_ :: ProverK loc m => loc -> IOCstr -> TcM m ()
-solveNewCstr_ l iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolveTCstr l k)
+solveNewCstr_ l iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolveTCstr l (ioCstrId iok) k)
 
 -- * Throwing Constraints
 
@@ -343,15 +346,15 @@ newTCstr l k = do
             (solveNewCstr_ l iok >> return Nothing)
             (\e -> if (isHaltError e) then return (Just iok) else throwError e)
                 
-resolveTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m ShowOrdDyn
-resolveTCstr l (TcK k isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
-    resolveTcCstr l k
-resolveTCstr l (HypK h isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
+resolveTCstr :: (ProverK loc m) => loc -> Int -> TCstr -> TcM m ShowOrdDyn
+resolveTCstr l kid (TcK k isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
+    resolveTcCstr l kid k
+resolveTCstr l kid (HypK h isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
     resolveHypCstr l h
-resolveTCstr l (CheckK c isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
+resolveTCstr l kid (CheckK c isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
     resolveCheckCstr l c
-resolveTCstr l (DelayedK k (i,SecrecErrArr err)) = --withRecs rec $
-    addErrorM' l (i,err) $ resolveTCstr l k
+resolveTCstr l kid (DelayedK k (i,SecrecErrArr err)) = --withRecs rec $
+    addErrorM' l (i,err) $ resolveTCstr l kid k
 
 -- tests if a constraint is only used as part of an hypothesis
 --isHypInGraph :: Int -> IOCstrGraph loc -> Bool
@@ -360,19 +363,20 @@ resolveTCstr l (DelayedK k (i,SecrecErrArr err)) = --withRecs rec $
 --    (Just (_,_,(kCstr . unLoc) -> HypK {},_),gr') -> True
 --    (Just (_,_,_,outs),gr') -> all (flip isHypInGraph gr' . snd) outs
 
-resolveTcCstr :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
-resolveTcCstr l k = do
+resolveTcCstr :: (ProverK loc m) => loc -> Int -> TcCstr -> TcM m ()
+resolveTcCstr l kid k = do
 --    gr <- liftM (tCstrs . headNe . tDict) State.get
 --    let warn = isHypInGraph kid gr
 --    liftIO $ putStrLn $ "resolve " ++ show warn ++ " " ++ ppr k
 --    if warn then newErrorM $ orWarn_ $ resolveTcCstr' k else 
-    resolveTcCstr' k
+    resolveTcCstr' kid k
   where
-    resolveTcCstr' k@(TDec isTplt n args x) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args)))) $ do
+    resolveTcCstr' kid k@(TDec isTplt n args x) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args)))) $ do
+        isAnn <- getAnn
         let check = if isTplt then checkTemplateType else checkNonTemplateType
-        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing [] (check $ fmap (const l) n)
+        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing [] (check isAnn $ fmap (const l) n)
         unifiesDec l x res
-    resolveTcCstr' k@(PDec (Left n) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
+    resolveTcCstr' kid k@(PDec (Left n) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
         isAnn <- getAnn
         res <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) xs (checkProcedure isAnn $ ProcedureName l n)
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
@@ -380,7 +384,7 @@ resolveTcCstr l k = do
         unifiesDec l x res
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
         --liftIO $ putStrLn $ "matchTemplate2 " ++ ppr n ++ " " ++ show doc
-    resolveTcCstr' k@(PDec (Right o) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args)))) $ do
+    resolveTcCstr' kid k@(PDec (Right o) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args)))) $ do
         isAnn <- getAnn
         res <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) xs (checkOperator isAnn $ fmap (const l) o)
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
@@ -388,37 +392,37 @@ resolveTcCstr l k = do
         unifiesDec l x res
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
         --liftIO $ putStrLn $ "matchTemplate2 " ++ ppr o ++ " " ++ show doc
-    resolveTcCstr' k@(Equals t1 t2) = do
+    resolveTcCstr' kid k@(Equals t1 t2) = do
         equals l t1 t2
-    resolveTcCstr' k@(Coerces e1 x2) = do
+    resolveTcCstr' kid k@(Coerces e1 x2) = do
         coerces l (e1) x2
-    resolveTcCstr' k@(CoercesN exs) = do
+    resolveTcCstr' kid k@(CoercesN exs) = do
         coercesN l exs
-    resolveTcCstr' k@(CoercesLit e) = do
+    resolveTcCstr' kid k@(CoercesLit e) = do
         coercesLit l e
-    resolveTcCstr' k@(CoercesSecDimSizes e1 x2) = do
+    resolveTcCstr' kid k@(CoercesSecDimSizes e1 x2) = do
         coercesSecDimSizes l (e1) x2
-    resolveTcCstr' k@(CoercesNSecDimSizes exs) = do
+    resolveTcCstr' kid k@(CoercesNSecDimSizes exs) = do
         coercesNSecDimSizes l exs
-    resolveTcCstr' k@(Unifies t1 t2) = do
+    resolveTcCstr' kid k@(Unifies t1 t2) = do
         unifies l t1 t2
-    resolveTcCstr' k@(Assigns t1 t2) = do
+    resolveTcCstr' kid k@(Assigns t1 t2) = do
         assigns l t1 t2
-    resolveTcCstr' k@(UnifiesSizes szs1 szs2) = do
+    resolveTcCstr' kid k@(UnifiesSizes szs1 szs2) = do
         unifiesSizes l szs1 szs2
-    resolveTcCstr' k@(TypeBase t x) = do
+    resolveTcCstr' kid k@(TypeBase t x) = do
         BaseT b <- typeBase l t
         unifiesBase l x b
-    resolveTcCstr' k@(SupportedPrint t xs) = do
+    resolveTcCstr' kid k@(SupportedPrint t xs) = do
         isSupportedPrint l t xs
-    resolveTcCstr' k@(ProjectStruct t a x) = do
+    resolveTcCstr' kid k@(ProjectStruct t a x) = do
         addErrorM l
             (TypecheckerError (locpos l) . UnresolvedFieldProjection (pp t) (pp a <+> char '=' <+> pp x))
             (do
                 res <- projectStructField l t a
                 unifies l x (ComplexT res)
             )
-    resolveTcCstr' k@(ProjectMatrix ct rngs x) = do
+    resolveTcCstr' kid k@(ProjectMatrix ct rngs x) = do
         ct' <- ppM l ct
         rngs' <- ppArrayRangesM l rngs
         x' <- ppM l x
@@ -428,25 +432,28 @@ resolveTcCstr l k = do
                 res <- projectMatrixType l ct rngs
                 unifies l x res
             )
-    resolveTcCstr' (MultipleSubstitutions s) = do
-        multipleSubstitutions l s
-    resolveTcCstr' (MatchTypeDimension t d) = matchTypeDimension l t d
-    resolveTcCstr' (IsValid c) = do
+    resolveTcCstr' kid (MultipleSubstitutions s) = do
+        multipleSubstitutions l kid s
+    resolveTcCstr' kid (MatchTypeDimension t d) = matchTypeDimension l t d
+    resolveTcCstr' kid (IsValid c) = do
         x <- ppM l c
         addErrorM l (TypecheckerError (locpos l) . IndexConditionNotValid x) $ do
             ic <- prove l "resolve isValid" $ expr2IExpr $ fmap (Typed l) c
             isValid l ic
-    resolveTcCstr' (NotEqual e1 e2) = do
+    resolveTcCstr' kid (NotEqual e1 e2) = do
         x <- ppM l e1
         y <- ppM l e2
         addErrorM l (TypecheckerError (locpos l) . IndexConditionNotValid (x <+> text "!=" <+> y)) $ do
             i1 <- prove l "resolve notEqual" $ expr2IExpr $ fmap (Typed l) e1
             i2 <- prove l "resolve notEqual" $ expr2IExpr $ fmap (Typed l) e2
             isValid l $ IBinOp INeq i1 i2
-    resolveTcCstr' (IsPublic e) = do
+    resolveTcCstr' kid (IsPublic e) = do
         ct <- typeToComplexType l (loc e)
         s <- cSecM l ct
         unifiesSec l s Public
+    resolveTcCstr' kid (ToMultiset t x) = do
+        ct <- toMultisetType l t
+        unifiesComplex l x ct
 
 resolveHypCstr :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IExpr)
 resolveHypCstr l hyp = do
@@ -516,10 +523,10 @@ prove l msg m = do
 
 -- * Solving constraints
 
-multipleSubstitutions :: ProverK loc m => loc -> [([TCstr],[TCstr],Set VarIdentifier)] -> TcM m ()
-multipleSubstitutions l ss = do
-    liftIO $ putStrLn $ ppr l ++ " multiple substitutions " ++ ppr (sepBy comma $ map (pp . fst3) ss)
-    ok <- newErrorM $ matchAll l ss []
+multipleSubstitutions :: ProverK loc m => loc -> Int -> [([TCstr],[TCstr],Set VarIdentifier)] -> TcM m ()
+multipleSubstitutions l kid ss = do
+    liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
+    ok <- newErrorM $ matchAll l kid ss []
     case ok of
         [] -> do
             let fs = Set.unions $ map thr3 ss
@@ -527,28 +534,28 @@ multipleSubstitutions l ss = do
             return ()
         errs -> tcError (locpos l) $ MultipleTypeSubstitutions $ map pp errs
     
-matchAll :: (ProverK loc m) => loc -> [([TCstr],[TCstr],Set VarIdentifier)] -> [SecrecError] -> TcM m [SecrecError]
-matchAll l [] errs = return errs
-matchAll l (x:xs) errs = catchError
+matchAll :: (ProverK loc m) => loc -> Int -> [([TCstr],[TCstr],Set VarIdentifier)] -> [SecrecError] -> TcM m [SecrecError]
+matchAll l kid [] errs = return errs
+matchAll l kid (x:xs) errs = catchError
     -- match and solve all remaining constraints
-    (matchOne l True x >> return [])
+    (matchOne l kid True x >> return [])
     -- backtrack and try another match
-    (\e -> matchAll l xs $ errs++[e])
+    (\e -> matchAll l kid xs $ errs++[e])
 
-matchOne :: (ProverK loc m) => loc -> Bool -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
-matchOne l doSolve (match,deps,_) = do
-    liftIO $ putStrLn $ ppr l ++ " trying to match " ++ ppr match
+matchOne :: (ProverK loc m) => loc -> Int -> Bool -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
+matchOne l kid doSolve (match,deps,_) = do
+    liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
     --dict <- liftM (head . tDict) State.get
     --ss <- ppConstraints (tCstrs dict)
     --liftIO $ putStrLn $ "matchOne [" ++ show ss ++ "\n]"
-    prove l "matchOneHead" $ do
-        (_,ks) <- tcWithCstrs l "matchOneHead" $ mapM_ (tCstrM_ l) match
+    prove l ("matchOneHead"++show kid) $ do
+        (_,ks) <- tcWithCstrs l ("matchOneHead"++show kid) $ mapM_ (tCstrM_ l) match
         withDependencies ks $ mapM_ (tCstrM_ l) deps
     
     -- solve all other dependencies
     -- solve all other dependencies
     --noRecs $
-    when doSolve $ solveAll l "matchone"
+    when doSolve $ solveAll l ("matchone"++show kid)
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
 tryCstr l m = (liftM Right $ prove l "tryCstr" $ m) `catchError` (return . Left)
@@ -688,6 +695,7 @@ equalsBase l (TApp n1 ts1 d1) (TApp n2 ts2 d2) = do
     equalsTpltArgs l ts1 ts2
     equalsDec l d1 d2
 equalsBase l (TyPrim p1) (TyPrim p2) = equalsPrim l p1 p2
+equalsBase l (MSet b1) (MSet b2) = equalsBase l b1 b2
 equalsBase l b1 b2 = constraintError (EqualityException "base type") l b1 pp b2 pp Nothing
 
 equalsFoldable :: (ProverK loc m,Foldable t) => loc -> t Type -> t Type -> TcM m ()
@@ -1047,10 +1055,17 @@ coercesLit l e@(LitPExpr t lit) = do
 coercesLit l (ArrayConstructorPExpr (ComplexT ct@(CType s t d)) es) = do
     -- coerce each element
     let et = ComplexT $ CType s t $ indexExpr 0
-    xs <- forM (zip [1..] es) $ \(i,e) -> newTypedVar ("opt"++show i) et $ Just $ pp e
+    xs <- forM (zip [1..] es) $ \(i,e) -> newTypedVar ("ael"++show i) et $ Just $ pp e
     tcCstrM_ l $ CoercesN (zip es xs)
     -- match the array's dimension
     tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1) -- dimension 1
+coercesLit l (MultisetConstructorPExpr (ComplexT ct@(CType s (MSet b) d)) es) = do
+    -- coerce each element
+    let et = ComplexT $ CType s b $ indexExpr 0
+    xs <- forM (zip [1..] es) $ \(i,e) -> newTypedVar ("mel"++show i) et $ Just $ pp e
+    tcCstrM_ l $ CoercesN (zip es xs)
+    -- match the array's dimension
+    tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 0) -- dimension 0
 coercesLit l e = constraintError (CoercionException "literal") l e pp (loc e) pp Nothing  
 
 equalsLit :: (ProverK loc m) => loc -> Literal () -> Literal () -> TcM m ()
@@ -1283,6 +1298,7 @@ comparesBase l isLattice t1@(TApp n1 ts1 d1) t2@(TApp n2 ts2 d2) = do
     comparesTpltArgs l isLattice ts1 ts2
     comparesDec l d1 d2
 comparesBase l isLattice t1@(TyPrim p1) t2@(TyPrim p2) = equalsPrim l p1 p2 >> return (Comparison t1 t2 EQ)
+comparesBase l isLattice t1@(MSet b1) t2@(MSet b2) = comparesBase l isLattice b1 b2
 comparesBase l isLattice t1@(BVar v1) t2@(BVar v2) = do
     mb1 <- tryResolveBVar l v1
     mb2 <- tryResolveBVar l v2
@@ -1623,6 +1639,7 @@ assignsBase l v1 d2 = do
 
 unifiesBase :: (ProverK loc m) => loc -> BaseType -> BaseType -> TcM m ()
 unifiesBase l (TyPrim p1) (TyPrim p2) = equalsPrim l p1 p2
+unifiesBase l (MSet b1) (MSet b2) = unifiesBase l b1 b2
 unifiesBase l d1@(BVar v1) d2@(BVar v2) = do
     mb1 <- tryResolveBVar l v1
     mb2 <- tryResolveBVar l v2

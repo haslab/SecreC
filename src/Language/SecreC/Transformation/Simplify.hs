@@ -266,7 +266,7 @@ splitProcAnns isTplt (EnsuresAnn p isFree e:xs) = let (l,r) = splitProcAnns isTp
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
 inlineProcCall :: SimplifyK loc m => loc -> PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> TcM m (Maybe ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))))
-inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann body c))) es | isNonRecursiveDecType d = do
+inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann (Just body) c))) es | isNonRecursiveDecType d = do
 --    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs l args es'
@@ -289,6 +289,23 @@ inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann
             ss <- simplifyStatements Nothing body'
             ens' <- simplifyStatements Nothing ens
             return $ Just ([compoundStmt l (decls++reqs'++ss++ens')],Nothing)
+inlineProcCall l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType _ _ args ret ann (Just body) c))) es | isNonRecursiveDecType d = do
+--    liftIO $ putStrLn $ "inline " ++ ppr es ++ " " ++ ppr t
+    es' <- concatMapM unfoldVariadicExpr es
+    (decls,substs) <- bindProcArgs l args es'
+    ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
+    body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
+    t <- type2TypeSpecifierNonVoid l ret
+    let (reqs,ens) = splitProcAnns (isTemplateDecType d) ann'
+    (ss1,t') <- simplifyTypeSpecifier t
+    res <- liftM (VarName (Typed l ret)) $ genVar (mkVarId "res")
+    let tl = notTyped "inline" l
+    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
+    reqs' <- simplifyStatements Nothing reqs
+    (ss,Just body'') <- simplifyExpression body'
+    let sbody = [ExpressionStatement tl $ BinaryAssign (loc res) (varExpr res) (BinaryAssignEqual tl) body'']
+    ens' <- simplifyStatements Nothing ens
+    return $ Just (decls++ss1++[def,compoundStmt l (reqs'++ss++sbody++ens')],Just $ varExpr res)
 inlineProcCall l n t es = do
 --    liftIO $ putStrLn $ "not inline " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     return Nothing

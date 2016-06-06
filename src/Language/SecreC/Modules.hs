@@ -27,7 +27,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader (MonadReader(..))
 import qualified Control.Monad.Reader as Reader
-import Control.Monad.Catch
+import Control.Monad.Catch hiding (catchIOError)
 import Control.Monad.Writer as Writer
 import Control.Monad.State (State(..),StateT(..))
 import qualified Control.Monad.State as State
@@ -52,6 +52,8 @@ import Language.SecreC.Utils
 import Language.SecreC.TypeChecker.Base
 
 import GHC.Generics (Generic(..))
+
+import Foreign.C.Types
 
 type IdNodes = Map Identifier (FilePath -- ^ module's file
                               ,Node -- ^ module's node id
@@ -195,7 +197,9 @@ findModuleCycle i g = do
 type ModK m = (MonadIO m,MonadCatch m)
 
 fileModificationTime :: FilePath -> IO UnixTime
-fileModificationTime fn = liftM (fromEpochTime . modificationTime) $ getFileStatus fn
+fileModificationTime fn = catchIOError
+    (liftM (fromEpochTime . modificationTime) $ getFileStatus fn)
+    (const $ return $ UnixTime (CTime 0) 0)
 
 writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> SecrecM m ()
 writeModuleSCI ppargs menv m = do

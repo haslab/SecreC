@@ -112,7 +112,8 @@ tcCastType (CastTy v) = do
 tcTypeName :: (ProverK loc m) => TypeName Identifier loc -> TcM m (TypeName VarIdentifier (Typed loc))
 tcTypeName tn@(TypeName l n) = do
     let n' = mkVarId n
-    checkTypeName (TypeName l n')
+    isAnn <- getAnn
+    checkTypeName isAnn (TypeName l n')
 
 tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM m (TypeSpecifier VarIdentifier (Typed loc))
 tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
@@ -165,7 +166,8 @@ tcSecType (PublicSpecifier l) = do
     return $ PublicSpecifier (Typed l $ SecT Public)
 tcSecType (PrivateSpecifier l d) = do
     let vd = bimap mkVarId id d
-    vd' <- checkDomain vd
+    isAnn <- getAnn
+    vd' <- checkDomain isAnn vd
     return $ PrivateSpecifier (Typed l $ typed $ loc vd') vd'
 
 tcDatatypeSpec :: (ProverK loc m) => DatatypeSpecifier Identifier loc -> TcM m (DatatypeSpecifier VarIdentifier (Typed loc))
@@ -194,7 +196,8 @@ tcPrimitiveDatatype p = do
 
 tcTemplateTypeArgument :: (ProverK loc m) => TemplateTypeArgument Identifier loc -> TcM m (TemplateTypeArgument VarIdentifier (Typed loc))
 tcTemplateTypeArgument (GenericTemplateTypeArgument l n) = do
-    n' <- checkTemplateArg (bimap mkVarId id n)
+    isAnn <- getAnn
+    n' <- checkTemplateArg isAnn (bimap mkVarId id n)
     let t = typed $ loc n'
     return $ GenericTemplateTypeArgument (Typed l t) n'
 tcTemplateTypeArgument (TemplateTemplateTypeArgument l n args) = do
@@ -296,8 +299,8 @@ projectSize p t i (Just x) y1 y2 = do
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
 structBody l d@(DecType _ Nothing _ _ _ _ _ _ b) = return b
-structBody l d@(DecType j (Just i) _ _ _ _ _ _ (StructType sl sid _)) = do
-    (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True sid j
+structBody l d@(DecType j (Just i) _ _ _ _ _ _ (StructType sl sid _ cl)) = do
+    (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) sid j
     return s        
 structBody l (DVar v) = resolveDVar l v >>= structBody l
 --structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
@@ -313,11 +316,12 @@ projectStructField l (TApp _ _ d) a = do
     projectStructFieldDec l r a
     
 projectStructFieldDec :: (ProverK loc m) => loc -> InnerDecType -> AttributeName VarIdentifier () -> TcM m ComplexType
-projectStructFieldDec l t@(StructType _ _ atts) (AttributeName _ a) = do -- project the field
+projectStructFieldDec l t@(StructType _ _ (Just atts) cl) (AttributeName _ a) = do -- project the field
     case List.find (\(AttributeName t f) -> f == a) atts of
         Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
         Just (AttributeName t f) -> do
             typeToComplexType l t
+projectStructFieldDec l t a = genTcError (locpos l) $ text "cannot project field" <+> pp a <+> text "on type" <+> pp t
 
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM m (Type,Maybe (Sizes VarIdentifier (Typed loc)))
@@ -396,5 +400,15 @@ typeSize l (BaseT _) = return $ indexExpr 1
 typeSize l (VAType t sz) = return sz
 typeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
 
-
+toMultisetType :: ProverK loc m => loc -> Type -> TcM m ComplexType
+toMultisetType l (ComplexT (CVar v)) = do
+    mb <- tryResolveCVar l v
+    ct' <- case mb of
+        Just ct' -> return ct'
+        Nothing -> expandCTypeVar l v
+    toMultisetType l $ ComplexT ct'
+toMultisetType l (ComplexT (CType s b d)) = do
+    tcCstrM_ l $ Equals (IdxT d) (IdxT $ indexExpr 1)
+    return $ CType s (MSet b) (indexExpr 0)
+toMultisetType l t = genTcError (locpos l) $ text "cannot convert type" <+> pp t <+> text "to multiset"
 

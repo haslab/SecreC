@@ -56,6 +56,9 @@ sourcePosToPosition s = Pos (sourceName s) (sourceLine s) (sourceColumn s) (-1)
 positionToSourcePos :: Position -> SourcePos
 positionToSourcePos (Pos f l c o) = newPos f l c
 
+startPos :: String -> Position
+startPos fn = Pos fn 1 1 0
+
 -- | Create default 'Position'
 --
 defPos :: Position

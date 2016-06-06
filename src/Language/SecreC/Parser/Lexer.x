@@ -69,9 +69,9 @@ tokens :-
 <state_string_variable> @identifier             { leaveStateStringVariable }
 
 -- Keywords:
-<0>                     \\result              { lexerTokenInfo RESULT }
-<0>                     forall                { lexerTokenInfo FORALL }
-<0>                     exists                { lexerTokenInfo EXISTS }
+<0>                     \\result              { lexerAnnTokenInfo RESULT }
+<0>                     forall                { lexerAnnTokenInfo FORALL }
+<0>                     exists                { lexerAnnTokenInfo EXISTS }
 <0>                     assert                { lexerTokenInfo ASSERT }
 <0>                     const                 { lexerTokenInfo CONST }
 <0>                     bool                  { lexerTokenInfo BOOL }
@@ -117,12 +117,13 @@ tokens :-
 <0>                     xor_uint64            { lexerTokenInfo XOR_UINT64 }
 <0>                     xor_uint8             { lexerTokenInfo XOR_UINT8 }
 <0>                     requires              { lexerTokenInfo REQUIRES }
-<0>                     ensures               { lexerTokenInfo ENSURES }
-<0>                     leaks                 { lexerTokenInfo LEAKS }
-<0>                     leak                  { lexerTokenInfo LEAK }
-<0>                     multiset              { lexerTokenInfo MULTISET }
-<0>                     free                  { lexerTokenInfo FREE }
-<0>                     assume                { lexerTokenInfo ASSUME }
+<0>                     ensures               { lexerAnnTokenInfo ENSURES }
+<0>                     leaks                 { lexerAnnTokenInfo LEAKS }
+<0>                     leak                  { lexerAnnTokenInfo LEAK }
+<0>                     multiset              { lexerAnnTokenInfo MULTISET }
+<0>                     free                  { lexerAnnTokenInfo FREE }
+<0>                     assume                { lexerAnnTokenInfo ASSUME }
+<0>                     function              { lexerAnnTokenInfo FUNCTION }
 
 -- built-in functions:
 <0>                     "size..."             { lexerTokenInfo VSIZE }
@@ -134,6 +135,7 @@ tokens :-
 <0>                     __string_from_bytes   { lexerTokenInfo STRINGFROMBYTES }
 <0>                     __return              { lexerTokenInfo SYSCALL_RETURN }
 <0>                     __syscall             { lexerTokenInfo SYSCALL }
+<0>                     __builtin             { lexerTokenInfo BUILTIN }
 
 <0>                     @identifier             { lexerTokenInfoFunc (return . IDENTIFIER) }
 <0>                     @binarylit              { lexerTokenInfoFunc (return . BIN_LITERAL . convert_to_base 2) }
@@ -175,6 +177,13 @@ tokens :-
 {
 
 -- Token Functions -------------------------------------------------------------
+
+lexerAnnTokenInfo :: Token -> AlexInput -> Int -> Alex TokenInfo
+lexerAnnTokenInfo t inp l = do
+    aus <- get
+    if lexAnn aus
+        then lexerTokenInfo t inp l
+        else lexerTokenInfoFunc (return . IDENTIFIER) inp l
 
 lexerTokenInfo :: Token -> AlexInput -> Int -> Alex TokenInfo
 lexerTokenInfo t (AlexPn a ln c, _, _, s) l = do
@@ -274,13 +283,14 @@ data AlexUserState = AlexUserState
     , commentDepth :: Integer
     , stateString  :: String
     , commentStr   :: String
+    , lexAnn       :: Bool -- lex tokens in the annotation language or not
     }
 
 alexFilename :: Alex String
 alexFilename = liftM filename get
 
 alexInitUserState :: AlexUserState
-alexInitUserState = AlexUserState "" [] 0 "" []
+alexInitUserState = AlexUserState "" [] 0 "" [] False
 
 instance MonadState AlexUserState Alex where
     get = alexGetUserState
@@ -306,22 +316,22 @@ alexEOF = do
 -- Processing Functions --------------------------------------------------------
 
 positionToAlexPos :: Position -> AlexPosn
-positionToAlexPos (Pos fn l c a) = AlexPn l c a
+positionToAlexPos (Pos fn l c a) = AlexPn a l c
 
 alexSetPos :: AlexPosn -> Alex ()
 alexSetPos p = do
     (_,x,y,z) <- alexGetInput
     alexSetInput (p,x,y,z)
 
-runLexerWith :: String -> String -> AlexPosn -> ([TokenInfo] -> Alex a) -> Either String a
-runLexerWith fn str pos parse = runAlex str $ do
+runLexerWith :: Bool -> String -> String -> AlexPosn -> ([TokenInfo] -> Alex a) -> Either String a
+runLexerWith isAnn fn str pos parse = runAlex str $ do
     alexSetPos pos
-    put (alexInitUserState { filename = fn })
+    put (alexInitUserState { filename = fn, lexAnn = isAnn })
     toks <- getTokens
     parse toks
 
-runLexer :: String -> String -> Either String [TokenInfo]
-runLexer fn str = runLexerWith fn str alexStartPos return
+runLexer :: Bool -> String -> String -> Either String [TokenInfo]
+runLexer isAnn fn str = runLexerWith isAnn fn str alexStartPos return
 
 injectResult :: Either String a -> Alex a
 injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") $ text err)
