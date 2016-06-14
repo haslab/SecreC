@@ -15,7 +15,7 @@ Tested-with:        GHC==7.10.2
 Synopsis:           SecreC Analyser
 
 Extra-Source-Files: README.md examples tests
-Data-files: imports/*.sc imports/stdlib/lib/*.sc
+Data-files: imports/*.sc imports/stdlib/lib/*.sc imports/*.dfy
 
 Executable secrec
   Main-is:          Main.hs

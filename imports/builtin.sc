@@ -1,5 +1,3 @@
-
-#OPTIONS_SECREC --simplify=False
     
 module builtin;
 
@@ -13,9 +11,9 @@ D T[[N]] classify (public T[[N]] x) {
     return ret;
 }
 
-//@ template <domain D,type T,dim N>
+//@ template <nonpublic kind K,domain D : K,type T,dim N>
 //@ function D T[[N]] classify (public T[[N]] x) {
-//@     __builtin("core.classify",x)
+//@     __builtin("core.classify",x) :: D T[[N]]
 //@ }
 
 // declassify
@@ -28,29 +26,29 @@ public T[[N]] declassify (D T[[N]] x) {
     return ret;
 }
 
-//@ template <domain D,type T,dim N>
-//@ function public T[[N]] classify (D T[[N]] x) {
-//@     __builtin("core.declassify",x)
+//@ template <nonpublic kind K,domain D : K,type T,dim N>
+//@ function public T[[N]] declassify (D T[[N]] x) {
+//@     __builtin("core.declassify",x) :: public T[[N]]
 //@ }
 
 // strlen
 
 uint strlen (string str) {
-    return __builtin("core.strlen",str);
+    return __builtin("core.strlen",str) ;
 }
 
 // tostring
 
 template <type T>
 string tostring (public T x) {
-    return __builtin("core.tostring",x);
+    return __builtin("core.tostring",x) :: string ;
 }
 
 // shape
 
 template <domain D, type T, dim N>
 uint[[1]] shape (D T[[N]] arr) {
-    return __builtin("core.shape",arr);
+    return __builtin("core.shape",arr) :: uint[[1]] ;
 }
 
 //cat
@@ -62,31 +60,31 @@ D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
 
 //@ template <domain D,type T,dim N>
 //@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
-//@     cat(x,y,0)
+//@     cat(x,y,0) :: D T[[N]]
 //@ }
 
 template <domain D, type T, dim N>
 D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n { n < N }) {
 
-    return __builtin("core.cat", x,y,n);
+    return __builtin("core.cat", x,y,n) :: D T[[N]];
 }
 
 //@ template <domain D,type T,dim N>
 //@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n { n < N }) {
-//@     __builtin("core.cat",x,y,n)
+//@     __builtin("core.cat",x,y,n) :: D T[[N]]
 //@ }
 
 // reshape
 
 template <domain D, type T, dim N>
 D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns) {
-    return __builtin("core.reshape",arr,ns);
+    return __builtin("core.reshape",arr,ns) :: D T[[size...(ns)]];
 }
 
 //repeat is a STUB 
 template <domain D,type T,dim N>
 D T[[N]] repeat (D T x) {
-    return __builtin("core.repeat",x);
+    return __builtin("core.repeat",x) :: D T [[N]];
 }
 
 // size
@@ -107,24 +105,27 @@ bool operator ==> (bool x,bool y) {
     return __builtin("core.implies",x,y);
 }
 
-//@ function bool operator ==> (bool x,bool y) {
-//@     __builtin("core.implies",x,y)
+//@ template <domain D>
+//@ function D bool operator ==> (D bool x,D bool y) {
+//@     __builtin("core.implies",x,y) :: D bool
 //@ }
 
 bool operator <==> (bool x,bool y) {
     return __builtin("core.eq",x,y);
 }
 
-//@ function bool operator <==> (bool x,bool y) {
-//@     __builtin("core.eq",x,y)
+//@ template <domain D>
+//@ function D bool operator <==> (D bool x,D bool y) {
+//@     __builtin("core.eq",x,y) :: D bool
 //@ }
 
 bool operator && (bool x,bool y) {
     return __builtin("core.band",x,y);
 }
 
-//@ function bool operator && (bool x,bool y) {
-//@     __builtin("core.band",x,y)
+//@ template<domain D>
+//@ function D bool operator && (D bool x,D bool y) {
+//@     __builtin("core.band",x,y) :: D bool
 //@ }
 
 template <domain D, dim N { N > 0 }>
@@ -142,8 +143,9 @@ bool operator || (bool x,bool y) {
     return __builtin("core.bor",x,y);
 }
 
-//@ function bool operator || (bool x,bool y) {
-//@     __builtin("core.bor",x,y)
+//@ template<domain D>
+//@ function D bool operator || (D bool x,D bool y) {
+//@     __builtin("core.bor",x,y) :: D bool
 //@ }
 
 template <domain D, dim N { N > 0 } >
@@ -230,6 +232,57 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 }
 
 // addition
+
+//@ template<domain D,type T>
+//@ function D multiset<T> operator + (D multiset<T> x, D multiset<T> y)
+//@ {
+//@     __builtin("core.union",x,y) :: D multiset<T>
+//@ }
+
+//@ template<domain D>
+//@ function D bool operator + (D int8 x,D int8 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D int16 x,D int16 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D int32 x,D int32 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D int64 x,D int64 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ }
+//@ template<domain D>
+//@ function D bool operator + (D uint8 x,D uint8 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D uint16 x,D uint16 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D uint32 x,D uint32 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D uint64 x,D uint64 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D float32 x,D float32 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D float64 x,D float64 y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator + (D bool x,D bool y) {
+//@     __builtin("core.add",x,y) :: D bool
+//@ } 
 
 int8 operator + (int8 x,int8 y) {
     return __builtin("core.add",x,y);
@@ -456,59 +509,83 @@ D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 
 // greater
 
-bool operator > (int8 x,int8 y) {
+//@ template<domain D>
+//@ function D bool operator > (D int8 x,D int8 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D int16 x,D int16 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D int32 x,D int32 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D int64 x,D int64 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ }
+//@ template<domain D>
+//@ function D bool operator > (D uint8 x,D uint8 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D uint16 x,D uint16 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D uint32 x,D uint32 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D uint64 x,D uint64 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D float32 x,D float32 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D float64 x,D float64 y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator > (D bool x,D bool y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
 
+bool operator > (int8 x,int8 y) {
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (int16 x,int16 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (int32 x,int32 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (int64 x,int64 y) {
-
     return __builtin("core.gt",x,y);
-    
 }
 bool operator > (uint8 x,uint8 y) {
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (uint16 x,uint16 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (uint32 x,uint32 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (uint64 x,uint64 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (float32 x,float32 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (float64 x,float64 y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 bool operator > (bool x,bool y) {
-
     return __builtin("core.gt",x,y);
-    
 } 
 
 // array greater
@@ -526,60 +603,83 @@ D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 
 // smaller
 
-bool operator < (int8 x,int8 y) {
+//@ template<domain D>
+//@ function D bool operator < (D int8 x,D int8 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D int16 x,D int16 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D int32 x,D int32 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D int64 x,D int64 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ }
+//@ template<domain D>
+//@ function D bool operator < (D uint8 x,D uint8 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D uint16 x,D uint16 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D uint32 x,D uint32 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D uint64 x,D uint64 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D float32 x,D float32 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D float64 x,D float64 y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator < (D bool x,D bool y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
 
+bool operator < (int8 x,int8 y) {
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (int16 x,int16 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (int32 x,int32 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (int64 x,int64 y) {
-
     return __builtin("core.lt",x,y);
-    
 }
 bool operator < (uint8 x,uint8 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (uint16 x,uint16 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (uint32 x,uint32 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (uint64 x,uint64 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (float32 x,float32 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (float64 x,float64 y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 bool operator < (bool x,bool y) {
-
     return __builtin("core.lt",x,y);
-    
 } 
 
 // array smaller
@@ -597,60 +697,83 @@ D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 
 // greater or equal
 
-bool operator >= (int8 x,int8 y) {
+//@ template<domain D>
+//@ function D bool operator >= (D int8 x,D int8 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D int16 x,D int16 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D int32 x,D int32 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D int64 x,D int64 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ }
+//@ template<domain D>
+//@ function D bool operator >= (D uint8 x,D uint8 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D uint16 x,D uint16 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D uint32 x,D uint32 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D uint64 x,D uint64 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D float32 x,D float32 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D float64 x,D float64 y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D bool x,D bool y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
 
+bool operator >= (int8 x,int8 y) {
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (int16 x,int16 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (int32 x,int32 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (int64 x,int64 y) {
-
     return __builtin("core.ge",x,y);
-    
 }
 bool operator >= (uint8 x,uint8 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (uint16 x,uint16 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (uint32 x,uint32 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (uint64 x,uint64 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (float32 x,float32 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (float64 x,float64 y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 bool operator >= (bool x,bool y) {
-
     return __builtin("core.ge",x,y);
-    
 } 
 
 // array greater or equal
@@ -668,60 +791,83 @@ D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 
 // smaller or equal
 
-bool operator <= (int8 x,int8 y) {
+//@ template<domain D>
+//@ function D bool operator <= (D int8 x,D int8 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D int16 x,D int16 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D int32 x,D int32 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D int64 x,D int64 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ }
+//@ template<domain D>
+//@ function D bool operator <= (D uint8 x,D uint8 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D uint16 x,D uint16 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D uint32 x,D uint32 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D uint64 x,D uint64 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D float32 x,D float32 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D float64 x,D float64 y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D bool x,D bool y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
 
+bool operator <= (int8 x,int8 y) {
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (int16 x,int16 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (int32 x,int32 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (int64 x,int64 y) {
-
     return __builtin("core.le",x,y);
-    
 }
 bool operator <= (uint8 x,uint8 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (uint16 x,uint16 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (uint32 x,uint32 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (uint64 x,uint64 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (float32 x,float32 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (float64 x,float64 y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 bool operator <= (bool x,bool y) {
-
     return __builtin("core.le",x,y);
-    
 } 
 
 // array greater
@@ -737,68 +883,52 @@ D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y)
     return ret;
 }
 
+//@ template<domain D,type T>
+//@ function D bool operator <= (D multiset<T> x, D multiset<T> y)
+//@ {
+//@     __builtin("core.subset",x,y) :: D bool
+//@ }
+
 // equal
 
 // we support ghost equality over any type
 //@ template<domain D, type T, dim N>
 //@ function D bool operator == (D T[[N]] x,D T[[N]] y) {
-//@     __builtin("core.eq",x,y)
+//@     __builtin("core.eq",x,y) :: D bool
 //@ } 
 
 bool operator == (int8 x,int8 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (int16 x,int16 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (int32 x,int32 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (int64 x,int64 y) {
-
     return __builtin("core.eq",x,y);
-    
 }
 bool operator == (uint8 x,uint8 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (uint16 x,uint16 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (uint32 x,uint32 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (uint64 x,uint64 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (float32 x,float32 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (float64 x,float64 y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 bool operator == (bool x,bool y) {
-
     return __builtin("core.eq",x,y);
-    
 } 
 
 // array equal

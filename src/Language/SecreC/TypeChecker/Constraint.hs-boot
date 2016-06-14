@@ -108,4 +108,12 @@ expandVariadicType :: (ProverK loc m) => loc -> (Type,IsVariadic) -> TcM m [Type
 
 resolveBVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m BaseType
 
+resolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m SecType
+
+tryResolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe SecType)
+
+unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
+
 unifiesExprTy :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m ()
+
+unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()

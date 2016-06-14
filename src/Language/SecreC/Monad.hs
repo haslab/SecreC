@@ -40,7 +40,7 @@ data Options
           inputs                :: [FilePath]
         , outputs               :: [FilePath]
         , paths                 :: [FilePath]
-        , knowledgeInference    :: Bool
+        , verify                :: Bool
         , simplify              :: Bool
         , typeCheck             :: Bool
         , debugLexer            :: Bool
@@ -55,6 +55,7 @@ data Options
         , externalSMT           :: Bool
         , checkAssertions       :: Bool
         , forceRecomp           :: Bool
+        , entryPoints           :: [String]
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
@@ -66,7 +67,7 @@ instance Monoid Options where
         { inputs = inputs x ++ inputs y
         , outputs = outputs x ++ outputs y
         , paths = List.nub $ paths x ++ paths y
-        , knowledgeInference = knowledgeInference x || knowledgeInference y
+        , verify = verify x || verify y
         , simplify = simplify x && simplify y
         , typeCheck = typeCheck x || typeCheck y
         , debugLexer = debugLexer x || debugLexer y
@@ -81,14 +82,16 @@ instance Monoid Options where
         , externalSMT = externalSMT x && externalSMT y
         , checkAssertions = checkAssertions x || checkAssertions y
         , forceRecomp = forceRecomp x || forceRecomp y
+        , entryPoints = entryPoints x ++ entryPoints y
         }
 
 defaultOptions :: Options
 defaultOptions = Opts
     { inputs = []
+    , entryPoints = []
     , outputs = []
     , paths = []
-    , knowledgeInference = False
+    , verify = False
     , simplify = True
     , typeCheck = True
     , debugLexer = False

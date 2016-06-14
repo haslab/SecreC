@@ -174,6 +174,7 @@ data TcEnv = TcEnv {
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , isPure :: Bool -- if typechecking pure expressions
+    , isLeak :: Bool -- if typechecking leakage expressions
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
@@ -192,6 +193,7 @@ data ModuleTcEnv = ModuleTcEnv {
     , procedures :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
     , structs :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
+    , axioms :: Map ModuleTyVarId EntryEnv -- defined axioms
     } deriving (Generic,Data,Typeable,Eq,Ord,Show)
 
 instance Hashable ModuleTcEnv
@@ -209,6 +211,7 @@ instance Monoid (ModuleTcEnv) where
         , domains = Map.empty
         , operators = Map.empty
         , procedures = Map.empty
+        , axioms = Map.empty
         , structs = Map.empty
         }
     mappend x y = ModuleTcEnv {
@@ -218,11 +221,12 @@ instance Monoid (ModuleTcEnv) where
         , domains = Map.union (domains x) (domains y)
         , operators = Map.unionWith Map.union (operators x) (operators y)
         , procedures = Map.unionWith Map.union (procedures x) (procedures y)
+        , axioms = Map.union (axioms x) (axioms y)
         , structs = Map.unionWith Map.union (structs x) (structs y)
         }
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ModuleTcEnv where
-    traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7) = do
+    traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7 x8) = do
         x1' <- f x1
         x2' <- traverseMap return f x2
         x3' <- f x3
@@ -230,7 +234,8 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ModuleTcEnv 
         x5' <- f x5
         x6' <- f x6
         x7' <- f x7
-        return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7'
+        x8' <- f x8
+        return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7' x8'
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m EntryEnv where
     traverseVars f (EntryEnv x1 x2) = do
@@ -250,9 +255,20 @@ withPure b m = do
     x <- m
     State.modify $ \env -> env { isPure = old }
     return x
-    
+
+withLeak :: Monad m => Bool -> TcM m a -> TcM m a
+withLeak b m = do
+    old <- liftM isLeak State.get
+    State.modify $ \env -> env { isLeak = b }
+    x <- m
+    State.modify $ \env -> env { isLeak = old }
+    return x
+
 getPure :: Monad m => TcM m Bool
 getPure = liftM isPure State.get
+    
+getLeak :: Monad m => TcM m Bool
+getLeak = liftM isLeak State.get
 
 getAnn :: Monad m => TcM m Bool
 getAnn = liftM (isAnnDecClass . decClass) State.get
@@ -287,12 +303,14 @@ remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left
     DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns (if isJust isRec then Nothing else body) cl)
 remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns (if isJust isRec then Nothing else body) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType pl n@(Left pn) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType pl n pargs pret panns (if isJust isRec then Nothing else body) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType pl (Right op) pargs pret panns (if isJust isRec then Nothing else body) cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns (if isJust isRec then Nothing else body) cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl (Right op) pargs pret panns (if isJust isRec then Nothing else body) cl)
 remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid (if isJust isRec then Nothing else atts) cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (AxiomType isLeak p qs pargs cl)
 
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
@@ -310,9 +328,14 @@ getOperators :: Monad m => Bool -> Bool -> TcM m (Map (Op VarIdentifier ()) (Map
 getOperators withBody isAnn = liftM (filterAnns isAnn . filterRecBody withBody) $ getModuleField operators
 getProcedures :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getProcedures withBody isAnn = liftM (filterAnns isAnn . filterRecBody withBody) $ getModuleField procedures
+getAxioms :: Monad m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms withBody isAnn = liftM (filterAnns1 isAnn) $ getModuleField axioms
 
 filterAnns :: Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
-filterAnns isAnn = Map.map (Map.filter (\e -> isAnnDecClass (tyDecClass $ entryType e) == isAnn))
+filterAnns isAnn = Map.map (filterAnns1 isAnn)
+
+filterAnns1 :: Bool -> (Map y EntryEnv) -> (Map y EntryEnv)
+filterAnns1 isAnn = Map.filter (\e -> isAnnDecClass (tyDecClass $ entryType e) == isAnn)
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation = withAnn True
@@ -338,28 +361,6 @@ withDependencies deps m = do
     State.modify $ \env -> env { localDeps = localDeps env }
     return x
 
---tcEnvMap :: (loc2 -> loc1) -> (loc1 -> loc2) -> TcEnv2 -> TcEnv1
---tcEnvMap f g env = TcEnv
---    { globalVars = fmap (\(x,y) -> (x,fmap f y)) $ globalVars env
---    , localVars = fmap (\(x,y) -> (x,fmap f y)) $ localVars env
---    , localFrees = localFrees env
---    , globalDeps = Set.fromList $ map (mapLoc f) $ Set.toList $ globalDeps env
---    , localDeps = Set.fromList $ map (mapLoc f) $ Set.toList $ localDeps env
---    , kinds = fmap (fmap f) $ kinds env
---    , domains = fmap (fmap f) $ domains env
---    , operators = Map.map (Map.map (fmap f)) $ operators env
---    , procedures = Map.map (Map.map (fmap f)) $ procedures env
---    , structs = Map.map (\(x,y) -> (fmap f x,Map.map (fmap f) y)) $ structs env
---    , tDict = fmap (fmap f) $ tDict env
---    , openedCstrs = openedCstrs env
---    , moduleCount = moduleCount env
---    , inTemplate = inTemplate env
---    , globalConsts = globalConsts env
---    , localConsts = localConsts env
---    , decClass = decClass env
---    , tyVarId = tyVarId env
---    }
-
 type VarsId m a = Vars VarIdentifier m a
 type VarsIdTcM m = (Typeable m,MonadIO m,MonadBaseControl IO m,VarsId (TcM m) Position,VarsId (TcM Symbolic) Position)
 
@@ -375,6 +376,7 @@ emptyTcEnv = TcEnv
     , moduleCount = ("main",1)
     , inTemplate = False
     , isPure = False
+    , isLeak = False
     , localConsts = Map.empty
     , decClass = mempty
     , moduleEnv = (mempty,mempty)
@@ -397,7 +399,8 @@ instance PP EntryEnv where
     pp = pp . entryType
    
 varNameToType :: Var -> Type
-varNameToType (VarName (SType k) n) = SecT $ SVar n k
+varNameToType (VarName (KType b) k) = KindT $ KVar k b
+varNameToType (VarName (KindT k) n) = SecT $ SVar n k
 varNameToType (VarName TType n) = ComplexT $ CVar n
 varNameToType (VarName BType n) = BaseT $ BVar n
 varNameToType (VarName DType n) = DecT $ DVar n
@@ -409,7 +412,8 @@ condVarNameToType :: Constrained Var -> Type
 condVarNameToType (Constrained v c) = constrainedType (varNameToType v) c
 
 typeToVarName :: Type -> Maybe Var
-typeToVarName (SecT (SVar n k)) = Just (VarName (SType k) n)
+typeToVarName (KindT (KVar n b)) = Just $ VarName (KType b) n
+typeToVarName (SecT (SVar n k)) = Just (VarName (KindT k) n)
 typeToVarName (ComplexT (CVar n)) = Just (VarName TType n)
 typeToVarName (BaseT (BVar n)) = Just (VarName BType n)
 typeToVarName (DecT (DVar n)) = Just (VarName DType n)
@@ -428,6 +432,11 @@ typeToTypeName t = case typeToVarName t of
 typeToDomainName :: Type -> Maybe (DomainName VarIdentifier Type)
 typeToDomainName t = case typeToVarName t of
     Just (VarName _ n) -> Just $ DomainName t n
+    otherwise -> Nothing
+
+typeToKindName :: Type -> Maybe (KindName VarIdentifier Type)
+typeToKindName t = case typeToVarName t of
+    Just (VarName _ n) -> Just $ KindName t n
     otherwise -> Nothing
 
 newtype SecrecErrArr = SecrecErrArr { unSecrecErrArr :: SecrecError -> SecrecError }
@@ -471,22 +480,6 @@ askErrorM'' = Reader.ask
 newErrorM :: TcM m a -> TcM m a
 newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 
---tcPos :: (Monad m,Location loc) => TcM Position m a -> TcM m a
---tcPos = tcLocM (locpos) (updpos noloc)
-
---tcPosVarsM :: (Monad m,Location loc) => VarsM iden (TcM Position m) a -> VarsM iden (TcM m) a
---tcPosVarsM m = mapStateT (tcPos) m
-
--- | Map different locations over @TcM@ monad.
---tcLocM :: Monad m => (loc2 -> loc1) -> (loc1 -> loc2) -> TcM1 m a -> TcM2 m a
---tcLocM f g m = do
---    s2 <- get
---    r2 <- ask
---    (x,s1,w1) <- TcM $ lift $ runRWST (unTcM m) r2 (tcEnvMap f g s2)
---    put (tcEnvMap g f s1)
---    tell w1
---    return x
-
 -- | Typechecks a code block, with local declarations only within its scope
 tcBlock :: Monad m => TcM m a -> TcM m a
 tcBlock m = do
@@ -526,11 +519,19 @@ isGlobalCstr k = isCheckCstr k || isHypCstr k || everything (||) (mkQ False isGl
 isMultipleSubstsCstr :: TCstr -> Bool
 isMultipleSubstsCstr k = everything (||) (mkQ False isMultipleSubstsTcCstr) k
 
+isDelayableCstr :: TCstr -> Bool
+isDelayableCstr k = everything (||) (mkQ False (\x -> isMultipleSubstsTcCstr x || isResolveTcCstr x)) k
+
 isMultipleSubstsTcCstr :: TcCstr -> Bool
 isMultipleSubstsTcCstr (MultipleSubstitutions {}) = True
 isMultipleSubstsTcCstr _ = False
 
+isResolveTcCstr :: TcCstr -> Bool
+isResolveTcCstr (Resolve {}) = True
+isResolveTcCstr _ = False
+
 isGlobalTcCstr :: TcCstr -> Bool
+isGlobalTcCstr (Resolve {}) = True
 isGlobalTcCstr (TDec {}) = True
 isGlobalTcCstr (PDec {}) = True
 isGlobalTcCstr (SupportedPrint {}) = True
@@ -581,6 +582,7 @@ data TcCstr
         Type -- result
     | IsReturnStmt (Set StmtClass) -- ^ is return statement
     | MultipleSubstitutions
+        [Type] -- bound variable
         [([TCstr],[TCstr],Set VarIdentifier)] -- mapping from multiple matching conditions to their dependencies and free variables
     | MatchTypeDimension
         Expr -- type dimension
@@ -590,8 +592,10 @@ data TcCstr
     | NotEqual -- expressions not equal
         Expr Expr
     | TypeBase Type BaseType
-    | IsPublic Expr
+    | IsPublic Type
+    | IsPrivate Type
     | ToMultiset Type ComplexType
+    | Resolve Type
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Binary TcCstr
@@ -755,12 +759,14 @@ instance PP TcCstr where
     pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
-    pp (MultipleSubstitutions s) = text "multiplesubstitutions" <+> sepBy space (map (\(x,y,z) -> pp x $+$ nest 4 (text "=>" $+$ pp y)) s)
+    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> vcat (map (\(x,y,z) -> pp x $+$ nest 4 (text "=>" $+$ pp y)) s)
     pp (MatchTypeDimension d sz) = text "matchtypedimension" <+> pp d <+> pp sz
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (NotEqual e1 e2) = text "not equal" <+> pp e1 <+> pp e2
     pp (TypeBase t b) = text "typebase" <+> pp t <+> pp b
     pp (IsPublic e) = text "ispublic" <+> pp e
+    pp (IsPrivate e) = text "isprivate" <+> pp e
+    pp (Resolve e) = text "resolve" <+> pp e
     pp (ToMultiset t r) = text "tomultiset" <+> pp t <+> pp r
 
 instance PP CheckCstr where
@@ -919,9 +925,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         is' <- mapM f is
         x' <- f x
         return $ ProjectMatrix t' is' x'
-    traverseVars f (MultipleSubstitutions ss) = do
+    traverseVars f (MultipleSubstitutions v ss) = do
+        v' <- f v
         ss' <- mapM f ss
-        return $ MultipleSubstitutions ss'
+        return $ MultipleSubstitutions v' ss'
     traverseVars f (MatchTypeDimension t d) = do
         t' <- f t
         d' <- f d
@@ -936,6 +943,12 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
     traverseVars f (IsPublic c) = do
         c' <- f c
         return $ IsPublic c'
+    traverseVars f (IsPrivate c) = do
+        c' <- f c
+        return $ IsPrivate c'
+    traverseVars f (Resolve t) = do
+        t' <- f t
+        return $ Resolve t'
     traverseVars f (ToMultiset t r) = do
         t' <- f t
         r' <- f r
@@ -1093,66 +1106,6 @@ ioCstrId = hashUnique . uniqId . kStatus
 ioCstrUnique :: IOCstr -> Unique
 ioCstrUnique = uniqId . kStatus
 
---type IOCstrSubsts = Map Int IOCstr
---
---newIOCstrSubst :: (GenVar VarIdentifier m,MonadIO m) => Int -> (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstr -> VarsM VarIdentifier (StateT IOCstrSubsts m) IOCstr
---newIOCstrSubst i f iok = do
---    unless (i == ioCstrId iok) $ error $ "newIOCstrSubst mismatching cstr id " ++ show i ++ " " ++ ppr iok
---    xs <- lift State.get
---    case Map.lookup i xs of
---        Nothing -> do
---            st <- liftIO $ readUniqRef $ kStatus iok
---            c' <- liftVarsM $ f (kCstr iok)
---            let st' = case st of
---                        Evaluated t -> Evaluated t
---                        otherwise -> Unevaluated
---            iok' <- liftM (IOCstr c') $ liftIO $ newUniqRef st'
---            lift $ State.put $ Map.insert i iok' xs
---            return iok'
---        Just iok' -> return iok'
---
---getIOCstrSubst :: Monad m => Int -> StateT IOCstrSubsts m IOCstr
---getIOCstrSubst i = do
---    xs <- State.get
---    return $ fromJustNote "getIOCstrSubst" $ Map.lookup i xs
---
---getIOCstrSubstId :: Monad m => Int -> StateT IOCstrSubsts m Int
---getIOCstrSubstId i = do
---    xs <- State.get
---    return $ fromJustNote "getIOCstrSubstId" $ fmap ioCstrId $ Map.lookup i xs
-
---instance (Vars VarIdentifier m loc,MonadIO m) => Vars VarIdentifier m (IOCstrGraph loc) where
---    traverseVars f gr = flip evalVarsMState(Map.empty::IOCstrSubsts) $ traverseVarsIOCstrGraph f gr
-
---traverseVarsIOCstrGraph :: (GenVar VarIdentifier m,MonadIO m) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> IOCstrGraph loc -> VarsM VarIdentifier (StateT IOCstrSubsts m) (IOCstrGraph loc)
---traverseVarsIOCstrGraph f gr = do
---        forM_ (labNodes gr) $ \(i,x) -> newIOCstrSubst i f (unLoc x)
---        mapGrM mapNode gr
---      where
---        mapNode ctx@(ins,nid,Loc l n,outs) = do
---            n' <- lift $ getIOCstrSubst nid
---            ins' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) ins
---            outs' <- mapM (\(x,y) -> liftM (x,) $ lift $ getIOCstrSubstId y) outs
---            return (ins',ioCstrId n',Loc l n',outs')      
---
---evalVarsMState :: Monad m => VarsM iden (StateT st m) a -> st -> VarsM iden m a
---evalVarsMState varsm st = State.mapStateT (\m -> State.evalStateT m st) varsm
---
---liftVarsM :: (Monad m,MonadTrans t,Vars iden m a) => VarsM iden m a -> VarsM iden (t m) a
---liftVarsM m = State.mapStateT (lift) m
---
---evalIOCstrVars m = flip evalVarsMState (Map.empty::IOCstrSubsts) m
---
---traverseDict :: (Vars VarIdentifier m loc) => (forall b . Vars VarIdentifier m b => b -> VarsM VarIdentifier m b) -> TDict -> VarsM VarIdentifier (StateT IOCstrSubsts m) (TDict)
---traverseDict f (TDict cstrs choices (TSubsts substs)) = do
---    cstrs' <- traverseVarsIOCstrGraph f cstrs
---    choices' <- lift $ mapSetM getIOCstrSubstId choices
---    substs' <- liftVarsM $ liftM Map.fromList $ mapM (\(x,y) -> do { x' <- f x; y' <- f y; return (x',y') }) $ Map.toList substs
---    return $ TDict cstrs' choices' (TSubsts substs')
-
---instance (Location loc,MonadIO m,Vars VarIdentifier m loc) => Vars VarIdentifier m (TDict) where
---    traverseVars f x = evalIOCstrVars $ traverseDict f x
-
 instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier m (Loc loc a) where
     traverseVars f (Loc l a) = do
         l' <- f l
@@ -1265,9 +1218,9 @@ newTyVarId = do
 hashTyVarId :: TyVarId -> Int
 hashTyVarId (TyVarId i) = I# (hashInteger i)
 
-secTypeKind :: SecType -> SVarKind
-secTypeKind Public = AnyKind
-secTypeKind (Private _ k) = PrivateKind $ Just k
+secTypeKind :: SecType -> KindType
+secTypeKind Public = PublicK
+secTypeKind (Private _ k) = PrivateK k
 secTypeKind (SVar _ k) = k
 
 data SecType
@@ -1275,24 +1228,32 @@ data SecType
     | Private -- ^ private domain
         (DomainName VarIdentifier ()) -- ^ domain
         (KindName VarIdentifier ()) -- ^ kind
-    | SVar VarIdentifier SVarKind
+    | SVar VarIdentifier KindType
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary SecType
 instance Hashable SecType
 
-data SVarKind
-    = AnyKind
-    | PrivateKind (Maybe (KindName VarIdentifier ()))
+data KindType
+    = PublicK
+    | PrivateK (KindName VarIdentifier ()) -- a known kind
+    | KVar VarIdentifier Bool -- a kind variable (bool = is only private)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
-instance Binary SVarKind
-instance Hashable SVarKind
+instance Binary KindType
+instance Hashable KindType
+
+isPrivateKind :: KindType -> Bool
+isPrivateKind PublicK = False
+isPrivateKind (PrivateK _) = True
+isPrivateKind (KVar _ True) = True
+isPrivateKind (KVar _ False) = False
 
 tyDecClass :: Type -> DecClass
 tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
-tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (FunType _ _ _ _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (FunType _ _ _ _ _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (StructType _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (AxiomType _ _ _ _ cl))) = cl
 tyDecClass t = error $ "tyDecClass: " ++ show t
 
 tyIsAnn t = let (DecClass b _ _) = tyDecClass t in b
@@ -1309,9 +1270,19 @@ decTypeDecId :: DecType -> Maybe DecIdentifier
 decTypeDecId (DecType _ _ _ _ _ _ _ _ d) = decTypeDecId' d
     where
     decTypeDecId' (ProcType _ p _ _ _ _ _) = Just $ Left p
-    decTypeDecId' (FunType _ p _ _ _ _ _) = Just $ Left p
+    decTypeDecId' (FunType _ _ p _ _ _ _ _) = Just $ Left p
     decTypeDecId' (StructType _ (TypeName _ s) _ _) = Just $ Right s
+    decTypeDecId' (AxiomType _ _ _ _ _) = Nothing
 decTypeDecId d = Nothing
+
+isLeakDec :: DecType -> Bool
+isLeakDec (DecType _ _ _ _ _ _ _ _ i) = isLeakInnerDec i
+
+isLeakInnerDec :: InnerDecType -> Bool
+isLeakInnerDec (ProcType {}) = False
+isLeakInnerDec (FunType isLeak _ _ _ _ _ _ _) = isLeak
+isLeakInnerDec (StructType {}) = False
+isLeakInnerDec (AxiomType isLeak _ _ _ _) = isLeak
 
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
@@ -1338,6 +1309,7 @@ data InnerDecType
         (Maybe [Statement VarIdentifier (Typed Position)]) -- ^ the procedure's body
         DecClass -- the type of procedure
     | FunType -- ^ procedure type
+        Bool -- is leakage function
         Position
         PIdentifier
         [(Bool,Constrained Var,IsVariadic)] -- typed function arguments
@@ -1350,6 +1322,13 @@ data InnerDecType
         SIdentifier
         (Maybe [AttributeName VarIdentifier Type]) -- ^ typed arguments
         DecClass -- the type of struct
+    | AxiomType
+        Bool -- is leakage axiom
+        Position
+        [(Bool,Constrained Var,IsVariadic)] -- typed function arguments
+        [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the procedure's annotations
+        DecClass
+        
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 
 isTemplateDecType :: DecType -> Bool
@@ -1450,14 +1429,13 @@ data Type
     | TType -- ^ Type of complex types
     | DType -- ^ Type of declarations
     | BType -- ^ Type of base types
-    | KType -- ^ Type of kinds
+    | KType Bool -- ^ Type of kinds
     | VAType Type Expr -- ^ Type of array types
-    | SType -- ^ Type of domains
-        SVarKind -- ^ optional kind of the domain Left isPrivate
     | StmtType (Set StmtClass) -- ^ Type of a @Statement@
     | ComplexT ComplexType
     | BaseT BaseType
     | SecT SecType
+    | KindT KindType
     | DecT DecType
     | IDecT InnerDecType -- internal only
     | SysT SysType
@@ -1486,7 +1464,8 @@ vArraySize (VAVar _ _ sz) = sz
 
 tyOf :: Type -> Type
 tyOf (IdxT e) = loc e
-tyOf (SecT s) = SType (secTypeKind s)
+tyOf (SecT s) = KindT (secTypeKind s)
+tyOf (KindT k) = KType (isPrivateKind k)
 tyOf (ComplexT _) = TType
 tyOf (BaseT _) = BType
 tyOf (DecT _) = DType
@@ -1531,7 +1510,7 @@ instance PP DecType where
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
+        $+$ ppOpt stmts (braces . pp)
     pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) =
         pp did
         $+$ text "Frees:" <+> pp hfrees
@@ -1541,9 +1520,9 @@ instance PP DecType where
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType _ (Left n) args ret ann stmts _)) =
-        pp did
+        $+$ ppOpt stmts (braces . pp)
+    pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType isLeak _ (Left n) args ret ann stmts _)) =
+        ppLeak isLeak (pp did
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
@@ -1551,9 +1530,9 @@ instance PP DecType where
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType _ (Right n) args ret ann stmts _)) =
-        pp did
+        $+$ ppOpt stmts (braces . pp))
+    pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType isLeak _ (Right n) args ret ann stmts _)) =
+        ppLeak isLeak (pp did
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
@@ -1561,7 +1540,16 @@ instance PP DecType where
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
+        $+$ ppOpt stmts (braces . pp))
+    pp (DecType did isrec vars hdict hfrees dict frees [] body@(AxiomType isLeak _ args ann _)) =
+        ppLeak isLeak (pp did
+        $+$ text "Frees:" <+> pp hfrees
+        $+$ pp hdict
+        $+$ text "Frees:" <+> pp frees
+        $+$ pp dict
+        $+$ text "axiom" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
+        <+> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ann)
     pp (DVar v) = pp v
     pp d = error $ "pp: " ++ show d
 
@@ -1572,19 +1560,22 @@ instance PP InnerDecType where
     pp (ProcType _ (Left n) args ret ann stmts _) =
             pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
+        $+$ ppOpt stmts (braces . pp)
     pp (ProcType _ (Right n) args ret ann stmts _) =
             pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
-    pp (FunType _ (Left n) args ret ann stmts _) =
-            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ ppOpt stmts (braces . pp)
+    pp (FunType isLeak _ (Left n) args ret ann stmts _) =
+            ppLeak isLeak (pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
-    pp (FunType _ (Right n) args ret ann stmts _) =
-            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ ppOpt stmts (braces . pp))
+    pp (FunType isLeak _ (Right n) args ret ann stmts _) =
+            ppLeak isLeak (pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
         $+$ pp ann
-        $+$ braces (pp stmts)
+        $+$ ppOpt stmts (braces . pp))
+    pp (AxiomType isLeak _ args ann _) =
+            ppLeak isLeak (text "axiom" <+> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ann)
         
 instance PP BaseType where
     pp (TyPrim p) = pp p
@@ -1602,13 +1593,13 @@ instance PP SysType where
     pp t@(SysCRef {}) = text (show t)
 
 instance PP Type where
-    pp t@(NoType msg) = text "no type"
+    pp t@(NoType msg) = text "no type" <+> text msg
     pp (VAType t sz) = parens $ pp t <> text "..." <> nonemptyParens (pp sz)
     pp t@TType = text "complex type"
     pp t@BType = text "base type"
     pp t@DType = text "declaration type"
-    pp t@(SType k) = text "domain of kind" <+> pp k
-    pp t@KType = text "kind type"
+    pp t@(KindT k) = pp k
+    pp t@(KType _) = text "kind type"
     pp t@(StmtType {}) = text (show t)
     pp (BaseT b) = pp b
     pp (ComplexT c) = pp c
@@ -1655,9 +1646,10 @@ typeClass msg (CondType t _) = typeClass msg t
 typeClass msg TType = TypeStarC
 typeClass msg (VAType b _) = VArrayStarC (typeClass msg b)
 typeClass msg BType = TypeStarC
-typeClass msg KType = KindStarC
-typeClass msg (SType _) = KindC
+typeClass msg (KType _) = KindStarC
+typeClass msg (KindT _) = KindC
 typeClass msg (SecT _) = DomainC
+--typeClass msg (KindT _) = KindC
 typeClass msg (DecT _) = DecC
 typeClass msg (SysT _) = SysC
 typeClass msg (IdxT e) = ExprC $ typeClass msg $ loc e
@@ -1757,10 +1749,7 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m StmtClass wh
   
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m SecType where
     traverseVars f Public = return Public
-    traverseVars f (Private d k) = do
-        d' <- f d
-        k' <- f k
-        return $ Private d' k'
+    traverseVars f (Private d k) = return $ Private d k
     traverseVars f (SVar v k) = do
         v' <- f v
         k' <- f k
@@ -1816,14 +1805,19 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m InnerDecType
         stmts' <- f stmts
         c' <- f c
         return $ ProcType p n' vs' t' ann' stmts' c'
-    traverseVars f (FunType p n vs t ann stmts c) = varsBlock $ do
+    traverseVars f (FunType isLeak p n vs t ann stmts c) = varsBlock $ do
         n' <- f n
         vs' <- inLHS $ mapM f vs
         t' <- f t
         ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
-        return $ FunType p n' vs' t' ann' stmts' c'
+        return $ FunType isLeak p n' vs' t' ann' stmts' c'
+    traverseVars f (AxiomType isLeak p ps ann c) = varsBlock $ do
+        ps' <- inLHS $ mapM f ps
+        ann' <- mapM f ann
+        c' <- f c
+        return $ AxiomType isLeak p ps' ann' c'
     traverseVars f (StructType p n as cl) = varsBlock $ do
         n' <- f n
         as' <- inLHS $ mapM f as
@@ -1888,16 +1882,20 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m SysType wher
         t' <- f t
         return $ SysCRef t'
 
-instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m SVarKind where
-    traverseVars f AnyKind = return AnyKind
-    traverseVars f (PrivateKind k) = do
+instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m KindType where
+    traverseVars f PublicK = return PublicK
+    traverseVars f (PrivateK k) = return $ PrivateK k
+    traverseVars f (KVar k b) = do
         k' <- f k
-        return $ PrivateKind k'
+        return $ KVar k' b
+    substL (KVar v _) | not (varIdTok v) = return $ Just v
+    substL e = return Nothing
 
-instance PP SVarKind where
-    pp AnyKind = text "*"
-    pp (PrivateKind Nothing) = text "private *"
-    pp (PrivateKind (Just k)) = text "private" <+> pp k
+instance PP KindType where
+    pp PublicK = text "public"
+    pp (PrivateK k) = pp k
+    pp (KVar k True) = text "nonpublic" <+> pp k
+    pp (KVar k False) = pp k
     
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m Type where
     traverseVars f (NoType x) = return (NoType x)
@@ -1908,10 +1906,10 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m Type where
         return $ VAType t' sz'
     traverseVars f DType = return DType
     traverseVars f BType = return BType
-    traverseVars f KType = return KType
-    traverseVars f (SType s) = do
+    traverseVars f (KType b) = return $ KType b
+    traverseVars f (KindT s) = do
         s' <- f s
-        return $ SType s'
+        return $ KindT s'
     traverseVars f (StmtType s) = do
         s' <- mapSetM f s
         return (StmtType s')
@@ -1952,15 +1950,15 @@ data DecClass
     -- A procedure
     = DecClass
         Bool -- is an annotation
-        (Set VarIdentifier) -- read global variables
-        (Set VarIdentifier) -- written global variables
+        (Map VarIdentifier Type) -- read global variables
+        (Map VarIdentifier Type) -- written global variables
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Binary DecClass
 instance Hashable DecClass
 
 instance Monoid DecClass where
-    mempty = DecClass False Set.empty Set.empty
-    mappend (DecClass x r1 w1) (DecClass y r2 w2) = DecClass (x || y) (Set.union r1 r2) (Set.union w1 w2)
+    mempty = DecClass False Map.empty Map.empty
+    mappend (DecClass x r1 w1) (DecClass y r2 w2) = DecClass (x || y) (Map.union r1 r2) (Map.union w1 w2)
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement
@@ -2042,6 +2040,8 @@ noTypeLoc = mapLoc (flip Typed (NoType "noTypeLoc"))
 
 isPublicType :: Type -> Bool
 isPublicType (SecT s) = isPublicSecType s
+isPublicType (BaseT b) = True
+isPublicType (ComplexT (CType Public _ _)) = True
 isPublicType _ = False
 
 isPublicSecType :: SecType -> Bool
@@ -2090,13 +2090,13 @@ ppTpltArg = ppConstrained ppTpltArg'
     where
     ppTpltArg' :: Var -> Doc
     ppTpltArg' (VarName BType v) = text "type" <+> pp v
-    ppTpltArg' (VarName (SType AnyKind) v) = text "domain" <+> pp v
-    ppTpltArg' (VarName (SType (PrivateKind Nothing)) v) = text "domain" <+> pp v
-    ppTpltArg' (VarName (SType (PrivateKind (Just k))) v) = text "domain" <+> pp v <+> char ':' <+> pp k
+    ppTpltArg' (VarName (KType isPriv) k) = ppIsPrivate isPriv (text "kind" <+> pp k)
+    ppTpltArg' (VarName (KindT k) v) = text "domain" <+> pp v <+> char ':' <+> pp k
     ppTpltArg' (VarName t v) | isIntType t = text "dim" <+> pp v
     ppTpltArg' (VarName (VAType b sz) v) | isIntType b = text "dim..." <+> pp v
     ppTpltArg' (VarName (VAType BType sz) v) = text "type..." <+> pp v
-    ppTpltArg' (VarName (VAType (SType _) sz) v) = text "domain..." <+> pp v
+    ppTpltArg' (VarName (VAType (KType isPriv) sz) v) = ppIsPrivate isPriv (text "kind..." <+> pp v)
+    ppTpltArg' (VarName (VAType (KindT k) sz) v) = text "domain..." <+> pp v <+> pp k
     ppTpltArg' v = error $ "ppTpltArg: " ++ ppr v ++ " " ++ ppr (loc v)
     
 ppTSubsts :: TSubsts -> Doc
@@ -2178,6 +2178,7 @@ withoutImplicitClassify m = localOpts (\opts -> opts { implicitCoercions = False
 
 instance MonadIO m => GenVar VarIdentifier (TcM m) where
     genVar v = freshVarId (varIdBase v) (varIdPretty v)
+    mkVar = return . mkVarId
 
 --instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
 --    genVar v = freshVarIO v
@@ -2211,12 +2212,41 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
 
 compoundStmt :: Location loc => loc -> [Statement iden (Typed loc)] -> Statement iden (Typed loc)
 compoundStmt l ss = CompoundStatement (Typed l t) ss
-    where t = StmtType $ mconcat $ map ((\(StmtType c) -> c) . typed . loc) ss
+    where
+    t = unStmts $ map (typed . loc) ss
+    unStmts [] = StmtType Set.empty
+    unStmts (StmtType x':xs) = do
+        case unStmts xs of
+            (StmtType xs') -> StmtType $ Set.union x' xs'
+            t -> NoType "compoundStmt"
+    unStmts (x:xs) = NoType "compoundStmt"
 
-assertStmtAnn e = AnnStatement ast [AssertAnn ast e]
+annStmt :: Location loc => loc -> [StatementAnnotation iden (Typed loc)] -> Statement iden (Typed loc)
+annStmt l ss = AnnStatement (Typed l t) ss
+    where
+    t = unStmts $ map (typed . loc) ss
+    unStmts [] = StmtType Set.empty
+    unStmts (StmtType x':xs) = do
+        case unStmts xs of
+            (StmtType xs') -> StmtType $ Set.union x' xs'
+            t -> NoType "compoundStmt"
+    unStmts (x:xs) = NoType "compoundStmt"
+
+assertStmtAnn isLeak e = AnnStatement ast [AssertAnn ast isLeak e]
     where
     ast = StmtType $ Set.singleton StmtFallthru
 assertStmt e = AssertStatement ast e
     where
     ast = StmtType $ Set.singleton StmtFallthru
     
+unDecT (DecT x) = x
+unDecT t = error $ "unDecT: " ++ ppr t
+unKindT (KindT x) = x
+unKindT t = error $ "unKindT: " ++ ppr t
+unSecT (SecT x) = x
+unSecT t = error $ "unSecT: " ++ ppr t
+
+isDomain k = k == KindC || k == VArrayC KindC
+isKind k = k == KindStarC || k == VArrayC KindStarC
+isType k = k == TypeStarC || k == VArrayC TypeStarC
+isVariable k = k == TypeC || k == VArrayStarC TypeC

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE ViewPatterns, DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-cse #-}
 
 module Main where
@@ -20,6 +20,7 @@ import Language.SecreC.Monad
 import Language.SecreC.Utils
 import Language.SecreC.Location
 import Language.SecreC.Transformation.Simplify
+import Language.SecreC.Transformation.Dafny
 
 import System.Console.CmdArgs
 import System.Environment
@@ -72,10 +73,13 @@ addImportPaths opts = do
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")
 
+dafnyLeakagePrelude :: IO FilePath
+dafnyLeakagePrelude = getDataFileName ("imports" </> "leakage.dfy")
+
 -- back-end code
 
 data OutputType = OutputFile FilePath | OutputStdout | NoOutput
-  deriving (Show,Read,Data,Typeable)
+  deriving (Show,Read,Data,Typeable,Eq)
 
 defaultOutputType = NoOutput
 
@@ -103,8 +107,8 @@ passes secrecIns secrecOuts modules = runTcM $ failTcM (noloc::Position) $ local
         Nothing -> return ()
         Just typedModules -> do
             opts <- askOpts
-            simpleModules <- mapM (simplifyModuleFile opts) typedModules
-            liftIO $ output secrecIns secrecOuts simpleModules
+            outputModules <- liftIO $ output secrecIns secrecOuts typedModules
+            verifyDafny outputModules
 
 typecheck :: [ModuleFile] -> TcM IO (Maybe [TypedModuleFile])
 typecheck modules = do
@@ -119,7 +123,30 @@ typecheck modules = do
             printMsg "parsed OK" 
             return Nothing
 
-output :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO () 
+verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
+verifyDafny files = do
+    opts <- askOpts
+    when (verify opts) $ do
+        let dfyfile = "out.dfy"
+        let dfylfile = "out_leak.dfy"
+        liftIO $ putStrLn $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
+        leakagePrelude <- liftIO dafnyLeakagePrelude
+        es <- getEntryPoints files
+        (dfy,axs) <- toDafny leakagePrelude False es
+        (dfyl,axsl) <- toDafny leakagePrelude True es
+        liftIO $ writeFile dfyfile (show dfy)
+        liftIO $ writeFile dfylfile (show dfyl)
+
+getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]
+getEntryPoints files = do
+    opts <- askOpts
+    case entryPoints opts of
+        (List.null -> True) -> do
+            let files' = map fst $ filter ((/=NoOutput) . snd) files
+            liftM concat $ mapM entryPointsTypedModuleFile files'
+        es -> mapM resolveEntryPoint es
+
+output :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)] 
 output secrecIns secrecOuts modules = do
     moduleso <- resolveOutput secrecIns secrecOuts modules
     forM_ moduleso $ \(mfile,o) -> case mfile of
@@ -134,6 +161,7 @@ output secrecIns secrecOuts modules = do
         Right sci -> do
             hPutStrLn stderr $ "No output for unchanged module " ++ show (sciFile sci)
             return ()
+    return moduleso
 
 secrec :: Options -> IO ()
 secrec opts = do

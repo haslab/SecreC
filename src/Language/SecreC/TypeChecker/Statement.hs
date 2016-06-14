@@ -188,20 +188,20 @@ tcStmt ret (AnnStatement l ann) = do
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation VarIdentifier (Typed loc))
-tcLoopAnn (DecreasesAnn l isFree e) = insideAnnotation $ do
+tcLoopAnn (DecreasesAnn l isFree e) = insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
-    return (DecreasesAnn (Typed l $ typed $ loc e') isFree e')
-tcLoopAnn (InvariantAnn l isFree e) = insideAnnotation $ do
+    return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
+tcLoopAnn (InvariantAnn l isFree isLeak e) = insideAnnotation $ withLeak isLeak $ do
     (e') <- tcAnnGuard e
-    return (InvariantAnn (Typed l $ typed $ loc e') isFree e')
+    return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l e) = insideAnnotation $ do
+tcStmtAnn (AssumeAnn l isLeak e) = insideAnnotation $ withLeak isLeak $ do
     (e') <- tcAnnGuard e
-    return (AssumeAnn (Typed l $ typed $ loc e') e')
-tcStmtAnn (AssertAnn l e) = insideAnnotation $ do
+    return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
+tcStmtAnn (AssertAnn l isLeak e) = insideAnnotation $ withLeak isLeak $ do
     (e') <- tcAnnGuard e
-    return (AssertAnn (Typed l $ typed $ loc e') e')
+    return $ AssertAnn (Typed l $ typed $ loc e') isLeak e'
 
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
@@ -264,7 +264,7 @@ tcConstInit scope ty (ConstInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
     e' <- mapM (withPure True . tcExprTy ty') e
     -- add the array size to the type
-    vn <- addConst scope n
+    vn <- addConst scope False n
     let v' = VarName (Typed vl ty') vn
     -- add variable to the environment
     isAnn <- getAnn

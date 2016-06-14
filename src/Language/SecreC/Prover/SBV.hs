@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes, ConstraintKinds, DeriveDataTypeable, GADTs, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, DoAndIfThenElse, FlexibleContexts #-}
+{-# LANGUAGE ViewPatterns, RankNTypes, ConstraintKinds, DeriveDataTypeable, GADTs, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, DoAndIfThenElse, FlexibleContexts #-}
 
 module Language.SecreC.Prover.SBV where
 
@@ -107,7 +107,7 @@ iLit2SBV (IBool b) = return $ SBool $ fromBool b
 
 iExpr2SBV :: SMTK loc => loc -> IExpr -> TcSBV SBVal
 iExpr2SBV l (ILit lit) = iLit2SBV lit
-iExpr2SBV l (IIdx v) = tryResolveIExprVar (locpos l) v
+iExpr2SBV l (IIdx v@(VarName _ n@(nonTok -> True))) = tryResolveIExprVar (locpos l) v
 iExpr2SBV l (IBinOp o e1 e2) = do
     e1' <- iExpr2SBV l e1
     e2' <- iExpr2SBV l e2
@@ -210,7 +210,7 @@ sbVal v (BaseT (TyPrim (DatatypeFloat32   _))) = liftM SFloat32 $ sFloat v
 sbVal v (BaseT (TyPrim (DatatypeFloat64   _))) = liftM SFloat64 $ sDouble v
 
 tryResolveIExprVar :: Position -> Var -> TcSBV SBVal
-tryResolveIExprVar l v@(VarName t n) = do
+tryResolveIExprVar l v@(VarName t n@(nonTok -> True)) = do
     mb <- lift $ tryResolveEVar l n t
     case mb of
         Just e -> lift (expr2IExpr e) >>= iExpr2SBV l

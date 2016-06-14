@@ -47,7 +47,8 @@ tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 tcAnnGuard e = insideAnnotation $ do
     e' <- tcExpr e
     let (Typed l ty) = loc e'
-    s <- newDomainTyVar "s" AnyKind Nothing
+    k <- newKindVar "k" False Nothing
+    s <- newDomainTyVar "s" k Nothing
     topTcCstrM_ l $ Unifies ty (ComplexT $ CType s bool $ indexExpr 0)
     return e'
 
@@ -103,9 +104,9 @@ tcExpr (QualExpr l e t) = do
     e' <- tcExpr e
     t' <- tcTypeSpec t False
     let ty = typed $ loc t'
-    x <- newTypedVar "qex" ty $ Just $ pp e' -- we add the size
-    topTcCstrM_ l $ Coerces (fmap typed e') x
-    return $ QualExpr (Typed l ty) (fmap (Typed l) $ varExpr x) t'
+    --x <- newTypedVar "qex" ty $ Just $ pp e' -- we add the size
+    topTcCstrM_ l $ Unifies (typed $ loc e') ty
+    return $ QualExpr (Typed l ty) e' t'
 tcExpr (CondExpr l c e1 e2) = do
     (c',cstrsc) <- tcWithCstrs l "condexpr" $ tcGuard c
     e1' <- withDeps LocalScope $ do
@@ -183,12 +184,13 @@ tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (pp qe) $ tcLocal l "tcExpr quan
         t' <- tcTypeSpec t False
         let ty = typed $ loc t'
         let v' = bimap mkVarId (flip Typed ty) v
-        topTcCstrM_ l $ IsPublic (fmap typed $ varExpr v') 
+        topTcCstrM_ l $ IsPublic $ typed $ loc v'
         isAnn <- getAnn
         newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
         return (t',v')
-tcExpr le@(LeakExpr l e) = onlyAnn l (pp le) $ do
+tcExpr le@(LeakExpr l e) = onlyLeak l (pp le) $ onlyAnn l (pp le) $ do
     e' <- tcExpr e
+    topTcCstrM_ l $ IsPrivate $ typed $ loc e'
     return $ LeakExpr (Typed l $ BaseT bool) e'
 tcExpr (VArrayExpr l e sz) = do
     e' <- tcExpr e
@@ -219,7 +221,7 @@ tcExpr (SelectionExpr l pe a) = do
     ctpe' <- typeToBaseType l tpe'
     tres <- newTyVar Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
-    return $ SelectionExpr (Typed l tres) pe' (fmap (notTyped "tcExpr") va)
+    return $ SelectionExpr (Typed l tres) pe' (fmap (flip Typed tres) va)
 tcExpr (ArrayConstructorPExpr l es) = do
     lit' <- tcArrayLiteral l es
     return lit'
@@ -243,7 +245,7 @@ tcExpr me@(ToMultisetExpr l e) = onlyAnn l (pp me) $ do
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
 tcExpr e@(ResultExpr l) = onlyAnn l (pp e) $ do
-    VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\result"
+    VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     return $ ResultExpr tl
 tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <+> pp e
 
@@ -317,7 +319,8 @@ tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    s <- newDomainTyVar "s" AnyKind Nothing
+    k <- newKindVar "k" False Nothing
+    s <- newDomainTyVar "s" k Nothing
     b <- newBaseTyVar Nothing
     let t = ComplexT $ CType s b (indexExpr 1)
     let elit = ArrayConstructorPExpr t es''
@@ -328,7 +331,8 @@ tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> Tc
 tcMultisetLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    s <- newDomainTyVar "s" AnyKind Nothing
+    k <- newKindVar "k" False Nothing
+    s <- newDomainTyVar "s" k Nothing
     b <- newBaseTyVar Nothing
     let t = ComplexT $ CType s (MSet b) (indexExpr 0)
     let elit = MultisetConstructorPExpr t es''
@@ -443,7 +447,8 @@ geExprs l isTop e1 e2 = do
     (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpGe $ NoType "geExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpGe $ DecT dec) x2)
     
-
+negBoolExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc)
+negBoolExprLoc e = BuiltinExpr (Typed noloc $ BaseT bool) "core.eq" [e,fmap (Typed noloc) $ falseExpr]
 
 
 

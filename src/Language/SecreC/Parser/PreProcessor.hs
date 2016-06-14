@@ -102,7 +102,7 @@ instance PP Options where
     pp opts = PP.sepBy PP.space (map pp $ inputs opts)
           <+> text "--outputs=" <> PP.sepBy (PP.char ':') (map pp $ outputs opts)
           <+> text "--paths=" <> PP.sepBy (PP.char ':') (map pp $ paths opts)
-          <+> text "--knowledgeinference=" <> pp (knowledgeInference opts)
+          <+> text "--verify=" <> pp (verify opts)
           <+> text "--simplify=" <> pp (simplify opts)
           <+> text "--typecheck=" <> pp (typeCheck opts)
           <+> text "--debuglexer=" <> pp (debugLexer opts)
@@ -117,6 +117,7 @@ instance PP Options where
           <+> text "--externalsmt=" <> pp (externalSMT opts)
           <+> text "--checkassertions" <> pp (checkAssertions opts)
           <+> text "--forcerecomp" <> pp (forceRecomp opts)
+          <+> text "--entrypoints" <> PP.sepBy (PP.char ':') (map pp $ entryPoints opts)
 
 optionsDecl  :: Options
 optionsDecl  = Opts { 
@@ -126,11 +127,11 @@ optionsDecl  = Opts {
     , implicitBuiltin       = implicitBuiltin defaultOptions &= name "builtin" &= help "Implicitly import the builtin module"
     
     -- Transformation
-    , knowledgeInference    = knowledgeInference defaultOptions &= name "ki" &= help "Infer private data from public data" &= groupname "Transformation"
     , simplify        = simplify defaultOptions &= help "Simplify the SecreC program" &= groupname "Transformation"
     
     -- Verification
     , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
+    , verify    = verify defaultOptions &= help "Verify annotations" &= groupname "Verification"
 
     -- Debugging
     , debugLexer            = debugLexer defaultOptions &= help "Print lexer tokens to stderr" &= groupname "Debugging"
@@ -146,6 +147,9 @@ optionsDecl  = Opts {
     , failTypechecker = failTypechecker defaultOptions &= name "fail-tc" &= help "Typechecker should fail" &= groupname "Verification:Typechecker"
     , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
     , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"
+    
+    -- Analysis
+    , entryPoints = entryPoints defaultOptions &= help "starting procedures and structs for analysis" &= groupname "Verification:Analysis"
     }
     &= help "SecreC analyser"
 
@@ -156,7 +160,9 @@ processOpts :: Options -> Options
 processOpts opts = opts
     { outputs = parsePaths $ outputs opts
     , paths = parsePaths $ paths opts
-    , typeCheck = typeCheck opts || knowledgeInference opts
+    , entryPoints = parsePaths $ entryPoints opts
+    , typeCheck = typeCheck opts || verify opts
+    , checkAssertions = if verify opts then False else checkAssertions opts
     }
 
 parsePaths :: [FilePath] -> [FilePath]

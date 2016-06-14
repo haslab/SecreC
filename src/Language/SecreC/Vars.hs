@@ -45,6 +45,7 @@ appendSubstsProxy f g = SubstsProxy (\proxy i -> do
 
 class Monad m => GenVar v m where
     genVar :: v -> m v
+    mkVar :: String -> m v
 
 class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
     
@@ -300,7 +301,7 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             return $ ProcedureDeclaration l' t' n' args' anns' s'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (FunctionDeclaration iden loc) where
-    traverseVars f (OperatorFunDeclaration l t o args anns e) = do
+    traverseVars f (OperatorFunDeclaration isLeak l t o args anns e) = do
         l' <- f l
         t' <- f t
         o' <- f o
@@ -308,8 +309,8 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             args' <- mapM f args
             anns' <- mapM f anns
             e' <- f e
-            return $ OperatorFunDeclaration l' t' o' args' anns' e'
-    traverseVars f (FunDeclaration l t n args anns e) = do
+            return $ OperatorFunDeclaration isLeak l' t' o' args' anns' e'
+    traverseVars f (FunDeclaration isLeak l t n args anns e) = do
         l' <- f l
         t' <- f t
         n' <- inLHS $ f n
@@ -317,7 +318,16 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             args' <- mapM f args
             anns' <- mapM f anns
             e' <- f e
-            return $ FunDeclaration l' t' n' args' anns' e'
+            return $ FunDeclaration isLeak l' t' n' args' anns' e'
+
+instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (AxiomDeclaration iden loc) where
+    traverseVars f (AxiomDeclaration isLeak l qs args anns) = do
+        l' <- f l
+        qs' <- inLHS $ mapM f qs
+        varsBlock $ do
+            args' <- mapM f args
+            anns' <- mapM f anns
+            return $ AxiomDeclaration isLeak l' qs' args' anns'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l b t v) = do
@@ -641,6 +651,9 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
             return $ QuantifiedExpr l' q' vs' e'
     
     substL (RVariablePExpr _ v) = substL $ varNameId v
+    substL (ResultExpr _) = do
+        v::iden <- mkVar "\\result"
+        substL v
     substL e = return Nothing
 
 instance (Location loc,Vars iden m loc) => Vars iden m (Quantifier loc) where
@@ -894,6 +907,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         d' <- inLHS $ f d
         k' <- mapM f k
         return $ DomainQuantifier l' b' d' k'
+    traverseVars f (KindQuantifier l b0 b k) = do
+        l' <- f l
+        b0' <- f b0
+        b' <- f b
+        k' <- inLHS $ f k
+        return $ KindQuantifier l' b0' b' k'
     traverseVars f (DimensionQuantifier l b d e) = do
         l' <- f l
         b' <- f b
@@ -954,30 +973,30 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         e' <- f e
         return $ DecreasesAnn l' isFree e'
-    traverseVars f (InvariantAnn l isFree e) = do
+    traverseVars f (InvariantAnn l isFree isLeak e) = do
         l' <- f l
         e' <- f e
-        return $ InvariantAnn l' isFree e'
+        return $ InvariantAnn l' isFree isLeak e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (StatementAnnotation iden loc) where
-    traverseVars f (AssertAnn l e) = do
+    traverseVars f (AssertAnn l isLeak e) = do
         l' <- f l
         e' <- f e
-        return $ AssertAnn l' e'
-    traverseVars f (AssumeAnn l e) = do
+        return $ AssertAnn l' isLeak e'
+    traverseVars f (AssumeAnn l isLeak e) = do
         l' <- f l
         e' <- f e
-        return $ AssumeAnn l' e'
+        return $ AssumeAnn l' isLeak e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ProcedureAnnotation iden loc) where
-    traverseVars f (RequiresAnn l isFree e) = do
+    traverseVars f (RequiresAnn l isFree isLeak e) = do
         l' <- f l
         e' <- f e
-        return $ RequiresAnn l' isFree e'
-    traverseVars f (EnsuresAnn l isFree e) = do
+        return $ RequiresAnn l' isFree isLeak e'
+    traverseVars f (EnsuresAnn l isFree isLeak e) = do
         l' <- f l
         e' <- f e
-        return $ EnsuresAnn l' isFree e'
+        return $ EnsuresAnn l' isFree isLeak e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [StatementAnnotation iden loc] where
     traverseVars f xs = mapM f xs
@@ -1002,6 +1021,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         p' <- f p
         return $ GlobalTemplateAnn l' p'
+    traverseVars f (GlobalAxiomAnn l p) = do
+        l' <- f l
+        p' <- f p
+        return $ GlobalAxiomAnn l' p'
 
 
 

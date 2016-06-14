@@ -67,7 +67,7 @@ evaluate l doc m = do
 
 evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
 evalIExpr l (ILit lit) = return lit
-evalIExpr l (IIdx v@(VarName t n)) = do
+evalIExpr l (IIdx v@(VarName t n@(nonTok -> True))) = do
     mb <- tryResolveEVar l n t
     case mb of
         Nothing -> tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) $ text "variable binding for" <+> pp v <+> text "not found"

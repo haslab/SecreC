@@ -58,7 +58,11 @@ castTypeToType (CastTy (TypeName t n)) = t
 
 typeToSecType :: (ProverK loc m) => loc -> Type -> TcM m SecType
 typeToSecType l (SecT s) = return s
-typeToSecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ SType AnyKind)
+typeToSecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ KindT $ KVar (mkVarId "*") False)
+
+typeToKindType :: (ProverK loc m) => loc -> Type -> TcM m KindType
+typeToKindType l (KindT s) = return s
+typeToKindType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ KType False)
 
 typeToDecType :: (ProverK loc m) => loc -> Type -> TcM m DecType
 typeToDecType l (DecT s) = return s
@@ -84,7 +88,7 @@ typeToBaseType l t@(ComplexT ct) = case ct of
         tcCstrM_ l $ Equals (SecT s) (SecT Public)
         tcCstrM_ l $ Equals (IdxT d) (IdxT $ indexExpr 0)
         return b
-    CVar v -> do
+    CVar v@(nonTok -> True) -> do
         mb <- tryResolveCVar l v
         ct' <- case mb of
             Just ct' -> return ct'
@@ -187,6 +191,11 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
 tcDatatypeSpec (VariableSpecifier l tn) = do
     tn' <- tcTypeName tn
     return $ VariableSpecifier (Typed l $ typed $ loc tn') tn'
+tcDatatypeSpec (MultisetSpecifier l b) = do
+    b' <- tcDatatypeSpec b
+    let t = typed $ loc b'
+    tb <- typeToBaseType l t
+    return $ MultisetSpecifier (Typed l $ BaseT $ MSet tb) b'
 
 tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM m (PrimitiveDatatype (Typed loc))
 tcPrimitiveDatatype p = do
@@ -248,7 +257,7 @@ projectMatrixType l (ComplexT ct) rngs = liftM ComplexT $ projectMatrixCType l c
     projectMatrixCType l ct@(CType sec t dim) rngs = do
         (dim'') <- projectSizes l ct 1 dim rngs  
         return $ CType sec t dim''
-    projectMatrixCType l (CVar v) rngs = do
+    projectMatrixCType l (CVar v@(nonTok -> True)) rngs = do
         t <- resolveCVar l v
         projectMatrixCType l t rngs
 projectMatrixType l (VAType t sz) [rng] = projectSizeTyArray l t sz rng
@@ -302,13 +311,13 @@ structBody l d@(DecType _ Nothing _ _ _ _ _ _ b) = return b
 structBody l d@(DecType j (Just i) _ _ _ _ _ _ (StructType sl sid _ cl)) = do
     (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) sid j
     return s        
-structBody l (DVar v) = resolveDVar l v >>= structBody l
+structBody l (DVar v@(nonTok -> True)) = resolveDVar l v >>= structBody l
 --structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
 projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m ComplexType
 projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
-projectStructField l t@(BVar v) a = do
+projectStructField l t@(BVar v@(nonTok -> True)) a = do
     b <- resolveBVar l v
     projectStructField l b a
 projectStructField l (TApp _ _ d) a = do
@@ -377,31 +386,62 @@ refineTypeSizes l (VAType b sz) szs = do
     b' <- refineTypeSizes l b szs
     return $ VAType b' sz
 refineTypeSizes l ct _ = genTcError (locpos l) $ text "Failed to add type size" <+> pp ct
-    
+
+variadicBase :: Type -> Type
+variadicBase (VAType b sz) = b
+variadicBase t = error $ "variadicBase: " ++ ppr t
+
 typeBase :: (ProverK loc m) => loc -> Type -> TcM m Type
 typeBase l (BaseT b) = return $ BaseT b
 typeBase l (ComplexT (CType Public b _)) = return $ BaseT b
 typeBase l (ComplexT (CType s b _)) = return $ ComplexT $ CType s b (indexExpr 0)
-typeBase l (ComplexT (CVar v)) = do
+typeBase l (ComplexT (CVar v@(nonTok -> True))) = do
     ct <- resolveCVar l v
     typeBase l (ComplexT ct)
 typeBase l (VAType b sz) = return b
 typeBase l t = genTcError (locpos l) $ text "No static base type for type" <+> quotes (pp t)
     
+isPublic :: ProverK loc m => loc -> Type -> TcM m ()
+isPublic l (BaseT b) = return ()
+isPublic l (ComplexT (CVar v@(nonTok -> True))) = do
+    ct <- resolveCVar l v
+    isPublic l (ComplexT ct)
+isPublic l (ComplexT (CType s _ _)) = isPublicSec l s
+isPublic l (SecT s) = isPublicSec l s
+isPublic l t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
+    
+isPublicSec :: ProverK loc m => loc -> SecType -> TcM m ()
+isPublicSec l s = unifiesSec l s Public
+    
+isPrivate :: ProverK loc m => loc -> Type -> TcM m ()
+isPrivate l (ComplexT (CVar v@(nonTok -> True))) = do
+    ct <- resolveCVar l v
+    isPrivate l (ComplexT ct)
+isPrivate l (ComplexT (CType s _ _)) = isPrivateSec l s
+isPrivate l (SecT s) = isPrivateSec l s
+isPrivate l t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
+    
+isPrivateSec :: ProverK loc m => loc -> SecType -> TcM m ()
+isPrivateSec l s = do
+    k' <- newKindVar "pk" True Nothing
+    s' <- newDomainTyVar "ps" k' Nothing
+    unifiesSec l s s'
+
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeSize l (BaseT _) = return $ indexExpr 1
 --typeSize l (ComplexT (CType _ _ _ (Just []))) = return $ indexExpr 1
 --typeSize l (ComplexT (CType _ _ _ (Just szs))) | length szs > 0 = do
 --    is <- concatMapM (expandVariadicExpr l) szs
 --    foldr0M (indexExpr 1) (multiplyIndexExprs l) is
---typeSize l (ComplexT (CVar v)) = do
+--typeSize l (ComplexT (CVar v@(nonTok -> True))) = do
 --    t <- resolveCVar l v
 --    typeSize l (ComplexT t)
 typeSize l (VAType t sz) = return sz
 typeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
 
 toMultisetType :: ProverK loc m => loc -> Type -> TcM m ComplexType
-toMultisetType l (ComplexT (CVar v)) = do
+toMultisetType l (ComplexT (CVar v@(nonTok -> False))) = return $ CVar v
+toMultisetType l (ComplexT (CVar v@(nonTok -> True))) = do
     mb <- tryResolveCVar l v
     ct' <- case mb of
         Just ct' -> return ct'

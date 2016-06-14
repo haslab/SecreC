@@ -109,6 +109,9 @@ data TypecheckerErr
     | InvalidDomainVariableName -- ^ a domain already exists with the declared domain variable name
         Doc -- ^ variable name
         Position -- ^ domain declaration
+    | InvalidKindVariableName -- ^ a kind already exists with the declared kind variable name
+        Doc -- ^ variable name
+        Position -- ^ domain declaration
     | InvalidTypeVariableName -- ^ a type already exists with the declared type variable name
         Doc -- ^ variable name
         [Position] -- ^ type declarations
@@ -271,6 +274,7 @@ instance PP TypecheckerErr where
     pp e@(NotDefinedDomain {}) = text (show e)
     pp e@(NotDefinedKind {}) = text (show e)
     pp e@(InvalidDomainVariableName {}) = text (show e)
+    pp e@(InvalidKindVariableName {}) = text (show e)
     pp e@(InvalidTypeVariableName {}) = text (show e)
     pp e@(MultipleDefinedKind {}) = text (show e)
     pp e@(NotDefinedType n) = text "Could not find definition for type" <+> quotes n

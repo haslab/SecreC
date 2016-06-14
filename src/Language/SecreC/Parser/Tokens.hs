@@ -121,7 +121,7 @@ data Token
     | REQUIRES
     | ENSURES
     | ASSUME
-    | LEAKS
+    | LEAKAGE
     | DECREASES
     | INVARIANT
     | TokenEOF
@@ -129,19 +129,21 @@ data Token
     | RESULT
     | FORALL
     | EXISTS
+    | NONPUBLIC
     | IMPLIES_OP
     | EQUIV_OP
-    | LEAK
     | MULTISET
     | FREE
     | ANNOTATION [String]
     | FUNCTION
+    | AXIOM
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP Token where
     pp (STR_FRAGMENT s) = text s
     pp (CONST) = text "const"
     pp (STR_IDENTIFIER s) = text s
+    pp NONPUBLIC = text "nonpublic"
     pp (CHAR c) = char c
     pp ASSERT = text "assert"
     pp BOOL = text "bool"
@@ -226,7 +228,7 @@ instance PP Token where
     pp VARRAY = text "varray"
     pp REQUIRES = text "requires"
     pp ENSURES = text "ensures"
-    pp LEAKS = text "leaks"
+    pp LEAKAGE = text "leakage"
     pp DECREASES = text "decreases"
     pp INVARIANT = text "invariant"
     pp ASSUME = text "assume"
@@ -235,10 +237,10 @@ instance PP Token where
     pp RESULT = text "\\result"
     pp FORALL = text "forall"
     pp EXISTS = text "exists"
-    pp LEAK = text "leak"
     pp MULTISET = text "multiset"
     pp FREE = text "free"
     pp FUNCTION = text "function"
+    pp AXIOM = text "axiom"
     pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]

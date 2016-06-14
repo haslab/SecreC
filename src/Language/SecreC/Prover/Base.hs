@@ -8,6 +8,7 @@ import Language.SecreC.Pretty
 import Language.SecreC.Utils
 import Language.SecreC.Location
 import Language.SecreC.Vars
+import Language.SecreC.Error
 
 import Data.Hashable
 import Data.Typeable
@@ -20,6 +21,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Base
 import Control.Monad.Trans.Control
 import Control.Monad
+import Control.Monad.Except
 
 import Text.PrettyPrint
 

@@ -21,6 +21,8 @@ instance Binary Doc where
 class PP a where
     pp :: a -> Doc
 
+semicolon = char ';'
+
 nonemptyParens :: Doc -> Doc
 nonemptyParens x = if isEmpty x then empty else parens x
 
@@ -38,6 +40,8 @@ abrackets p = char '<' <> p <> char '>'
 
 sepBy :: Foldable t => Doc -> t Doc -> Doc
 sepBy sep ps = hsep (punctuate sep $ toList ps)
+
+vbraces x = char '{' $+$ nest 1 x $+$ char '}'
 
 ppOrdinal :: (Show a,Integral a) => a -> Doc
 ppOrdinal = text . show . showOrdinal

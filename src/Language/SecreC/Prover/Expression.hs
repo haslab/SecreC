@@ -58,7 +58,7 @@ expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
     substs <- lift $ getTSubsts l
     subste <- lift $ substFromTSubsts "simplify" l substs False Map.empty e
-    (ss',mbe') <- lift $ simplifyExpression subste
+    (ss',mbe') <- lift $ simplifyExpression False subste
     stmts2Prover ss'
     case mbe' of
         Nothing -> lift $ genTcError (locpos l) $ text "failed to convert void expression" <+> pp e <+> text "to prover expression"

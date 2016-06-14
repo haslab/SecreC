@@ -21,6 +21,7 @@ typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType
 typeToDecType :: (ProverK loc m) => loc -> Type -> TcM m DecType
 typeToVArrayType :: (ProverK loc m) => loc -> Type -> Expression VarIdentifier Type -> TcM m VArrayType
+typeToKindType :: (ProverK loc m) => loc -> Type -> TcM m KindType
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 
@@ -51,3 +52,5 @@ tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) ->
 typeToPrimType :: (ProverK loc m) => loc -> Type -> TcM m Prim
 
 typeBase :: (ProverK loc m) => loc -> Type -> TcM m Type
+
+variadicBase :: Type -> Type

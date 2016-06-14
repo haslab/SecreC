@@ -118,12 +118,13 @@ tokens :-
 <0>                     xor_uint8             { lexerTokenInfo XOR_UINT8 }
 <0>                     requires              { lexerTokenInfo REQUIRES }
 <0>                     ensures               { lexerAnnTokenInfo ENSURES }
-<0>                     leaks                 { lexerAnnTokenInfo LEAKS }
-<0>                     leak                  { lexerAnnTokenInfo LEAK }
 <0>                     multiset              { lexerAnnTokenInfo MULTISET }
 <0>                     free                  { lexerAnnTokenInfo FREE }
 <0>                     assume                { lexerAnnTokenInfo ASSUME }
+<0>                     leakage               { lexerAnnTokenInfo LEAKAGE }
+<0>                     axiom                 { lexerAnnTokenInfo AXIOM }
 <0>                     function              { lexerAnnTokenInfo FUNCTION }
+<0>                     nonpublic             { lexerAnnTokenInfo NONPUBLIC }
 
 -- built-in functions:
 <0>                     "size..."             { lexerTokenInfo VSIZE }

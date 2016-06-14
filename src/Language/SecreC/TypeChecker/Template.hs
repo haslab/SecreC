@@ -5,6 +5,7 @@ module Language.SecreC.TypeChecker.Template where
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.Location
 import Language.SecreC.Syntax
+import Language.SecreC.Monad
 import Language.SecreC.Vars
 import Language.SecreC.Error
 import Language.SecreC.Utils as Utils
@@ -121,7 +122,7 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
         Right _ -> do
             let tycl@(DecClass isAnn rs ws) = tyDecClass $ DecT decrec
             isPure <- getPure
-            when isPure $ unless (Set.null rs && Set.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
+            when isPure $ unless (Map.null rs && Map.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
             addDecClass tycl
         Left _ -> return ()
     return decrec
@@ -137,7 +138,7 @@ removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees [] d@(Struct
     return $ DecType i isRec [] hdict Set.empty bdict Set.empty specs' d
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(StructType {})) = do
     return $ DecType i isRec [] hdict Set.empty bdict Set.empty specs d
-removeTemplate l (DVar v) = resolveDVar l v >>= removeTemplate l
+removeTemplate l (DVar v@(nonTok -> True)) = resolveDVar l v >>= removeTemplate l
 
 ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> TcM m Doc
 ppTpltAppM l pid args es ret = do
@@ -332,7 +333,8 @@ coerceProcedureArgs doCoerce l lhs rhs = do
             (matchVariadicPArgs doCoerce l vs exs)
         return cs
     -- check the procedure argument conditions
-    forM_ cs $ \c -> withDependencies ks $ checkCstrM_ l ks $ CheckAssertion c
+    opts <- askOpts
+    forM_ cs $ \c -> when (checkAssertions opts) $ withDependencies ks $ checkCstrM_ l ks $ CheckAssertion c
 
 instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,TDict,Set VarIdentifier))
 instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withFrees $ do
@@ -348,9 +350,9 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
                 addHeadTDict l hdict
                 addHeadTDict l bdict
             let matchName = unifiesTIdentifier l (templateIdentifier $ entryType e') n
-            let proveHead = do
+            let proveHead = withoutEntry e $ do
                 -- we remove the current entry while typechecking the head constraints
-                (_,ks) <- tcWithCstrs l "instantiate" $ withoutEntry e $ do   
+                (_,ks) <- tcWithCstrs l "instantiate" $ do   
                     tcAddDeps l "tplt type args" $ do
                         -- unify the explicit invocation template arguments unify with the base template
                         when (isJust targs) $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
@@ -406,7 +408,7 @@ templateIdentifier (DecT t) = templateIdentifier' t
     templateIdentifier' (DecType _ _ _ _ _ _ _ _ t) = templateIdentifier'' t
         where
         templateIdentifier'' (ProcType _ n _ _ _ _ _) = Right n
-        templateIdentifier'' (FunType _ n _ _ _ _ _) = Right n
+        templateIdentifier'' (FunType isLeak _ n _ _ _ _ _) = Right n
         templateIdentifier'' (StructType _ n _ _) = Left n
    
 -- has type or procedure constrained arguments     
@@ -427,7 +429,7 @@ templateArgs l (Left name) t = case t of
 templateArgs l (Right name) t = case t of
     DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (FunType _ n vars ret ann stmts _)) -> do -- include the return type
+    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (FunType isLeak _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
     otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
 
@@ -502,14 +504,14 @@ localTemplateInnerType (ss0::SubstsProxy VarIdentifier (TcM m)) ssBounds (l::loc
         stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
         c' <- substProxy "localTplt" ss False ssBounds1 c
         return (ProcType p pid' args' ret' ann' stmts' c',ss,ssBounds1)
-    FunType p pid args ret ann stmts c -> do
+    FunType isLeak p pid args ret ann stmts c -> do
         (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
         pid' <- substProxy "localTplt" ss False ssBounds1 pid
         ret' <- substProxy "localTplt" ss False ssBounds1 ret
         ann' <- substProxy "localTplt" ss False ssBounds1 ann
         stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
         c' <- substProxy "localTplt" ss False ssBounds1 c
-        return (FunType p pid' args' ret' ann' stmts' c',ss,ssBounds1)
+        return (FunType isLeak p pid' args' ret' ann' stmts' c',ss,ssBounds1)
     StructType p sid atts c -> do
         sid' <- substProxy "localTplt" ss0 False ssBounds sid
         atts' <- substProxy "localTplt" ss0 False ssBounds atts
@@ -524,7 +526,7 @@ freeVar v = do
     return (v',(v,v'))
     
 uniqueTyVar :: ProverK loc m => loc -> SubstsProxy VarIdentifier (TcM m) -> Map VarIdentifier VarIdentifier -> (Constrained Var,IsVariadic) -> TcM m ((Constrained Var,IsVariadic),SubstsProxy VarIdentifier (TcM m), Map VarIdentifier VarIdentifier)
-uniqueTyVar (l::loc) (ss::SubstsProxy VarIdentifier (TcM m)) ssBounds (Constrained i@(VarName t v) c,isVariadic) = do
+uniqueTyVar (l::loc) (ss::SubstsProxy VarIdentifier (TcM m)) ssBounds (Constrained i@(VarName t v@(nonTok -> True)) c,isVariadic) = do
     v' <- freshVarId (varIdBase v) Nothing
     t' <- substProxy "localTplt" ss False ssBounds t
     let i' = VarName t' v'
@@ -542,17 +544,14 @@ uniqueTyVars l ss ssBounds (x:xs) = do
     (xs',ss'',ssBounds'') <- uniqueTyVars l ss' ssBounds' xs
     return (x' : xs',ss'',ssBounds'')
     
-uniqueProcVar :: ProverK loc m => loc -> SubstsProxy VarIdentifier (TcM m) -> Map VarIdentifier VarIdentifier -> (Bool,Constrained Var,IsVariadic) -> TcM m ((Bool,Constrained Var,IsVariadic),SubstsProxy VarIdentifier (TcM m), Map VarIdentifier VarIdentifier)
--- preserve non-const variables
+uniqueProcVar :: ProverK loc m => loc -> SubstsProxy VarIdentifier (TcM m) -> Map VarIdentifier VarIdentifier -> (Bool,Constrained Var,IsVariadic) -> TcM m ((Bool,Constrained Var,IsVariadic),SubstsProxy VarIdentifier (TcM m),Map VarIdentifier VarIdentifier)
 -- refresh const variables
-uniqueProcVar (l::loc) (ss::SubstsProxy VarIdentifier (TcM m)) ssBounds (isConst,Constrained i@(VarName t v) c,isVariadic) = do
-    v' <- if isConst
-        then freshVarId (varIdBase v) Nothing
-        else return v
+uniqueProcVar (l::loc) (ss::SubstsProxy VarIdentifier (TcM m)) ssBounds (isConst,Constrained i@(VarName t v@(nonTok -> True)) c,isVariadic) = do
+    v' <- freshVarId (varIdBase v) Nothing
     t' <- substProxy "localTplt" ss False ssBounds t
     let i' = VarName t' v'
     let ss' :: SubstsProxy VarIdentifier (TcM m)
-        ss' = if isConst then substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i')) `appendSubstsProxy` ss else ss
+        ss' = substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i')) `appendSubstsProxy` ss
     let ssBounds' :: Map VarIdentifier VarIdentifier
         ssBounds' = if isConst then Map.insert v v' ssBounds else ssBounds
     c' <- substProxy "localTplt" ss' False ssBounds' c

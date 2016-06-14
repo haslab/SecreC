@@ -26,6 +26,10 @@ tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 
 tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
+repeatExpr :: ProverK loc m => loc -> Bool -> Expr -> ComplexType -> TcM m Expr
+
+eqExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+
 tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
 tcPureExpr :: ProverK loc m => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
@@ -51,3 +55,5 @@ subtractIndexExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier
 multiplyIndexExprs :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Expression VarIdentifier Type)
 
 tcIndexCond :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+
+negBoolExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc)
