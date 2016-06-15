@@ -47,7 +47,7 @@ private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
     private int[[1]] x;
     while (i < size(mS))
     //@ invariant 0 <= i && i <= size(aS);
-    //x //@ invariant multiset(x) <= multiset(aS[:i]);
+    //@ invariant multiset(x) <= multiset(aS[:i]);
     {
         if (declassify(mS[i])) { x = cat(x,{aS[i]}); }
         i = i + 1;
