@@ -28,7 +28,7 @@ import Data.Set (Set(..))
 import Data.Map (Map(..))
 import Data.Foldable
 import Data.Graph.Inductive.Graph as Graph
-import Data.Generics
+import Data.Generics hiding (GT)
 
 import Control.Monad
 import Control.Monad.Except
@@ -213,10 +213,16 @@ compareTemplateDecls def l n (e1,_,_,_) (e2,_,_,_) = liftM fst $ tcProveTop l "c
             -- for structs, compare the specialization types
             else compareTypeArgs l (concat targs1) (concat targs2)
         ord3 <- comparesList l False (maybeToList ret1) (maybeToList ret2)
-        appendComparison l ord2 ord3
+        ord4 <- comparesDecIds (entryType e1) (entryType e2)
+        appendComparisons l [ord2,ord3,ord4]
     when (compOrdering ord == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
     --liftIO $ putStrLn $ "finished comparing " ++ ppr e1 ++ "\n" ++ ppr e2
     return $ compOrdering ord
+
+-- favor specializations over the base template
+comparesDecIds d1@(DecT (DecType j1 (Just i1) _ _ _ _ _ _ _)) d2@(DecT (DecType j2 Nothing _ _ _ _ _ _ _)) | i1 == j2 = return $ Comparison d1 d2 LT
+comparesDecIds d1@(DecT (DecType j1 Nothing _ _ _ _ _ _ _)) d2@(DecT (DecType j2 (Just i2) _ _ _ _ _ _ _)) | j1 == i2 = return $ Comparison d1 d2 GT
+comparesDecIds d1 d2 = return $ Comparison d1 d2 EQ -- do nothing
      
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 

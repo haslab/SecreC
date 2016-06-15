@@ -306,63 +306,71 @@ modifyModuleEnvM f = do
     y' <- f y
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
 
-getModuleField :: (Monad m) => (ModuleTcEnv -> x) -> TcM m x
-getModuleField f = do
+getModuleField :: (Monad m) => Bool -> (ModuleTcEnv -> x) -> TcM m x
+getModuleField withBody f = do
     (x,y) <- State.gets moduleEnv
-    z <- getRecs
+    z <- getRecs withBody
     let xyz = mappend x (mappend y z)
     return $ f xyz
 
-getRecs :: Monad m => TcM m ModuleTcEnv
-getRecs = State.gets (mconcat . map tRec . tDict)
+getRecs :: Monad m => Bool -> TcM m ModuleTcEnv
+getRecs withBody = do
+    lineage <- getLineage
+    State.gets (mconcat . map tRec . tDict)
+
+filterRecModuleTcEnv :: Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
+filterRecModuleTcEnv lineage withBody env = env
+    { operators = filterRecBody lineage withBody (operators env)
+    , structs = filterRecBody lineage withBody (structs env)
+    , procedures = filterRecBody lineage withBody (procedures env)
+    }
 
 filterRecBody :: Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
 filterRecBody lineage True xs = xs
-filterRecBody lineage False xs = Map.map (Map.map aux) xs
+filterRecBody lineage False xs = Map.map (Map.map remEntryBody . Map.filter isLineage) xs
     where
-    aux (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec lineage d
+    remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec d
+    isLineage (EntryEnv l (DecT d)) = case decTypeId d of
+        Nothing -> False
+        Just x -> List.elem x lineage
 
-recInLineage Nothing lineage body = body
-recInLineage (Just rec) lineage body = trace ("lineage: " ++ show rec ++ " " ++ show lineage) (if List.elem rec (map snd lineage) then Nothing else body)
-
-remDecRec :: Lineage -> DecType -> DecType
-remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns (recInLineage isRec lineage body) cl)
-remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns (recInLineage isRec lineage body) cl)
-remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns (recInLineage isRec lineage body) cl)
-remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl (Right op) pargs pret panns (recInLineage isRec lineage body) cl)
-remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid (recInLineage isRec lineage atts) cl)
-remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
+remDecRec :: DecType -> DecType
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns Nothing cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns Nothing cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns Nothing cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl (Right op) pargs pret panns Nothing cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid Nothing cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (AxiomType isLeak p qs pargs cl)
 
-getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
-getModuleEnv = getModuleField id
+
 getStructs :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getStructs withBody isAnn = do
     lineage <- getLineage
-    liftM (filterAnns isAnn . filterRecBody lineage withBody) $ getModuleField structs
+    liftM (filterAnns isAnn) $ getModuleField withBody structs
 getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
-getKinds = getModuleField kinds
+getKinds = getModuleField True kinds
 getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
-getGlobalVars = getModuleField globalVars
+getGlobalVars = getModuleField True globalVars
 getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
-getGlobalConsts = getModuleField globalConsts
+getGlobalConsts = getModuleField True globalConsts
 getDomains :: Monad m => TcM m (Map VarIdentifier EntryEnv)
-getDomains = getModuleField domains
+getDomains = getModuleField True domains
 getOperators :: Monad m => Bool -> Bool -> TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv))
 getOperators withBody isAnn = do
     lineage <- getLineage
-    liftM (filterAnns isAnn . filterRecBody lineage withBody) $ getModuleField operators
+    liftM (filterAnns isAnn) $ getModuleField withBody operators
 getProcedures :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getProcedures withBody isAnn = do
     lineage <- getLineage
-    liftM (filterAnns isAnn . filterRecBody lineage withBody) $ getModuleField procedures
-getAxioms :: Monad m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
-getAxioms withBody isAnn = liftM (filterAnns1 isAnn) $ getModuleField axioms
+    liftM (filterAnns isAnn) $ getModuleField withBody procedures
+getAxioms :: Monad m => Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms isAnn = liftM (filterAnns1 isAnn) $ getModuleField True axioms
 
 filterAnns :: Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
 filterAnns isAnn = Map.map (filterAnns1 isAnn)

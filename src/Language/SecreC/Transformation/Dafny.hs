@@ -90,7 +90,7 @@ toDafny leakPrelude leakMode entries = flip State.evalStateT (DafnySt Map.empty 
 
 loadAxioms :: DafnyK m => DafnyM m ()
 loadAxioms = do
-    env <- lift $ getModuleField id
+    env <- lift $ getModuleField True id
     let isLeakE = isLeakDec . unDecT . entryType
     let as = map (\(mid,e) -> AId mid $ isLeakE e) $ Map.toList $ axioms env
     mapM_ loadDafnyId as
@@ -131,7 +131,7 @@ printDafnyModule mn xs = do
 resolveEntryPoint :: ProverK Position m => Identifier -> TcM m DafnyId
 resolveEntryPoint n = do
     let n' = mkVarId n
-    env <- getModuleField id
+    env <- getModuleField True id
     case Map.lookup n' (procedures env) of
         Just (Map.toList -> [(k,e)]) -> return $ PId n' k (isLeakDec $ unDecT $ entryType e)
         Nothing -> case Map.lookup n' (structs env) of
@@ -174,26 +174,26 @@ loadDafnyId n = withModule mn $ do
 
 lookupDafnyId :: DafnyK m => DafnyId -> DafnyM m EntryEnv
 lookupDafnyId did@(SId sn tid@(m,_) isLeak) = do
-    ss <- lift $ getModuleField structs
+    ss <- lift $ getModuleField True structs
     case Map.lookup sn ss of
         Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
             Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
 lookupDafnyId did@(AId tid@(m,_) isLeak) = do
-    as <- lift $ getModuleField axioms
+    as <- lift $ getModuleField True axioms
     case Map.lookup tid as of
         Just e -> return e
         Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
 lookupDafnyId did@(PId pn tid@(m,_) isLeak) = do
-    ss <- lift $ getModuleField procedures
+    ss <- lift $ getModuleField True procedures
     case Map.lookup pn ss of
         Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
             Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
 lookupDafnyId did@(OId on tid@(m,_) isLeak) = do
-    ss <- lift $ getModuleField operators
+    ss <- lift $ getModuleField True operators
     case Map.lookup on ss of
         Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
         Just es -> case Map.lookup tid es of
