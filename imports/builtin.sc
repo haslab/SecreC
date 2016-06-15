@@ -240,49 +240,45 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 //@ }
 
 //@ template<domain D>
-//@ function D bool operator + (D int8 x,D int8 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D int8 operator + (D int8 x,D int8 y) {
+//@     __builtin("core.add",x,y) :: D int8
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D int16 x,D int16 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D int16 operator + (D int16 x,D int16 y) {
+//@     __builtin("core.add",x,y) :: D int16
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D int32 x,D int32 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D int32 operator + (D int32 x,D int32 y) {
+//@     __builtin("core.add",x,y) :: D int32
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D int64 x,D int64 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D int64 operator + (D int64 x,D int64 y) {
+//@     __builtin("core.add",x,y) :: D int64
 //@ }
 //@ template<domain D>
-//@ function D bool operator + (D uint8 x,D uint8 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D uint8 operator + (D uint8 x,D uint8 y) {
+//@     __builtin("core.add",x,y) :: D uint8
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D uint16 x,D uint16 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D uint16 operator + (D uint16 x,D uint16 y) {
+//@     __builtin("core.add",x,y) :: D uint16
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D uint32 x,D uint32 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D uint32 operator + (D uint32 x,D uint32 y) {
+//@     __builtin("core.add",x,y) :: D uint32
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D uint64 x,D uint64 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D uint64 operator + (D uint64 x,D uint64 y) {
+//@     __builtin("core.add",x,y) :: D uint64
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D float32 x,D float32 y) {
-//@     __builtin("core.add",x,y) :: D bool
+//@ function D float32 operator + (D float32 x,D float32 y) {
+//@     __builtin("core.add",x,y) :: D float32
 //@ } 
 //@ template<domain D>
-//@ function D bool operator + (D float64 x,D float64 y) {
-//@     __builtin("core.add",x,y) :: D bool
-//@ } 
-//@ template<domain D>
-//@ function D bool operator + (D bool x,D bool y) {
-//@     __builtin("core.add",x,y) :: D bool
-//@ } 
+//@ function D float64 operator + (D float64 x,D float64 y) {
+//@     __builtin("core.add",x,y) :: D float64
+//@ }
 
 int8 operator + (int8 x,int8 y) {
     return __builtin("core.add",x,y);

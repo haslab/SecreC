@@ -125,6 +125,7 @@ tokens :-
 <0>                     axiom                 { lexerAnnTokenInfo AXIOM }
 <0>                     function              { lexerAnnTokenInfo FUNCTION }
 <0>                     nonpublic             { lexerAnnTokenInfo NONPUBLIC }
+<0>                     invariant             { lexerAnnTokenInfo INVARIANT }
 
 -- built-in functions:
 <0>                     "size..."             { lexerTokenInfo VSIZE }

@@ -231,9 +231,8 @@ tryAddHypothesis :: (ProverK loc m) => loc -> Scope -> Set LocIOCstr -> HypCstr 
 tryAddHypothesis l scope deps hyp = do
     opts <- askOpts
     when (checkAssertions opts) $ do
-        isAnn <- getAnn
-        isPure <- getPure
-        iok <- updateHeadTDict $ \d -> newTDictCstr (locpos l) (HypK hyp isAnn isPure) d
+        st <- getCstrState
+        iok <- updateHeadTDict $ \d -> newTDictCstr (locpos l) (HypK hyp st) d
         addDep scope $ Loc (locpos l) iok
         addIOCstrDependenciesM True deps (Loc (locpos l) iok) Set.empty
 
@@ -1106,9 +1105,8 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst mode) (ss1,[]) (Map.toL
                 case mode of
                     NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution " <+> pp v <+> text "=" <+> pp t'
                     CheckS -> do
-                        isAnn <- getAnn
-                        isPure <- getPure
-                        return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') v) t') isAnn isPure : ks)
+                        st <- getCstrState
+                        return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') v) t') st : ks)
             else return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
 
 substFromTSubsts :: (PP loc,Typeable loc,VarsIdTcM m,Location loc,VarsId (TcM m) a) => String -> loc -> TSubsts -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM m a

@@ -72,6 +72,8 @@ import System.Posix.Files
 import System.FilePath.Posix
 import System.IO.Error
 
+import Debug.Trace
+
 -- warn for unused local variables
 
 data IOCstr = IOCstr
@@ -171,6 +173,7 @@ data TcEnv = TcEnv {
     , localDeps :: Deps -- ^ local dependencies
     , tDict :: [TDict] -- ^ A stack of dictionaries
     , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
+    , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , isPure :: Bool -- if typechecking pure expressions
@@ -270,6 +273,27 @@ getPure = liftM isPure State.get
 getLeak :: Monad m => TcM m Bool
 getLeak = liftM isLeak State.get
 
+getLineage :: Monad m => TcM m Lineage
+getLineage = State.gets lineage
+
+getCstrState :: Monad m => TcM m CstrState
+getCstrState = do
+    isAnn <- getAnn
+    isPure <- getPure
+    lineage <- getLineage
+    return (isAnn,isPure,lineage)
+
+withCstrState :: Monad m => CstrState -> TcM m a -> TcM m a
+withCstrState (isAnn,isPure,lineage) m = withAnn isAnn $ withPure isPure $ withLineage lineage m
+
+withLineage :: Monad m => Lineage -> TcM m a -> TcM m a
+withLineage new m = do
+    old <- State.gets lineage
+    State.modify $ \env -> env { lineage = new }
+    x <- m
+    State.modify $ \env -> env { lineage = old }
+    return x
+    
 getAnn :: Monad m => TcM m Bool
 getAnn = liftM (isAnnDecClass . decClass) State.get
 
@@ -292,30 +316,35 @@ getModuleField f = do
 getRecs :: Monad m => TcM m ModuleTcEnv
 getRecs = State.gets (mconcat . map tRec . tDict)
 
-filterRecBody :: Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
-filterRecBody True xs = xs
-filterRecBody False xs = Map.map (Map.map aux) xs
+filterRecBody :: Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
+filterRecBody lineage True xs = xs
+filterRecBody lineage False xs = Map.map (Map.map aux) xs
     where
-    aux (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec d
+    aux (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec lineage d
 
-remDecRec :: DecType -> DecType
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns (if isJust isRec then Nothing else body) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns (if isJust isRec then Nothing else body) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns (if isJust isRec then Nothing else body) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl (Right op) pargs pret panns (if isJust isRec then Nothing else body) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid (if isJust isRec then Nothing else atts) cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
+recInLineage Nothing lineage body = body
+recInLineage (Just rec) lineage body = trace ("lineage: " ++ show rec ++ " " ++ show lineage) (if List.elem rec (map snd lineage) then Nothing else body)
+
+remDecRec :: Lineage -> DecType -> DecType
+remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns (recInLineage isRec lineage body) cl)
+remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns (recInLineage isRec lineage body) cl)
+remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns (recInLineage isRec lineage body) cl)
+remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl (Right op) pargs pret panns (recInLineage isRec lineage body) cl)
+remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid (recInLineage isRec lineage atts) cl)
+remDecRec lineage d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (AxiomType isLeak p qs pargs cl)
 
 getModuleEnv :: Monad m => TcM m (ModuleTcEnv)
 getModuleEnv = getModuleField id
 getStructs :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs withBody isAnn = liftM (filterAnns isAnn . filterRecBody withBody) $ getModuleField structs
+getStructs withBody isAnn = do
+    lineage <- getLineage
+    liftM (filterAnns isAnn . filterRecBody lineage withBody) $ getModuleField structs
 getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getKinds = getModuleField kinds
 getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
@@ -325,9 +354,13 @@ getGlobalConsts = getModuleField globalConsts
 getDomains :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getDomains = getModuleField domains
 getOperators :: Monad m => Bool -> Bool -> TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv))
-getOperators withBody isAnn = liftM (filterAnns isAnn . filterRecBody withBody) $ getModuleField operators
+getOperators withBody isAnn = do
+    lineage <- getLineage
+    liftM (filterAnns isAnn . filterRecBody lineage withBody) $ getModuleField operators
 getProcedures :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getProcedures withBody isAnn = liftM (filterAnns isAnn . filterRecBody withBody) $ getModuleField procedures
+getProcedures withBody isAnn = do
+    lineage <- getLineage
+    liftM (filterAnns isAnn . filterRecBody lineage withBody) $ getModuleField procedures
 getAxioms :: Monad m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
 getAxioms withBody isAnn = liftM (filterAnns1 isAnn) $ getModuleField axioms
 
@@ -373,6 +406,7 @@ emptyTcEnv = TcEnv
     , localDeps = Set.empty
     , tDict = []
     , openedCstrs = []
+    , lineage = []
     , moduleCount = ("main",1)
     , inTemplate = False
     , isPure = False
@@ -659,40 +693,51 @@ isHypCstr (DelayedK k _) = isHypCstr k
 isHypCstr _ = False
 
 isTrivialCstr :: TCstr -> Bool
-isTrivialCstr (TcK c _ _) = isTrivialTcCstr c
+isTrivialCstr (TcK c _) = isTrivialTcCstr c
 isTrivialCstr (DelayedK c _) = isTrivialCstr c
-isTrivialCstr (CheckK c _ _) = isTrivialCheckCstr c
-isTrivialCstr (HypK c _ _) = isTrivialHypCstr c
+isTrivialCstr (CheckK c _) = isTrivialCheckCstr c
+isTrivialCstr (HypK c _) = isTrivialHypCstr c
 
 type Var = VarName VarIdentifier Type
 type Expr = Expression VarIdentifier Type
 type ExprL loc = Expression VarIdentifier (Typed loc)
 
+type Lineage = [(DecIdentifier,ModuleTyVarId)] -- trace of parent declarations
+
+updCstrState :: (CstrState -> CstrState) -> TCstr -> TCstr
+updCstrState f (DelayedK c arr) = DelayedK (updCstrState f c) arr
+updCstrState f (TcK c st) = TcK c (f st)
+updCstrState f (CheckK c st) = CheckK c (f st)
+updCstrState f (HypK c st) = HypK c (f st)
+
+newLineage :: Lineage -> TCstr -> TCstr
+newLineage l = updCstrState (\(x,y,z) -> (x,y,l))
+
+-- (is annotation,is pure,lineage)
+type CstrState = (Bool,Bool,Lineage)
+
 data TCstr
     = TcK
         TcCstr -- constraint
-        Bool -- is annotation
-        Bool -- is pure
+        CstrState
     | DelayedK
         TCstr -- a constraint
         (Int,SecrecErrArr) -- an error message with updated context
         --ModuleTcEnv -- optional recursive declarations only in scope for solving this constraint
     | CheckK
         CheckCstr
-        Bool -- is annotation
-        Bool -- is pure
+        CstrState
     | HypK
         HypCstr
-        Bool -- is annotation
-        Bool -- is pure
+        CstrState
   deriving (Data,Typeable,Show,Generic)
 
 instance Binary TCstr
 instance Hashable TCstr where
-    hashWithSalt i (TcK c _ _) = i `hashWithSalt` (0::Int) `hashWithSalt` c
+    hashWithSalt i (TcK c _) = i `hashWithSalt` (0::Int) `hashWithSalt` c
     hashWithSalt i (DelayedK c _) = i `hashWithSalt` (1::Int) `hashWithSalt` c
-    hashWithSalt i (CheckK c _ _) = i `hashWithSalt` (2::Int) `hashWithSalt` c
-    hashWithSalt i (HypK c _ _) = i `hashWithSalt` (3::Int) `hashWithSalt` c
+    hashWithSalt i (CheckK c _) = i `hashWithSalt` (2::Int) `hashWithSalt` c
+    hashWithSalt i (HypK c _) = i `hashWithSalt` (3::Int) `hashWithSalt` c
  
 coreTCstr :: TCstr -> TCstr
 coreTCstr (DelayedK c _) = coreTCstr c
@@ -702,23 +747,23 @@ instance Hashable EntryEnv
  
 instance Eq TCstr where
     (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
-    (TcK x b1 b2) == (TcK y b4 b5) = x == y && b1 == b4 && b2 == b5
-    (HypK x b1 b2) == (HypK y b4 b5) = x == y && b1 == b4 && b2 == b5
-    (CheckK x b1 b2) == (CheckK y b4 b5) = x == y && b1 == b4 && b2 == b5 
+    (TcK x b1) == (TcK y b4) = x == y && b1 == b4
+    (HypK x b1) == (HypK y b4) = x == y && b1 == b4 
+    (CheckK x b1) == (CheckK y b4) = x == y && b1 == b4 
     x == y = False
     
 instance Ord TCstr where
     compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
-    compare (TcK x b1 b2) (TcK y b4 b5) = mconcat [compare x y,compare b1 b4,compare b2 b5]
-    compare (HypK x b1 b2) (HypK y b4 b5) = mconcat [compare x y,compare b1 b4,compare b2 b5]
-    compare (CheckK x b1 b2) (CheckK y b4 b5) = mconcat [compare x y,compare b1 b4,compare b2 b5]
+    compare (TcK x b1) (TcK y b4) = mconcat [compare x y,compare b1 b4]
+    compare (HypK x b1) (HypK y b4) = mconcat [compare x y,compare b1 b4]
+    compare (CheckK x b1) (CheckK y b4) = mconcat [compare x y,compare b1 b4]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 priorityTCstr :: TCstr -> TCstr -> Ordering
 priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
-priorityTCstr (TcK c1 _ _) (TcK c2 _ _) = priorityTcCstr c1 c2
-priorityTCstr (HypK x _ _) (HypK y _ _) = compare x y
-priorityTCstr (CheckK x _ _) (CheckK y _ _) = compare x y
+priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2
+priorityTCstr (HypK x _) (HypK y _) = compare x y
+priorityTCstr (CheckK x _) (CheckK y _) = compare x y
 priorityTCstr (TcK {}) y = LT
 priorityTCstr x (TcK {}) = GT
 priorityTCstr (HypK {}) y = LT
@@ -779,9 +824,9 @@ instance PP HypCstr where
 
 instance PP TCstr where
     pp (DelayedK c f) = text "delayed" <+> pp c
-    pp (TcK k _ _) = pp k
-    pp (CheckK c _ _) = pp c
-    pp (HypK h _ _) = pp h
+    pp (TcK k _) = pp k
+    pp (CheckK c _) = pp c
+    pp (HypK h _) = pp h
 
 data ArrayProj
     = ArraySlice ArrayIndex ArrayIndex
@@ -979,15 +1024,15 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TCstr where
     traverseVars f (DelayedK c err) = do
         c' <- f c
         return $ DelayedK c' err
-    traverseVars f (TcK k b1 b2) = do
+    traverseVars f (TcK k st) = do
         k' <- f k
-        return $ TcK k' b1 b2
-    traverseVars f (CheckK k b1 b2) = do
+        return $ TcK k' st
+    traverseVars f (CheckK k st) = do
         k' <- f k
-        return $ CheckK k' b1 b2
-    traverseVars f (HypK k b1 b2) = do
+        return $ CheckK k' st
+    traverseVars f (HypK k st) = do
         k' <- f k
-        return $ HypK k' b1 b2
+        return $ HypK k' st
 
 type IOCstrGraph = Gr LocIOCstr ()
 type LocIOCstr = Loc Position IOCstr

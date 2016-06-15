@@ -87,10 +87,10 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
 discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,TDict,Set VarIdentifier) -> TcM m ()
 discardMatchingEntry (e,e',dict,frees) = forM_ frees removeFree
 
-templateCstrs :: Location loc => (Int,SecrecError -> SecrecError) -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
-templateCstrs (i,arr) rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
+templateCstrs :: Location loc => Lineage -> (Int,SecrecError -> SecrecError) -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
+templateCstrs lineage (i,arr) rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
     where
-    upd (Loc l k) = Loc l $ k { kCstr = DelayedK (kCstr k) (succ i,SecrecErrArr arr) }
+    upd (Loc l k) = Loc l $ k { kCstr = DelayedK (newLineage lineage $ kCstr k) (succ i,SecrecErrArr arr) }
 
 mkRecDec :: ProverK loc m => loc -> DecType -> TcM m DecType
 mkRecDec l dec@(DecType j (Just i) targs hdict hfrees bdict bfrees specs d) = return dec
@@ -117,7 +117,9 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
             rec <- mkDecEnv p decrec
             return (decrec,rec)
         else return (dec,mempty)
-    addHeadTDict p $ templateCstrs arr rec def p dict
+    lineage <- getLineage
+    let did = fromJustNote "resolveDecId" (decTypeId dec)
+    addHeadTDict p $ templateCstrs (did : lineage) arr rec def p dict
     case n of
         Right _ -> do
             let tycl@(DecClass isAnn rs ws) = tyDecClass $ DecT decrec
@@ -448,11 +450,7 @@ templateTDict isPure e = case entryType e of
   where
     purify :: TCstrGraph -> TCstrGraph
     purify = Graph.nmap (fmap add)
-    add :: TCstr -> TCstr
-    add (DelayedK c arr) = DelayedK (add c) arr
-    add (TcK c b1 b2) = TcK c b1 (b2 || isPure)
-    add (CheckK c b1 b2) = CheckK c b1 (b2 || isPure)
-    add (HypK c b1 b2) = HypK c b1 (b2 || isPure)
+    add = updCstrState (\(x,y,z) -> (x,isPure || y,z))
 
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n

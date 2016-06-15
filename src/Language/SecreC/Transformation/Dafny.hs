@@ -453,7 +453,7 @@ baseTypeToDafny (TApp (TypeName _ n) args _) = do
     args' <- mapM ppArg args
     let pargs = if null args' then empty else abrackets $ sepBy comma args'
     return $ pn <> pargs
-baseTypeToDafny t = genError noloc $ text "baseTypeToDafny:" <+> pp t
+--baseTypeToDafny t = genError noloc $ text "baseTypeToDafny:" <+> pp t
 
 complexTypeToDafny :: DafnyK m => ComplexType -> DafnyM m Doc
 complexTypeToDafny t@(CType s b d) = do

@@ -307,9 +307,9 @@ solveNewCstr_ l iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolveTCst
 -- * Throwing Constraints
 
 tCstrM_ :: ProverK loc m => loc -> TCstr -> TcM m ()
-tCstrM_ l (TcK c isAnn isPure) = withAnn isAnn $ withPure isPure $ tcCstrM_ l c
-tCstrM_ l (CheckK c isAnn isPure) = withAnn isAnn $ withPure isPure $ checkCstrM_ l Set.empty c
-tCstrM_ l (HypK c isAnn isPure) = withAnn isAnn $ withPure isPure $ hypCstrM_ l c
+tCstrM_ l (TcK c st) = withCstrState st $ tcCstrM_ l c
+tCstrM_ l (CheckK c st) = withCstrState st $ checkCstrM_ l Set.empty c
+tCstrM_ l (HypK c st) = withCstrState st $ hypCstrM_ l c
 tCstrM_ l (DelayedK c arr) = --withRecs rec $
     addErrorM'' l arr (tCstrM_ l c)
 
@@ -320,9 +320,8 @@ checkCstrM :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m (May
 checkCstrM l deps k | isTrivialCheckCstr k = return Nothing
 checkCstrM l deps k = withDeps LocalScope $ do
     addDeps LocalScope deps
-    isAnn <- getAnn
-    isPure <- getPure
-    newTCstr l $ CheckK k isAnn isPure
+    st <- getCstrState
+    newTCstr l $ CheckK k st
 
 topCheckCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
 topCheckCstrM_ l deps k = newErrorM $ checkCstrM_ l deps k
@@ -336,9 +335,8 @@ hypCstrM_ l k = hypCstrM l k >> return ()
 hypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IOCstr)
 hypCstrM l k | isTrivialHypCstr k = return Nothing
 hypCstrM l k = do
-    isAnn <- getAnn
-    isPure <- getPure
-    newTCstr l $ HypK k isAnn isPure
+    st <- getCstrState
+    newTCstr l $ HypK k st
 
 topHypCstrM_ :: (ProverK loc m) => loc -> HypCstr -> TcM m ()
 topHypCstrM_ l k = newErrorM $ hypCstrM_ l k
@@ -353,9 +351,8 @@ tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
 tcCstrM l k | isTrivialTcCstr k = return Nothing
 tcCstrM l k = do
     liftIO $ putStrLn $ "tcCstrM " ++ ppr l ++ " " ++ ppr k
-    isAnn <- getAnn
-    isPure <- getPure
-    k <- newTCstr l $ TcK k isAnn isPure
+    st <- getCstrState
+    k <- newTCstr l $ TcK k st
     --gr <- liftM (tCstrs . head . tDict) State.get
     --doc <- ppConstraints gr
     --liftIO $ putStrLn $ "tcCstrMexit " ++ ppr (maybe (-1) ioCstrId k) ++" " ++ show doc
@@ -379,11 +376,11 @@ newTCstr l k = do
             (\e -> if (isHaltError e) then return (Just iok) else throwError e)
                 
 resolveTCstr :: (ProverK loc m) => loc -> Int -> TCstr -> TcM m ShowOrdDyn
-resolveTCstr l kid (TcK k isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
+resolveTCstr l kid (TcK k st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState st $ do
     resolveTcCstr l kid k
-resolveTCstr l kid (HypK h isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
+resolveTCstr l kid (HypK h st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState st $ do
     resolveHypCstr l h
-resolveTCstr l kid (CheckK c isAnn isPure) = liftM ShowOrdDyn $ withDeps GlobalScope $ withAnn isAnn $ withPure isPure $ do
+resolveTCstr l kid (CheckK c st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState st $ do
     resolveCheckCstr l c
 resolveTCstr l kid (DelayedK k (i,SecrecErrArr err)) = --withRecs rec $
     addErrorM' l (i,err) $ resolveTCstr l kid k
@@ -647,8 +644,6 @@ matchOne l kid cs (match,deps,_) = do
         withDependencies ks $ mapM_ (tCstrM_ l) deps
     
     -- solve all other dependencies
-    -- solve all other dependencies
-    --noRecs $
     liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
     solveSelection l ("matchone"++show kid) cs
     liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr match
@@ -1017,32 +1012,29 @@ coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT 
         (Right 0,_) -> if implicitCoercions opts
             then do
                 (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-                isAnn <- getAnn
-                isPure <- getPure
-                let choice1 = ([TcK (Unifies (IdxT d2) (IdxT $ indexExpr 0)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
-                let choice2 = ([TcK (NotEqual d2 (indexExpr 0)) isAnn isPure],ks,fs)
+                st <- getCstrState
+                let choice1 = ([TcK (Unifies (IdxT d2) (IdxT $ indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+                let choice2 = ([TcK (NotEqual d2 (indexExpr 0)) st],ks,fs)
                 tcCstrM_ l $ MultipleSubstitutions [IdxT d2] [choice1,choice2]
             else assignsExprTy l x2 e1
         (_,Right ((>0) -> True)) -> if implicitCoercions opts
             then do
                 (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-                isAnn <- getAnn
-                isPure <- getPure
-                let choice1 = ([TcK (Unifies (IdxT d1) (IdxT d2)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
-                let choice2 = ([TcK (Unifies (IdxT d1) (IdxT $ indexExpr 0)) isAnn isPure],ks,fs)
+                st <- getCstrState
+                let choice1 = ([TcK (Unifies (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+                let choice2 = ([TcK (Unifies (IdxT d1) (IdxT $ indexExpr 0)) st],ks,fs)
                 tcCstrM_ l $ MultipleSubstitutions [IdxT d1] [choice1,choice2]
             else assignsExprTy l x2 e1
         otherwise -> if implicitCoercions opts
             then do
                 (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-                isAnn <- getAnn
-                isPure <- getPure
+                st <- getCstrState
                 -- 0 --> 0
-                let choice1 = ([TcK (Unifies (IdxT d1) (IdxT $ indexExpr 0)) isAnn isPure,TcK (Unifies (IdxT d2) (IdxT $ indexExpr 0)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
+                let choice1 = ([TcK (Unifies (IdxT d1) (IdxT $ indexExpr 0)) st,TcK (Unifies (IdxT d2) (IdxT $ indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
                 -- 0 --> n
-                let choice2 = ([TcK (Unifies (IdxT d1) (IdxT $ indexExpr 0)) isAnn isPure,TcK (NotEqual d2 (indexExpr 0)) isAnn isPure],ks,fs)
+                let choice2 = ([TcK (Unifies (IdxT d1) (IdxT $ indexExpr 0)) st,TcK (NotEqual d2 (indexExpr 0)) st],ks,fs)
                 -- n --> n
-                let choice3 = ([TcK (NotEqual d1 (indexExpr 0)) isAnn isPure,TcK (NotEqual d2 (indexExpr 0)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
+                let choice3 = ([TcK (NotEqual d1 (indexExpr 0)) st,TcK (NotEqual d2 (indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
                 tcCstrM_ l $ MultipleSubstitutions [IdxT d1,IdxT d2] [choice1,choice2,choice3]
             else assignsExprTy l x2 e1
 coercesDimSizes l e1 x2 = constraintError (CoercionException "complex type dimension") l e1 ppExprTy x2 ppVarTy Nothing
@@ -1056,13 +1048,8 @@ coercesSec l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = addErrorM l (Typ
             coercesSec' l e1 ct1 x2 s2
         else assignsExprTy l x2 e1
 
+-- a token security type variable is seen as a private domain
 coercesSec' :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> SecType -> TcM m ()
-coercesSec' l e1 (cSec -> Just (SVar v1@(nonTok -> False) k1)) x2 s2 = do
-    unifiesKind l k1 $ secTypeKind s2
-    assignsExprTy l x2 e1
-coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2@(SVar v2@(nonTok -> False) k2) = do
-    unifiesKind l (secTypeKind s1) k2
-    assignsExprTy l x2 e1
 coercesSec' l e1 (cSec -> Just (SVar v1 k1)) x2 (SVar v2 k2) | v1 == v2 = do
     unifiesKind l k1 k2
     assignsExprTy l x2 e1
@@ -1080,9 +1067,8 @@ coercesSec' l e1 ct1@(cSec -> Just s1@Public) x2 s2@(SVar v@(nonTok -> True) k2)
             if implicitCoercions opts
                 then do
                     (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
-                    isAnn <- getAnn
-                    isPure <- getPure
-                    let choice2 = TcK (IsPrivate (SecT s2)) isAnn isPure
+                    st <- getCstrState
+                    let choice2 = TcK (IsPrivate (SecT s2)) st
                     mapM_ (tCstrM_ l) (choice2:ks)
                 else do
                     tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
@@ -1096,10 +1082,9 @@ coercesSec' l e1 ct1@(cSec -> Just s1@Public) x2 s2@(SVar v@(nonTok -> True) k2)
             if implicitCoercions opts
                 then do
                     (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-                    isAnn <- getAnn
-                    isPure <- getPure
-                    let choice1 = ([TcK (IsPublic (SecT s2)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
-                    let choice2 = ([TcK (IsPrivate (SecT s2)) isAnn isPure],ks,fs)
+                    st <- getCstrState
+                    let choice1 = ([TcK (IsPublic (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+                    let choice2 = ([TcK (IsPrivate (SecT s2)) st],ks,fs)
                     tcCstrM_ l $ MultipleSubstitutions [SecT s2] [choice1,choice2]
                 else do
                     tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
@@ -1124,10 +1109,9 @@ coercesSec' l e1 ct1@(cSec -> Just s1@(SVar v1@(nonTok -> True) k1)) x2 s2@(Priv
             if implicitCoercions opts
                 then do
                     (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-                    isAnn <- getAnn
-                    isPure <- getPure
-                    let choice1 = ([TcK (IsPublic (SecT s1)) isAnn isPure],ks,fs)
-                    let choice2 = ([TcK (Unifies (SecT s1) (SecT s2)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
+                    st <- getCstrState
+                    let choice1 = ([TcK (IsPublic (SecT s1)) st],ks,fs)
+                    let choice2 = ([TcK (Unifies (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
                     tcCstrM_ l $ MultipleSubstitutions [SecT s1] [choice1,choice2]
                 else do
                     tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
@@ -1151,11 +1135,10 @@ coercesSec' l e1 ct1@(cSec -> Just s1@(SVar v1@(nonTok -> True) k1)) x2 s2@(SVar
             if implicitCoercions opts
                 then do
                     (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-                    isAnn <- getAnn
-                    isPure <- getPure
-                    let choice1 = ([TcK (IsPublic (SecT s1)) isAnn isPure,TcK (IsPublic (SecT s2)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
-                    let choice2 = ([TcK (IsPublic (SecT s1)) isAnn isPure,TcK (IsPrivate (SecT s2)) isAnn isPure],ks,fs)
-                    let choice3 = ([TcK (IsPrivate (SecT s1)) isAnn isPure,TcK (IsPrivate (SecT s2)) isAnn isPure],[TcK (Unifies (loc x2) (loc e1)) isAnn isPure,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) isAnn isPure],Set.empty)
+                    st <- getCstrState
+                    let choice1 = ([TcK (IsPublic (SecT s1)) st,TcK (IsPublic (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+                    let choice2 = ([TcK (IsPublic (SecT s1)) st,TcK (IsPrivate (SecT s2)) st],ks,fs)
+                    let choice3 = ([TcK (IsPrivate (SecT s1)) st,TcK (IsPrivate (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
                     tcCstrM_ l $ MultipleSubstitutions [SecT s1,SecT s2] [choice1,choice2,choice3]
                 else do
                     tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
@@ -1167,34 +1150,60 @@ coercesSec' l e1 ct1@(cSec -> Just Public) x2 s2@(Private d2 k2) = do
             (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
             forM_ ks $ tCstrM_ l
         else constraintError (CoercionException "security type") l e1 ppExprTy x2 ppVarTy Nothing
+coercesSec' l e1 (cSec -> Just (SVar v1@(nonTok -> False) k1)) x2 s2 = do
+    unifiesKind l k1 $ secTypeKind s2
+    assignsExprTy l x2 e1
+coercesSec' l e1 ct1@(cSec -> Just Public) x2 s2@(SVar v2@(nonTok -> False) k2) = do
+    opts <- askOpts
+    if implicitCoercions opts
+        then do
+            (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
+            forM_ ks $ tCstrM_ l
+        else constraintError (CoercionException "security type") l e1 ppExprTy x2 ppVarTy Nothing
+coercesSec' l e1 ct1@(cSec -> Just s1@(SVar v1@(nonTok -> True) k1)) x2 s2@(SVar v2@(nonTok -> False) k2) | not (isPrivateKind k1) = do
+    mb <- tryResolveSVar l v1
+    case mb of
+        Just s1' -> do
+            let ct1' = setCSec ct1 s1'
+            coercesSec' l (updLoc e1 $ ComplexT ct1') ct1' x2 s2
+        Nothing -> do
+            opts <- askOpts
+            if implicitCoercions opts
+                then do
+                    (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
+                    st <- getCstrState
+                    let choice1 = ([TcK (IsPublic (SecT s1)) st],ks,fs)
+                    let choice2 = ([TcK (Unifies (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+                    tcCstrM_ l $ MultipleSubstitutions [SecT s1] [choice1,choice2]
+                else do
+                    tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
+                    assignsExprTy l x2 e1
 coercesSec' l e1 t1 x2 t2 = constraintError (CoercionException "security type") l e1 ppExprTy x2 ppVarTy Nothing
 
 classifiesCstrs :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> SecType -> TcM m ([TCstr],Set VarIdentifier)
 classifiesCstrs l e1 ct1 x2 s2 = do
     arr <- askErrorM''
-    isAnn <- getAnn
-    isPure <- getPure
+    st <- getCstrState
     let ct2 = setCSec ct1 s2
     dec@(DVar dv) <- newDecVar Nothing
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
     v1 <- newTypedVar "cl" (loc e1) $ Just $ pp e1
-    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) isAnn isPure) arr
-    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) isAnn isPure) arr
-    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) isAnn isPure) arr
+    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st) arr
+    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) st) arr
+    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) st) arr
     return ([k1,k2,k3],Set.fromList [dv,varNameId v1])
 
 repeatsCstrs :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> Expr -> TcM m ([TCstr],Set VarIdentifier)
 repeatsCstrs l e1 ct1 x2 d2 = do
     arr <- askErrorM''
-    isAnn <- getAnn
-    isPure <- getPure
+    st <- getCstrState
     let ct2 = setCBase ct1 d2
     dec@(DVar dv) <- newDecVar Nothing
     let repeat' = ProcedureName (DecT dec) $ mkVarId "repeat"
     v1 <- newTypedVar "rp" (loc e1) $ Just $ pp e1
-    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) isAnn isPure) arr
-    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) isAnn isPure) arr
-    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) isAnn isPure) arr
+    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st) arr
+    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) st) arr
+    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) st) arr
     return ([k1,k2,k3],Set.fromList [dv,varNameId v1])
 
 coercesLit :: (ProverK loc m) => loc -> Expr -> TcM m ()
