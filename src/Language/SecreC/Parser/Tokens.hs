@@ -117,7 +117,6 @@ data Token
     | XOR_ASSIGN
     | VARIADIC
     | VSIZE
-    | VARRAY
     | REQUIRES
     | ENSURES
     | ASSUME
@@ -137,6 +136,7 @@ data Token
     | ANNOTATION [String]
     | FUNCTION
     | AXIOM
+    | HAVOC
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP Token where
@@ -225,7 +225,6 @@ instance PP Token where
     pp XOR_ASSIGN = text "^="
     pp VARIADIC = text "..."
     pp VSIZE = text "size..."
-    pp VARRAY = text "varray"
     pp REQUIRES = text "requires"
     pp ENSURES = text "ensures"
     pp LEAKAGE = text "leakage"
@@ -241,6 +240,7 @@ instance PP Token where
     pp FREE = text "free"
     pp FUNCTION = text "function"
     pp AXIOM = text "axiom"
+    pp HAVOC = text "HAVOC"
     pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]

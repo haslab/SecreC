@@ -14,6 +14,7 @@ import Text.PrettyPrint.ANSI.Leijen
 import Language.Boogie.Parser
 import Language.Boogie.Transformation
 import Language.Boogie.PrettyAST
+import Language.Boogie.Options
 
 import Paths_Boogaman
 
@@ -49,7 +50,7 @@ defaultOptions = Opts
     , output = []
     , shadow = False
     , simplify = False
-    , leakage = Nothing
+    , filterLeakage = Nothing
     , vcgen = NoVCGen
     , axioms = []
     }
@@ -60,7 +61,7 @@ opts  = Opts {
     , output               = output defaultOptions &= typ "FILE.bpl:" &= help "Output Boogie file"
     , shadow            = shadow defaultOptions &= help "Shadow the original program" &= groupname "Transformation"
     , simplify            = simplify defaultOptions &= help "Simplify boogie code" &= groupname "Transformation"
-    , leakage         = leakage defaultOptions &= help "Consider or discard leakage annotations" &= groupname "Transformation"
+    , filterLeakage         = filterLeakage defaultOptions &= help "Consider or discard leakage annotations" &= groupname "Transformation"
     , vcgen           = vcgen defaultOptions &= help "Specializes the transformations for the given VCGen"
     , axioms          = axioms defaultOptions &= help "axiomatize contracts of given procedures"
     }

@@ -141,7 +141,6 @@ instance PP iden => PP (ImportDeclaration iden loc) where
 
 data GlobalDeclaration iden loc
     = GlobalVariable loc (VariableDeclaration iden loc)
-    | GlobalConst loc (ConstDeclaration iden loc)
     | GlobalDomain loc (DomainDeclaration iden loc)
     | GlobalKind loc (KindDeclaration iden loc)
     | GlobalProcedure loc (ProcedureDeclaration iden loc)
@@ -157,7 +156,6 @@ instance (Hashable iden,Hashable loc) => Hashable (GlobalDeclaration iden loc)
 instance Location loc => Located (GlobalDeclaration iden loc) where
     type LocOf (GlobalDeclaration iden loc) = loc
     loc (GlobalVariable l vd) = l
-    loc (GlobalConst l vd) = l
     loc (GlobalDomain l dd) = l
     loc (GlobalKind l kd) = l
     loc (GlobalProcedure l pd) = l
@@ -166,7 +164,6 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
     loc (GlobalTemplate l td) = l
     loc (GlobalAnnotations l ann) = l
     updLoc (GlobalVariable _ vd) l = GlobalVariable l vd
-    updLoc (GlobalConst _ vd) l = GlobalConst l vd
     updLoc (GlobalDomain _ dd) l = GlobalDomain l dd
     updLoc (GlobalKind _ kd) l = GlobalKind l kd
     updLoc (GlobalProcedure _ pd) l = GlobalProcedure l pd
@@ -177,10 +174,10 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
 
 instance PP iden => PP (GlobalDeclaration iden loc) where
     pp (GlobalVariable _ vd) = pp vd
-    pp (GlobalConst _ vd) = pp vd
     pp (GlobalDomain _ dd) = pp dd
     pp (GlobalKind _ kd) = pp kd
     pp (GlobalProcedure _ pd) = pp pd
+    pp (GlobalFunction _ f) = pp f
     pp (GlobalStructure _ sd) = pp sd
     pp (GlobalTemplate _ td) = pp td
     pp (GlobalAnnotations _ ann) = pp ann
@@ -300,25 +297,6 @@ type Identifier = String
 instance PP String where
     pp s = text s
 
-data ConstInitialization iden loc = ConstInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
-
-instance (Binary iden,Binary loc) => Binary (ConstInitialization iden loc)  
-instance (Hashable iden,Hashable loc) => Hashable (ConstInitialization iden loc)
-  
-instance Location loc => Located (ConstInitialization iden loc) where
-    type LocOf (ConstInitialization iden loc) = loc
-    loc (ConstInitialization l _ _ _) = l
-    updLoc (ConstInitialization _ x y z) l = ConstInitialization l x y z
- 
-instance PP iden => PP (ConstInitialization iden loc) where
-    pp (ConstInitialization _ v dim ex) = pp v <+> ppDim dim <+> ppExp ex
-        where
-        ppDim Nothing = empty
-        ppDim (Just dim) = parens (pp dim)
-        ppExp Nothing = empty
-        ppExp (Just e) = text "=" <+> pp e
-
 data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
@@ -358,21 +336,10 @@ instance Location loc => Located (Sizes iden loc) where
 instance PP iden => PP (Sizes iden loc) where
     pp (Sizes es) = parens (sepBy comma $ fmap (ppVariadicArg pp) es)
 
-data ConstDeclaration iden loc = ConstDeclaration loc (TypeSpecifier iden loc) (NeList (ConstInitialization iden loc))
-  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
-  
-instance (Binary iden,Binary loc) => Binary (ConstDeclaration iden loc)  
-instance (Hashable iden,Hashable loc) => Hashable (ConstDeclaration iden loc)
+type IsConst = Bool
+type IsHavoc = Bool
 
-instance Location loc => Located (ConstDeclaration iden loc) where
-    type LocOf (ConstDeclaration iden loc) = loc
-    loc (ConstDeclaration l _ _) = l
-    updLoc (ConstDeclaration _ x y) l = ConstDeclaration l x y
-
-instance PP iden => PP (ConstDeclaration iden loc) where
-    pp (ConstDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
-
-data VariableDeclaration iden loc = VariableDeclaration loc (TypeSpecifier iden loc) (NeList (VariableInitialization iden loc))
+data VariableDeclaration iden loc = VariableDeclaration loc IsConst IsHavoc (TypeSpecifier iden loc) (NeList (VariableInitialization iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (VariableDeclaration iden loc)  
@@ -380,17 +347,16 @@ instance (Hashable iden,Hashable loc) => Hashable (VariableDeclaration iden loc)
 
 instance Location loc => Located (VariableDeclaration iden loc) where
     type LocOf (VariableDeclaration iden loc) = loc
-    loc (VariableDeclaration l _ _) = l
-    updLoc (VariableDeclaration _ x y) l = VariableDeclaration l x y
+    loc (VariableDeclaration l _ _ _ _) = l
+    updLoc (VariableDeclaration _ isConst isHavoc x y) l = VariableDeclaration l isConst isHavoc x y
 
 instance PP iden => PP (VariableDeclaration iden loc) where
-    pp (VariableDeclaration _ t is) = pp t <+> sepBy comma (fmap pp is)
+    pp (VariableDeclaration _ isConst isHavoc t is) = ppConst isConst (ppHavoc isHavoc (pp t <+> sepBy comma (fmap pp is)))
 
 type IsVariadic = Bool
 
 data ProcedureParameter iden loc
-    = ProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc)
-    | ConstProcedureParameter loc (TypeSpecifier iden loc) IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
+    = ProcedureParameter loc IsConst (TypeSpecifier iden loc) IsVariadic (VarName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (ProcedureParameter iden loc)  
@@ -398,14 +364,16 @@ instance (Hashable iden,Hashable loc) => Hashable (ProcedureParameter iden loc)
 
 instance Location loc => Located (ProcedureParameter iden loc) where
     type LocOf (ProcedureParameter iden loc) = loc
-    loc (ProcedureParameter l _ _ _) = l
-    loc (ConstProcedureParameter l _ _ _ _) = l
-    updLoc (ProcedureParameter _ b x y) l = ProcedureParameter l b x y
-    updLoc (ConstProcedureParameter _ b x y z) l = ConstProcedureParameter l b x y z
+    loc (ProcedureParameter l _ _ _ _) = l
+    updLoc (ProcedureParameter _ isConst isHavoc x y) l = ProcedureParameter l isConst isHavoc x y
 
 instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ t b v) = ppVariadic (pp t) b <+> pp v
-    pp (ConstProcedureParameter _ t b v e) = text "const" <+> ppVariadic (pp t) b <+> pp v <+> ppOpt e (braces . pp)
+    pp (ProcedureParameter _ isConst t b v) = ppConst isConst (ppVariadic (pp t) b <+> pp v)
+
+ppConst True doc = text "const" <+> doc
+ppConst False doc = doc
+ppHavoc True doc = text "havoc" <+> doc
+ppHavoc False doc = doc
 
 -- Types:                                                                      
 
@@ -702,22 +670,25 @@ ppStruct :: PP iden => Maybe [(TemplateTypeArgument iden loc,IsVariadic)] -> Str
 ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
 ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap (ppVariadicArg pp) specials)) <+> braces (vcat $ map pp as)
   
-data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc)
+data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc) (Maybe (Sizes iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 attributeName :: Attribute iden loc -> AttributeName iden loc
-attributeName (Attribute _ t a) = a
+attributeName (Attribute _ t a szs) = a
 
 instance (Binary iden,Binary loc) => Binary (Attribute iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (Attribute iden loc)
  
 instance Location loc => Located (Attribute iden loc) where
     type LocOf (Attribute iden loc) = loc
-    loc (Attribute l _ _) = l
-    updLoc (Attribute _ x y) l = Attribute l x y
+    loc (Attribute l _ _ _) = l
+    updLoc (Attribute _ x y z) l = Attribute l x y z
   
 instance PP iden => PP (Attribute iden loc) where
-    pp (Attribute _ t v) = pp t <+> pp v <> char ';'
+    pp (Attribute _ t v szs) = pp t <+> pp v <> ppSizes szs <> char ';'
+        where
+        ppSizes Nothing = PP.empty
+        ppSizes (Just szs) = pp szs
 
 -- Procedures:
 
@@ -735,8 +706,6 @@ instance Location loc => Located (ReturnTypeSpecifier iden loc) where
 instance PP iden => PP (ReturnTypeSpecifier iden loc) where
     pp (ReturnType loc Nothing) = text "void"
     pp (ReturnType loc (Just t)) = pp t
-  
-ppConst isConst = if isConst then text "const" else PP.empty
   
 data ProcedureDeclaration iden loc
     = OperatorDeclaration loc
@@ -966,7 +935,6 @@ data Statement iden loc
     | DowhileStatement loc [LoopAnnotation iden loc] (Statement iden loc) (Expression iden loc)
     | AssertStatement loc (Expression iden loc)
     | SyscallStatement loc String [SyscallParameter iden loc]
-    | ConstStatement loc (ConstDeclaration iden loc)
     | VarStatement loc (VariableDeclaration iden loc)
     | ReturnStatement loc (Maybe (Expression iden loc))
     | ContinueStatement loc
@@ -989,7 +957,6 @@ instance Location loc => Located (Statement iden loc) where
     loc (AssertStatement l _) = l
     loc (SyscallStatement l _ _) = l
     loc (VarStatement l _) = l
-    loc (ConstStatement l _) = l
     loc (ReturnStatement l _) = l
     loc (ContinueStatement l) = l
     loc (BreakStatement l) = l
@@ -1004,7 +971,6 @@ instance Location loc => Located (Statement iden loc) where
     updLoc (AssertStatement _ x) l = AssertStatement l x
     updLoc (SyscallStatement _ x y) l = SyscallStatement l x y
     updLoc (VarStatement _ x) l = VarStatement l x
-    updLoc (ConstStatement _ x) l = ConstStatement l x
     updLoc (ReturnStatement _ x) l = ReturnStatement l x
     updLoc (ContinueStatement _) l = ContinueStatement l
     updLoc (BreakStatement _) l = BreakStatement l
@@ -1029,7 +995,6 @@ instance PP iden => PP (Statement iden loc) where
     pp (SyscallStatement _ n []) = text "__syscall" <> parens (text (show n)) <> semi
     pp (SyscallStatement _ n ps) = text "__syscall" <> parens (text (show n) <> comma <+> ppSyscallParameters ps) <> semi
     pp (VarStatement _ vd) = pp vd <> semi
-    pp (ConstStatement _ vd) = text "const" <+> pp vd <> semi
     pp (ReturnStatement _ e) = text "return" <+> ppMb e <> semi
     pp (ContinueStatement _) = text "continue" <> semi
     pp (BreakStatement _) = text "break" <> semi
@@ -1124,7 +1089,6 @@ data Expression iden loc
     | BytesFromStringExpr loc (Expression iden loc)
     | StringFromBytesExpr loc (Expression iden loc)
     | VArraySizeExpr loc (Expression iden loc)
-    | VArrayExpr loc (Expression iden loc) (Expression iden loc)
     | ProcCallExpr loc (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [(Expression iden loc,IsVariadic)]
     | PostIndexExpr loc (Expression iden loc) (Subscript iden loc)
     | SelectionExpr loc (Expression iden loc) (AttributeName iden loc)
@@ -1158,7 +1122,6 @@ instance Location loc => Located (Expression iden loc) where
     loc (BytesFromStringExpr l _) = l
     loc (StringFromBytesExpr l _) = l
     loc (VArraySizeExpr l _) = l
-    loc (VArrayExpr l _ _) = l
     loc (ProcCallExpr l _ _ _) = l
     loc (PostIndexExpr l _ _) = l
     loc (SelectionExpr l _ _) = l
@@ -1182,7 +1145,6 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (BytesFromStringExpr _ x) l = BytesFromStringExpr l x
     updLoc (StringFromBytesExpr _ x) l = StringFromBytesExpr l x
     updLoc (VArraySizeExpr _ x) l = VArraySizeExpr l x
-    updLoc (VArrayExpr _ x y) l = VArrayExpr l x y
     updLoc (ProcCallExpr _ x y z) l = ProcCallExpr l x y z
     updLoc (PostIndexExpr _ x y) l = PostIndexExpr l x y
     updLoc (SelectionExpr _ x y) l = SelectionExpr l x y
@@ -1217,7 +1179,6 @@ instance PP iden => PP (Expression iden loc) where
     pp (BytesFromStringExpr _ t) = text "__bytes_from_string" <> parens (pp t)
     pp (StringFromBytesExpr _ t) = text "__string_from_bytes" <> parens (pp t)
     pp (VArraySizeExpr _ e) = text "size..." <> parens (pp e)
-    pp (VArrayExpr _ e sz) = text "varray" <> parens (pp e <> comma <> pp sz)
     pp (ProcCallExpr _ n ts es) = pp n <> ppOpt ts (\ts -> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)) <> parens (sepBy comma $ map (ppVariadicArg pp) es)
     pp (PostIndexExpr _ e s) = pp e <> pp s
     pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v
@@ -1459,8 +1420,6 @@ $(deriveBifunctor ''TemplateArgName)
 $(deriveBifunctor ''Program)
 $(deriveBifunctor ''ImportDeclaration)
 $(deriveBifunctor ''GlobalDeclaration)
-$(deriveBifunctor ''ConstDeclaration)
-$(deriveBifunctor ''ConstInitialization)
 $(deriveBifunctor ''KindDeclaration)
 $(deriveBifunctor ''KindName)
 $(deriveBifunctor ''DomainDeclaration)

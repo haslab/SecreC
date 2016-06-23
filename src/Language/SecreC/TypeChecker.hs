@@ -98,9 +98,6 @@ tcGlobalDeclaration :: (ProverK loc m) => GlobalDeclaration Identifier loc -> Tc
 tcGlobalDeclaration (GlobalVariable l vd) = tcGlobal l $ do
     vd' <- tcVarDecl GlobalScope vd
     return $ GlobalVariable (notTyped "tcGlobalDeclaration" l) vd'
-tcGlobalDeclaration (GlobalConst l vd) = tcGlobal l $ do
-    vd' <- tcConstDecl GlobalScope vd
-    return $ GlobalConst (notTyped "tcGlobalDeclaration" l) vd'
 tcGlobalDeclaration (GlobalDomain l dd) = tcGlobal l $ do
     dd' <- tcDomainDecl dd
     return $ GlobalDomain (notTyped "tcGlobalDeclaration" l) dd'
@@ -110,6 +107,9 @@ tcGlobalDeclaration (GlobalKind l kd) = tcGlobal l $ do
 tcGlobalDeclaration (GlobalProcedure l pd) = tcGlobal l $ do
     pd' <- tcProcedureDecl newOperator newProcedure pd
     return $ GlobalProcedure (notTyped "tcGlobalDeclaration" l) pd'
+tcGlobalDeclaration (GlobalFunction l pd) = tcGlobal l $ do
+    pd' <- tcFunctionDecl newOperator newProcedure pd
+    return $ GlobalFunction (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalStructure l sd) = tcGlobal l $ do
     sd' <- tcStructureDecl newStruct sd
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
@@ -269,28 +269,23 @@ tcProcedureAnn (EnsuresAnn l isFree isLeak e) = insideAnnotation $ withLeak isLe
     e' <- tcAnnGuard e
     return $ EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak e'
 
-tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Constrained Var,IsVariadic))
-tcProcedureParam (ProcedureParameter l s isVariadic (VarName vl vi)) = do
+tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Var,IsVariadic))
+tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
     vi' <- addConst LocalScope False vi
     let v' = VarName (Typed vl ty) vi'
     isAnn <- getAnn
     newVariable LocalScope False isAnn v' Nothing
-    return (ProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v',(False,Constrained (fmap typed v') Nothing,isVariadic))
-tcProcedureParam (ConstProcedureParameter l s isVariadic (VarName vl vi) c) = do
+    return (ProcedureParameter (notTyped "tcProcedureParam" l) False s' isVariadic v',(False,(fmap typed v'),isVariadic))
+tcProcedureParam (ProcedureParameter l True s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
     vi' <- addConst LocalScope False vi
     let v' = VarName (Typed vl ty) vi'
     isAnn <- getAnn
     newVariable LocalScope True isAnn v' Nothing
-    (c',cstrsc) <- tcWithCstrs l "tcProcedureParam" $ mapM (withPure True . tcIndexCond) c
-    case c' of
-        Nothing -> return ()
-        Just x -> do
-            tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
-    return (ConstProcedureParameter (notTyped "tcProcedureParam" l) s' isVariadic v' c',(True,Constrained (fmap typed v') (fmap (fmap typed) c'),isVariadic))
+    return (ProcedureParameter (notTyped "tcProcedureParam" l) True s' isVariadic v',(True,(fmap typed v'),isVariadic))
 
 tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc)))
                 -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration VarIdentifier (Typed loc))
@@ -298,18 +293,18 @@ tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = do
     hdeps <- getDeps
     atts' <- mapM tcAttribute atts
     cl <- liftM decClass State.get
-    let t = IDecT $ StructType (locpos l) (TypeName () $ mkVarId tn) (Just $ map (fmap typed) (map attributeName atts')) cl
+    let t = IDecT $ StructType (locpos l) (TypeName () $ mkVarId tn) (Just $ map (fmap typed) atts') cl
     let ty' = TypeName (Typed tl t) $ mkVarId tn
     ty'' <- addStruct hdeps ty'
     dec2StructDecl l $ unDecT $ typed $ loc ty''
     --return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'
 
 tcAttribute :: (ProverK loc m) => Attribute Identifier loc -> TcM m (Attribute VarIdentifier (Typed loc))
-tcAttribute (Attribute l ty (AttributeName vl vn)) = do
+tcAttribute (Attribute l ty (AttributeName vl vn) szs) = do
     ty' <- tcTypeSpec ty False
-    let t = typed $ loc ty'
+    (t,szs') <- tcTypeSizes l (typed $ loc ty') szs
     let v' = AttributeName (Typed vl t) $ mkVarId vn
-    return $ Attribute (notTyped "tcAttribute" l) ty' v'
+    return $ Attribute (Typed vl t) ty' v' szs'
 
 tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration VarIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate $ do

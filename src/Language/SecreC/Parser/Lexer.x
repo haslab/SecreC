@@ -69,6 +69,8 @@ tokens :-
 <state_string_variable> @identifier             { leaveStateStringVariable }
 
 -- Keywords:
+<0>                     function              { lexerTokenInfo FUNCTION }
+<0>                     havoc                 { lexerTokenInfo HAVOC }
 <0>                     \\result              { lexerAnnTokenInfo RESULT }
 <0>                     forall                { lexerAnnTokenInfo FORALL }
 <0>                     exists                { lexerAnnTokenInfo EXISTS }
@@ -123,13 +125,11 @@ tokens :-
 <0>                     assume                { lexerAnnTokenInfo ASSUME }
 <0>                     leakage               { lexerAnnTokenInfo LEAKAGE }
 <0>                     axiom                 { lexerAnnTokenInfo AXIOM }
-<0>                     function              { lexerAnnTokenInfo FUNCTION }
 <0>                     nonpublic             { lexerAnnTokenInfo NONPUBLIC }
 <0>                     invariant             { lexerAnnTokenInfo INVARIANT }
 
 -- built-in functions:
 <0>                     "size..."             { lexerTokenInfo VSIZE }
-<0>                     "varray"              { lexerTokenInfo VARRAY }
 <0>                     __bytes_from_string   { lexerTokenInfo BYTESFROMSTRING }
 <0>                     __cref                { lexerTokenInfo CREF }
 <0>                     __domainid            { lexerTokenInfo DOMAINID }
@@ -302,7 +302,7 @@ instance MonadError SecrecError Alex where
     throwError e = Alex $ \ s -> Left (show e)
     catchError (Alex un) f = Alex $ \ s -> either (catchMe s) Right (un s)
         where 
-        catchMe s = fmap (split (const s) id) . runAlex "" . f . GenericError (UnhelpfulPos "lexer") . text
+        catchMe s x = fmap (split (const s) id) $ runAlex "" $ f $ GenericError (UnhelpfulPos "lexer") (text x) Nothing
 
 {-# INLINE split #-}
 split :: (a -> b) -> (a -> c) -> a -> (b, c)
@@ -336,7 +336,7 @@ runLexer :: Bool -> String -> String -> Either String [TokenInfo]
 runLexer isAnn fn str = runLexerWith isAnn fn str alexStartPos return
 
 injectResult :: Either String a -> Alex a
-injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") $ text err)
+injectResult (Left err) = throwError (GenericError (UnhelpfulPos "inject") (text err) Nothing)
 injectResult (Right a) = return a
 
 -- | Alex lexer

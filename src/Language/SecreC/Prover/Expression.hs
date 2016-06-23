@@ -69,11 +69,11 @@ stmts2Prover = mapM_ stmt2Prover
 
 stmt2Prover :: (ProverK loc m) => Statement VarIdentifier (Typed loc) -> ExprM m ()
 stmt2Prover (CompoundStatement l ss) = localExprM $ stmts2Prover ss
-stmt2Prover (VarStatement l (VariableDeclaration _ t vs)) = mapM_ varInit2Prover vs
-stmt2Prover (ConstStatement l (ConstDeclaration _ t vs)) = mapM_ constInit2Prover vs
+stmt2Prover (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) = mapM_ (varInit2Prover (unTyped l) isConst isHavoc) vs
 stmt2Prover (AssertStatement {}) = return ()
 stmt2Prover (SyscallStatement l n args) = syscall2Prover (unTyped l) n args
 stmt2Prover (ExpressionStatement l e) = expr2ProverMb e >> return ()
+stmt2Prover (AnnStatement l ann) = return ()
 stmt2Prover s = lift $ genTcError (locpos $ unTyped $ loc s) $ text "failed to convert statement" <+> pp s <+> text "to prover expression"
     
 syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter VarIdentifier (Typed loc)] -> ExprM m ()
@@ -111,15 +111,14 @@ corecall2Prover l "size"        [e]     = do
         otherwise -> return $ ISize e
 corecall2Prover l n es = lift $ genTcError (locpos l) $ text "failed to convert core call" <+> pp n <+> parens (sepBy comma $ map pp es) <+> text "to prover expression"
     
-varInit2Prover :: (ProverK loc m) => VariableInitialization VarIdentifier (Typed loc) -> ExprM m ()
-varInit2Prover (VariableInitialization _ v@(VarName l n) _ e) = do
+varInit2Prover :: (ProverK loc m) => loc -> Bool -> Bool -> VariableInitialization VarIdentifier (Typed loc) -> ExprM m ()
+varInit2Prover l isConst True (VariableInitialization _ v@(VarName vl n) _ e) = do
     ie <- mapM expr2Prover e
-    addVar n (ie,Just $ typed l)
-
-constInit2Prover :: (ProverK loc m) => ConstInitialization VarIdentifier (Typed loc) -> ExprM m ()
-constInit2Prover (ConstInitialization _ v@(VarName l n) _ e) = do
-    ie <- mapM expr2Prover e
-    addVar n (ie,Just $ typed l)
+    addVar n (ie,Just $ typed vl)
+varInit2Prover l isConst False (VariableInitialization _ v@(VarName vl n) _ (Just e)) = do
+    ie <- expr2Prover e
+    addVar n (Just ie,Just $ typed vl)
+varInit2Prover l isConst isHavoc vd = lift $ genTcError (locpos l) $ text "failed to convert variable initialization to core" <+> pp isConst <+> pp isHavoc <+> pp vd
 
 expr2ProverMb :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m (Maybe IExpr)
 expr2ProverMb (RVariablePExpr l v@(VarName tl n)) = do
@@ -151,7 +150,7 @@ expr2ProverMb e = lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to
     
 proverProcError str (DecT (DVar v)) e = do
     lift $ addGDependencies $ Left v
-    lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError $ text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression"
+    lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError (text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression") Nothing
 proverProcError str t e = do
     lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression: unknown declaration type" <+> pp t
     

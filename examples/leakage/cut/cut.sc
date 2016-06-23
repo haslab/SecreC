@@ -1,5 +1,5 @@
-module cut;
-    
+
+module ex;
 
 kind privatek;
 domain private privatek;
@@ -17,8 +17,11 @@ bool declassify(private bool b) {
 //@ axiom <domain D,type T> (D T[[1]] xs)
 //@ ensures size(xs) == size(multiset(xs));
 
+//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ ensures multiset(xs[:size(xs)]) == multiset(xs);
+
 //@ axiom <domain D,type T> (D T[[1]] xs, uint i)
-//@ requires 0 <= i < size(xs);
+//@ requires 0 <= i && i < size(xs);
 //@ ensures multiset(xs[:i+1]) == multiset(xs[:i]) + multiset{xs[i]};
 
 pair shuffle_pair (private int[[1]] x,private bool[[1]] y)
@@ -45,11 +48,12 @@ private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
     uint i = 0;
     private int[[1]] x;
     while (i < size(mS))
-    //@ invariant 0 <= i <= |aS|
-    //@ invariant multiset(x) <= multiset(aS[..i])
+    //@ invariant 0 <= i && i <= size(aS);
+    //@ invariant multiset(x) <= multiset(aS[:i]);
     {
         if (declassify(mS[i])) { x = cat(x,{aS[i]}); }
         i = i + 1;
     }
+    //@ assume multiset(aS[:size(aS)]) == multiset(aS);
     return x;
 }

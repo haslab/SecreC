@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-cse #-}
 
 module Main where
@@ -17,15 +17,20 @@ import Language.SecreC.TypeChecker.Environment
 import Language.SecreC.TypeChecker
 import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Monad
+import Language.SecreC.Error
 import Language.SecreC.Utils
 import Language.SecreC.Location
 import Language.SecreC.Transformation.Simplify
+import Language.SecreC.Transformation.Default
 import Language.SecreC.Transformation.Dafny
 
 import System.Console.CmdArgs
 import System.Environment
 import System.FilePath
 import System.IO
+import System.Posix.Escape
+import System.Process
+import System.Exit
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -73,8 +78,8 @@ addImportPaths opts = do
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")
 
-dafnyLeakagePrelude :: IO FilePath
-dafnyLeakagePrelude = getDataFileName ("imports" </> "leakage.dfy")
+dafnyPrelude :: IO FilePath
+dafnyPrelude = getDataFileName ("imports" </> "prelude.dfy")
 
 -- back-end code
 
@@ -116,7 +121,9 @@ typecheck modules = do
     let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ modules) <+> text str <> char '.'
     if (typeCheck opts)
         then do
-            typedModules <- mapM tcModuleFile modules
+            modules' <- mapM defaultModuleFile modules
+            --liftIO $ putStrLn $ show $ text "defaults" <+> vcat (map (\(Left (x,y,z)) -> pp z) $ filter (either (const True) (const False)) modules')
+            typedModules <- mapM (tcModuleFile) modules'
             printMsg "are well-typed"
             return $ Just typedModules
         else do
@@ -129,13 +136,61 @@ verifyDafny files = do
     when (verify opts) $ do
         let dfyfile = "out.dfy"
         let dfylfile = "out_leak.dfy"
+        let bplfile = "out.bpl"
+        let bplfile2 = "out_axiom.bpl"
+        let bpllfile = "out_leak.bpl"
+        let bpllfile2 = "out_leak_axiom.bpl"
         liftIO $ putStrLn $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
-        leakagePrelude <- liftIO dafnyLeakagePrelude
+        prelude <- liftIO dafnyPrelude
         es <- getEntryPoints files
-        (dfy,axs) <- toDafny leakagePrelude False es
-        (dfyl,axsl) <- toDafny leakagePrelude True es
+        (dfy,axs) <- toDafny prelude False es
         liftIO $ writeFile dfyfile (show dfy)
+        liftIO $ putStrLn $ show $ text "Generating Dafny output leakage file" <+> text (show dfylfile)
+        (dfyl,axsl) <- toDafny prelude True es
         liftIO $ writeFile dfylfile (show dfyl)
+        compileDafny dfyfile bplfile
+        axiomatizeBoogaman axs bplfile bplfile2
+        runBoogie bplfile2
+        compileDafny dfylfile bpllfile
+        shadowBoogaman axsl bpllfile bpllfile2
+        runBoogie bpllfile2
+
+command :: (MonadIO m,MonadError SecrecError m) => String -> m ()
+command cmd = do
+    liftIO $ putStrLn $ "Running command " ++ show cmd
+    exit <- liftIO $ system cmd
+    case exit of
+        ExitSuccess -> return ()
+        ExitFailure err -> genError noloc $ int err
+
+compileDafny :: (MonadIO m,MonadError SecrecError m) => FilePath -> FilePath -> m ()
+compileDafny dfy bpl = do
+    liftIO $ putStrLn $ show $ text "Compiling Dafny file" <+> text (show dfy)
+    command $ "dafny /compile:0 " ++ dfy ++ " /print:" ++ bpl ++ " /noVerify"
+
+axiomatizeBoogaman :: (MonadIO m,MonadError SecrecError m) => [String] -> FilePath -> FilePath -> m ()
+axiomatizeBoogaman axioms bpl1 bpl2 = do
+    liftIO $ putStrLn $ show $ text "Axiomatizing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
+    let addaxiom x = text "--axioms=" <> text (escape x)
+    command $ show $ text "boogaman" <+> text bpl1
+        <+> Pretty.sepBy space (map addaxiom axioms)
+        <+> text ">" <+> text bpl2
+    
+shadowBoogaman :: (MonadIO m,MonadError SecrecError m) => [String] -> FilePath -> FilePath -> m ()
+shadowBoogaman axioms bpl1 bpl2 = do
+    liftIO $ putStrLn $ show $ text "Shadowing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
+    let addaxiom x = text "--axioms=" <> text (escape x)
+    command $ show $ text "boogaman" <+> text bpl1
+        <+> text "--vcgen=dafny"
+        <+> text "--filterleakage=true"
+        <+> text "--shadow"
+        <+> Pretty.sepBy space (map addaxiom $ axioms ++ map (++".shadow") axioms)
+        <+> text ">" <+> text bpl2
+
+runBoogie :: (MonadIO m,MonadError SecrecError m) => FilePath -> m ()
+runBoogie bpl = do
+    liftIO $ putStrLn $ show $ text "Verifying Boogie file" <+> text (show bpl)
+    command $ show $ text "boogie /doModSetAnalysis" <+> text bpl
 
 getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]
 getEntryPoints files = do

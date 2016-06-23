@@ -1,8 +1,10 @@
 module Language.Boogie.Transformation.Axiomatize where
 
 import Language.Boogie.AST
+import Language.Boogie.Options
 import Language.Boogie.Position
 import Language.Boogie.Exts
+import Language.Boogie.Analysis.Leakage
 
 import Control.Monad
 import Control.Monad.Reader
@@ -15,16 +17,16 @@ import qualified Data.Map as Map
 
 type AxiomM = State AxiomSt
 
-data AxiomSt = AxiomSt { axioms :: Set Id, globalVars :: Map Id (Type,Expression) }
+data AxiomSt = AxiomSt { pAxioms :: Set Id, pGlobalVars :: Map Id (Type,Expression) }
 
-axiomatizeProgram :: Program -> AxiomM Program
-axiomatizeProgram (Program decls) = do
-    decls' <- concatMapM axiomatizeDecl decls
+axiomatizeProgram :: Options -> Program -> AxiomM Program
+axiomatizeProgram opts (Program decls) = do
+    decls' <- concatMapM (axiomatizeDecl opts) decls
     return $ Program decls'
 
-axiomatizeDecl :: Decl -> AxiomM [Decl]
-axiomatizeDecl (Pos p d) = do
-    ds' <- axiomatizeBareDecl d
+axiomatizeDecl :: Options -> Decl -> AxiomM [Decl]
+axiomatizeDecl opts (Pos p d) = do
+    ds' <- axiomatizeBareDecl opts d
     return $ map (Pos p) ds'
 
 splitContracts :: [Contract] -> ([Expression],[Id],[Expression])
@@ -36,24 +38,25 @@ splitContracts (Ensures _ e:cs) = let (rs,ms,es) = splitContracts cs in (rs,ms,e
 findGlobalVars :: [Id] -> AxiomM ([IdType],[Expression])
 findGlobalVars [] = return ([],[])
 findGlobalVars (i:is) = do
-    vs <- liftM globalVars State.get
+    vs <- liftM pGlobalVars State.get
     let (t,w) = (Map.!) vs i
     (its',ws') <- findGlobalVars is
     return ((i,t):its',w:ws')
 
-axiomatizeBareDecl :: BareDecl -> AxiomM [BareDecl]
-axiomatizeBareDecl d@(ProcedureDecl atts name targs args _ contracts _) = do
-    axs <- liftM axioms State.get
+axiomatizeBareDecl :: Options -> BareDecl -> AxiomM [BareDecl]
+axiomatizeBareDecl opts d@(ProcedureDecl atts name targs args _ contracts _) = do
+    axs <- liftM pAxioms State.get
     if Set.member name axs
         then do
             let args' = map (\itw -> (itwId itw,itwType itw)) args
             let wheres = map itwWhere args
             let (requires,modifies,ensures) = splitContracts contracts
             (gvars,gwheres) <- findGlobalVars modifies
-            let ax = AxiomDecl (atts) $ Pos noPos $ Quantified Forall targs (args'++gvars) [] $ andExprs (wheres++gwheres++requires) `impliesExpr` andExprs (filter (not . hasOldExpr) ensures)
+            let leakatt = if isLeakFunName opts name then [Attribute "leakage" []] else []
+            let ax = AxiomDecl (leakatt ++ atts) $ Pos noPos $ Quantified Forall targs (args'++gvars) [] $ andExprs (wheres++gwheres++requires) `impliesExpr` andExprs (filter (not . hasOldExpr) ensures)
             return [d,ax]
         else return [d]
-axiomatizeBareDecl d = return [d]
+axiomatizeBareDecl opts d = return [d]
 
 
 

@@ -48,6 +48,7 @@ data SecrecError = TypecheckerError Position TypecheckerErr
                  | GenericError
                      Position -- ^ position
                      Doc -- ^message
+                     (Maybe SecrecError) -- recursive error
                  | MultipleErrors [SecrecError] -- a list of errors
                  | TimedOut Int -- timed out after @x@ seconds
                  | OrWarn -- ^ optional constraint, just throw a warning
@@ -63,7 +64,7 @@ instance Located SecrecError where
      loc (TypecheckerError p _) = p
      loc (ParserError _) = noloc
      loc (ModuleError p _) = p
-     loc (GenericError p _) = p
+     loc (GenericError p _ _) = p
      loc (MultipleErrors es) = minimum (map loc es)
      loc (TimedOut _) = noloc
      loc (OrWarn e) = loc e
@@ -74,7 +75,7 @@ instance PP SecrecError where
     pp (TypecheckerError p err) = pp p <> char ':' $+$ nest 4 (pp err)
     pp (ParserError err) = pp err
     pp (ModuleError p err) = pp p <> char ':' $+$ nest 4 (pp err)
-    pp (GenericError p msg) = pp p <> char ':' $+$ nest 4 msg
+    pp (GenericError p msg err) = pp p <> char ':' $+$ nest 4 msg $+$ text "Because of:" <+> pp err
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
     pp (OrWarn err) = text "Warning: " <+> pp err
@@ -85,6 +86,7 @@ data TypecheckerErr
         Doc -- unreachable statements
     | GenTcError -- generic typechecker error
         Doc -- message
+        (Maybe SecrecError)
     | Halt -- ^ an error because of lacking information
         TypecheckerErr
     | NonStaticDimension -- ^ array dimension is not known statically
@@ -240,7 +242,7 @@ instance Binary TypecheckerErr
 instance Hashable TypecheckerErr
 
 instance PP TypecheckerErr where
-    pp (GenTcError doc) = doc
+    pp (GenTcError doc err) = doc $+$ nest 4 (text "Because of:" <+> pp err)
     pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
     pp (IndexConditionNotValid c err) = text "Failed to satisfy index condition:" $+$ nest 4
         (text "Index condition:" <+> c
@@ -380,7 +382,7 @@ modError :: MonadError SecrecError m => Position -> ModuleErr -> m a
 modError pos msg = throwError $ moduleError pos msg
 
 genError :: MonadError SecrecError m => Position -> Doc -> m a
-genError pos msg = throwError $ GenericError pos msg
+genError pos msg = throwError $ GenericError pos msg Nothing
 
 typecheckerError :: Position -> TypecheckerErr -> SecrecError
 typecheckerError = TypecheckerError

@@ -4,23 +4,40 @@ module ex;
 kind privatek;
 domain private privatek;
 
+int declassify(private int x) {
+    return __builtin("core.declassify",x) :: int;
+}
+bool declassify(private bool x) {
+    return __builtin("core.declassify",x) :: bool;
+}
+private int classify(int x) {
+    return __builtin("core.classify",x) :: private int;
+}
+private bool classify(bool x) {
+    return __builtin("core.classify",x) :: private bool;
+}
+
 struct pair {
     private int[[1]] left;
     private bool[[1]] right;
 }
 
-bool declassify(private bool b) {
-
-    return __builtin("core.declassify",b);
-}
-
 //@ axiom <domain D,type T> (D T[[1]] xs)
 //@ ensures size(xs) == size(multiset(xs));
 
+//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ requires xs == {};
+//@ ensures multiset(xs) == multiset{};
+
+//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ ensures multiset(xs[:size(xs)]) == multiset(xs);
 
 //@ axiom <domain D,type T> (D T[[1]] xs, uint i)
 //@ requires 0 <= i && i < size(xs);
 //@ ensures multiset(xs[:i+1]) == multiset(xs[:i]) + multiset{xs[i]};
+
+//lixo!! //@ axiom <domain D,type T> (D T[[1]] xs,D T[[1]] ys)
+//lixo!! //@ ensures xs == ys <==> |xs| == |ys| && forall uint i; xs[i] == ys[i];
 
 pair shuffle_pair (private int[[1]] x,private bool[[1]] y)
 //@ requires size(x) == size(y);
@@ -29,14 +46,13 @@ pair shuffle_pair (private int[[1]] x,private bool[[1]] y)
 //@ free leakage ensures public(multiset(x)) ==> public(\result.left);
 //@ free leakage ensures public(multiset(y)) ==> public(\result.right);
 {
-    //stub;
-    pair pS;
-    return pS;
+    havoc pair ret;
+    return ret;
 }
 
 private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
 //@ requires size(a) == size(m);
-//@ leakage requires public(multiset(m));
+//x //@ leakage requires public(multiset(m));
 //@ ensures multiset(\result) <= multiset(a);
 {
     pair amS = shuffle_pair (a,m);
@@ -44,11 +60,13 @@ private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
     private bool[[1]] mS = amS.right;
     
     uint i = 0;
-    private int[[1]] x;
+    private int[[1]] x = {};
+
     while (i < size(mS))
     //@ invariant 0 <= i && i <= size(aS);
     //@ invariant multiset(x) <= multiset(aS[:i]);
     {
+        //lixo!!! //@ leakage assume forall uint j; (0 <= j && j < size(mS)) ==> public(mS[j]);
         if (declassify(mS[i])) { x = cat(x,{aS[i]}); }
         i = i + 1;
     }

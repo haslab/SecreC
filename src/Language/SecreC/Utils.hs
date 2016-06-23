@@ -45,6 +45,8 @@ import Unsafe.Coerce
 import System.Mem.Weak.Exts as Weak
 import System.Directory
 import System.IO.Error
+import System.IO
+import System.Process
 
 import Safe
 
@@ -639,3 +641,11 @@ compLns l1 l2 = Lns get put
 canonicalPath :: FilePath -> IO FilePath
 canonicalPath f = catchIOError (canonicalizePath f) (const $ return f)
     
+runShellCommand :: String -> IO String
+runShellCommand cmd = do
+    hPutStrLn stderr $ "Running command " ++ cmd
+    let process = (shell cmd) { std_out = CreatePipe }
+    (_,Just hout,_,ph) <- createProcess process
+    result <- hGetContents hout
+    waitForProcess ph
+    return result

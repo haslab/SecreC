@@ -26,7 +26,7 @@ tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 
 tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
-repeatExpr :: ProverK loc m => loc -> Bool -> Expr -> ComplexType -> TcM m Expr
+repeatExpr :: ProverK loc m => loc -> Bool -> Expr -> Maybe Expr -> ComplexType -> TcM m Expr
 
 eqExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 
@@ -37,6 +37,18 @@ tcPureExpr :: ProverK loc m => Expression Identifier loc -> TcM m (Expression Va
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 
 allExprs :: ProverK loc m => loc -> Bool -> [Expr] -> TcM m Expr
+
+andExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc) -> Expression iden (Typed loc)
+
+andExprsLoc :: Location loc => [Expression iden (Typed loc)] -> Expression iden (Typed loc)
+
+multiplyIndexVariadicExprs :: (ProverK loc m) => loc -> Bool -> [(Expr,IsVariadic)] -> TcM m Expr
+
+classifyExpr :: ProverK loc m => loc -> Bool -> Expr -> ComplexType -> TcM m Expr
+
+reshapeExpr :: ProverK loc m => loc -> Bool -> Expr -> [(Expr,IsVariadic)] -> Type -> TcM m Expr
+
+impliesExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc) -> Expression iden (Typed loc)
 
 tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 

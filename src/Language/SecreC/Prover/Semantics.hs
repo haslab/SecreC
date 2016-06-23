@@ -70,7 +70,7 @@ evalIExpr l (ILit lit) = return lit
 evalIExpr l (IIdx v@(VarName t n@(nonTok -> True))) = do
     mb <- tryResolveEVar l n t
     case mb of
-        Nothing -> tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) $ text "variable binding for" <+> pp v <+> text "not found"
+        Nothing -> tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) (text "variable binding for" <+> pp v <+> text "not found") Nothing
         Just e -> expr2IExpr e >>= evalIExpr l
 evalIExpr l (IBinOp o e1 e2) = do
     e1' <- evalIExpr l e1
@@ -84,8 +84,12 @@ evalIExpr l (ICond c e1 e2) = do
    case c' of
        IBool True -> evalIExpr l e1
        IBool False -> evalIExpr l e2
-evalIExpr l (ISize e) = do
-    typeSize l (iExprTy e) >>= expr2IExpr  . fmap (Typed l) >>= evalIExpr l
+evalIExpr l (ISize (IArr _ xs)) = do
+    let sz = fromInteger $ toInteger $ sum $ List.map length xs
+    return $ IUint64 sz
+evalIExpr l (IShape (IArr _ xs)) = do
+    let szs = List.map (fromInteger . toInteger . length) xs
+    return $ ILitArr index [List.map (IUint64) szs]
 
 evalIBinOp :: ProverK loc m => loc -> IBOp -> ILit -> ILit -> TcM m ILit
 evalIBinOp l IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2

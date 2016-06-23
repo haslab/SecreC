@@ -54,3 +54,5 @@ typeToPrimType :: (ProverK loc m) => loc -> Type -> TcM m Prim
 typeBase :: (ProverK loc m) => loc -> Type -> TcM m Type
 
 variadicBase :: Type -> Type
+
+defaultExpr :: ProverK loc m => loc -> Type -> Maybe [(Expr,IsVariadic)] -> TcM m Expr

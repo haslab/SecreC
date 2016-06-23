@@ -545,7 +545,7 @@ failTcM l m = do
     opts <- TcM $ lift Reader.ask
     if failTypechecker opts
         then catchError
-            (m >> liftIO (die $ ppr $ GenericError (locpos l) $ text "Typechecking should have failed"))
+            (m >> liftIO (die $ ppr $ GenericError (locpos l) (text "Typechecking should have failed") Nothing))
             (\e -> liftIO (hPutStrLn stderr (ppr e) >> exitSuccess))
         else m
 
@@ -638,6 +638,7 @@ data TcCstr
     | IsPrivate Type
     | ToMultiset Type ComplexType
     | Resolve Type
+    | Default (Maybe [(Expr,IsVariadic)]) Expr
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Binary TcCstr
@@ -820,6 +821,7 @@ instance PP TcCstr where
     pp (IsPublic e) = text "ispublic" <+> pp e
     pp (IsPrivate e) = text "isprivate" <+> pp e
     pp (Resolve e) = text "resolve" <+> pp e
+    pp (Default szs e) = text "default" <+> pp szs <+> pp e
     pp (ToMultiset t r) = text "tomultiset" <+> pp t <+> pp r
 
 instance PP CheckCstr where
@@ -871,8 +873,15 @@ instance PP [Type] where
     
 instance PP [(Type,IsVariadic)] where
     pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
+instance PP [(Constrained Var,IsVariadic)] where
+    pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
     
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m [Type] where
+    traverseVars f xs = mapM f xs
+    
+instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m [(Type, IsVariadic)] where
+    traverseVars f xs = mapM f xs
+instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m [(Constrained Var, IsVariadic)] where
     traverseVars f xs = mapM f xs
     
 data ArrayIndex
@@ -907,6 +916,15 @@ arrayIndexExpr (DynArrayIndex e) = e
 
 indexExpr :: Word64 -> Expression iden Type
 indexExpr i = LitPExpr (BaseT index) $ IntLit (BaseT index) $ toInteger i
+
+intExpr :: Type -> Integer -> Expression iden Type
+intExpr t i = LitPExpr t $ IntLit t i
+
+floatExpr :: Type -> Double -> Expression iden Type
+floatExpr t i = LitPExpr t $ FloatLit t i
+
+stringExpr :: String -> Expression iden Type
+stringExpr s = LitPExpr (BaseT string) $ StringLit (BaseT string) s
 
 trueExpr :: CondExpression iden Type
 trueExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) True)
@@ -1002,6 +1020,10 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
     traverseVars f (Resolve t) = do
         t' <- f t
         return $ Resolve t'
+    traverseVars f (Default szs t) = do
+        szs' <- mapM f szs
+        t' <- f t
+        return $ Default szs' t'
     traverseVars f (ToMultiset t r) = do
         t' <- f t
         r' <- f r
@@ -1356,7 +1378,7 @@ data InnerDecType
     = ProcType -- ^ procedure type
         Position
         PIdentifier
-        [(Bool,Constrained Var,IsVariadic)] -- typed procedure arguments
+        [(Bool,Var,IsVariadic)] -- typed procedure arguments
         Type -- return type
         [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the procedure's annotations
         (Maybe [Statement VarIdentifier (Typed Position)]) -- ^ the procedure's body
@@ -1365,7 +1387,7 @@ data InnerDecType
         Bool -- is leakage function
         Position
         PIdentifier
-        [(Bool,Constrained Var,IsVariadic)] -- typed function arguments
+        [(Bool,Var,IsVariadic)] -- typed function arguments
         Type -- return type
         [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the function's annotations
         (Maybe (Expression VarIdentifier (Typed Position))) -- ^ the function's body
@@ -1373,12 +1395,12 @@ data InnerDecType
     | StructType -- ^ Struct type
         Position -- ^ location of the procedure declaration
         SIdentifier
-        (Maybe [AttributeName VarIdentifier Type]) -- ^ typed arguments
+        (Maybe [Attribute VarIdentifier Type]) -- ^ typed arguments
         DecClass -- the type of struct
     | AxiomType
         Bool -- is leakage axiom
         Position
-        [(Bool,Constrained Var,IsVariadic)] -- typed function arguments
+        [(Bool,Var,IsVariadic)] -- typed function arguments
         [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the procedure's annotations
         DecClass
         
@@ -1545,7 +1567,7 @@ instance PP SecType where
     pp (SVar v k) = parens (pp v <+> text "::" <+> pp k)
 instance PP DecType where
     pp (DecType did isrec vars hdict hfrees dict frees specs body@(StructType _ n atts cl)) =
-        pp did
+        pp did <+> pp isrec
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
@@ -1553,55 +1575,55 @@ instance PP DecType where
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         $+$ text "struct" <+> pp n <> abrackets (sepBy comma $ map pp specs) <+> ppOpt atts (braces . vcat . map ppAtt)
       where
-        ppAtt (AttributeName t n) = pp t <+> pp n
+        ppAtt (Attribute t _ n szs) = pp t <+> pp n <> pp szs
     pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret ann stmts _)) =
-        pp did
+        pp did <+> pp isrec
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp)
     pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) =
-        pp did
+        pp did <+> pp isrec
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp)
     pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType isLeak _ (Left n) args ret ann stmts _)) =
-        ppLeak isLeak (pp did
+        ppLeak isLeak (pp did <+> pp isrec
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp))
     pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType isLeak _ (Right n) args ret ann stmts _)) =
-        ppLeak isLeak (pp did
+        ppLeak isLeak (pp did <+> pp isrec
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "template" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        $+$ pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp))
     pp (DecType did isrec vars hdict hfrees dict frees [] body@(AxiomType isLeak _ args ann _)) =
-        ppLeak isLeak (pp did
+        ppLeak isLeak (pp did <+> pp isrec
         $+$ text "Frees:" <+> pp hfrees
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
         $+$ text "axiom" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
-        <+> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+        <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann)
     pp (DVar v) = pp v
     pp d = error $ "pp: " ++ show d
@@ -1609,30 +1631,30 @@ instance PP DecType where
 instance PP InnerDecType where
     pp (StructType _ n atts cl) = text "struct" <+> pp n <+> ppOpt atts (braces . vcat . map ppAtt)
         where
-        ppAtt (AttributeName t n) = pp t <+> pp n
+        ppAtt (Attribute t _ n szs) = pp t <+> pp n <> pp szs
     pp (ProcType _ (Left n) args ret ann stmts _) =
-            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp)
     pp (ProcType _ (Right n) args ret ann stmts _) =
-            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp)
     pp (FunType isLeak _ (Left n) args ret ann stmts _) =
-            ppLeak isLeak (pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            ppLeak isLeak (pp ret <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp))
     pp (FunType isLeak _ (Right n) args ret ann stmts _) =
-            ppLeak isLeak (pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            ppLeak isLeak (pp ret <+> text "operator" <+> pp n <> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp))
     pp (AxiomType isLeak _ args ann _) =
-            ppLeak isLeak (text "axiom" <+> parens (sepBy comma $ map (\(isConst,Constrained (VarName t n) c,isVariadic) -> ppConst isConst <+> ppVariadic (pp t) isVariadic <+> pp n <+> ppOpt c (braces . pp)) args)
+            ppLeak isLeak (text "axiom" <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann)
         
 instance PP BaseType where
     pp (TyPrim p) = pp p
-    pp (TApp n ts d) = braces (pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts) <+> pp d)
+    pp (TApp n ts d) = parens (pp n <> abrackets (sepBy comma $ map (ppVariadicArg pp) ts) <+> pp d)
     pp (MSet t) = text "multiset" <> braces (pp t)
     pp (BVar v) = pp v
 instance PP ComplexType where
@@ -1793,6 +1815,14 @@ isNumericBaseType t = isIntBaseType t || isFloatBaseType t
 
 isNumericPrimType :: Prim -> Bool
 isNumericPrimType t = isIntPrimType t || isFloatPrimType t
+
+isPrimType :: Type -> Bool
+isPrimType (BaseT b) = isPrimBaseType b
+isPrimType _ = False
+
+isPrimBaseType :: BaseType -> Bool
+isPrimBaseType (TyPrim {}) = True
+isPrimBaseType _ = False
 
 instance PP StmtClass where
     pp = text . show
@@ -2135,8 +2165,8 @@ type TIdentifier = Either SIdentifier PIdentifier
 
 type SIdentifier = TypeName VarIdentifier ()
 
-ppStructAtt :: Attribute VarIdentifier Type -> Doc
-ppStructAtt (Attribute _ t n) = pp t <+> pp n
+--ppStructAtt :: Attribute VarIdentifier Type -> Doc
+--ppStructAtt (Attribute _ t n szs) = pp t <+> pp n
 
 ppTpltArg :: Constrained Var -> Doc
 ppTpltArg = ppConstrained ppTpltArg'

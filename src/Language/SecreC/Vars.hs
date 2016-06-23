@@ -112,6 +112,9 @@ class (GenVar iden m,IsScVar iden,MonadIO m,IsScVar a) => Vars iden m a where
     varsM :: a -> VarsM iden m a
     varsM x = traverseVars varsM x
 
+fvsSet :: Vars iden m a => a -> m (Set iden)
+fvsSet = liftM Map.keysSet . fvs
+
 substsFromMap :: (Vars iden m r) => Map iden r -> Substs iden m
 substsFromMap xs = let f = unSubstsProxy (substsProxyFromMap xs) in f Proxy
 
@@ -330,19 +333,11 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             return $ AxiomDeclaration isLeak l' qs' args' anns'
 
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
-    traverseVars f (ProcedureParameter l b t v) = do
+    traverseVars f (ProcedureParameter l isConst t isVariadic v) = do
         l' <- f l
-        b' <- f b
         t' <- f t
         v' <- inLHS $ f v
-        return $ ProcedureParameter l' b' t' v'
-    traverseVars f (ConstProcedureParameter l b t v e) = do
-        l' <- f l
-        b' <- f b
-        t' <- f t
-        v' <- inLHS $ f v
-        e' <- f e
-        return $ ConstProcedureParameter l' b' t' v' e'
+        return $ ProcedureParameter l' isConst t' isVariadic v'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
     traverseVars f (ReturnType l mb) = do
@@ -485,10 +480,6 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         vd' <- f vd
         return $ VarStatement l' vd'
-    traverseVars f (ConstStatement l vd) = do
-        l' <- f l
-        vd' <- f vd
-        return $ ConstStatement l' vd'
     traverseVars f (ReturnStatement l e) = do
         l' <- f l
         e' <- mapM f e
@@ -590,11 +581,6 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         n <- f n
         e' <- f e
         return $ BuiltinExpr l' n e'
-    traverseVars f (VArrayExpr l e sz) = do
-        l' <- f l
-        e' <- f e
-        sz' <- f sz
-        return $ VArrayExpr l' e' sz'
     traverseVars f (BytesFromStringExpr l e) = do
         l' <- f l
         e' <- f e
@@ -739,11 +725,11 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (SecType
     substL s = return Nothing
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (VariableDeclaration iden loc) where
-    traverseVars f (VariableDeclaration l t is) = do
+    traverseVars f (VariableDeclaration l isConst isHavoc t is) = do
         l' <- f l
         t' <- f t
         is' <- mapM f is
-        return $ VariableDeclaration l' t' is'
+        return $ VariableDeclaration l' isConst isHavoc t' is'
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (VariableInitialization iden loc) where
     traverseVars f (VariableInitialization l v sz e) = do
@@ -752,21 +738,6 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         sz' <- mapM f sz
         e' <- mapM f e
         return $ VariableInitialization l' v' sz' e'
-
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ConstDeclaration iden loc) where
-    traverseVars f (ConstDeclaration l t is) = do
-        l' <- f l
-        t' <- f t
-        is' <- mapM f is
-        return $ ConstDeclaration l' t' is'
-    
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ConstInitialization iden loc) where
-    traverseVars f (ConstInitialization l v sz e) = do
-        l' <- f l
-        v' <- inLHS $ f v
-        sz' <- mapM f sz
-        e' <- mapM f e
-        return $ ConstInitialization l' v' sz' e'
     
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Sizes iden loc) where
     traverseVars f (Sizes es) = do
@@ -818,10 +789,6 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         vd' <- f vd
         return $ GlobalVariable l' vd'
-    traverseVars f (GlobalConst l vd) = do
-        l' <- f l
-        vd' <- f vd
-        return $ GlobalConst l' vd'
     traverseVars f (GlobalDomain l d) = do
         l' <- f l
         d' <- f d
@@ -882,11 +849,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         return $ StructureDeclaration l' n' as'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (Attribute iden loc) where
-    traverseVars f (Attribute l t a) = do
-        l' <- f l
-        t' <- f t
+    traverseVars f (Attribute l t a szs) = do
+        l' <- inRHS $ f l
+        t' <- inRHS $ f t
         a' <- inLHS $ f a
-        return $ Attribute l' t' a'
+        szs' <- inRHS $ f szs
+        return $ Attribute l' t' a' szs'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [AttributeName iden loc] where
     traverseVars f = mapM f

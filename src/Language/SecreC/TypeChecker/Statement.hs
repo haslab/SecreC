@@ -149,10 +149,6 @@ tcStmt ret (SyscallStatement l n args) = do
     let t = StmtType $ Set.singleton $ StmtFallthru
     isSupportedSyscall l n $ map (typed . loc) args'
     return (SyscallStatement (Typed l t) n args',t)
-tcStmt ret (ConstStatement l decl) = do
-    decl' <- tcConstDecl LocalScope decl
-    let t = StmtType (Set.singleton $ StmtFallthru)
-    return (ConstStatement (notTyped "tcStmt" l) decl',t)
 tcStmt ret (VarStatement l decl) = do
     decl' <- tcVarDecl LocalScope decl
     let t = StmtType (Set.singleton $ StmtFallthru)
@@ -234,16 +230,16 @@ tcForInitializer (InitializerVariable vd) = do
     return $ InitializerVariable vd'
 
 tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM m (VariableDeclaration VarIdentifier (Typed loc))
-tcVarDecl scope (VariableDeclaration l tyspec vars) = do
+tcVarDecl scope (VariableDeclaration l isConst isHavoc tyspec vars) = do
     (tyspec') <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
-    (vars') <- mapM (tcVarInit scope ty) vars
-    return (VariableDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
+    (vars') <- mapM (tcVarInit isConst isHavoc scope ty) vars
+    return (VariableDeclaration (notTyped "tcVarDecl" l) isConst True tyspec' vars')
 
-tcVarInit :: (ProverK loc m) => Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization VarIdentifier (Typed loc))
-tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
+tcVarInit :: (ProverK loc m) => Bool -> Bool -> Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization VarIdentifier (Typed loc))
+tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- mapM (tcExprTy ty) e
+    e' <- tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     -- do not store the size, since it can change dynamically
     let v' = VarName (Typed vl ty) $ mkVarId vn
@@ -251,25 +247,28 @@ tcVarInit scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     isAnn <- getAnn
     newVariable scope False isAnn v' Nothing -- don't add values to the environment
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
-
-tcConstDecl :: (ProverK loc m) => Scope -> ConstDeclaration Identifier loc -> TcM m (ConstDeclaration VarIdentifier (Typed loc))
-tcConstDecl scope (ConstDeclaration l tyspec vars) = do
-    tyspec' <- tcTypeSpec tyspec False
-    let ty = typed $ loc tyspec'
-    vars' <- mapM (tcConstInit scope ty) vars
-    return (ConstDeclaration (notTyped "tcVarDecl" l) tyspec' vars')
-
-tcConstInit :: (ProverK loc m) => Scope -> Type -> ConstInitialization Identifier loc -> TcM m (ConstInitialization VarIdentifier (Typed loc))
-tcConstInit scope ty (ConstInitialization l v@(VarName vl n) szs e) = do
+tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- mapM (withPure True . tcExprTy ty') e
+    e' <- withPure True $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     vn <- addConst scope False n
     let v' = VarName (Typed vl ty') vn
     -- add variable to the environment
     isAnn <- getAnn
     newVariable scope True isAnn v' e'
-    return (ConstInitialization (notTyped "tcVarInit" l) v' szs' e')
+    return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
+
+tcDefaultInitExpr :: ProverK loc m => loc -> IsHavoc -> Type -> Maybe (Sizes VarIdentifier (Typed loc)) -> Maybe (Expression Identifier loc) -> TcM m (Maybe (Expression VarIdentifier (Typed loc)))
+tcDefaultInitExpr l isHavoc ty szs (Just e) = liftM Just $ tcExprTy ty e
+tcDefaultInitExpr l True ty szs Nothing = return Nothing
+tcDefaultInitExpr l False ty szs Nothing = liftM Just $ do
+    x <- liftM varExpr $ newTypedVar "def" ty Nothing
+    let szsl = case szs of
+                Nothing -> Nothing
+                Just (Sizes xs) -> Just $ map (mapFst $ fmap typed) $ Foldable.toList xs
+    topTcCstrM_ l $ Default szsl x
+    return $ fmap (Typed l) x
+
 
     
 

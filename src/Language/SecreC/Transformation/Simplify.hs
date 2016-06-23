@@ -26,6 +26,8 @@ import qualified Data.Map as Map
 import Data.Typeable
 import Data.Maybe
 
+import Safe
+
 import Text.PrettyPrint as PP
 
 import Control.Monad.Trans
@@ -153,15 +155,15 @@ simplifyFunctionDeclaration (FunDeclaration l isLeak ret op args anns body) = do
     return $ FunDeclaration l isLeak ret op args (anns' ++ map (procAnn False) bodyanns) body'
 
 simplifyVariableDeclaration :: SimplifyK loc m => VariableDeclaration VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
-simplifyVariableDeclaration (VariableDeclaration l t vs) = do
+simplifyVariableDeclaration (VariableDeclaration l isConst isHavoc t vs) = do
     (xs,t') <- simplifyTypeSpecifier False t
-    xs' <- concatMapM (simplifyVariableInitialization t') $ Foldable.toList vs
+    xs' <- concatMapM (simplifyVariableInitialization isConst t') $ Foldable.toList vs
     return $ xs ++ xs'  
     
-simplifyVariableInitialization :: SimplifyK loc m => TypeSpecifier VarIdentifier (Typed loc) -> VariableInitialization VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
-simplifyVariableInitialization t (VariableInitialization l v szs mbe) = do
+simplifyVariableInitialization :: SimplifyK loc m => Bool -> TypeSpecifier VarIdentifier (Typed loc) -> VariableInitialization VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
+simplifyVariableInitialization isConst t (VariableInitialization l v szs mbe) = do
     (ss,szs') <- simplifyMaybeSizes False szs
-    let def = VariableDeclaration l t $ WrapNe $ VariableInitialization l v szs' Nothing
+    let def = VariableDeclaration l isConst True t $ WrapNe $ VariableInitialization l v szs' Nothing
     ass <- case mbe of
         Nothing -> return []
         Just e -> do
@@ -169,25 +171,7 @@ simplifyVariableInitialization t (VariableInitialization l v szs mbe) = do
             let ass' = maybe [] (\e -> [ExpressionStatement l $ BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e]) e'
             return (ss'++ass')
     return (ss ++ VarStatement l def:ass)
-
-simplifyConstDeclaration :: SimplifyK loc m => ConstDeclaration VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
-simplifyConstDeclaration (ConstDeclaration l t vs) = do
-    (xs,t') <- simplifyTypeSpecifier False t
-    xs' <- concatMapM (simplifyConstInitialization t) $ Foldable.toList vs
-    return $ xs ++ xs'  
     
-simplifyConstInitialization :: SimplifyK loc m => TypeSpecifier VarIdentifier (Typed loc) -> ConstInitialization VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
-simplifyConstInitialization t (ConstInitialization l v szs mbe) = do
-    (ss,szs') <- simplifyMaybeSizes False szs
-    let def = ConstDeclaration l t $ WrapNe $ ConstInitialization l v szs' Nothing
-    ass <- case mbe of
-        Nothing -> return []
-        Just e -> do
-            (ss',e') <- simplifyExpression False e
-            let ass' = maybe [] (\e -> [ExpressionStatement l $ BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e]) e'
-            return (ss'++ass')
-    return (ss ++ ConstStatement l def:ass)
-
 simplifyTypeSpecifier :: Bool -> SimplifyT loc m TypeSpecifier
 simplifyTypeSpecifier isExpr (TypeSpecifier l s t d) = do
     (ss,t') <- simplifyDatatypeSpecifier isExpr t
@@ -226,6 +210,11 @@ simplifyMaybeSizes isExpr (Just (Sizes es)) = do
         then return (ss,Nothing)
         else return (ss,Just $ Sizes $ fromListNe es')
 
+simplifyExpressions :: SimplifyK loc m => Bool -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Statement VarIdentifier (Typed loc)],[Expression VarIdentifier (Typed loc)])
+simplifyExpressions isExpr es = do
+    (ss,es') <- mapAndUnzipM (simplifyExpression isExpr) es
+    return (concat ss,map (fromJustNote "simplifyExpressions") es')
+    
 -- the splitted statements and expression must be pure
 simplifyExpression :: SimplifyK loc m => Bool -> Expression VarIdentifier (Typed loc) -> TcM m ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc)))
 simplifyExpression isExpr (ProcCallExpr l n ts es) = do
@@ -267,54 +256,92 @@ simplifyExpression isExpr (QualExpr l e t) = do
     (sse,Just e') <- simplifyExpression isExpr e
     (sst,t') <- simplifyTypeSpecifier isExpr t
     return (sse++sst,Just $ QualExpr l e' t')
+simplifyExpression isExpr (SelectionExpr l e att) = do
+    (ss,Just e') <- simplifyExpression isExpr e
+    return (ss,Just $ SelectionExpr l e' att)
+simplifyExpression isExpr (ToMultisetExpr l e) = do
+    (ss,Just e') <- simplifyExpression isExpr e
+    return (ss,Just $ ToMultisetExpr l e')
+simplifyExpression isExpr (BuiltinExpr l n es) = do
+    (ss,es') <- simplifyExpressions isExpr es
+    return (ss,Just $ BuiltinExpr l n es')
+simplifyExpression isExpr (LeakExpr l e) = do
+    (ss,e') <- simplifyNonVoidExpression isExpr e
+    return (ss,Just $ LeakExpr l e')
+simplifyExpression isExpr (QuantifiedExpr l q args e) = do
+    (argsc,args') <- simplifyQuantifierArgs args
+    (sse,e') <- simplifyNonVoidExpression isExpr e
+    return (sse,Just $ QuantifiedExpr l q args $ impliesExprLoc argsc e')
 simplifyExpression isExpr e = return ([],Just e)
 
-simplifySubscript :: Bool -> SimplifyT loc m Subscript
-simplifySubscript isExpr s = return ([],s)
+simplifyQuantifierArgs :: SimplifyK loc m => [(TypeSpecifier VarIdentifier (Typed loc),VarName VarIdentifier (Typed loc))] -> TcM m (Expression VarIdentifier (Typed loc),[(TypeSpecifier VarIdentifier (Typed loc),VarName VarIdentifier (Typed loc))])
+simplifyQuantifierArgs [] = return (fmap (Typed noloc) trueExpr,[])
+simplifyQuantifierArgs (v:vs) = do
+    (vc,v') <- simplifyQuantifierArg v
+    (vcs,vs') <- simplifyQuantifierArgs vs
+    return (andExprLoc vc vcs,v':vs')
 
---simplifyExpression (QualExpr l e t) = do
---    | DomainIdExpr loc (SecTypeSpecifier VarIdentifier loc)
---    | BytesFromStringExpr loc (Expression VarIdentifier loc)
---    | StringFromBytesExpr loc (Expression VarIdentifier loc)
---    | VArraySizeExpr loc (Expression VarIdentifier loc)
---    | SelectionExpr loc (Expression VarIdentifier loc) (AttributeName VarIdentifier loc)
+simplifyQuantifierArg :: SimplifyK loc m => (TypeSpecifier VarIdentifier (Typed loc),VarName VarIdentifier (Typed loc)) -> TcM m (Expression VarIdentifier (Typed loc),(TypeSpecifier VarIdentifier (Typed loc),VarName VarIdentifier (Typed loc)))
+simplifyQuantifierArg (t,v) = do
+    (sst,t') <- simplifyTypeSpecifier True t
+    cs <- liftM (map stmtAnnExpr) (stmtsAnns sst)
+    return (andExprsLoc cs,(t',v))
+
+simplifyNonVoidExpression :: Bool -> SimplifyT loc m Expression
+simplifyNonVoidExpression isExpr e = do
+    (ss,Just e') <- simplifyExpression isExpr e
+    return (ss,e')
+
+simplifySubscript :: Bool -> SimplifyT loc m Subscript
+simplifySubscript isExpr es = do
+    (ss,es') <- mapAndUnzipM (simplifyIndex isExpr) es
+    return (concat $ Foldable.toList ss,es')
+
+simplifyIndex :: Bool -> SimplifyT loc m Index
+simplifyIndex isExpr (IndexInt l e) = do
+    (ss,Just e') <- simplifyExpression isExpr e
+    return (ss,IndexInt l e')
+simplifyIndex isExpr (IndexSlice l e1 e2) = do
+    (ss1,e1') <- simplifyMaybe (simplifyNonVoidExpression isExpr) e1
+    (ss2,e2') <- simplifyMaybe (simplifyNonVoidExpression isExpr) e2
+    return (ss1++ss2,IndexSlice l e1' e2')
 
 unfoldVariadicExpr :: SimplifyK loc m => (Expression VarIdentifier loc,IsVariadic) -> TcM m [Expression VarIdentifier loc]
 unfoldVariadicExpr (e,False) = return [e]
 unfoldVariadicExpr (ArrayConstructorPExpr _ es,True) = return es
 unfoldVariadicExpr ve = genError (locpos $ loc $ fst ve) $ text "unfoldVariadicExpr"
 
-bindProcArgs :: SimplifyK loc m => Bool -> loc -> [(Bool,Constrained Var,IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArgs :: SimplifyK loc m => Bool -> loc -> [(Bool,Var,IsVariadic)] -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
 bindProcArgs isExpr l [] [] = return ([],Map.empty)
 bindProcArgs isExpr l (v:vs) es = do
     (es',ss,substs) <- bindProcArg isExpr l v es
     (ss',substs') <- bindProcArgs isExpr l vs es'
     return (ss++ss',Map.union substs substs')
 
-bindProcArg :: SimplifyK loc m => Bool -> loc -> (Bool,Constrained Var,IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
-bindProcArg False l (False,Constrained v _,False) (e:es) = do
+bindProcArg :: SimplifyK loc m => Bool -> loc -> (Bool,Var,IsVariadic) -> [Expression VarIdentifier (Typed loc)] -> TcM m ([Expression VarIdentifier (Typed loc)],[Statement VarIdentifier (Typed loc)],Map VarIdentifier (Expression VarIdentifier (Typed loc)))
+bindProcArg False l (False,v,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier False t
     let tl = notTyped "bind" l
-    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl (fmap (Typed l) v) Nothing $ Just e
+    let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl (fmap (Typed l) v) Nothing $ Just e
     return (es,ss1++[def],Map.empty)
-bindProcArg True l (False,Constrained v _,False) (e:es) = do
+bindProcArg True l (False,v,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier True t
     let tl = notTyped "bind" l
     return (es,ss1,Map.singleton (varNameId v) e)
-bindProcArg False l (True,Constrained v _,False) (e:es) = do
+bindProcArg False l (True,v,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier False t
     let tl = notTyped "bind" l
-    let def = ConstStatement tl $ ConstDeclaration tl t' $ WrapNe $ ConstInitialization tl (fmap (Typed l) v) Nothing $ Just e
+    let def = VarStatement tl $ VariableDeclaration tl True True t' $ WrapNe $ VariableInitialization tl (fmap (Typed l) v) Nothing $ Just e
     return (es,ss1++[def],Map.empty)
-bindProcArg True l (True,Constrained v _,False) (e:es) = do
+bindProcArg True l (True,v,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier True t
     let tl = notTyped "bind" l
     return (es,ss1,Map.singleton (varNameId v) e)
-bindProcArg isExpr l (_,Constrained v _,True) es = do
+bindProcArg isExpr l (_,v,True) es = do
     sz <- evaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
     let (es1,es2) = splitAt (fromEnum sz) es
     return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed l $ loc v) es1)
@@ -358,6 +385,19 @@ simplifyStatementAnn (AssertAnn l isLeak e) = do
     anns <- stmtsAnns ss
     return $ anns ++ [AssertAnn l isLeak e']
 
+simplifyLoopAnns :: SimplifyK loc m => [LoopAnnotation VarIdentifier (Typed loc)] -> TcM m [LoopAnnotation VarIdentifier (Typed loc)]
+simplifyLoopAnns = liftM concat . mapM simplifyLoopAnn
+
+simplifyLoopAnn :: SimplifyK loc m => LoopAnnotation VarIdentifier (Typed loc) -> TcM m [LoopAnnotation VarIdentifier (Typed loc)]
+simplifyLoopAnn (InvariantAnn l isFree isLeak e) = do
+    (ss,Just e') <- simplifyExpression True e
+    anns <- liftM (map stmtAnn2LoopAnn) (stmtsAnns ss)
+    return $ anns ++ [InvariantAnn l isFree isLeak e']
+simplifyLoopAnn (DecreasesAnn l isLeak e) = do
+    (ss,Just e') <- simplifyExpression True e
+    anns <- liftM (map stmtAnn2LoopAnn) (stmtsAnns ss)
+    return $ anns ++ [DecreasesAnn l isLeak e']
+
 stmtsAnns :: (PP iden,SimplifyK loc m) => [Statement iden loc] -> TcM m [StatementAnnotation iden loc]
 stmtsAnns = liftM concat . mapM stmtAnns
 
@@ -365,6 +405,18 @@ stmtAnns :: (PP iden,SimplifyK loc m) => Statement iden loc -> TcM m [StatementA
 stmtAnns (AnnStatement _ anns) = return anns
 stmtAnns (CompoundStatement _ ss) = stmtsAnns ss
 stmtAnns s = genError (locpos $ loc s) $ text "expected an annotation but found statement" <+> pp s
+
+stmtAnnExpr :: StatementAnnotation iden loc -> Expression iden loc
+stmtAnnExpr (AssumeAnn _ _ e) = e
+stmtAnnExpr (AssertAnn _ _ e) = e
+
+stmtAnn2LoopAnn :: StatementAnnotation iden loc -> LoopAnnotation iden loc
+stmtAnn2LoopAnn (AssumeAnn l isLeak e) = InvariantAnn l True isLeak e
+stmtAnn2LoopAnn (AssertAnn l isLeak e) = InvariantAnn l False isLeak e
+
+loopAnn2StmtAnn :: LoopAnnotation iden loc -> StatementAnnotation iden loc
+loopAnn2StmtAnn (InvariantAnn l True isLeak e) = AssumeAnn l isLeak e
+loopAnn2StmtAnn (InvariantAnn l False isLeak e) = AssertAnn l isLeak e
 
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
@@ -384,7 +436,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args r
             let (reqs,ens) = splitProcAnns ann''
             (ss1,t') <- simplifyTypeSpecifier False t
             let tl = notTyped "inline" l
-            let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
+            let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
             reqs' <- simplifyStatementAnns reqs
             ss <- simplifyStatements (Just res) body'
             ens' <- simplifyStatementAnns ens
@@ -407,7 +459,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ 
     let (reqs,ens) = splitProcAnns ann'
     (ss1,t') <- simplifyTypeSpecifier False t
     let tl = notTyped "inline" l
-    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
+    let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
     reqs' <- simplifyStatementAnns reqs
     (ss,Just body'') <- simplifyExpression False body'
     let sbody = [ExpressionStatement tl $ BinaryAssign (loc res) (varExpr res) (BinaryAssignEqual tl) body'']
@@ -474,27 +526,44 @@ simplifyStatement ret (ExpressionStatement l e) = do
     return (ss++s')
 simplifyStatement ret (VarStatement l v) = do
     simplifyVariableDeclaration v
-simplifyStatement ret (ConstStatement l v) = do
-    simplifyConstDeclaration v
 simplifyStatement ret (WhileStatement l c ann s) = do
-    let p = unTyped l
-    let tl = notTyped "inline" p
-    let ty = loc c
-    t' <- type2TypeSpecifierNonVoid p $ typed ty
-    wcond <- liftM (VarName ty) $ genVar (mkVarId "wcond")
-    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl wcond Nothing Nothing
-    let assign = ExpressionStatement l $ BinaryAssign (loc wcond) (varExpr wcond) (BinaryAssignEqual l) c
-    let ifbreak = IfStatement tl (negBoolExprLoc $ varExpr wcond) (BreakStatement tl) Nothing
-    s' <- simplifyStatement ret $ compoundStmt (unTyped l) $ [assign,ifbreak,s]
-    return [def,WhileStatement l (fmap (Typed p) trueExpr) ann $ compoundStmt (unTyped l) s']
+    (ss,Just c') <- simplifyExpression True c
+    anns <- liftM (map stmtAnn2LoopAnn) (stmtsAnns ss)
+    ann' <- simplifyLoopAnns (anns++ann)
+    s' <- simplifyStatement ret s
+    return [WhileStatement l c' ann' $ compoundStmt (unTyped l) s']
+--simplifyStatement ret (WhileStatement l c ann s) = do
+--    ann' <- simplifyLoopAnns ann
+--    let assertinv = AnnStatement l $ map loopAnn2StmtAnn ann'
+--    let p = unTyped l
+--    let tl = notTyped "inline" p
+--    let ty = loc c
+--    t' <- type2TypeSpecifierNonVoid p $ typed ty
+--    wcond <- liftM (VarName ty) $ genVar (mkVarId "wcond")
+--    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl wcond Nothing Nothing
+--    let assign = ExpressionStatement l $ BinaryAssign (loc wcond) (varExpr wcond) (BinaryAssignEqual l) c
+--    let ifbreak = IfStatement tl (negBoolExprLoc $ varExpr wcond) (compoundStmt (unTyped l) [assertinv,BreakStatement tl]) Nothing
+--    s' <- simplifyStatement ret $ compoundStmt (unTyped l) $ [assign,ifbreak,s,assertinv]
+--    return [def,assertinv,WhileStatement l (fmap (Typed p) trueExpr) [] $ compoundStmt (unTyped l) s']
 simplifyStatement ret (ForStatement l e c i ann s) = do
     ss <- simplifyForInitializer e
+    (ssc,c') <- simplifyMaybe (simplifyNonVoidExpression True) c
+    let ic' = case c' of
+                Nothing -> fmap (Typed $ unTyped l) trueExpr
+                Just c' -> c'
+    (ssi,i') <- simplifyMaybe (simplifyNonVoidExpression False) i
+    let ie' = case i' of
+                Nothing -> []
+                Just i' -> [ExpressionStatement l i']
+    annsc <- liftM (map stmtAnn2LoopAnn) (stmtsAnns ssc)
+    ann' <- simplifyLoopAnns $ annsc++ann
     s' <- simplifyStatement ret s
-    return (ss++[ForStatement l (InitializerExpression Nothing) c i ann $ compoundStmt (unTyped l) s'])
+    return (ss++[WhileStatement l ic' ann' $ compoundStmt (unTyped l) (s'++ ssi ++ ie') ])
 simplifyStatement ret (DowhileStatement l ann s c) = do
+    ann' <- simplifyLoopAnns ann
     s' <- simplifyStatement ret s
     (ss,Just c') <- simplifyExpression False c
-    return [DowhileStatement l ann (compoundStmt (unTyped l) $ s'++ss) c']
+    return [DowhileStatement l ann' (compoundStmt (unTyped l) $ s'++ss) c']
 simplifyStatement ret (PrintStatement l es) = do
     (ss,es') <- simplifyVariadicExpressions False es
     return (ss++[PrintStatement l es'])

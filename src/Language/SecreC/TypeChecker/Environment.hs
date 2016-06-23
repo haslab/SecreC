@@ -418,9 +418,9 @@ addTemplateOperator vars hdeps op = do
     let Typed l (IDecT d) = loc op
     let o = funit op
     solve l "addTemplateOperator"
-    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
@@ -474,9 +474,9 @@ addTemplateProcedure :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Dep
 addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
-    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
@@ -658,7 +658,7 @@ noFrees e = do
     let vs = Set.difference frees $ Map.keysSet ss
     unless (Set.null vs) $ genTcError (loc e) $ text "variables" <+> pp vs <+> text "should not be free in" $+$ pp e
     
-splitHead :: (ProverK loc m) => loc -> Set LocIOCstr -> InnerDecType -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier,InnerDecType)
+splitHead :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> a -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier,a)
 splitHead l deps dec = do
     d <- liftM (head . tDict) State.get
     let hbsubsts = tSubsts d
@@ -683,9 +683,9 @@ splitHead l deps dec = do
 addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
-    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     ss <- getStructs False $ tyIsAnn dt'
     case Map.lookup n ss of
@@ -698,9 +698,9 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
 addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStructSpecialization"
-    (hdict,hfrees,bdict,bfrees,d') <- splitHead l hdeps d
+    (hdict,hfrees,bdict,bfrees,(vars',specials',d')) <- splitHead l hdeps (vars,specials,d)
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars hdict hfrees bdict bfrees specials d'
+    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees specials' d'
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
     return $ TypeName (Typed l dt') n
@@ -740,7 +740,7 @@ data SubstMode = CheckS | NoFailS | NoCheckS
     deriving (Eq,Data,Typeable,Show)
 
 addSubstM :: (ProverK loc m) => loc -> Bool -> SubstMode -> Var -> Type -> TcM m ()
-addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
+addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> pp v) . Just) $ do
     when dirty $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
     t' <- case mode of
         NoCheckS -> return t
@@ -757,7 +757,7 @@ addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locp
                         NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution" <+> pp v <+> text "=" <+> pp t'
                         CheckS -> do
                             let tv = (varNameToType v)
-                            addErrorM l (TypecheckerError (locpos l) . (EqualityException ("substitution with type")) (pp tv) (pp t') . Just) $ tcCstrM_ l $ Equals tv t'
+                            addErrorM l (TypecheckerError (locpos l) . (EqualityException (show (varIdTok vn) ++ " " ++ ppr vns ++ "substitution with type")) (pp tv) (pp t') . Just) $ tcCstrM_ l $ Equals tv t'
                 else add t'
   where
     add t' = do -- add substitution
@@ -1263,7 +1263,7 @@ tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
 tcError pos msg = throwTcError $ TypecheckerError pos msg  
 
 genTcError :: (MonadIO m) => Position -> Doc -> TcM m a
-genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg  
+genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg Nothing
 
 throwTcError :: (MonadIO m) => SecrecError -> TcM m a
 throwTcError err = do

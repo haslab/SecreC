@@ -253,8 +253,7 @@ scImportDeclaration :: (Monad m,MonadCatch m) => ScParserT m (ImportDeclaration 
 scImportDeclaration = apA3 (scTok IMPORT) scModuleId (scChar ';') (\x1 x2 x3 -> Import (loc x1) x2) <?> "import declaration"
 
 scGlobalDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (GlobalDeclaration Identifier Position)
-scGlobalDeclaration = (apA2 scConstDeclaration (scChar ';') (\x1 x2 -> GlobalConst (loc x1) x1) <?> "const declaration")
-                 <||>  (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
+scGlobalDeclaration = (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
                  <||> (apA2 scDomainDeclaration (scChar ';') (\x1 x2 -> GlobalDomain (loc x1) x1) <?> "domain declaration")
                  <||> (apA2 scKindDeclaration (scChar ';') (\x1 x2 -> GlobalKind (loc x1) x1) <?> "kind declaration")
                  <||> (apA scFunctionDeclaration (\x1 -> GlobalFunction (loc x1) x1) <?> "function declaration")
@@ -280,31 +279,19 @@ scVariableInitialization = apA3
     (optionMaybe (scChar '=' *> scExpression))
     (\x1 x2 x3 -> VariableInitialization (loc x1) x1 x2 x3) <?> "variable initialization"
 
-scConstInitialization :: (Monad m,MonadCatch m) => ScParserT m (ConstInitialization Identifier Position)
-scConstInitialization = apA3
-    scVarId
-    (optionMaybe scSizes)
-    (optionMaybe (scChar '=' *> scExpression))
-    (\x1 x2 x3 -> ConstInitialization (loc x1) x1 x2 x3) <?> "const initialization"
-
 scVariableInitializations :: (Monad m,MonadCatch m) => ScParserT m (NeList (VariableInitialization Identifier Position))
 scVariableInitializations = apA (sepBy1 scVariableInitialization (scChar ',')) fromListNe <?> "variable initializations"
 
-scConstInitializations :: (Monad m,MonadCatch m) => ScParserT m (NeList (ConstInitialization Identifier Position))
-scConstInitializations = apA (sepBy1 scConstInitialization (scChar ',')) fromListNe <?> "const initializations"
-
-scVariableDeclaration :: (Monad m,MonadCatch m) => ScParserT m (VariableDeclaration Identifier Position)
-scVariableDeclaration = scTypeSpecifier $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) x1 x2) <?> "variable declaration"
-
-scConstDeclaration :: (Monad m,MonadCatch m) => ScParserT m (ConstDeclaration Identifier Position)
-scConstDeclaration = do
-    x0 <- scTok CONST
-    scTypeSpecifier $ \x1 -> apA scConstInitializations (\x2 -> ConstDeclaration (loc x0) x1 x2) <?> "const declaration"
+scVariableDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (VariableDeclaration Identifier Position)
+scVariableDeclaration = do
+    isConst <- scConst
+    isHavoc <- scHavoc
+    scTypeSpecifier $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) isConst isHavoc x1 x2) <?> "variable declaration"
 
 scProcedureParameter :: (Monad m,MonadCatch m) => ScParserT m (ProcedureParameter Identifier Position)
 scProcedureParameter =
-    (scTok CONST >>= \x0 -> (scVariadicTypeSpecifier $ \(x1,x2) -> apA2 scVarId scInvariant (\x3 x4 -> ConstProcedureParameter (loc x0) x1 x2 x3 x4) <?> "const procedure parameter"))
-    <|> (scVariadicTypeSpecifier $ \(x1,x2) -> apA scVarId (\x3 -> ProcedureParameter (loc x1) x1 x2 x3) <?> "procedure parameter")
+    (scTok CONST >>= \x0 -> (scVariadicTypeSpecifier $ \(x1,x2) -> apA scVarId (\x3 -> ProcedureParameter (loc x0) True x1 x2 x3) <?> "const procedure parameter"))
+    <|> (scVariadicTypeSpecifier $ \(x1,x2) -> apA scVarId (\x3 -> ProcedureParameter (loc x1) False x1 x2 x3) <?> "procedure parameter")
 
 scSizes :: (Monad m,MonadCatch m) => ScParserT m (Sizes Identifier Position)
 scSizes = apA (scParens scVariadicExpressionList1) Sizes <?> "dimensions"
@@ -424,7 +411,7 @@ scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier P
 scAttributeList = many "scAttributeList" scAttribute <?> "attribute list"
 
 scAttribute :: (Monad m,MonadCatch m) => ScParserT m (Attribute Identifier Position)
-scAttribute = scTypeSpecifier $ \x1 -> apA2 scAttributeId (scChar ';') (\x2 x3 -> Attribute (loc x1) x1 x2) <?> "attribute"
+scAttribute = scTypeSpecifier $ \x1 -> apA3 scAttributeId (optionMaybe scSizes) (scChar ';') (\x2 x3 x4 -> Attribute (loc x1) x1 x2 x3) <?> "attribute"
 
 -- ** Procedures                                
 
@@ -496,7 +483,6 @@ scStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc
           <|> scAssertStatement
           <|> scPrintStatement
           <|> scSyscallStatement
-          <|> apA2 scConstDeclaration (scChar ';') (\x1 x2 -> ConstStatement (loc x1) x1)
           <||> apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> VarStatement (loc x1) x1)
           <||> apA3 (scTok RETURN) (optionMaybe scExpression) (scChar ';') (\x1 x2 x3 -> ReturnStatement (loc x1) x2)
           <|> apA2 (scTok CONTINUE) (scChar ';') (\x1 x2 -> ContinueStatement (loc x1))
@@ -509,7 +495,7 @@ scStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc
 scIfStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scIfStatement = apA4 (scTok IF) (scParens scExpression) scStatement (optionMaybe (scTok ELSE *> scStatement)) (\x1 x2 x3 x4 -> IfStatement (loc x1) x2 x3 x4) <?> "if statement"
 
-scForInitializer :: (Monad m,MonadCatch m) => ScParserT m (ForInitializer Identifier Position)
+scForInitializer :: (MonadIO m,MonadCatch m) => ScParserT m (ForInitializer Identifier Position)
 scForInitializer = (apA scVariableDeclaration InitializerVariable
                <||> apA (optionMaybe scExpression) InitializerExpression
              ) <?> "for initializer"
@@ -540,7 +526,7 @@ scDowhileStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identif
 scDowhileStatement = apA6 (scTok DO) scLoopAnnotations scStatement (scTok WHILE) (scParens scExpression) (scChar ';') (\x1 x2 x3 x4 x5 x6 -> DowhileStatement (loc x1) x2 x3 x5)
     <?> "dowhile statement"
 
-scAssertStatement :: (Monad m,MonadCatch m) => ScParserT m (Statement Identifier Position)
+scAssertStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scAssertStatement = apA3 (scTok ASSERT) (scParens scExpression) (scChar ';') (\x1 x2 x3 -> AssertStatement (loc x1) x2)
     <?> "assert statement"
 
@@ -754,7 +740,6 @@ scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1
                   <|> scBuiltinExpression
                   <|> apA2 (scTok VSIZE) (scParens scExpression) (\x1 x2 -> VArraySizeExpr (loc x1) x2)
                   <|> scAnn (apA2 (scTok PUBLIC) (scParens scExpression) (\x1 x2 -> LeakExpr (loc x1) x2))
-                  <|> apA2 (scTok VARRAY) (scParens (apA2 scExpression (scChar ',' >> scExpression) (,))) (\x1 (x2,x3) -> VArrayExpr (loc x1) x2 x3)
                   <|> scMultiSetExpr
                   <|> apA3 scProcedureId
                       (optionMaybe $ scABrackets scTemplateTypeArguments)
@@ -835,6 +820,12 @@ scProcedureAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureAnnot
 scProcedureAnnotation = apA5 scFree scLeak (scTok REQUIRES) scExpression (scChar ';') (\x0 x00 x1 x2 x3 -> RequiresAnn (loc x1) x0 x00 x2)
                     <||> apA5 scFree scLeak (scTok ENSURES) scExpression (scChar ';') (\x0 x00 x1 x2 x3 -> EnsuresAnn (loc x1) x0 x00 x2)
 
+scConst :: (MonadIO m,MonadCatch m) => ScParserT m Bool
+scConst = liftM isJust $ optionMaybe (scTok CONST)
+
+scHavoc :: (MonadIO m,MonadCatch m) => ScParserT m Bool
+scHavoc = liftM isJust $ optionMaybe (scTok HAVOC)
+
 scFree :: (MonadIO m,MonadCatch m) => ScParserT m Bool
 scFree = liftM isJust $ optionMaybe (scTok FREE)
 
@@ -845,8 +836,12 @@ scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnno
 scStatementAnnotations = scAnnotations1 $ many1 "scStatementAnnotations" scStatementAnnotation
 
 scStatementAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (StatementAnnotation Identifier Position)
-scStatementAnnotation = apA4 scLeak (scTok ASSUME) scExpression (scChar ';') (\x0 x1 x2 x3 -> AssumeAnn (loc x1) x0 x2)
-                    <|> apA4 scLeak (scTok ASSERT) scExpression (scChar ';') (\x0 x1 x2 x3 -> AssertAnn (loc x1) x0 x2)
+scStatementAnnotation = do
+    isLeak <- scLeak
+    (o1 isLeak <|> o2 isLeak)
+  where
+    o1 isLeak = apA3 (scTok ASSUME) scExpression (scChar ';') (\x1 x2 x3 -> AssumeAnn (loc x1) isLeak x2)
+    o2 isLeak = apA3 (scTok ASSERT) scExpression (scChar ';') (\x1 x2 x3 -> AssertAnn (loc x1) isLeak x2)
 
 
 scAnnotations0 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a

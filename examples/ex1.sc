@@ -1,13 +1,6 @@
 
-import stdlib; // import stdlib
-import additive3pp; // import additive 3-party scheme
-domain pd_a3p additive3pp; // declare a new private domain
-
-void main ()
+public int[[1]] cut (public int[[1]] mS)
 {
-    pd_a3p uint a, b, c; // private data
-    a = b + c; // private computation
-    public uint d; // public data
-    d = declassify (a); // private -> public
-    publish (d); // send to client
+    //@ leakage assert true;
+    return {};
 }

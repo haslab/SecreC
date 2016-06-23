@@ -2,6 +2,7 @@
 
 module Language.Boogie.Analysis.Leakage where
 
+import Language.Boogie.Options
 import Language.Boogie.AST
 import Language.Boogie.Position
 import Language.Boogie.Exts
@@ -97,28 +98,28 @@ instance Monoid Leakage where
     mappend (Leakage p1 d1) (Leakage p2 d2) = Leakage (Map.unionWith mappend p1 p2) (Map.unionWith (||) d1 d2)
 
 class Leaks a where
-    leakage :: a -> Leakage
+    leakage :: Options -> a -> Leakage
 
 instance Leaks [BasicBlock] where
-    leakage = mconcat . map leakage
+    leakage opts = mconcat . map (leakage opts)
 instance Leaks BasicBlock where
-    leakage = leakage . snd
+    leakage opts = leakage opts . snd
 instance Leaks [Statement] where
-    leakage = mconcat . map leakage
+    leakage opts = mconcat . map (leakage opts)
 instance Leaks a => Leaks (Pos a) where
-    leakage (Pos _ x) = leakage x
+    leakage opts (Pos _ x) = leakage opts x
 instance Leaks a => Leaks (Maybe a) where
-    leakage = maybe mempty leakage
+    leakage opts = maybe mempty (leakage opts)
 instance Leaks BareStatement where
-    leakage s@(hasPublicId -> Just is) = Leakage is Map.empty
-    leakage s@(hasDeclassified -> Just is) = Leakage Map.empty (mapKeyVars is)
-    leakage (If e b1 b2) = leakage b1 `mappend` leakage b2
-    leakage (While e _ b) = leakage b
-    leakage s = mempty   
+    leakage opts s@(hasPublicId opts -> Just is) = Leakage is Map.empty
+    leakage opts s@(hasDeclassified opts -> Just is) = Leakage Map.empty (mapKeyVars is)
+    leakage opts (If e b1 b2) = leakage opts b1 `mappend` leakage opts b2
+    leakage opts (While e _ b) = leakage opts b
+    leakage opts s = mempty   
 instance Leaks Block where
-    leakage = mconcat . map leakage
+    leakage opts = mconcat . map (leakage opts)
 instance Leaks BareLStatement where
-    leakage = leakage . snd
+    leakage opts = leakage opts . snd
 
 mapKeyVars :: Data a => Map a b -> Map Id b
 mapKeyVars = Map.foldrWithKey (\k v xs -> Map.fromSet (const v) (vars k) `Map.union` xs) Map.empty
@@ -131,10 +132,10 @@ vars = everything Set.union (mkQ Set.empty aux)
     aux _ = Set.empty
 
 -- computes the extended leakage from the variable dependencies of a program slice
-computeLeakage :: Set Id -> [BasicBlock] -> Leakage
-computeLeakage modifies bs = flip evalState (GraphSt Map.empty 0) $ flip evalStateT modifies $ do
+computeLeakage :: Options -> Set Id -> [BasicBlock] -> Leakage
+computeLeakage opts modifies bs = flip evalState (GraphSt Map.empty 0) $ flip evalStateT modifies $ do
     varsgr <- varGr bs
-    let leaks = leakage bs
+    let leaks = leakage opts bs
     let (public_ins,public_rest) = Map.partition (\ptype -> ptype == PublicIn) $ publics leaks
     let (declassified_outs,declassified_ins) = Map.partition (\isBenign -> isBenign) $ declassifieds leaks
     let varsgr' = Gr.trc $ labfilter (\n -> not $ Set.member n $ Set.union (Map.keysSet public_ins) (Map.keysSet declassified_ins)) $ Gr.undir varsgr
@@ -155,124 +156,133 @@ instance Monoid PublicType where
     mappend PublicOut y = PublicOut
     mappend PublicMid PublicMid = PublicMid
 
-hasLeakageAnn :: Data a => a -> Bool
-hasLeakageAnn s = hasLeakName s || isJust (hasPublic s) || isJust (hasDeclassified s) || isJust (hasLeak s)
+hasLeakageAtt :: [Attribute] -> Bool
+hasLeakageAtt = any isLeakageAtt
 
-hasLeakageFunAnn :: Data a => a -> Bool
-hasLeakageFunAnn s = hasLeakFunName s || isJust (hasPublic s) || isJust (hasDeclassified s) || isJust (hasLeak s)
+isLeakageAtt :: Attribute -> Bool
+isLeakageAtt (Attribute "leakage" []) = True
+isLeakageAtt _ = False
 
-isLeakFunName = isSubsequenceOf "Leakage"
-isLeakVarName = isSubsequenceOf "Private"
+hasLeakageAnn :: Data a => Options -> a -> Bool
+hasLeakageAnn opts s = hasLeakName opts s || isJust (hasPublic opts s) || isJust (hasDeclassified opts s) || isJust (hasLeak opts s)
 
-hasLeakName x = hasLeakVarName x || hasLeakFunName x
+hasLeakageFunAnn :: Data a => Options -> a -> Bool
+hasLeakageFunAnn opts s = hasLeakFunName opts s || isJust (hasPublic opts s) || isJust (hasDeclassified opts s) || isJust (hasLeak opts s)
 
-hasLeakVarName :: Data a => a -> Bool
-hasLeakVarName = everything (||) (mkQ False aux)
+isLeakFunName opts = isSubsequenceOf "Leakage"
+isLeakVarName opts = isSubsequenceOf "Private"
+
+hasLeakName opts x = hasLeakVarName opts x || hasLeakFunName opts x
+
+hasLeakVarName :: Data a => Options -> a -> Bool
+hasLeakVarName opts = everything (||) (mkQ False aux)
     where
     aux :: Id -> Bool
-    aux n = isLeakVarName n
+    aux n = isLeakVarName opts n
 
-hasLeakFunName :: Data a => a -> Bool
-hasLeakFunName = everything (||) (mkQ False aux)
+hasLeakFunName :: Data a => Options -> a -> Bool
+hasLeakFunName opts = everything (||) (mkQ False aux)
     where
     aux :: BareExpression -> Bool
-    aux (Application n _) = isLeakFunName n
+    aux (Application n _) = isLeakFunName opts n
     aux e = False
 
 -- identifies a public annotation
-hasPublic :: Data a => a -> Maybe (Map BareExpression PublicType)
-hasPublic s = if Map.null m then Nothing else Just m
-    where m = publicExprs s
+hasPublic :: Data a => Options -> a -> Maybe (Map BareExpression PublicType)
+hasPublic opts s = if Map.null m then Nothing else Just m
+    where m = publicExprs opts s
     
-hasPublicId :: Data a => a -> Maybe (Map Id PublicType)
-hasPublicId s = if Map.null m then Nothing else Just m
-    where m = publicIds s
+hasPublicId :: Data a => Options -> a -> Maybe (Map Id PublicType)
+hasPublicId opts s = if Map.null m then Nothing else Just m
+    where m = publicIds opts s
 
-hasPublicMid :: Data a => a -> Bool
-hasPublicMid s = List.elem PublicMid (Map.elems m)
-    where m = publicExprs s
+hasPublicMid :: Data a => Options -> a -> Bool
+hasPublicMid opts s = List.elem PublicMid (Map.elems m)
+    where m = publicExprs opts s
 
-publicExprs :: Data a => a -> Map BareExpression PublicType
-publicExprs = everything (Map.unionWith mappend) (mkQ Map.empty aux)
+publicExprs :: Data a => Options -> a -> Map BareExpression PublicType
+publicExprs opts = everything (Map.unionWith mappend) (mkQ Map.empty aux)
     where
-    aux = maybe Map.empty (uncurry Map.singleton) . isPublicExpr
+    aux = maybe Map.empty (uncurry Map.singleton) . isPublicExpr opts
 
-publicIds :: Data a => a -> Map Id PublicType
-publicIds = everything (Map.unionWith mappend) (mkQ Map.empty aux)
+publicIds :: Data a => Options -> a -> Map Id PublicType
+publicIds opts = everything (Map.unionWith mappend) (mkQ Map.empty aux)
     where
-    aux = maybe Map.empty (uncurry Map.singleton) . isPublicIdExpr
+    aux = maybe Map.empty (uncurry Map.singleton) . isPublicIdExpr opts
 
 boxE :: BareExpression -> Maybe BareExpression
 boxE (Application "$Box" [e]) = Just $ unPos e
 boxE e = Nothing
 
-isAnn :: Id -> BareExpression -> Maybe BareExpression
-isAnn name (Application (isSuffixOf ("."++name) -> True) [_,unPos -> Var "$Heap",(boxE . unPos) -> Just e]) = Just e
-isAnn _ e = Nothing
+isAnn :: Options -> Id -> BareExpression -> Maybe BareExpression
+isAnn opts@(vcgen -> NoVCGen) name (Application ((==name) -> True) [unPos -> e]) = Just e
+isAnn opts@(vcgen -> Dafny) name (Application (isSuffixOf ("."++name) -> True) [tclass,unPos -> Var "$Heap",(boxE . unPos) -> Just e]) = Just e
+isAnn opts _ e = Nothing
 
-isPublicExpr :: BareExpression -> Maybe (BareExpression,PublicType)
-isPublicExpr (isAnn "PublicIn" -> Just i) = Just (i,PublicIn)
-isPublicExpr (isAnn "PublicOut" -> Just i) = Just (i,PublicOut)
-isPublicExpr (isAnn "PublicMid" -> Just i) = Just (i,PublicMid)
-isPublicExpr _ = Nothing
+isPublicExpr :: Options -> BareExpression -> Maybe (BareExpression,PublicType)
+isPublicExpr vc (isAnn vc "PublicIn" -> Just i) = Just (i,PublicIn)
+isPublicExpr vc (isAnn vc "PublicOut" -> Just i) = Just (i,PublicOut)
+isPublicExpr vc (isAnn vc "PublicMid" -> Just i) = Just (i,PublicMid)
+isPublicExpr vc _ = Nothing
 
-isPublicIdExpr :: BareExpression -> Maybe (Id,PublicType)
-isPublicIdExpr (isPublicExpr -> Just (Var i,t)) = Just (i,t)
-isPublicIdExpr e = Nothing
+isPublicIdExpr :: Options -> BareExpression -> Maybe (Id,PublicType)
+isPublicIdExpr vc (isPublicExpr vc -> Just (Var i,t)) = Just (i,t)
+isPublicIdExpr vc e = Nothing
 
-isLeakExpr :: BareExpression -> Maybe BareExpression
-isLeakExpr (isAnn "Leak" -> Just i) = Just i
-isLeakExpr _ = Nothing
+isLeakExpr :: Options -> BareExpression -> Maybe BareExpression
+isLeakExpr vc (isAnn vc "Leak" -> Just i) = Just i
+isLeakExpr vc _ = Nothing
 
-isDeclassifiedExpr :: BareExpression -> Maybe (BareExpression,IsBenign)
-isDeclassifiedExpr (isAnn "DeclassifiedIn" -> Just i) = Just (i,False)
-isDeclassifiedExpr (isAnn "DeclassifiedOut" -> Just i) = Just (i,True)
-isDeclassifiedExpr _ = Nothing
+isDeclassifiedExpr :: Options -> BareExpression -> Maybe (BareExpression,IsBenign)
+isDeclassifiedExpr vc (isAnn vc "DeclassifiedIn" -> Just i) = Just (i,False)
+isDeclassifiedExpr vc (isAnn vc "DeclassifiedOut" -> Just i) = Just (i,True)
+isDeclassifiedExpr vc _ = Nothing
 
-gReplaceCanCall :: Data a => a -> a
-gReplaceCanCall = everywhere (mkT replaceCanCall)
+gReplaceCanCall :: Data a => Options -> a -> a
+gReplaceCanCall opts@(vcgen -> Dafny) = everywhere (mkT (replaceCanCall opts))
+gReplaceCanCall opts@(vcgen -> NoVCGen) = id
 
-replaceCanCall :: BareExpression -> BareExpression
-replaceCanCall (isAnn "PublicIn#canCall" -> Just i) = tt
-replaceCanCall (isAnn "PublicOut#canCall" -> Just i) = tt
-replaceCanCall (isAnn "PublicMid#canCall" -> Just i) = tt
-replaceCanCall (isAnn "Leak#canCall" -> Just i) = tt
-replaceCanCall (isAnn "DeclassifiedIn#canCall" -> Just i) = tt
-replaceCanCall (isAnn "DeclassifiedOut#canCall" -> Just i) = tt
-replaceCanCall e = e
+replaceCanCall :: Options -> BareExpression -> BareExpression
+replaceCanCall opts (isAnn opts "PublicIn#canCall" -> Just i) = tt
+replaceCanCall opts (isAnn opts "PublicOut#canCall" -> Just i) = tt
+replaceCanCall opts (isAnn opts "PublicMid#canCall" -> Just i) = tt
+replaceCanCall opts (isAnn opts "Leak#canCall" -> Just i) = tt
+replaceCanCall opts (isAnn opts "DeclassifiedIn#canCall" -> Just i) = tt
+replaceCanCall opts (isAnn opts "DeclassifiedOut#canCall" -> Just i) = tt
+replaceCanCall opts e = e
 
-removeLeakageAnns :: Data a => a -> a
-removeLeakageAnns = everywhere (mkT removeLeakageExpr)
+removeLeakageAnns :: Data a => Options -> a -> a
+removeLeakageAnns opts = everywhere (mkT removeLeakageExpr)
     where
     removeLeakageExpr :: BareExpression -> BareExpression
-    removeLeakageExpr (isPublicExpr -> Just _) = tt
-    removeLeakageExpr (isLeakExpr -> Just _) = tt
-    removeLeakageExpr (isDeclassifiedExpr -> Just _) = tt
-    removeLeakageExpr e@(Application name@(isLeakFunName -> True) _) = tt
-    removeLeakageExpr e@(hasLeakFunName -> True) = error $ "user-defined leakage functions not supported on non-dual mode: " ++ show (pretty e)
+    removeLeakageExpr (isPublicExpr opts -> Just _) = tt
+    removeLeakageExpr (isLeakExpr opts -> Just _) = tt
+    removeLeakageExpr (isDeclassifiedExpr opts -> Just _) = tt
+    removeLeakageExpr e@(Application name@(isLeakFunName opts -> True) _) = tt
+    removeLeakageExpr e@(hasLeakFunName opts -> True) = error $ "user-defined leakage functions not supported on non-dual mode: " ++ show (pretty e)
     removeLeakageExpr e = e
 
-hasLeak :: Data a => a -> Maybe (Set BareExpression)
-hasLeak s = if Set.null m then Nothing else Just m
-    where m = leakExprs s
+hasLeak :: Data a => Options -> a -> Maybe (Set BareExpression)
+hasLeak opts s = if Set.null m then Nothing else Just m
+    where m = leakExprs opts s
 
-leakExprs :: Data a => a -> Set BareExpression
-leakExprs = everything Set.union (mkQ Set.empty aux)
+leakExprs :: Data a => Options -> a -> Set BareExpression
+leakExprs opts = everything Set.union (mkQ Set.empty aux)
     where
-    aux = maybe Set.empty (Set.singleton) . isLeakExpr
+    aux = maybe Set.empty (Set.singleton) . isLeakExpr opts
 
-hasDeclassified :: Data a => a -> Maybe (Map BareExpression IsBenign)
-hasDeclassified s = if Map.null m then Nothing else Just m
-    where m = declassifiedExprs s
+hasDeclassified :: Data a => Options -> a -> Maybe (Map BareExpression IsBenign)
+hasDeclassified opts s = if Map.null m then Nothing else Just m
+    where m = declassifiedExprs opts s
 
-hasDeclassifiedOut :: Data a => a -> Bool
-hasDeclassifiedOut s = List.elem True (Map.elems m)
-    where m = declassifiedExprs s
+hasDeclassifiedOut :: Data a => Options -> a -> Bool
+hasDeclassifiedOut opts s = List.elem True (Map.elems m)
+    where m = declassifiedExprs opts s
 
-declassifiedExprs :: Data a => a -> Map BareExpression IsBenign
-declassifiedExprs = everything (Map.unionWith (||)) (mkQ Map.empty aux)
+declassifiedExprs :: Data a => Options -> a -> Map BareExpression IsBenign
+declassifiedExprs opts = everything (Map.unionWith (||)) (mkQ Map.empty aux)
     where
-    aux = maybe Map.empty (uncurry Map.singleton) . isDeclassifiedExpr
+    aux = maybe Map.empty (uncurry Map.singleton) . isDeclassifiedExpr opts
 
 -- a program slice is benign if it uses at least one benign variable
 isBenign :: FVS a => Leakage -> a -> IsBenign

@@ -277,9 +277,9 @@ guessCstr errs = search errs
 -- since templates are only resolved at instantiation time, we prevent solving of overloadable constraints
 trySolveCstr :: (ProverK Position m) => Bool -> Bool -> LocIOCstr -> TcM m SolveRes
 trySolveCstr False doAll (Loc l iok) | isMultipleSubstsCstr (kCstr iok) = do
-    return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError $ text "Unsolved multiple substitutions constraint")]
+    return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved multiple substitutions constraint") Nothing)]
 trySolveCstr doSolve False (Loc l iok) | isGlobalCstr (kCstr iok) = do
-    return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError $ text "Unsolved global constraint")]
+    return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved global constraint") Nothing)]
 trySolveCstr doSolve doAll (Loc l iok) = catchError
     (solveIOCstr_ l iok >> return (Left True))
     (\e -> return $ Right [(Loc l iok,e)])
@@ -485,6 +485,12 @@ resolveTcCstr l kid k = do
         unifiesComplex l x ct
     resolveTcCstr' kid (Resolve t) = do
         resolve l t
+    resolveTcCstr' kid (Default szs e) = do
+        let msg = text "failed to resolve default expression for" <+> pp (loc e) <+> pp szs
+        addErrorM l (TypecheckerError (locpos l) . GenTcError msg . Just) $ do
+            let t = loc e
+            res <- defaultExpr l t szs
+            unifiesExpr l True e res
 
 resolve :: ProverK loc m => loc -> Type -> TcM m ()
 resolve l (KindT s) = resolveKind l s
@@ -497,7 +503,7 @@ resolveKind l k@(KVar v@(nonTok -> True) isPriv) = do
     mb <- tryResolveKVar l v
     case mb of
         Just k' -> resolveKind l k'
-        Nothing -> throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError $ text "failed to resolve kind" <+> pp k
+        Nothing -> throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to resolve kind" <+> pp k) Nothing
 resolveKind l (KVar v@(nonTok -> False) isPriv) = return ()
 
 resolveHypCstr :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IExpr)
@@ -1006,7 +1012,7 @@ coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT 
         (Right ((>0) -> True),_) -> assignsExprTy l x2 e1
         (Right 0,Right ((>0) -> True)) -> if implicitCoercions opts
             then do
-                e2 <- repeatExpr l False e1 ct2
+                e2 <- repeatExpr l False e1 Nothing ct2
                 assignsExprTy l x2 e2
             else assignsExprTy l x2 e1
         (Right 0,_) -> if implicitCoercions opts
@@ -1665,8 +1671,8 @@ unifies l t1 t2 = addErrorM l
 
 assignsArray :: ProverK loc m => loc -> VarIdentifier -> Type -> Expr -> VArrayType -> TcM m ()
 assignsArray l v1@(nonTok -> True) b1 sz1 a2 = do
-    mb1 <- tryResolveVAVar l v1 sz1
     unifiesExprTy l True sz1 (vArraySize a2)
+    mb1 <- tryResolveVAVar l v1 sz1
     case mb1 of
         Nothing -> addSubstM l True NoFailS (VarName (VAType b1 sz1) v1) (VArrayT a2)
         Just a1' -> tcCstrM_ l $ Unifies (VArrayT a1') (VArrayT a2)
@@ -1690,14 +1696,14 @@ unifiesArray l a1@(VAVar v1@(nonTok -> True) b1 sz1) a2@(VAVar v2@(nonTok -> Tru
                 GT -> addSubstM l True CheckS (VarName (VAType b1 sz1) v1) (VArrayT a2) 
                 otherwise -> addSubstM l True CheckS (VarName (VAType b2 sz2) v2) (VArrayT a1)
 unifiesArray l a1@(VAVar v1@(nonTok -> True) b1 sz1) a2 = do
-    mb1 <- tryResolveVAVar l v1 sz1
     unifiesExprTy l True sz1 (vArraySize a2)
+    mb1 <- tryResolveVAVar l v1 sz1
     case mb1 of
         Just a1' -> tcCstrM_ l $ Unifies (VArrayT a1') (VArrayT a2)
         Nothing -> addSubstM l True CheckS (VarName (VAType b1 sz1) v1) (VArrayT a2)
 unifiesArray l a1 a2@(VAVar v2@(nonTok -> True) b2 sz2) = do
-    mb2 <- tryResolveVAVar l v2 sz2
     unifiesExprTy l True (vArraySize a1) (vArraySize a2)
+    mb2 <- tryResolveVAVar l v2 sz2
     case mb2 of
         Just a2' -> tcCstrM_ l $ Unifies (VArrayT a1) (VArrayT a2')
         Nothing -> addSubstM l True CheckS (VarName (VAType b2 sz2) v2) (VArrayT a1)
@@ -2183,9 +2189,6 @@ equalsExpr l False e1 e2 = do
     eq <- eqExprs l False e1 e2
     opts <- askOpts
     when (checkAssertions opts) $ getDeps >>= \deps -> checkCstrM_ l deps $ CheckAssertion eq
-
-instance MonadIO m => Vars VarIdentifier (TcM m) [(Type, IsVariadic)] where
-    traverseVars f xs = mapM f xs
 
 comparesTpltArgs :: (ProverK loc m)
     => loc -> Bool -> [(Type,IsVariadic)] -> [(Type,IsVariadic)] -> TcM m (Comparison (TcM m))

@@ -39,6 +39,7 @@ data ILit
     | IFloat32 Float 
     | IFloat64 Double
     | IBool Bool
+    | ILitArr BaseType [[ILit]]
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable ILit
 instance PP ILit where
@@ -54,6 +55,7 @@ instance PP ILit where
     pp (IFloat64 i) = text (show i)
     pp (IBool True) = text "true"
     pp (IBool False) = text "false"
+    pp (ILitArr t xs) = braces (sepBy comma $ map (braces . sepBy comma . map pp) xs)
 
 data IExpr
     = ILit ILit -- index literal
@@ -62,6 +64,7 @@ data IExpr
     | IUnOp IUOp IExpr
     | ICond IExpr IExpr IExpr -- conditional
     | ISize IExpr -- array size (dimension,array expression)
+    | IShape IExpr -- array shape
     | IArr ComplexType [[IExpr]] -- multi-dimensional array value
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IExpr
@@ -72,6 +75,7 @@ instance PP IExpr where
     pp (IUnOp o e1) = parens (pp o <+> pp e1)
     pp (ICond c e1 e2) = pp c <> char '?' <> pp e1 <> char ':' <> pp e2
     pp (ISize e) = text "size" <> parens (pp e)
+    pp (IShape e) = text "shape" <> parens (pp e)
     pp (IArr t vvs) = braces (sepBy comma $ map (\vs -> sepBy comma $ map pp vs) vvs) <> text "::" <> pp t
 
 data IBOp
@@ -141,6 +145,7 @@ iExprTy (IUnOp INot e) = BaseT bool
 iExprTy (IUnOp INeg e) = iExprTy e
 iExprTy (ICond _ e1 e2) = iExprTy e1
 iExprTy (ISize e) = BaseT index
+iExprTy (IShape e) = ComplexT $ CType Public index (indexExpr 1)
 iExprTy (IArr t vvs) = ComplexT t
 
 iLitTy :: ILit -> Type
@@ -155,6 +160,7 @@ iLitTy (IUint64 _) = BaseT $ TyPrim $ DatatypeUint64 ()
 iLitTy (IFloat32 _) = BaseT $ TyPrim $ DatatypeFloat32 ()
 iLitTy (IFloat64 _) = BaseT $ TyPrim $ DatatypeFloat64 ()
 iLitTy (IBool _) = BaseT $ TyPrim $ DatatypeBool ()
+iLitTy (ILitArr b xs) = ComplexT $ CType Public b (indexExpr $ fromInteger $ toInteger $ length xs)
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m ILit where
     traverseVars f (IInt8 i) = liftM IInt8 $ f i
@@ -168,6 +174,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m ILit where
     traverseVars f (IFloat32 i) = liftM IFloat32 $ f i
     traverseVars f (IFloat64 i) = liftM IFloat64 $ f i
     traverseVars f (IBool i) = liftM IBool $ f i
+    traverseVars f (ILitArr t xs) = do
+        t' <- f t
+        liftM (ILitArr t') $ mapM (mapM f) xs
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
     traverseVars f (ILit i) = liftM ILit $ f i
     traverseVars f (IIdx v) = do
@@ -185,6 +194,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
     traverseVars f (ISize e) = do
         e' <- f e
         return $ ISize e'
+    traverseVars f (IShape e) = do
+        e' <- f e
+        return $ IShape e'
     traverseVars f (IArr t vvs) = do
         t' <- f t
         vvs' <- mapM (mapM f) vvs

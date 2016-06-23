@@ -58,10 +58,7 @@ dec2AxiomDecl l t = genError (locpos l) $ text "dec2AxiomDecl:" <+> pp t
 
 dec2StructDecl :: ConversionK loc m => loc -> DecType -> m (StructureDeclaration VarIdentifier (Typed loc)) 
 dec2StructDecl l dec@(DecType _ _ _ _ _ _ _ _ (StructType p sid (Just atts) _)) = do
-    let toAtt a@(AttributeName atl an) = do
-        at <- type2TypeSpecifierNonVoid l (typed atl)
-        return $ Attribute atl at a
-    atts' <- mapM (toAtt . fmap (Typed l)) atts
+    let atts' = map (fmap (Typed l)) atts
     let sid' = fmap (const $ Typed l $ DecT dec) sid
     return $ StructureDeclaration (notTyped "decl" l) sid' atts'
 dec2StructDecl l t = genError (locpos l) $ text "dec2StructDecl:" <+> pp t
@@ -85,16 +82,11 @@ targ2TemplateQuantifier l vars cv@(Constrained v@(VarName vt vn) e,isVariadic) =
         return $ DimensionQuantifier (notTyped "targ" l) isVariadic (VarName (Typed l vt) vn) $ fmap (fmap (Typed l)) e
     otherwise -> genError (locpos l) $ text "targ2TemplateQuantifier:" <+> pp cv
 
-parg2ProcedureParameter :: ConversionK loc m => loc -> (Bool,Constrained Var,IsVariadic) -> m (ProcedureParameter VarIdentifier (Typed loc))
-parg2ProcedureParameter l (False,Constrained v Nothing,isVariadic) = do
+parg2ProcedureParameter :: ConversionK loc m => loc -> (Bool,Var,IsVariadic) -> m (ProcedureParameter VarIdentifier (Typed loc))
+parg2ProcedureParameter l (isConst,v,isVariadic) = do
     let t = if isVariadic then variadicBase (loc v) else loc v
     t' <- type2TypeSpecifierNonVoid l t
-    return $ ProcedureParameter (Typed l $ loc v) t' isVariadic (fmap (Typed l) v)
-parg2ProcedureParameter l (True,Constrained v e,isVariadic) = do
-    let t = if isVariadic then variadicBase (loc v) else loc v
-    t' <- type2TypeSpecifierNonVoid l t
-    let e' = fmap (fmap (Typed l)) e
-    return $ ConstProcedureParameter (Typed l $ loc v) t' isVariadic (fmap (Typed l) v) e'
+    return $ ProcedureParameter (Typed l $ loc v) isConst t' isVariadic (fmap (Typed l) v)
 
 type2TypeSpecifierNonVoid :: ConversionK loc m => loc -> Type -> m ((TypeSpecifier VarIdentifier (Typed loc)))
 type2TypeSpecifierNonVoid l t = do
