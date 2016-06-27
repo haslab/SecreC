@@ -1,6 +1,9 @@
 
-public int[[1]] cut (public int[[1]] mS)
+public int[[1]] cut (public int[[1]] xs)
 {
-    //@ leakage assert true;
+    uint i;
+    public int y;
+    //@ assume xs[:i+1] == cat(xs[:i],{y});
+    //@ assume xs[:i+1] == cat(xs[:i],{y});
     return {};
 }

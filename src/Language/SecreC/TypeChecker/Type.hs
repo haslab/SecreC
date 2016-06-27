@@ -457,61 +457,57 @@ toMultisetType l (ComplexT (CType s b d)) = do
     return $ CType s (MSet b) (indexExpr 0)
 toMultisetType l t = genTcError (locpos l) $ text "cannot convert type" <+> pp t <+> text "to multiset"
 
--- in SecreC arrays are initialized as empty, and numeric types as 0
--- what if there are infinite types?
 defaultExpr :: ProverK loc m => loc -> Type -> Maybe [(Expr,IsVariadic)] -> TcM m Expr
-defaultExpr l t@(BaseT (BVar v)) szs = do
-    b <- resolveBVar l v
-    defaultExpr l (BaseT b) szs
-defaultExpr l t@(BaseT (TyPrim p)) szs | isIntPrimType p = return $ intExpr t 0
-defaultExpr l t@(BaseT (TyPrim p)) szs | isFloatPrimType p = return $ floatExpr t 0
-defaultExpr l t@(BaseT (TyPrim (DatatypeBool _))) szs = return $ falseExpr
-defaultExpr l t@(BaseT (TyPrim (DatatypeString _))) szs = return $ stringExpr "\"\""
-defaultExpr l t@(BaseT (MSet _)) szs = return $ MultisetConstructorPExpr t []
-defaultExpr l t@(BaseT (TApp tn@(TypeName _ sn) targs (DVar v))) szs = do
-    dec <- resolveDVar l v
-    defaultExpr l (BaseT $ TApp tn targs dec) szs
-defaultExpr l t@(BaseT (TApp (TypeName _ sn) targs dec@(structPat -> Just (mid,atts)))) szs = do
-     (dec,[]) <- pDecCstrM l False False (Left sn) (Just targs) [] t
-     targs' <- mapM (\(t,b) -> liftM ((,b) . fmap typed) $ type2TemplateTypeArgument l t) targs
-     let targs'' = if null targs' then Nothing else Just targs'
-     return $ ProcCallExpr t (fmap (const $ DecT dec) $ ProcedureName () sn) targs'' []
+defaultExpr l t@(BaseT b) szs = defaultBaseExpr l Public b
 defaultExpr l t@(ComplexT (CVar v)) szs = do
     c <- resolveCVar l v
     defaultExpr l (ComplexT c) szs
 defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
     mbd <- tryError $ evaluateIndexExpr l d
     case mbd of
-        Right 0 -> do
-            e <- defaultExpr l (BaseT b) Nothing
-            case s of
-                Public -> return e
-                Private {} -> classifyExpr l False e ct
-                otherwise -> throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> pp t) Nothing
+        Right 0 -> defaultBaseExpr l s b
         Right n -> do
-            let ct1 = CType Public b $ indexExpr 1
-            let ctp = CType Public b d
-            res <- case szs of
+            let ct1 = CType s b $ indexExpr 1
+            case szs of
                 Nothing -> do
                     let rep = ArrayConstructorPExpr (ComplexT ct1) []
                     let ns = replicate (fromInteger $ toInteger n) (indexExpr 0,False)
                     case n of
                         1 -> return rep
-                        otherwise -> reshapeExpr l False rep ns (ComplexT ctp)
+                        otherwise -> reshapeExpr l False rep ns (ComplexT ct)
                 Just ns -> do 
-                    bdef <- liftM varExpr $ newTypedVar "bdef" (BaseT b) Nothing
-                    tcCstrM_ l $ Default Nothing bdef
+                    bdef <- defaultBaseExpr l s b
                     sz1 <- multiplyIndexVariadicExprs l False ns
                     rep <- repeatExpr l False bdef (Just sz1) ct1
                     case n of
                         1 -> return rep
-                        otherwise -> reshapeExpr l False rep ns (ComplexT ctp)
-            case s of
-                Public -> return res
-                Private {} -> classifyExpr l False res ct
-                otherwise -> throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> pp t) Nothing
+                        otherwise -> reshapeExpr l False rep ns (ComplexT ct)
         Left err -> throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> pp t) (Just err)
 defaultExpr l t szs = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "unsupported default value for type" <+> pp t) Nothing
+
+defaultBaseExpr :: ProverK loc m => loc -> SecType -> BaseType -> TcM m Expr
+defaultBaseExpr l s b@(BVar v) = do
+    b' <- resolveBVar l v
+    defaultBaseExpr l s b'
+defaultBaseExpr l s b@(TyPrim p) | isIntPrimType p = defaultBaseClassify l s $ intExpr (BaseT b) 0
+defaultBaseExpr l s b@(TyPrim p) | isFloatPrimType p = defaultBaseClassify l s $ floatExpr (BaseT b) 0
+defaultBaseExpr l s b@(TyPrim (DatatypeBool _)) = defaultBaseClassify l s $ falseExpr
+defaultBaseExpr l s b@(TyPrim (DatatypeString _)) = defaultBaseClassify l s $ stringExpr "\"\""
+defaultBaseExpr l s b@(MSet _) = return $ MultisetConstructorPExpr (ComplexT $ CType s b $ indexExpr 0) []
+defaultBaseExpr l s b@(TApp tn@(TypeName _ sn) targs (DVar v)) = do
+    dec <- resolveDVar l v
+    defaultBaseExpr l s $ TApp tn targs dec
+defaultBaseExpr l Public b@(TApp (TypeName _ sn) targs dec@(structPat -> Just (mid,atts))) = do
+    let ct = BaseT b
+    (dec,[]) <- pDecCstrM l False False (Left sn) (Just targs) [] ct
+    targs' <- mapM (\(x,y) -> liftM ((,y) . fmap typed) $ type2TemplateTypeArgument l x) targs
+    let targs'' = if null targs' then Nothing else Just targs'
+    return $ ProcCallExpr ct (fmap (const $ DecT dec) $ ProcedureName () sn) targs'' []
+
+defaultBaseClassify :: ProverK loc m => loc -> SecType -> Expr -> TcM m Expr
+defaultBaseClassify l Public e = return e
+defaultBaseClassify l s@(Private {}) e@(loc -> BaseT b) = classifyExpr l False e (CType s b $ indexExpr 0)
+defaultBaseClassify l s e = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for" <+> pp s <+> ppExprTy e) Nothing
 
 structPat :: DecType -> Maybe (ModuleTyVarId,[Attribute VarIdentifier Type])
 structPat (DecType mid _ _ _ _ _ _ _ (StructType _ _ (Just atts) cl)) = Just (mid,atts)

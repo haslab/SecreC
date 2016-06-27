@@ -350,7 +350,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
             --e <- localTemplate l e
 --            doc <- liftM ppTSubsts getTSubsts
 --            liftIO $ putStrLn $ "inst " ++ show doc
-            liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ " " ++ ppr (entryType e)
+            liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n (entryType e)
             isPure <- getPure
             (e',hdict,bdict,bgr) <- templateTDict isPure e
@@ -378,7 +378,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
                 Left err -> do
-                    --liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++ "\n" ++ ppr err
+                    liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++" "++ show (decTypeTyVarId $ unDecT $ entryType e) ++ "\n" ++ ppr err
                     return $ Left (e,err)
                 Right (_,TDict hgr _ subst recs) -> do
                         --removeIOCstrGraphFrees hgr
@@ -392,7 +392,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
                         let depCstrs = TDict gr1 Set.empty subst' recs''
                         --depCstrs <- mergeDependentCstrs l subst' bgr''
                         remainder <- ppConstraints gr1
-                        liftIO $ putStrLn $ "remainder" ++ ppr n ++ " " ++ show remainder
+                        liftIO $ putStrLn $ "remainder" ++ ppr n ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         dec2 <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
                         liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2

@@ -85,6 +85,14 @@ withInTemplate b m = do
     x <- m
     State.modify $ \env -> env { inTemplate = old }
     return x
+    
+withInAxiom :: (ProverK Position m) => Bool -> TcM m a -> TcM m a
+withInAxiom b m = do
+    old <- liftM inTemplate State.get
+    State.modify $ \env -> env { inAxiom = b }
+    x <- m
+    State.modify $ \env -> env { inAxiom = old }
+    return x
 
 getAllVars isAnn scope = getVarsPred isAnn scope (const True)
 getVars isAnn scope cl = getVarsPred isAnn scope (== cl)
@@ -188,7 +196,10 @@ checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
     case Map.lookup n vs of
         Just (isGlobal,(isConst,bAnn,e)) -> do
             when cConst $ unless isConst $ genTcError (locpos l) $ text "expected variable" <+> pp v <+> text "to be a constant"
-            when isGlobal $ unless isConst $ registerVar isWrite n (entryType e) -- consts don't count as global variables for reads/writes
+            when isGlobal $ do
+                isAx <- State.gets inAxiom
+                when isAx $ genTcError (locpos l) $ text "cannot read/write global variable" <+> pp v <+> text "inside an axiom"
+                unless isConst $ registerVar isWrite n (entryType e) -- consts don't count as global variables for reads/writes
             when (isWrite && isConst) $ tcError (locpos l) $ AssignConstVariable (pp n)
             --liftIO $ putStrLn $ "checkVariable " ++ ppr v ++ " " ++ ppr n
             return $ VarName (Typed l $ entryType e) n
@@ -422,7 +433,7 @@ addTemplateOperator vars hdeps op = do
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
-    liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
+    --liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
@@ -447,7 +458,7 @@ newOperator hdeps op = do
     let td = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) td
     noFrees e
-    liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
+    --liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
     return $ updLoc op (Typed (unTyped $ loc op) td)
   
@@ -478,7 +489,7 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
-    liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
+    --liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
     return $ ProcedureName (Typed l dt') n
 
@@ -495,8 +506,8 @@ newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
     dirtyGDependencies $ Right $ Left $ Left n
-    doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
-    liftIO $ putStrLn $ "newProc: " ++ show doc
+    --doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
+    --liftIO $ putStrLn $ "newProc: " ++ show doc
     solveTop l "newProcedure"
     dict <- liftM (head . tDict) State.get
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict False Map.empty d'
@@ -732,7 +743,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" (locpos l) dict False Map.empty d'
             let dt = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
             let e = EntryEnv (locpos l) dt
-            liftIO $ putStrLn $ "newStruct: " ++ ppr l ++ " " ++ ppr e
+            --liftIO $ putStrLn $ "newStruct: " ++ ppr l ++ " " ++ ppr e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
             return $ TypeName (Typed l dt) n
 

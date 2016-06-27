@@ -80,18 +80,18 @@ solveSelection l msg cs = tcNoDeps $ do
             addHeadTDict l d
 
 -- | solves the whole constraint stack
-solveAll :: ProverK loc m => loc -> String -> TcM m ()
-solveAll l msg = do
-    env <- State.get
-    let dicts = tDict env
-    let depth = length dicts
-    liftIO $ putStrLn $ "solveAll " ++ msg ++ " " ++ show depth ++ " " ++ ppr (vcat $ map (\x -> text ">" <> pp x) dicts)
-    replicateM_ depth $ do
-        solve' l msg True
-        env <- State.get
-        dicts' <- mergeHeadDict l (tDict env)
-        State.put $ env { tDict = dicts' }
-    State.modify $ \env -> env { tDict = (replicate (depth - 1) emptyTDict) ++ tDict env }
+--solveAll :: ProverK loc m => loc -> String -> TcM m ()
+--solveAll l msg = do
+--    env <- State.get
+--    let dicts = tDict env
+--    let depth = length dicts
+--    liftIO $ putStrLn $ "solveAll " ++ msg ++ " " ++ show depth ++ " " ++ ppr (vcat $ map (\x -> text ">" <> pp x) dicts)
+--    replicateM_ depth $ do
+--        solve' l msg True
+--        env <- State.get
+--        dicts' <- mergeHeadDict l (tDict env)
+--        State.put $ env { tDict = dicts' }
+--    State.modify $ \env -> env { tDict = (replicate (depth - 1) emptyTDict) ++ tDict env }
 
 mergeHeadDict :: ProverK loc m => loc -> [TDict] -> TcM m [TDict]
 mergeHeadDict l [] = return []
@@ -145,23 +145,23 @@ solveCstrs :: (ProverK loc m) => loc -> String -> Bool -> TcM m (Maybe SecrecErr
 solveCstrs l msg failOnError = do
     dicts <- liftM tDict State.get
     let dict = head dicts
-    ss <- ppConstraints (tCstrs dict)
-    liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
-    doc <- liftM ppTSubsts $ getTSubsts l
-    liftIO $ putStrLn $ show doc
+    --ss <- ppConstraints (tCstrs dict)
+    --liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
+    --doc <- liftM ppTSubsts $ getTSubsts l
+    --liftIO $ putStrLn $ show doc
     gr <- liftM (tCstrs . head . tDict) State.get
     if (Graph.isEmpty gr)
         then return Nothing
         else do
             let roots = sortBy priorityRoots $ rootsGr gr -- sort by constraint priority
             when (List.null roots) $ error $ "solveCstrs: no root constraints to proceed " ++ ppr l ++ " " ++ ppr gr ++ "\n\n" ++ show (sepBy comma $ map pp $ Graph.edges gr)
-            liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
+            --liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
             go <- trySolveSomeCstrs failOnError $ map snd roots
             case go of
                 Left _ -> solveCstrs l msg failOnError
                 Right errs -> do
                     mb <- guessError failOnError errs
-                    liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " exit " ++ ppr mb
+                    --liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " exit " ++ ppr mb
                     return mb
 
 -- Left True = one constraint solved
@@ -196,7 +196,7 @@ trySolveSomeCstrs failOnError = foldlM solveBound (Left False)
                         ok <- trySolveCstr (if failOnError then True else doSolve) doAll x
                         return (mergeSolveRes b ok)
                     else do
-                        liftIO $ putStrLn $ "didn't find queued constraint " ++ ppr (ioCstrId $ unLoc x)
+                        --liftIO $ putStrLn $ "didn't find queued constraint " ++ ppr (ioCstrId $ unLoc x)
                         return b
 
 findCstr :: Monad m => LocIOCstr -> TcM m Bool
@@ -259,7 +259,7 @@ guessError failOnError errs = do
                     case mb of
                         -- solve the multiple substitutions constraint (it always succeeds and solves the remaining dictionary)
                         Just (Loc l iok,ks) -> do
-                            liftIO $ putStrLn $ "guessCstr " ++ ppr doAll ++ " " ++ ppr iok ++ " " ++ show (sepBy space (map pp ks))
+                            --liftIO $ putStrLn $ "guessCstr " ++ ppr doAll ++ " " ++ ppr iok ++ " " ++ show (sepBy space (map pp ks))
                             catchError (solveIOCstr_ l iok >> return Nothing) (return . Just)
                         Nothing -> return $ Just (MultipleErrors $ getErrors errs')
                 else return $ Just (MultipleErrors $ getErrors errs')
@@ -289,7 +289,7 @@ solveIOCstr_ l iok = do
     opens <- State.gets (map fst . openedCstrs)
     olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
     unless (List.elem iok opens) $ newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
-        liftIO $ putStrLn $ "solveIOCstr " ++ ppr (ioCstrId iok)
+        --liftIO $ putStrLn $ "solveIOCstr " ++ ppr (ioCstrId iok)
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
         let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
@@ -350,7 +350,7 @@ tcCstrM_ l k = tcCstrM l k >> return ()
 tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
 tcCstrM l k | isTrivialTcCstr k = return Nothing
 tcCstrM l k = do
-    liftIO $ putStrLn $ "tcCstrM " ++ ppr l ++ " " ++ ppr k
+    --liftIO $ putStrLn $ "tcCstrM " ++ ppr l ++ " " ++ ppr k
     st <- getCstrState
     k <- newTCstr l $ TcK k st
     --gr <- liftM (tCstrs . head . tDict) State.get
@@ -620,7 +620,7 @@ multipleSubstitutions l kid bv ss = do
     (vgr,(_,st)) <- State.runStateT (buildVarGr l) (0,Map.empty)
     -- note: we don't need to solve nested multiplesubstitutions, since they are guaranteed to succeed later
     let cs = filterNonMultipleSubsts $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") bvs) vgr
-    liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
+    --liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
     ok <- newErrorM $ matchAll l kid cs ss []
     case ok of
         [] -> do
@@ -641,7 +641,7 @@ matchAll l kid cs (x:xs) errs = catchError
 
 matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
 matchOne l kid cs (match,deps,_) = do
-    liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
+    --liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
     --dict <- liftM (head . tDict) State.get
     --ss <- ppConstraints (tCstrs dict)
     --liftIO $ putStrLn $ "matchOne [" ++ show ss ++ "\n]"
@@ -650,9 +650,9 @@ matchOne l kid cs (match,deps,_) = do
         withDependencies ks $ mapM_ (tCstrM_ l) deps
     
     -- solve all other dependencies
-    liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
+    --liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
     solveSelection l ("matchone"++show kid) cs
-    liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr match
+    --liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr match
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
 tryCstr l m = (liftM Right $ prove l "tryCstr" $ m) `catchError` (return . Left)
@@ -1266,21 +1266,21 @@ decToken :: MonadIO m => TcM m DecType
 decToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "dtok" (Just mn) (Just i) True Nothing
     return $ DVar v
 
 kindToken :: MonadIO m => TcM m KindType
 kindToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "ktok" (Just mn) (Just i) True Nothing
     return $ KVar v False
 
 secToken :: MonadIO m => TcM m SecType
 secToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "stok" (Just mn) (Just i) True Nothing
     k <- newKindVar "k" False Nothing
     return $ SVar v k
     
@@ -1288,28 +1288,28 @@ baseToken :: MonadIO m => TcM m BaseType
 baseToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "btok" (Just mn) (Just i) True Nothing
     return $ BVar v
 
 arrayToken :: MonadIO m => Type -> Expr -> TcM m VArrayType
 arrayToken b sz = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "atok" (Just mn) (Just i) True Nothing
     return $ VAVar v b sz
 
 complexToken :: MonadIO m => TcM m ComplexType
 complexToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "ctok" (Just mn) (Just i) True Nothing
     return $ CVar v
 
 exprToken :: MonadIO m => TcM m Expr
 exprToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "tok" (Just mn) (Just i) True Nothing
+    let v = VarIdentifier "etok" (Just mn) (Just i) True Nothing
     let t = BaseT $ BVar v
     return $ RVariablePExpr t (VarName t v)
 
@@ -2128,7 +2128,7 @@ satisfiesCondExpressions l is = do
 
 assignsExpr :: ProverK loc m => loc -> Var -> Expr -> TcM m ()
 assignsExpr l v1@(VarName _ n1@(nonTok -> True)) e2 = do
-    liftIO $ putStrLn $ "assignsExpr " ++ ppr l ++ " " ++ ppr v1 ++ " " ++ ppr e2
+    --liftIO $ putStrLn $ "assignsExpr " ++ ppr l ++ " " ++ ppr v1 ++ " " ++ ppr e2
     mb <- tryResolveEVar l n1 (loc v1)
     case mb of
         Nothing -> addValueM l True NoFailS v1 e2

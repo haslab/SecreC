@@ -161,8 +161,8 @@ shadowBareDecl opts d@(AxiomDecl atts e) = if hasLeakageAtt atts
         e' <- shadowExpression opts DualE e
         return [AxiomDecl atts' e']
     else do
-        atts' <- concatMapM (shadowAttribute opts False) atts
-        e' <- shadowExpression opts ShadowE e
+        atts' <- concatMapM (shadowAttribute opts False) $ atts
+        e' <- shadowExpression opts ShadowE $ e
         return [removeLeakageAnns opts d,AxiomDecl atts' e']
 shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) = shadowLocal $ unlessExempt d name $ do
     (bools,rbools,modifies,leaks) <- getProcedure name
@@ -455,7 +455,6 @@ shadowBareExpression opts mode (MapUpdate m es r) = do
 shadowBareExpression opts m@(isDualE -> False) (Quantified o alphas args trggs e) = withExemptions $ do
     let add (v,t) = do
         addVariable v
-        when (isLeakVarName opts v) $ error "dual variable not supported in non-dual quantification"
         addExemption v
     mapM_ add args
     trggs' <- concatMapM (shadowQTriggerAttribute opts False) trggs

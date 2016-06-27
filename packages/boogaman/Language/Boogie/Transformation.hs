@@ -69,7 +69,7 @@ firstRE re str = case matchRegexAll (mkRegex re) str of
     otherwise -> Nothing
 
 transform :: Options -> Program -> IO Program
-transform opts = simplifyP opts >=> leakageP opts >=> shadowP opts >=> axiomatizeP opts
+transform opts = simplifyP opts >=> leakageP opts >=> axiomatizeP opts >=> shadowP opts
 
 simplifyP :: Options -> Program -> IO Program
 simplifyP opts p = return $ if (simplify opts || shadow opts) then S.runSimplify p else p

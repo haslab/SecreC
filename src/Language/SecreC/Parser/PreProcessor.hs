@@ -163,6 +163,7 @@ processOpts opts = opts
     , entryPoints = parsePaths $ entryPoints opts
     , typeCheck = typeCheck opts || verify opts
     , checkAssertions = if verify opts then False else checkAssertions opts
+    , simplify = if verify opts then True else simplify opts
     }
 
 parsePaths :: [FilePath] -> [FilePath]

@@ -157,7 +157,7 @@ tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (Kind
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType True)) $ mkVarId kn
 
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration VarIdentifier (Typed loc))
-tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = do
+tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withInAxiom True $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps

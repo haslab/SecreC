@@ -176,6 +176,7 @@ data TcEnv = TcEnv {
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
+    , inAxiom :: Bool -- if typechecking inside an axiom
     , isPure :: Bool -- if typechecking pure expressions
     , isLeak :: Bool -- if typechecking leakage expressions
     , decClass :: DecClass -- class when typechecking procedures
@@ -417,6 +418,7 @@ emptyTcEnv = TcEnv
     , lineage = []
     , moduleCount = ("main",1)
     , inTemplate = False
+    , inAxiom = False
     , isPure = False
     , isLeak = False
     , localConsts = Map.empty

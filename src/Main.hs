@@ -184,7 +184,7 @@ shadowBoogaman axioms bpl1 bpl2 = do
         <+> text "--vcgen=dafny"
         <+> text "--filterleakage=true"
         <+> text "--shadow"
-        <+> Pretty.sepBy space (map addaxiom $ axioms ++ map (++".shadow") axioms)
+        <+> Pretty.sepBy space (map addaxiom $ axioms)
         <+> text ">" <+> text bpl2
 
 runBoogie :: (MonadIO m,MonadError SecrecError m) => FilePath -> m ()
