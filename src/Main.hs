@@ -116,7 +116,7 @@ passes secrecIns secrecOuts modules = runTcM $ failTcM (noloc::Position) $ local
             verifyDafny outputModules
 
 typecheck :: [ModuleFile] -> TcM IO (Maybe [TypedModuleFile])
-typecheck modules = do
+typecheck modules = flushTcWarnings $ do
     opts <- askOpts
     let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ modules) <+> text str <> char '.'
     if (typeCheck opts)
@@ -173,6 +173,7 @@ axiomatizeBoogaman axioms bpl1 bpl2 = do
     liftIO $ putStrLn $ show $ text "Axiomatizing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
     command $ show $ text "boogaman" <+> text bpl1
+        <+> text "--simplify"
         <+> Pretty.sepBy space (map addaxiom axioms)
         <+> text ">" <+> text bpl2
     
@@ -181,6 +182,7 @@ shadowBoogaman axioms bpl1 bpl2 = do
     liftIO $ putStrLn $ show $ text "Shadowing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
     command $ show $ text "boogaman" <+> text bpl1
+        <+> text "--simplify"
         <+> text "--vcgen=dafny"
         <+> text "--filterleakage=true"
         <+> text "--shadow"

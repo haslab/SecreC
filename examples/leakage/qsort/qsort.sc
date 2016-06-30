@@ -1,5 +1,4 @@
 
-
 module qsort;
 
 import axioms;
@@ -69,10 +68,6 @@ partition_result partition (private uint[[1]] xs, private uint p)
     return result;
 }
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
-//@ requires size(xs) > 1;
-//@ ensures xs == cat({xs[0]},xs[1:]);
-
 //@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
 //@ requires size(xs) > 1;
 //@ ensures xs == cat({xs[0]},xs[1:]);
@@ -84,7 +79,6 @@ private uint[[1]] leaky_sort (private uint[[1]] xs)
     if (size(xs) <= 1) return xs;
 
     //@ ArrayHead(xs);
-    //@ assume xs == cat({xs[0]},xs[1:]);
 
     private uint pivot = xs[0];
     partition_result r = partition (xs[1:], pivot);

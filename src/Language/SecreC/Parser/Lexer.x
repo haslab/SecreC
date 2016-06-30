@@ -126,7 +126,11 @@ tokens :-
 <0>                     leakage               { lexerAnnTokenInfo LEAKAGE }
 <0>                     axiom                 { lexerAnnTokenInfo AXIOM }
 <0>                     nonpublic             { lexerAnnTokenInfo NONPUBLIC }
+<0>                     lemma                 { lexerAnnTokenInfo LEMMA }
 <0>                     invariant             { lexerAnnTokenInfo INVARIANT }
+<0>                     inline                { lexerAnnTokenInfo INLINE }
+<0>                     noinline              { lexerAnnTokenInfo NOINLINE }
+<0>                     decreases             { lexerAnnTokenInfo DECREASES }
 
 -- built-in functions:
 <0>                     "size..."             { lexerTokenInfo VSIZE }

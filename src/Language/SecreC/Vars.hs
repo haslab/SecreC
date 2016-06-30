@@ -332,6 +332,16 @@ instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars id
             anns' <- mapM f anns
             return $ AxiomDeclaration isLeak l' qs' args' anns'
 
+instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (LemmaDeclaration iden loc) where
+    traverseVars f (LemmaDeclaration isLeak n l qs args anns body) = do
+        l' <- f l
+        qs' <- inLHS $ mapM f qs
+        varsBlock $ do
+            args' <- mapM f args
+            anns' <- mapM f anns
+            body' <- mapM f body
+            return $ LemmaDeclaration isLeak n l' qs' args' anns' body'
+
 instance (Vars iden m iden,Location loc,IsScVar iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l isConst t isVariadic v) = do
         l' <- f l
@@ -955,6 +965,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         e' <- f e
         return $ AssumeAnn l' isLeak e'
+    traverseVars f (EmbedAnn l isLeak e) = do
+        l' <- f l
+        e' <- f e
+        return $ EmbedAnn l' isLeak e'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m (ProcedureAnnotation iden loc) where
     traverseVars f (RequiresAnn l isFree isLeak e) = do
@@ -965,6 +979,14 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         e' <- f e
         return $ EnsuresAnn l' isFree isLeak e'
+    traverseVars f (PDecreasesAnn l e) = do
+        l' <- f l
+        e' <- f e
+        return $ PDecreasesAnn l' e'
+    traverseVars f (InlineAnn l b) = do
+        l' <- f l
+        b' <- f b
+        return $ InlineAnn l' b'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars iden m [StatementAnnotation iden loc] where
     traverseVars f xs = mapM f xs
@@ -993,6 +1015,10 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
         l' <- f l
         p' <- f p
         return $ GlobalAxiomAnn l' p'
+    traverseVars f (GlobalLemmaAnn l p) = do
+        l' <- f l
+        p' <- f p
+        return $ GlobalLemmaAnn l' p'
 
 
 

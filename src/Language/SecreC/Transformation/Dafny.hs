@@ -41,11 +41,10 @@ import Safe
 type DafnyK m = ProverK Position m
 type DafnyM m = StateT DafnySt (TcM m)
 
-type POId = Either VarIdentifier (Op VarIdentifier ())
-
 data DafnyId
     = PId POId ModuleTyVarId
     | FId POId ModuleTyVarId Bool
+    | LId VarIdentifier ModuleTyVarId Bool
     | SId VarIdentifier ModuleTyVarId
     | AId ModuleTyVarId Bool
   deriving (Data,Typeable,Generic,Show,Eq,Ord)
@@ -57,14 +56,16 @@ isTypeDafnyId _ = False
 dafnyIdLeak :: DafnyId -> Bool
 dafnyIdLeak (PId _ tid) = False
 dafnyIdLeak (FId _ tid b) = b
+dafnyIdLeak (LId _ tid b) = b
 dafnyIdLeak (SId _ tid) = False
 dafnyIdLeak (AId tid b) = b
 
 dafnyIdModuleTyVarId :: DafnyId -> ModuleTyVarId
 dafnyIdModuleTyVarId (PId _ tid) = tid
 dafnyIdModuleTyVarId (FId _ tid _) = tid
+dafnyIdModuleTyVarId (LId _ tid _) = tid
 dafnyIdModuleTyVarId (SId _ tid) = tid
-dafnyIdModuleTyVarId (AId tid _) = tid
+dafnyIdModuleTyVarId (AId tid isLeak) = tid
 
 dafnyIdModule :: DafnyId -> Identifier
 dafnyIdModule = fst . dafnyIdModuleTyVarId
@@ -128,9 +129,8 @@ boogieName modules did = do
 loadAxioms :: DafnyK m => DafnyM m ()
 loadAxioms = do
     env <- lift $ getModuleField True id
-    let isLeakE = isLeakDec . unDecT . entryType
-    let as = map (\(mid,e) -> AId mid $ isLeakE e) $ Map.toList $ axioms env
-    mapM_ loadDafnyId as
+    let as = map (\(mid,e) -> unDecT $ entryType e) $ Map.toList $ axioms env
+    mapM_ loadDafnyDec as
 
 isAxiomDafnyId :: DafnyId -> Bool
 isAxiomDafnyId (AId {}) = True
@@ -140,11 +140,13 @@ entryPointsTypedModuleFile :: DafnyK m => TypedModuleFile -> TcM m [DafnyId]
 entryPointsTypedModuleFile (Left (_,_,m)) = return $ Set.toList $ collectDafnyIds m
 entryPointsTypedModuleFile (Right sci) = do
     let env = sciEnv sci
-    let decE = fromDecDafnyId . unDecT . entryType
-    let ps = concat $ Map.elems $ Map.mapWithKey (\k vs -> map (\(mid,e) -> decE e) $ Map.toList vs) $ filterAnns False $ procedures env
-    let os = concat $ Map.elems $ Map.mapWithKey (\k vs -> map (\(mid,e) -> decE e) $ Map.toList vs) $ filterAnns False $ operators env
-    let ss = concat $ Map.elems $ Map.mapWithKey (\k vs -> map (\(mid,e) -> decE e) $ Map.toList vs) $ filterAnns False $ structs env
-    return $ ps ++ os ++ ss
+    let decE = decDafnyId . unDecT . entryType
+    let filterEntries = filterAnns False False
+    let ps = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ procedures env
+    let fs = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ functions env
+    let ls = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ lemmas env
+    let ss = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ structs env
+    return $ ps ++ fs ++ ls ++ ss
 
 collectDafnyIds :: Data a => a -> Set DafnyId
 collectDafnyIds = everything Set.union (mkQ Set.empty aux)
@@ -156,7 +158,8 @@ decDafnyId :: DecType -> Maybe DafnyId
 decDafnyId d@(DecType tid _ _ _ _ _ _ _ (ProcType _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just $ pIdenToDafnyId pn tid
 decDafnyId d@(DecType tid _ _ _ _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just $ fIdenToDafnyId pn tid isLeak
 decDafnyId d@(DecType tid _ _ _ _ _ _ _ (StructType _ (TypeName _ sn) _ _)) | not (isTemplateDecType d) = Just $ SId sn tid
-decDafnyId d@(DecType tid _ _ _ _ _ _ _ (AxiomType {})) = Just $ AId tid False
+decDafnyId d@(DecType tid _ _ _ _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just $ AId tid isLeak
+decDafnyId d@(DecType tid _ _ _ _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just $ LId pn tid isLeak
 decDafnyId dec = Nothing
 
 fromDecDafnyId :: DecType -> DafnyId
@@ -182,11 +185,15 @@ resolveEntryPoint :: ProverK Position m => Identifier -> TcM m DafnyId
 resolveEntryPoint n = do
     let n' = mkVarId n
     env <- getModuleField True id
-    case Map.lookup n' (procedures env) of
+    case Map.lookup (Left n') (procedures env) of
         Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
         Nothing -> case Map.lookup n' (structs env) of
             Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
-            Nothing -> genError noloc $ text "resolveEntryPoint: can't find" <+> pp n
+            Nothing -> case Map.lookup (Left n') (functions env) of
+                Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
+                Nothing -> case Map.lookup n' (lemmas env) of
+                    Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
+                    Nothing -> genError noloc $ text "resolveEntryPoint: can't find" <+> pp n
             otherwise -> genError noloc $ text "resolveEntryPoint: ambiguous" <+> pp n
         otherwise -> genError noloc $ text "resolveEntryPoint: ambiguous" <+> pp n
 
@@ -203,6 +210,11 @@ withModule c m = do
 
 loadDafnyId :: DafnyK m => DafnyId -> DafnyM m ()
 loadDafnyId n = do
+    e <- lookupDafnyId n
+    loadDafnyDec (unDecT $ entryType e)
+
+loadDafnyDec :: DafnyK m => DecType -> DafnyM m ()
+loadDafnyDec dec = do
     current <- getModule
     unless (current==mn) $ State.modify $ \env -> env { imports = Map.insertWith Set.union current (Set.singleton mn) (imports env) }
     withModule mn $ do
@@ -212,70 +224,63 @@ loadDafnyId n = do
             Just docs -> case Map.lookup n docs of
                 Just _ -> return ()
                 Nothing -> do
-                    e <- lookupDafnyId n
                     State.modify $ \env -> env { dafnies = Map.update (Just . Map.insert n (noloc,empty)) mn $ dafnies env }
-                    mb <- entryToDafny n e
+                    mb <- decToDafny n dec
                     case mb of
                         Nothing -> State.modify $ \env -> env { dafnies = Map.update (Just . Map.delete n) mn $ dafnies env }
                         Just doc -> State.modify $ \env -> env { dafnies = Map.update (Just . Map.insert n doc) mn $ dafnies env }
             Nothing -> do
-                e <- lookupDafnyId n
                 State.modify $ \env -> env { dafnies = Map.insert mn (Map.singleton n (noloc,empty)) $ dafnies env }
-                mb <- entryToDafny n e
+                mb <- decToDafny n dec
                 case mb of
                     Nothing -> State.modify $ \env -> env { dafnies = Map.update (Just . Map.delete n) mn $ dafnies env }
                     Just doc -> State.modify $ \env -> env { dafnies = Map.update (Just . Map.insert n doc) mn $ dafnies env }
-  where mn = dafnyIdModule n
+  where
+    mn = dafnyIdModule n
+    n = fromDecDafnyId dec
 
 lookupDafnyId :: DafnyK m => DafnyId -> DafnyM m EntryEnv
 lookupDafnyId did@(SId sn tid@(m,_)) = do
     ss <- lift $ getModuleField True structs
     case Map.lookup sn ss of
-        Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
+        Nothing -> genError noloc $ text "lookupDafnyId: can't find struct" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
-            Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
+            Nothing -> genError noloc $ text "lookupDafnyId: can't find struct" <+> pp did
 lookupDafnyId did@(AId tid@(m,_) isLeak) = do
     as <- lift $ getModuleField True axioms
     case Map.lookup tid as of
         Just e -> return e
-        Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
-lookupDafnyId did@(PId (Left pn) tid@(m,_)) = do
+        Nothing -> genError noloc $ text "lookupDafnyId: can't find axiom" <+> pp did
+lookupDafnyId did@(PId pn tid@(m,_)) = do
     ss <- lift $ getModuleField True procedures
     case Map.lookup pn ss of
-        Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
+        Nothing -> genError noloc $ text "lookupDafnyId: can't find procedure" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
-            Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
-lookupDafnyId did@(FId (Left pn) tid@(m,_) isLeak) = do
-    ss <- lift $ getModuleField True procedures
+            Nothing -> genError noloc $ text "lookupDafnyId: can't find procedure" <+> pp did
+lookupDafnyId did@(LId pn tid@(m,_) isLeak) = do
+    ss <- lift $ getModuleField True lemmas
     case Map.lookup pn ss of
-        Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
+        Nothing -> genError noloc $ text "lookupDafnyId: can't find lemma" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
-            Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
-lookupDafnyId did@(PId (Right on) tid@(m,_)) = do
-    ss <- lift $ getModuleField True operators
-    case Map.lookup on ss of
-        Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
+            Nothing -> genError noloc $ text "lookupDafnyId: can't find lemma" <+> pp did
+lookupDafnyId did@(FId pn tid@(m,_) isLeak) = do
+    ss <- lift $ getModuleField True functions
+    case Map.lookup pn ss of
+        Nothing -> genError noloc $ text "lookupDafnyId: can't find function" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
-            Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
-lookupDafnyId did@(FId (Right on) tid@(m,_) isLeak) = do
-    ss <- lift $ getModuleField True operators
-    case Map.lookup on ss of
-        Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
-        Just es -> case Map.lookup tid es of
-            Just e -> return e
-            Nothing -> genError noloc $ text "lookupDafnyId: can't find" <+> pp did
+            Nothing -> genError noloc $ text "lookupDafnyId: can't find function" <+> pp did
 
 entryToDafny :: DafnyK m => DafnyId -> EntryEnv -> DafnyM m (Maybe (Position,Doc))
 entryToDafny n (EntryEnv p (DecT d)) = decToDafny n d
 
-emptyDec (DecType tid Nothing [] ((==emptyPureTDict)->True) ((==mempty)->True) ((==emptyPureTDict)->True) ((==mempty)->True) [] t) = Just (tid,t)
+emptyDec (DecType tid _ [] ((==emptyPureTDict)->True) ((==mempty)->True) ((==emptyPureTDict)->True) ((==mempty)->True) [] t) = Just (tid,t)
 emptyDec d = Nothing
 
-targsDec (DecType tid Nothing ts ((==emptyPureTDict)->True) ((==mempty)->True) ((==emptyPureTDict)->True) ((==mempty)->True) [] t) = Just (tid,ts,t)
+targsDec (DecType tid _ ts ((==emptyPureTDict)->True) ((==mempty)->True) ((==emptyPureTDict)->True) ((==mempty)->True) [] t) = Just (tid,ts,t)
 targsDec d = Nothing
 
 
@@ -288,11 +293,11 @@ fIdenToDafnyId (Left n) mid isLeak = FId (Left n) mid isLeak
 fIdenToDafnyId (Right n) mid isLeak = FId (Right $ funit n) mid isLeak
 
 decToDafny :: DafnyK m => DafnyId -> DecType -> DafnyM m (Maybe (Position,Doc))
-decToDafny n (emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = insideDecl did $ do
+decToDafny n dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = insideDecl did $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny False args
     (pret,pretanns,anns',body') <- case ret of
-        ComplexT Void -> return (empty,empty,anns,body)
+        ComplexT Void -> return (empty,[],anns,body)
         ComplexT ct -> do
             result <- lift $ liftM (VarName (ComplexT ct)) $ genVar (mkVarId "result")
             let ss = TSubsts $ Map.singleton (mkVarId "\\result") (IdxT $ varExpr result)
@@ -304,8 +309,29 @@ decToDafny n (emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl))
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns'
     pbody <- statementToDafny $ compoundStmt noloc body'
-    return $ Just (p,text "method" <+> ppn <+> pargs <+> pret $+$ pcl $+$ parganns $+$ pretanns $+$ panns $+$ pbody)
+    let tag = text "method"
+    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLines parganns $+$ annLines pretanns $+$ annLines panns $+$ pbody)
   where did = pIdenToDafnyId pn mid
+decToDafny n dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = insideDecl did $ do
+    ppn <- ppDafnyIdM did
+    (pargs,parganns) <- procedureArgsToDafny False args
+    pret <- typeToDafny ret
+    pcl <- decClassToDafny cl
+    panns <- procedureAnnsToDafny anns
+    (pbodyanns,pbody) <- expressionToDafny True RequireK body
+    let tag = if isLeak then text "function" else text "function method"
+    return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLines parganns $+$ annLines panns $+$ annLines pbodyanns $+$ vbraces pbody)
+  where did = pIdenToDafnyId pn mid
+decToDafny n dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = insideDecl did $ do
+    ppn <- ppDafnyIdM did
+    (pargs,parganns) <- procedureArgsToDafny False args
+    pcl <- decClassToDafny cl
+    panns <- procedureAnnsToDafny anns
+    pbody <- case body of 
+        Just ss -> liftM vbraces $ statementToDafny $ compoundStmt noloc ss
+        Nothing -> return empty
+    return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLines parganns $+$ annLines panns $+$ pbody)
+  where did = LId pn mid isLeak
 decToDafny n (emptyDec -> Just (mid,StructType p (TypeName _ sn) (Just atts) cl)) = insideDecl did $ do
     psn <- ppDafnyIdM did
     patts <- structAttsToDafny psn atts
@@ -320,14 +346,13 @@ decToDafny n (targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = in
             panns <- procedureAnnsToDafny anns
             pn <- ppDafnyIdM n
             State.modify $ \env -> env { axiomIds = Set.insert n $ axiomIds env }
-            return $ Just (p,text "lemma" <+> pn <+> ptargs <+> pargs $+$ panns)
+            return $ Just (p,text "lemma" <+> pn <+> ptargs <+> pargs $+$ annLines panns $+$ annLines parganns)
         else return Nothing
   where did = n
---decToDafny mid (FunType {}) = gen
 decToDafny mid dec = genError noloc $ text "decToDafny:" <+> pp mid <+> pp dec
 
 decClassToDafny :: DafnyK m => DecClass -> DafnyM m Doc
-decClassToDafny (DecClass _ rs ws) = do
+decClassToDafny (DecClass _ _ rs ws) = do
     let ppVar (v,t) = varToDafny $ VarName (Typed noloc t) v
     prs <- mapM ppVar $ Map.toList rs
     pws <- mapM ppVar $ Map.toList ws
@@ -349,7 +374,9 @@ structAttToDafny withType sn (AttributeName t n) = do
 typeArgsToDafny :: DafnyK m => [(Constrained Var,IsVariadic)] -> DafnyM m Doc
 typeArgsToDafny xs = do
     pxs <- mapM typeArgToDafny xs
-    return $ abrackets (sepBy comma $ catMaybes pxs)
+    let pxs' = catMaybes pxs
+    let pxs'' = if null pxs' then empty else abrackets (sepBy comma pxs')
+    return pxs''
 
 typeArgToDafny :: DafnyK m => (Constrained Var,IsVariadic) -> DafnyM m (Maybe Doc)
 typeArgToDafny cv@(Constrained v Nothing,False) = case typeClass "targ" (loc v) of
@@ -358,18 +385,18 @@ typeArgToDafny cv@(Constrained v Nothing,False) = case typeClass "targ" (loc v) 
     (isDomain -> True) -> return Nothing
     otherwise -> genError noloc $ text "typeArgToDafny:" <+> pp cv 
 
-procedureArgsToDafny :: DafnyK m => Bool -> [(Bool,Var,IsVariadic)] -> DafnyM m (Doc,Doc)
+procedureArgsToDafny :: DafnyK m => Bool -> [(Bool,Var,IsVariadic)] -> DafnyM m (Doc,AnnsDoc)
 procedureArgsToDafny isPost xs = do
     (vs,as) <- Utils.mapAndUnzipM (procedureArgToDafny isPost) xs
-    return (parens $ sepBy comma vs,vcat as)
+    return (parens $ sepBy comma vs,concat as)
 
-procedureArgToDafny :: DafnyK m => Bool -> (Bool,Var,IsVariadic) -> DafnyM m (Doc,Doc)
+procedureArgToDafny :: DafnyK m => Bool -> (Bool,Var,IsVariadic) -> DafnyM m (Doc,AnnsDoc)
 procedureArgToDafny isPost (_,v,False) = do
     let annK = if isPost then EnsureK else RequireK
     pv <- varToDafny $ fmap (Typed noloc) v
     pt <- typeToDafny $ loc v
     annp <- genDafnyPublics False annK pv (loc v)
-    return (pv <> char ':' <> pt,vcat annp)
+    return (pv <> char ':' <> pt,annp)
 
 dafnySize x = text "uint64" <> parens (char '|' <> x <> char '|')
 
@@ -378,7 +405,7 @@ qualifiedDafny t x = do
     pt <- typeToDafny t
     return $ parens (parens (text "x" <> char ':' <> pt) <+> text "=>" <+> text "x") <> parens x
 
-genDafnyPublics :: DafnyK m => Bool -> AnnKind -> Doc -> Type -> DafnyM m [Doc]
+genDafnyPublics :: DafnyK m => Bool -> AnnKind -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyPublics True annK pv tv = return []
 genDafnyPublics False annK pv tv = whenLeakMode $ do
     d <- getInDecl
@@ -391,22 +418,22 @@ genDafnyPublics False annK pv tv = whenLeakMode $ do
                             EnsureK -> "PublicOut"
                             RequireK -> "PublicIn"
             -- only generate publics for primitive types
-            let genPublic t@(BaseT {}) = return $ Just $ annLine True annK (text publick <> parens pv)
-                genPublic t@(ComplexT (CType s b d)) | isPublicSecType s && isPrimBaseType b = return $ Just $ annLine True annK (text publick <> parens pv)
-                genPublic t = return Nothing
+            let genPublic t@(BaseT {}) = return [(annK,True,text publick <> parens pv)]
+                genPublic t@(ComplexT (CType s b d)) | isPublicSecType s && isPrimBaseType b = return [(annK,True,text publick <> parens pv)]
+                genPublic t = return []
             -- only generate public sizes for private types
             let genPublicSize t@(ComplexT (CType s b d)) | not (isPublicSecType s) = do
                     let p = (noloc::Position)
                     mb <- lift $ tryError $ evaluateIndexExpr p d
                     case mb of
-                        Right 0 -> return Nothing
+                        Right 0 -> return []
                         Right 1 -> do
-                            return $ Just $ annLine True annK (text publick <> parens psize)
+                            return [(annK,True,text publick <> parens psize)]
                         otherwise -> genError p $ text "genPublicSize:" <+> pv <+> pp t
-                genPublicSize t = return Nothing
+                genPublicSize t = return []
             ispublic <- genPublic tv
             publicsize <- genPublicSize tv
-            return $ maybeToList ispublic ++ maybeToList publicsize
+            return $ ispublic ++ publicsize
         else return []
     
 isLeakageInDecl :: Maybe DafnyId -> Bool
@@ -415,27 +442,36 @@ isLeakageInDecl (Just (PId {})) = True
 isLeakageInDecl (Just (AId _ isLeak)) = isLeak
 isLeakageInDecl (Just (SId {})) = False
 isLeakageInDecl (Just (FId _ _ isLeak)) = isLeak
+isLeakageInDecl (Just (LId _ _ isLeak)) = isLeak
     
-annLine :: Bool -> AnnKind -> Doc -> Doc
-annLine isFree EnsureK x = ppFree isFree $ text "ensures" <+> x <+> semicolon
-annLine isFree RequireK x = ppFree isFree $ text "requires" <+> x <+> semicolon
-annLine True StmtK x = text "assume" <+> x <+> semicolon
-annLine False StmtK x = text "assert" <+> x <+> semicolon
-annLine isFree InvariantK x = ppFree isFree $ text "invariant" <+> x <+> semicolon
-annLine isFree DecreaseK x = ppFree isFree $ text "decreases" <+> x <+> semicolon
+annLine :: AnnDoc -> Doc
+annLine (EnsureK,isFree,x) = ppFree isFree $ text "ensures" <+> x <> semicolon
+annLine (RequireK,isFree,x) = ppFree isFree $ text "requires" <+> x <> semicolon
+annLine (StmtK,True,x) = text "assume" <+> x <> semicolon
+annLine (StmtK,False,x) = text "assert" <+> x <> semicolon
+annLine (InvariantK,isFree,x) = ppFree isFree $ text "invariant" <+> x <> semicolon
+annLine (DecreaseK,isFree,x) = text "decreases" <+> x <> semicolon
+annLine (NoK,isFree,x) = x
 
-procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation VarIdentifier (Typed Position)] -> DafnyM m Doc
-procedureAnnsToDafny xs = liftM vcat $ mapM (procedureAnnToDafny) xs
+annLines = vcat . map annLine
 
-procedureAnnToDafny :: DafnyK m => ProcedureAnnotation VarIdentifier (Typed Position) -> DafnyM m Doc
+procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation VarIdentifier (Typed Position)] -> DafnyM m AnnsDoc
+procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
+
+procedureAnnToDafny :: DafnyK m => ProcedureAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
 procedureAnnToDafny (RequiresAnn l isFree isLeak e) = do
     (anne,pe) <- expressionToDafny False RequireK e
     req <- annExpr isFree isLeak RequireK pe
-    return $ vcat anne $+$ req
+    return $ anne ++ req
 procedureAnnToDafny (EnsuresAnn l isFree isLeak e) = do
     (anne,pe) <- expressionToDafny False EnsureK e
     ens <- annExpr isFree isLeak EnsureK pe
-    return $ vcat anne $+$ ens
+    return $ anne ++ ens
+procedureAnnToDafny (InlineAnn l isInline) = return []
+procedureAnnToDafny (PDecreasesAnn l e) = do
+    (anne,pe) <- expressionToDafny False EnsureK e
+    decr <- annExpr False False DecreaseK pe
+    return $ anne ++ decr
 
 statementsToDafny :: DafnyK m => [Statement VarIdentifier (Typed Position)] -> DafnyM m Doc
 statementsToDafny = liftM vcat . mapM statementToDafny
@@ -448,24 +484,24 @@ statementToDafny (IfStatement _ c s1 s2) = do
     (annc,pc) <- expressionToDafny False StmtK c
     ps1 <- statementToDafny s1
     ps2 <- mapM statementToDafny s2
-    return $ vcat annc $+$ text "if" <+> pc <+> ps1 $+$ pp ps2
+    return $ annLines annc $+$ text "if" <+> pc <+> ps1 $+$ ppOpt ps2 (text "else" <+>)
 statementToDafny (BreakStatement l) = return $ text "break" <> semicolon
 statementToDafny (ContinueStatement l) = return $ text "continue" <> semicolon
 statementToDafny (ReturnStatement l e) = do
     (anne,pe) <- mapExpressionToDafny False StmtK e
-    return $ vcat anne $+$ text "return" <+> pp pe <> semicolon
+    return $ annLines anne $+$ text "return" <+> pp pe <> semicolon
 statementToDafny (ExpressionStatement _ (BinaryAssign l le (BinaryAssignEqual _) re)) = do
     (pres,pre) <- expressionToDafny False StmtK re
     (post,pass) <- assignmentToDafny StmtK le (Left pre)
-    return $ vcat pres $+$ pass <> semicolon $+$ vcat post
+    return $ annLines pres $+$ pass <> semicolon $+$ annLines post
 statementToDafny (ExpressionStatement l e) = do
     (anne,pe) <- expressionToDafny False StmtK e
-    return $ vcat anne $+$ pe <> semicolon
+    return $ annLines anne $+$ pe <> semicolon
 statementToDafny (AssertStatement l e) = do
     (anne,pe) <- expressionToDafny False StmtK e
     assert <- annExpr False False StmtK pe
-    return $ vcat anne $+$ assert
-statementToDafny (AnnStatement l ss) = liftM vcat $ mapM statementAnnToDafny ss
+    return $ annLines anne $+$ annLines assert
+statementToDafny (AnnStatement l ss) = liftM (annLines . concat) $ mapM statementAnnToDafny ss
 statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) = do
     t' <- typeToDafny (typed $ loc t)
     liftM vcat $ mapM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
@@ -473,40 +509,44 @@ statementToDafny (WhileStatement l e anns s) = do
     (anne,pe) <- expressionToDafny False InvariantK e
     annl <- loopAnnsToDafny anns
     ps <- statementToDafny s
-    return $ text "while" <+> pe $+$ vcat anne $+$ vcat annl $+$ vbraces (ps)    
+    return $ text "while" <+> pe $+$ annLines anne $+$ annLines annl $+$ vbraces (ps)    
 statementToDafny s = genError noloc $ text "statementToDafny:" <+> pp s
 
-loopAnnsToDafny :: DafnyK m => [LoopAnnotation VarIdentifier (Typed Position)] -> DafnyM m [Doc]
+loopAnnsToDafny :: DafnyK m => [LoopAnnotation VarIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 loopAnnsToDafny xs = liftM concat $ mapM loopAnnToDafny xs
 
-annExpr :: DafnyK m => Bool -> Bool -> AnnKind -> Doc -> DafnyM m Doc
+annExpr :: DafnyK m => Bool -> Bool -> AnnKind -> Doc -> DafnyM m AnnsDoc
 annExpr isFree isLeak annK e = do
     leakMode <- getLeakMode
     case (leakMode,isLeak) of
-        (True,True) -> return $ annLine isFree annK e
-        (True,False) -> return $ annLine True annK e
-        (False,True) -> return empty
-        (False,False) -> return $ annLine isFree annK e
+        (True,True) -> return [(annK,isFree,e)]
+        (True,False) -> return [(annK,True,e)]
+        (False,True) -> return []
+        (False,False) -> return [(annK,isFree,e)]
     
-loopAnnToDafny :: DafnyK m => LoopAnnotation VarIdentifier (Typed Position) -> DafnyM m [Doc]
+loopAnnToDafny :: DafnyK m => LoopAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
 loopAnnToDafny (DecreasesAnn l isLeak e) = do
     (anne,pe) <- expressionToDafny False InvariantK e
     decrease <- annExpr False isLeak DecreaseK pe
-    return $ anne ++ [decrease]
+    return $ anne ++ decrease
 loopAnnToDafny (InvariantAnn l isFree isLeak e) = do
     (anne,pe) <- expressionToDafny False InvariantK e
     inv <- annExpr isFree isLeak InvariantK pe
-    return $ anne ++ [inv]
+    return $ anne ++ inv
 
-statementAnnToDafny :: DafnyK m => StatementAnnotation VarIdentifier (Typed Position) -> DafnyM m Doc
+statementAnnToDafny :: DafnyK m => StatementAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
 statementAnnToDafny (AssumeAnn l isLeak e) = do
     (anne,pe) <- expressionToDafny False StmtK e
     assume <- annExpr True isLeak StmtK pe
-    return $ vcat anne $+$ assume
+    return $ anne ++ assume
 statementAnnToDafny (AssertAnn l isLeak e) = do
     (anne,pe) <- expressionToDafny False StmtK e
     assert <- annExpr False isLeak StmtK pe
-    return $ vcat anne $+$ assert
+    return $ anne++assert
+statementAnnToDafny (EmbedAnn l isLeak e) = do
+    ann <- statementToDafny e
+    call <- annExpr False isLeak NoK ann
+    return $ call
 
 -- TODO: ignore sizes?
 varInitToDafny :: DafnyK m => Bool -> Bool -> Doc -> VariableInitialization VarIdentifier (Typed Position) -> DafnyM m Doc
@@ -517,7 +557,7 @@ varInitToDafny isConst isHavoc pty (VariableInitialization l v sz ini) = do
     annp <- genDafnyPublics False StmtK pv (typed $ loc v)
     (annsini,pini) <- mapExpressionToDafny False StmtK ini
     let assign = ppOpt pini (\e -> pv <+> text ":=" <+> e <+> semicolon)
-    return $ def $+$ vcat annsini $+$ assign $+$ vcat annp
+    return $ def $+$ annLines annsini $+$ assign $+$ annLines annp
 
 typeToDafny :: DafnyK m => Type -> DafnyM m Doc
 typeToDafny (BaseT b) = baseTypeToDafny b
@@ -532,7 +572,7 @@ baseTypeToDafny (MSet b) = do
     return $ text "multiset" <> abrackets b'
 baseTypeToDafny (TApp _ args dec@(decTypeTyVarId -> Just mid)) = do
     let did = fromDecDafnyId dec
-    loadDafnyId did
+    loadDafnyDec dec
     psn <- ppDafnyIdM did
     let ppArg (t,False) = typeToDafny t
         ppArg (t,True) = genError noloc $ text "baseTypeToDafny: variadic argument" <+> pp t
@@ -552,12 +592,15 @@ complexTypeToDafny t@(CType s b d) = do
         Left err -> throwError $ GenericError p (text "complexTypeToDafny:" <+> pp t) $ Just err
 complexTypeToDafny t = genError noloc $ text "complexTypeToDafny:" <+> pp t
 
-data AnnKind = StmtK | EnsureK | RequireK | InvariantK | DecreaseK
+data AnnKind = StmtK | EnsureK | RequireK | InvariantK | DecreaseK | NoK
   deriving Show
 instance PP AnnKind where
     pp = text . show
 
-indexToDafny :: DafnyK m => Bool -> AnnKind -> Index VarIdentifier (Typed Position) -> DafnyM m ([Doc],Doc)
+type AnnsDoc = [AnnDoc]
+type AnnDoc = (AnnKind,Bool,Doc)
+
+indexToDafny :: DafnyK m => Bool -> AnnKind -> Index VarIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 indexToDafny isLVal annK (IndexInt l e) = do
     (anne,pe) <- expressionToDafny isLVal annK e
     return (anne,pe)
@@ -567,7 +610,7 @@ indexToDafny isLVal annK (IndexSlice l e1 e2) = do
     return (anne1++anne2,pp pe1 <> text ".." <> pp pe2)
 
 -- left = expression, right = update
-assignmentToDafny :: DafnyK m => AnnKind -> Expression VarIdentifier (Typed Position) -> Either Doc Doc -> DafnyM m ([Doc],Doc)
+assignmentToDafny :: DafnyK m => AnnKind -> Expression VarIdentifier (Typed Position) -> Either Doc Doc -> DafnyM m (AnnsDoc,Doc)
 assignmentToDafny annK se@(SelectionExpr l e att) (Left pre) = do
     dec <- tAppDec $ typed $ loc e
     psn <- ppDafnyIdM $ fromDecDafnyId dec
@@ -617,7 +660,7 @@ hasLeakExpr = everything (||) (mkQ False aux)
     aux (LeakExpr {}) = True
     aux _ = False
 
-expressionToDafny :: DafnyK m => Bool -> AnnKind -> Expression VarIdentifier (Typed Position) -> DafnyM m ([Doc],Doc)
+expressionToDafny :: DafnyK m => Bool -> AnnKind -> Expression VarIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 expressionToDafny isLVal annK se@(PostIndexExpr l e (Foldable.toList -> [i])) = do
     (anne,pe) <- expressionToDafny isLVal annK e
     (anni,pi) <- indexToDafny isLVal annK i
@@ -664,20 +707,31 @@ expressionToDafny isLVal annK be@(BuiltinExpr l n es) = do
     (ann,pbe) <- builtinToDafny isLVal annK l n es
     annp <- genDafnyPublics (hasLeakExpr be) annK pbe (typed l)
     return (ann++annp,pbe)
-expressionToDafny isLVal annK e@(ProcCallExpr l (ProcedureName (Typed _ dec) n) targs args) = do
-    let did = fromDecDafnyId (unDecT dec)
-    loadDafnyId did
+expressionToDafny isLVal annK e@(ProcCallExpr l (ProcedureName (Typed _ (DecT dec)) n) targs args) = do
+    let did = fromDecDafnyId dec
+    loadDafnyDec dec
     (annargs,pargs) <- procCallArgsToDafny isLVal annK args
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)
-    annp <- genDafnyPublics (hasLeakExpr e) annK pe (typed l)
+    annp <- genDafnyPublics (hasLeakExpr e || not (isFunType $ DecT dec)) annK pe (typed l)
     return (annargs++annp,pe)
-expressionToDafny isLVal annK e@(BinaryExpr l e1 op e2) = genError noloc $ text "expressionToDafny: unsupported binary procedure call" <+> pp e <+> pp (typed $ loc op)
+expressionToDafny isLVal annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (DecT dec))) e2) = do
+    let did = fromDecDafnyId dec
+    loadDafnyDec dec
+    (annargs,pargs) <- procCallArgsToDafny isLVal annK [(e1,False),(e2,False)]
+    pn <- ppDafnyIdM did
+    let pe = pn <> parens (sepBy comma pargs)
+    annp <- genDafnyPublics (hasLeakExpr e || not (isFunType $ DecT dec)) annK pe (typed l)
+    return (annargs++annp,pe)
 expressionToDafny isLVal annK qe@(QuantifiedExpr l q args e) = do
     let pq = quantifierToDafny q
     (pargs) <- quantifierArgsToDafny args
-    (anne,pe) <- expressionToDafny isLVal annK e
-    return (anne,parens (pq <+> pargs <+> text "::" <+> pe))
+    (anne,pe) <- expressionToDafny isLVal StmtK e
+    let (map thr3 -> pre,map thr3 -> post) = List.partition snd3 anne
+    return ([],parens (pq <+> pargs <+> text "::" <+> ands pre <+> text "==>" <+> parens (ands post <+> text "&&" <+> pe)))
+  where
+    ands [] = text "true"
+    ands (x:xs) = parens (x <+> text "&&" <+> ands xs)
 expressionToDafny isLVal annK e = genError noloc $ text "expressionToDafny:" <+> pp isLVal <+> pp annK <+> pp e
 
 quantifierToDafny :: Quantifier (Typed Position) -> Doc
@@ -695,26 +749,26 @@ quantifierArgToDafny (t,v) = do
     pt <- typeToDafny $ typed $ loc v
     return (pv <> char ':' <> pt)
 
-expressionsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position)) -> DafnyM m ([Doc],[Doc])
+expressionsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,[Doc])
 expressionsToDafny isLVal annK es = do
     (annes,es') <- Utils.mapAndUnzipM (expressionToDafny isLVal annK) $ Foldable.toList es
     return (concat annes,es')
 
-mapExpressionToDafny :: (Functor f,Traversable f,Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position)) -> DafnyM m ([Doc],f Doc)
+mapExpressionToDafny :: (Functor f,Traversable f,Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,f Doc)
 mapExpressionToDafny isLVal annK es = do
     rs <- mapM (expressionToDafny isLVal annK) es
     return (concat $ Foldable.toList $ fmap fst rs,fmap snd rs)
 
-procCallArgsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position),IsVariadic) -> DafnyM m ([Doc],[Doc])
+procCallArgsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,[Doc])
 procCallArgsToDafny isLVal annK es = do
     (annes,es') <- Utils.mapAndUnzipM (procCallArgToDafny isLVal annK) $ Foldable.toList es
     return (concat annes,es')
     
-procCallArgToDafny :: DafnyK m => Bool -> AnnKind -> (Expression VarIdentifier (Typed Position),IsVariadic) -> DafnyM m ([Doc],Doc)
+procCallArgToDafny :: DafnyK m => Bool -> AnnKind -> (Expression VarIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,Doc)
 procCallArgToDafny isLVal annK (e,False) = expressionToDafny isLVal annK e
 procCallArgToDafny isLVal annK (e,True) = genError noloc $ text "unsupported variadic procedure argument" <+> pp e
 
-builtinToDafny :: DafnyK m => Bool -> AnnKind -> Typed Position -> String -> [Expression VarIdentifier (Typed Position)] -> DafnyM m ([Doc],Doc)
+builtinToDafny :: DafnyK m => Bool -> AnnKind -> Typed Position -> String -> [Expression VarIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
 builtinToDafny isLVal annK (Typed l ret) "core.eq" [x,y] = do
     (annx,px) <- expressionToDafny isLVal annK x
     (anny,py) <- expressionToDafny isLVal annK y
@@ -764,7 +818,7 @@ builtinToDafny isLVal annK (Typed l ret) "core.declassify" [x] = do -- we ignore
     leakMode <- getLeakMode
     if leakMode
         then do
-            let assert = text "assert" <> parens (text "DeclassifiedIn" <> parens px) <> semicolon
+            let assert = (StmtK,False,text "DeclassifiedIn" <> parens px)
             return (annx++[assert],px)
         else return (annx,px)
 builtinToDafny isLVal annK (Typed l ret) "core.classify" [x] = do -- we ignore security types
@@ -779,7 +833,7 @@ builtinToDafny isLVal annK (Typed l ret) "core.cat" [x,y,n] = do
             mbn <- lift $ tryError $ evaluateIndexExpr l $ fmap typed n
             case (mbd,mbn) of
                 (Right 1,Right 0) -> return (annx++anny,parens $ px <+> char '+' <+> py)
-                (err1,err2) -> genError noloc $ text "builtinToDafny: unsupported cat dimension" <+> pp x <+> pp y <+> pp n <+> vcat (map pp $ lefts [err1,err2])
+                (err1,err2) -> genError (locpos l) $ text "builtinToDafny: unsupported cat dimension" <+> pp x <+> pp y <+> pp n <+> vcat (map pp $ lefts [err1,err2])
         otherwise -> genError noloc $ text "builtinToDafny: unsupported cat type" <+> pp x <+> pp y <+> pp n <+> pp tx
 builtinToDafny isLVal annK (Typed l ret) "core.size" [x] = do
     (annx,px) <- expressionToDafny isLVal annK x
@@ -807,7 +861,7 @@ builtinToDafny isLVal annK (Typed l ret) "core.shape" [x] = do
         otherwise -> genError noloc $ text "builtinToDafny: unknown shape" <+> pp x <+> pp tx
 builtinToDafny isLVal annK ret n es = genError noloc $ text "builtinToDafny:" <+> pp isLVal <+> pp annK <+> pp ret <+> pp n <+> pp es
 
-literalToDafny :: DafnyK m => Literal (Typed Position) -> DafnyM m ([Doc],Doc)
+literalToDafny :: DafnyK m => Literal (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 literalToDafny lit = do
     let t = typed $ loc lit
     case t of
@@ -841,15 +895,24 @@ instance PP DafnyId where
 
 ppPOId :: Identifier -> POId -> Doc
 ppPOId current (Left pn) = dafnyVarId current pn
-ppPOId current (Right _) = error "unsupported operator"
+ppPOId current (Right on) = pp on
 
 ppDafnyId :: Identifier -> DafnyId -> Doc
 ppDafnyId current (PId pn (mn,uid)) = prefix <> ppn <> pp uid <> suffix
     where
     ppn = ppPOId current pn
     prefix = text mn 
+    suffix = text "LeakageProc"
+ppDafnyId current (FId pn (mn,uid) isLeak) = prefix <> ppn <> pp uid <> suffix
+    where
+    ppn = ppPOId current pn
+    prefix = text mn
     suffix = empty
-ppDafnyId current (FId on (mn,uid) isLeak) = error $ show $ text "ppDafnyId: function not supported" <+> pp on
+ppDafnyId current (LId pn (mn,uid) isLeak) = prefix <> ppn <> pp uid <> suffix
+    where
+    ppn = ppPOId current $ Left pn
+    prefix = text mn
+    suffix = if isLeak then text "LeakageLemma" else text "OriginalLemma"
 ppDafnyId current (SId sn (mn,uid)) = prefix <> psn <> pp uid <> suffix
     where
     psn = dafnyVarId current sn
@@ -859,7 +922,7 @@ ppDafnyId current (AId (mn,uid) isLeak) = prefix <> psn <> pp uid <> suffix
     where
     psn = dafnyVarId current $ mkVarId "axiom"
     prefix = text mn 
-    suffix = if isLeak then text "Leakage" else empty
+    suffix = if isLeak then text "LeakageAxiom" else text "OriginalAxiom"
 
 ppDafnyIdM :: DafnyK m => DafnyId -> DafnyM m Doc
 ppDafnyIdM did = do

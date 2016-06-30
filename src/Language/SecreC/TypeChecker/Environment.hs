@@ -85,14 +85,6 @@ withInTemplate b m = do
     x <- m
     State.modify $ \env -> env { inTemplate = old }
     return x
-    
-withInAxiom :: (ProverK Position m) => Bool -> TcM m a -> TcM m a
-withInAxiom b m = do
-    old <- liftM inTemplate State.get
-    State.modify $ \env -> env { inAxiom = b }
-    x <- m
-    State.modify $ \env -> env { inAxiom = old }
-    return x
 
 getAllVars isAnn scope = getVarsPred isAnn scope (const True)
 getVars isAnn scope cl = getVarsPred isAnn scope (== cl)
@@ -186,8 +178,8 @@ checkConst n = do
 
 registerVar :: Monad m => Bool -> VarIdentifier -> Type -> TcM m ()
 registerVar isWrite v t = if isWrite
-    then addDecClass (DecClass False Map.empty (Map.singleton v t))
-    else addDecClass (DecClass False (Map.singleton v t) Map.empty)
+    then addDecClass (DecClass False True Map.empty (Map.singleton v t))
+    else addDecClass (DecClass False True (Map.singleton v t) Map.empty)
 
 checkVariable :: (ProverK loc m) => Bool -> Bool -> Bool -> Scope -> VarName VarIdentifier loc -> TcM m (VarName VarIdentifier (Typed loc))
 checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
@@ -197,8 +189,8 @@ checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
         Just (isGlobal,(isConst,bAnn,e)) -> do
             when cConst $ unless isConst $ genTcError (locpos l) $ text "expected variable" <+> pp v <+> text "to be a constant"
             when isGlobal $ do
-                isAx <- State.gets inAxiom
-                when isAx $ genTcError (locpos l) $ text "cannot read/write global variable" <+> pp v <+> text "inside an axiom"
+                decK <- State.gets decKind
+                when (decK == AKind || decK == LKind) $ genTcError (locpos l) $ text "cannot read/write global variable" <+> pp v <+> text "inside an axiom/lemma"
                 unless isConst $ registerVar isWrite n (entryType e) -- consts don't count as global variables for reads/writes
             when (isWrite && isConst) $ tcError (locpos l) $ AssignConstVariable (pp n)
             --liftIO $ putStrLn $ "checkVariable " ++ ppr v ++ " " ++ ppr n
@@ -274,10 +266,10 @@ newDomainVariable isAnn scope (DomainName (Typed l t) n) = do
                 Nothing -> addVar l scope n Nothing False isAnn (EntryEnv (locpos l) t)
 
 -- | Adds a new type variable to the environment
-newTypeVariable :: (ProverK loc m) => Bool -> Scope -> TypeName VarIdentifier (Typed loc) -> TcM m ()
-newTypeVariable isAnn scope (TypeName (Typed l t) n) = do
+newTypeVariable :: (ProverK loc m) => Bool -> Bool -> Scope -> TypeName VarIdentifier (Typed loc) -> TcM m ()
+newTypeVariable isAnn isLeak scope (TypeName (Typed l t) n) = do
     removeFree n
-    ss <- getStructs False isAnn
+    ss <- getStructs False isAnn isLeak
     case Map.lookup n ss of
         Just (es) -> tcError (locpos l) $ InvalidTypeVariableName (pp n) (map (locpos . entryLoc) (Map.elems es))
         Nothing -> do
@@ -339,9 +331,9 @@ checkDomain isAnn (DomainName l n) = do
                 Nothing -> tcError (locpos l) $ NotDefinedDomain (pp n)
     return $ DomainName (Typed l t) n
 
-checkStruct :: ProverK loc m => loc -> Bool -> Bool -> SIdentifier -> ModuleTyVarId -> TcM m DecType
-checkStruct l withBody isAnn sid@(TypeName _ sn) mid = do
-    ss <- getStructs withBody isAnn
+checkStruct :: ProverK loc m => loc -> Bool -> Bool -> Bool -> SIdentifier -> ModuleTyVarId -> TcM m DecType
+checkStruct l withBody isAnn isLeak sid@(TypeName _ sn) mid = do
+    ss <- getStructs withBody isAnn isLeak
     case Map.lookup sn ss of
         Just es -> case Map.lookup mid es of
             Just e -> typeToDecType l (entryType e)
@@ -350,9 +342,9 @@ checkStruct l withBody isAnn sid@(TypeName _ sn) mid = do
         
 -- | Checks if a type exists in scope
 -- Searches for both user-defined types and type variables
-checkType :: (ProverK loc m) => Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
-checkType isAnn (TypeName l n) = do
-    ss <- getStructs False isAnn
+checkType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
+checkType isAnn isLeak (TypeName l n) = do
+    ss <- getStructs False isAnn isLeak
     case Map.lookup n ss of
         Just (es) -> return (Map.elems es)
         Nothing -> tcError (locpos l) $ NotDefinedType (pp n)
@@ -380,9 +372,9 @@ checkTypeName isAnn tn@(TypeName l n) = do
             let ret = BaseT $ TApp (TypeName () n) [] dec
             return $ TypeName (Typed l ret) n
 
-checkNonTemplateType :: (ProverK loc m) => Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
-checkNonTemplateType isAnn ty@(TypeName l n) = do
-    es <- checkType isAnn ty
+checkNonTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
+checkNonTemplateType isAnn isLeak ty@(TypeName l n) = do
+    es <- checkType isAnn isLeak ty
     case es of
         [e] -> case entryType e of
             DecT d -> case d of
@@ -393,18 +385,18 @@ checkNonTemplateType isAnn ty@(TypeName l n) = do
 
 -- | Checks if a template type exists in scope
 -- Returns all template type declarations in scope, base template first
-checkTemplateType :: (ProverK loc m) => Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
-checkTemplateType isAnn ty@(TypeName _ n) = do
-    es <- checkType isAnn ty
+checkTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
+checkTemplateType isAnn isLeak ty@(TypeName _ n) = do
+    es <- checkType isAnn isLeak ty
     let check e = unless (isStructTemplate $ entryType e) $ tcError (locpos $ loc ty) $ NoTemplateType (pp n) (locpos $ entryLoc e) (pp $ entryType e)
     mapM_ check es
     return (es)
 
 -- | Checks if a variable argument of a template exists in scope
 -- The argument can be a (user-defined or variable) type, a (user-defined or variable) domain or a dimension variable
-checkTemplateArg :: (ProverK loc m) => Bool -> TemplateArgName VarIdentifier loc -> TcM m (TemplateArgName VarIdentifier (Typed loc))
-checkTemplateArg isAnn (TemplateArgName l n) = do
-    ss <- getStructs False isAnn
+checkTemplateArg :: (ProverK loc m) => Bool -> Bool -> TemplateArgName VarIdentifier loc -> TcM m (TemplateArgName VarIdentifier (Typed loc))
+checkTemplateArg isAnn isLeak (TemplateArgName l n) = do
+    ss <- getStructs False isAnn isLeak
     ds <- getDomains
     vs <- liftM (envVariables isAnn) State.get
     vn <- checkConst n
@@ -427,6 +419,9 @@ checkTemplateArg isAnn (TemplateArgName l n) = do
 addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
 addTemplateOperator vars hdeps op = do
     let Typed l (IDecT d) = loc op
+    let selector = case iDecTyKind d of
+                    FKind -> Lns functions (\x v -> x { functions = v }) 
+                    PKind -> Lns procedures (\x v -> x { procedures = v })
     let o = funit op
     solve l "addTemplateOperator"
     (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
@@ -434,13 +429,16 @@ addTemplateOperator vars hdeps op = do
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     --liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
-    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Right o) $ getLns selector env
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
 -- | Adds a new (possibly overloaded) operator to the environment.
 newOperator :: (ProverK loc m) => Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
 newOperator hdeps op = do
     let (Typed l (IDecT d)) = loc op
+    let selector = case iDecTyKind d of
+                    FKind -> Lns functions (\x v -> x { functions = v }) 
+                    PKind -> Lns procedures (\x v -> x { procedures = v })
     let o = funit op
     (_,recdict) <- tcProve l "newOp head" $ addHeadTFlatCstrs l hdeps
     addHeadTDict l recdict
@@ -449,8 +447,8 @@ newOperator hdeps op = do
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
     let recdt = DecT $ DecType i (Just i) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ remBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
-    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i rece . maybe Map.empty id) o (operators env) }
-    dirtyGDependencies $ Right $ Left $ Right o
+    modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Right o) $ getLns selector env
+    dirtyGDependencies $ OIden o
     
     solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
@@ -459,21 +457,21 @@ newOperator hdeps op = do
     let e = EntryEnv (locpos l) td
     noFrees e
     --liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
-    modifyModuleEnv $ \env -> env { operators = Map.alter (Just . Map.insert i e . maybe Map.empty id) o (operators env) }
+    modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Right o) $ getLns selector env
     return $ updLoc op (Typed (unTyped $ loc op) td)
   
  -- | Checks that an operator exists.
-checkOperator :: (VarsIdTcM m,Location loc) => Bool -> Op VarIdentifier loc -> TcM m [EntryEnv]
-checkOperator isAnn op@(OpCast l t) = do
-    addGDependencies $ Right $ Left $ Right $ funit op
-    ps <- getOperators False isAnn
+checkOperator :: (ProverK loc m) => Bool -> Bool -> DecKind -> Op VarIdentifier loc -> TcM m [EntryEnv]
+checkOperator isAnn isLeak k op@(OpCast l t) = do
+    addGDependencies $ OIden $ funit op
+    ps <- liftM rightsMap $ getEntries l isAnn isLeak k
     let cop = funit op
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCast k) ps
     return casts
-checkOperator isAnn op = do
-    addGDependencies $ Right $ Left $ Right $ funit op
-    ps <- getOperators False isAnn
+checkOperator isAnn isLeak k op = do
+    addGDependencies $ OIden $ funit op
+    ps <- liftM rightsMap $ getEntries (loc op) isAnn isLeak k
     let cop = funit op
     case Map.lookup cop ps of
         Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
@@ -481,8 +479,11 @@ checkOperator isAnn op = do
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
-addTemplateProcedure :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
-addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+addTemplateProcedureFunction :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
+addTemplateProcedureFunction vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+    let selector = case iDecTyKind d of
+                    FKind -> Lns functions (\x v -> x { functions = v }) 
+                    PKind -> Lns procedures (\x v -> x { procedures = v })
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
     (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
@@ -490,12 +491,15 @@ addTemplateProcedure vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
     --liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
-    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
+    modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Left n) $ getLns selector env
     return $ ProcedureName (Typed l dt') n
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
-newProcedure :: (ProverK loc m) => Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
-newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+newProcedureFunction :: (ProverK loc m) => Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
+newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+    let selector = case iDecTyKind d of
+                    FKind -> Lns functions (\x v -> x { functions = v }) 
+                    PKind -> Lns procedures (\x v -> x { procedures = v })
     -- prove the head constraints first
     (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l hdeps
     addHeadTDict l recdict
@@ -504,8 +508,8 @@ newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
     let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
-    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i rece . maybe Map.empty id) n (procedures env) }
-    dirtyGDependencies $ Right $ Left $ Left n
+    modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Left n) $ getLns selector env
+    dirtyGDependencies $ PIden n
     --doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     --liftIO $ putStrLn $ "newProc: " ++ show doc
     solveTop l "newProcedure"
@@ -514,8 +518,8 @@ newProcedure hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let dt = DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     noFrees e
-    --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
-    modifyModuleEnv $ \env -> env { procedures = Map.alter (Just . Map.insert i e . maybe Map.empty id) n (procedures env) }
+    liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
+    modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Left n) $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
   
 newAxiom :: ProverK loc m => loc -> Deps -> [(Constrained Var,IsVariadic)] -> InnerDecType -> TcM m DecType
@@ -527,7 +531,6 @@ newAxiom l hdeps tvars d = do
     frees <- getFrees l
     d' <- substFromTDict "newAxiom head" l recdict False Map.empty d
     
-    
     doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     solveTop l "newAxiom"
     dict <- liftM (head . tDict) State.get
@@ -538,49 +541,93 @@ newAxiom l hdeps tvars d = do
     --liftIO $ putStrLn $ "addAxiom " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { axioms = Map.insert i e (axioms env) }
     return dt
-  
+
+newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc))
+newLemma vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+--    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
+    solve l "addLemma"
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
+    i <- newModuleTyVarId
+    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
+    let e = EntryEnv (locpos l) dt'
+    --liftIO $ putStrLn $ "addTemplateProc " ++ ppr (entryType e)
+    modifyModuleEnv $ \env -> env { lemmas = Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ lemmas env }
+    return $ ProcedureName (Typed l dt') n
+    
  -- | Checks that a procedure exists.
-checkProcedure :: (MonadIO m,Location loc) => Bool -> ProcedureName VarIdentifier loc -> TcM m [EntryEnv]
-checkProcedure isAnn pn@(ProcedureName l n) = do
-    addGDependencies $ Right $ Left $ Left n
-    ps <- getProcedures False isAnn
-    case Map.lookup n ps of
+checkProcedureFunctionLemma :: (ProverK loc m) => Bool -> Bool -> DecKind -> ProcedureName VarIdentifier loc -> TcM m [EntryEnv]
+checkProcedureFunctionLemma isAnn isLeak k pn@(ProcedureName l n) = do
+    addGDependencies $ PIden n  
+    ps <- getEntries l isAnn isLeak k
+    case Map.lookup (Left n) ps of
         Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp n)
         Just es -> return $ Map.elems es
+
+getEntries :: (ProverK loc m) => loc -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getEntries l isAnn isLeak (FKind) = getFunctions False isAnn isLeak
+getEntries l isAnn isLeak (TKind) = getFunctions False isAnn isLeak
+getEntries l isAnn isLeak (AKind) = getFunctions False isAnn isLeak
+getEntries l isAnn isLeak (LKind) = do
+    xs <- getFunctions False isAnn isLeak
+    ys <- getLemmas False isAnn isLeak 
+    return $ Map.unionWith Map.union xs (Map.mapKeys Left ys)
+getEntries l isAnn isLeak (PKind) = do
+    xs <- getFunctions False isAnn isLeak
+    ys <- getLemmas False isAnn isLeak 
+    zs <- getProcedures False isAnn isLeak
+    return $ Map.unionWith Map.union (Map.unionWith Map.union xs zs) (Map.mapKeys Left ys)
+getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
 
 addDecClass :: Monad m => DecClass -> TcM m ()
 addDecClass cl = State.modify $ \env -> env { decClass = mappend cl $ decClass env }
 
-entryLens :: (DecIdentifier,ModuleTyVarId) -> Lns TcEnv [Maybe (Map ModuleTyVarId EntryEnv)]
-entryLens (dn,i) = Lns get put
+entryLens :: (GIdentifier,ModuleTyVarId) -> DecKind -> Lns TcEnv [Maybe (Map ModuleTyVarId EntryEnv)]
+entryLens (dn,i) k = Lns get put
     where
-    get env = case dn of
-        Right tn ->
+    get env = case (dn,k) of
+        (TIden tn,TKind) ->
             let (x,y) = moduleEnv env
                 zs = map tRec $ tDict env
             in  map (Map.lookup tn . structs) (x:y:zs)
-        Left (Left pn) ->
+        (gIdenToPOId -> Just pn,PKind) ->
             let (x,y) = moduleEnv env
                 zs = map tRec $ tDict env
             in  map (Map.lookup pn . procedures) (x:y:zs)
-        Left (Right (funit -> on)) -> 
+        (gIdenToPOId -> Just pn,FKind) ->
             let (x,y) = moduleEnv env
                 zs = map tRec $ tDict env
-            in  map (Map.lookup on . operators) (x:y:zs)
-    put env (x':y':zs') | length zs' == length (tDict env) = case dn of
-        Right tn ->
+            in  map (Map.lookup pn . functions) (x:y:zs)
+        (PIden pn,LKind) ->
+            let (x,y) = moduleEnv env
+                zs = map tRec $ tDict env
+            in  map (Map.lookup pn . lemmas) (x:y:zs)
+    put env (x':y':zs') | length zs' == length (tDict env) = case (dn,k) of
+        (TIden tn,TKind) ->
             let (x,y) = moduleEnv env
                 upd a' a = a { structs = Map.alter (const a') tn $ structs a }
             in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
-        Left (Left pn) ->
+        (gIdenToPOId -> Just pn,PKind) ->
             let (x,y) = moduleEnv env
                 upd a' a = a { procedures = Map.alter (const a') pn $ procedures a }
             in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
-        Left (Right (funit -> on)) ->
+        (gIdenToPOId -> Just pn,FKind) ->
             let (x,y) = moduleEnv env
-                upd a' a = a { operators = Map.alter (const a') on $ operators a }
+                upd a' a = a { functions = Map.alter (const a') pn $ functions a }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+        (PIden pn,LKind) ->
+            let (x,y) = moduleEnv env
+                upd a' a = a { lemmas = Map.alter (const a') pn $ lemmas a }
             in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
     put env xs' = error "unsupported view in entryLens"
+
+gIdenToPOId :: GIdentifier -> Maybe POId
+gIdenToPOId (PIden pn) = Just $ Left pn
+gIdenToPOId (OIden on) = Just $ Right on
+gIdenToPOId g = Nothing
+
+pOIdToGIden :: POId -> GIdentifier
+pOIdToGIden (Left pn) = PIden pn
+pOIdToGIden (Right on) = OIden on
 
 findListLens :: (a -> Bool) -> Lns [Maybe a] (Maybe (a,Int))
 findListLens p = Lns (get 0) put
@@ -606,15 +653,16 @@ indexLens i = Lns (get i) (put i)
 withoutEntry :: Monad m => EntryEnv -> TcM m a -> TcM m a
 withoutEntry e m = do
     let DecT d = entryType e
+    let k = (decTyKind d)
     env <- State.get
     case decTypeId d of
         Just did@(dn,i) -> do
-            let lns = entryLens did `compLns` findListLens (Map.member i)
+            let lns = entryLens did k `compLns` findListLens (Map.member i)
             case getLns lns env of
                 Nothing -> m
                 Just (es,trace) -> do
                     let e = es!i
-                    let lns2 = entryLens did `compLns` indexLens trace
+                    let lns2 = entryLens did k `compLns` indexLens trace
                     State.modify $ \env -> putLns lns env $ Just (Map.delete i es,trace)
                     a <- m
                     State.modify $ \env -> putLns lns2 env $ Just $ Map.insert i e $ fromJustNote "withoutEntry" $ getLns lns2 env
@@ -625,29 +673,27 @@ decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isJust isfree
 
 remBody :: InnerDecType -> InnerDecType
 remBody (ProcType pl n pargs pret panns body cl) = ProcType pl n pargs pret panns Nothing cl
+remBody (LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
 remBody (FunType isLeak pl n pargs pret panns body cl) = FunType isLeak pl n pargs pret panns Nothing cl
 remBody (AxiomType isLeak pl pargs panns cl) = AxiomType isLeak pl pargs panns cl
 remBody (StructType sl sid atts cl) = StructType sl sid Nothing cl
 
 mkDecEnv :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) = do
+mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n pargs pret panns body cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
-    return $ mempty { procedures = Map.singleton pn $ Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) = do
+    return $ mempty { procedures = Map.singleton (bimap id funit n) $ Map.singleton i e }
+mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(FunType isLeak pl n pargs pret panns body cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
-    return $ mempty { operators = Map.singleton (funit op) $ Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) = do
-    let e = EntryEnv (locpos l) (DecT d)
-    return $ mempty { procedures = Map.singleton pn $ Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) = do
-    let e = EntryEnv (locpos l) (DecT d)
-    return $ mempty { operators = Map.singleton (funit op) $ Map.singleton i e }
+    return $ mempty { functions = Map.singleton (bimap id funit n) $ Map.singleton i e }
 mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { structs = Map.singleton sn $ Map.singleton i e }
 mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs a@(AxiomType isLeak pa pargs panns cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { axioms = Map.singleton i e }
+mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl pn pargs panns body cl)) = do
+    let e = EntryEnv (locpos l) (DecT d)
+    return $ mempty { lemmas = Map.singleton pn $ Map.singleton i e }
     
 buildCstrGraph :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m IOCstrGraph
 buildCstrGraph l cstrs = do
@@ -698,7 +744,7 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
-    ss <- getStructs False $ tyIsAnn dt'
+    ss <- getStructs False (tyIsAnn dt') (isLeakType dt')
     case Map.lookup n ss of
         Just es -> tcError (locpos l) $ MultipleDefinedStructTemplate (pp n) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
@@ -719,7 +765,7 @@ addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT
 -- | Defines a new struct type
 newStruct :: (ProverK loc m) => Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
-    addGDependencies $ Right $ Right n
+    addGDependencies $ TIden n
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l hdeps
     addHeadTDict l recdict
@@ -729,12 +775,12 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
     let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remBody d'
     let rece = EntryEnv (locpos l) recdt
-    ss <- getStructs False $ tyIsAnn recdt
+    ss <- getStructs False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
         Just es -> tcError (locpos l) $ MultipleDefinedStruct (pp n) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> do
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i rece) (structs env) }
-            dirtyGDependencies $ Right $ Right n
+            dirtyGDependencies $ TIden n
     
             -- solve the body
             solveTop l "newStruct"
@@ -775,7 +821,7 @@ addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locp
 --      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
         updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
         removeFree vn
-        when dirty $ dirtyGDependencies $ Left vn
+        when dirty $ dirtyGDependencies $ VIden vn
         -- register variable assignment in the top-most open constraint
         State.modify $ \env -> env { openedCstrs = mapHead (mapSnd $ Set.insert vn) (openedCstrs env) }
     
@@ -1052,18 +1098,18 @@ dirtyIOCstrDependencies opens iok = do
 -- we need global const variables to distinguish them during typechecking
 addConst :: MonadIO m => Scope -> Bool -> Identifier -> TcM m VarIdentifier
 addConst scope isTok vi = do
-    vi' <- freeVarId vi $ Just $ pp vi
+    vi' <- freeVarId vi $ Just $ pp $ if isTok then vi++"Tok" else vi
     let vi'' = if isTok then tokVar vi' else vi'
     case scope of
         LocalScope -> State.modify $ \env -> env { localConsts = Map.insert vi vi'' $ localConsts env }
         GlobalScope -> modifyModuleEnv $ \env -> env { globalConsts = Map.insert vi vi'' $ globalConsts env }
     return vi''
 
-getPureClass :: Monad m => Bool -> Bool -> TcM m DecClass
-getPureClass isAnn isPure = do
-    env <- State.get
-    let vs = if isPure then Map.empty else Map.map (entryType . thr3) $ globalVariables env
-    return $ DecClass isAnn vs vs
+--getPureClass :: Monad m => Bool -> Bool -> TcM m DecClass
+--getPureClass isAnn isPure = do
+--    env <- State.get
+--    let vs = if isPure then Map.empty else Map.map (entryType . thr3) $ globalVariables env
+--    return $ DecClass isAnn vs vs
 
 globalVariables :: TcEnv -> Map VarIdentifier (Bool,Bool,EntryEnv)
 globalVariables env = Map.unions [Map.map snd $ globalVars e1,Map.map snd $ globalVars e2]
@@ -1285,7 +1331,7 @@ throwTcError err = do
         -- write error to the constraint's result
         liftIO $ writeUniqRef (kStatus io) (Erroneous err2)
         -- dirty variables assigned by this constraint
-        forM_ vs (dirtyGDependencies . Left)
+        forM_ vs (dirtyGDependencies . VIden)
     mapM_ add ios
     throwError err2     
 
@@ -1339,4 +1385,25 @@ onlyLeak l doc m = do
     return x
 
 nonTok v = varIdTok v == False
-tokVar v = v { varIdTok = True, varIdBase = varIdBase v ++ "Tok" }
+tokVar v = v { varIdTok = True }
+
+getDecClass :: MonadIO m => Maybe GIdentifier -> TcM m DecClass
+getDecClass Nothing = State.gets decClass
+getDecClass (Just gid) = do
+    opts <- askOpts
+    cl@(DecClass isAnn isInline rs ws) <- State.gets decClass
+    let es = entryPoints opts
+    let isEntry = any (\e -> e == gIdenBase gid) es
+    return $ DecClass isAnn (if isEntry then False else isInline) rs ws
+
+
+checkLeak :: ProverK loc m => loc -> Bool -> TcM m a -> TcM m a
+checkLeak l False m = m
+checkLeak l True m = do
+    isLeak <- getLeak
+    k <- getKind
+    if isLeak
+        then withLeak True m
+        else case k of
+            PKind -> withLeak True m
+            otherwise -> genTcError (locpos l) $ text "leakage annotation not supported in" <+> text (show k)

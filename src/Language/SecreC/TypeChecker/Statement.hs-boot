@@ -13,3 +13,4 @@ import Data.Set
 
 tcStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 
+

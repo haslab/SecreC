@@ -755,6 +755,27 @@ instance Location loc => Located (AxiomDeclaration iden loc) where
 instance PP iden => PP (AxiomDeclaration iden loc) where
     pp (AxiomDeclaration _ isLeak qs params anns) = ppLeak isLeak (text "axiom" <+> abrackets (sepBy comma (fmap pp qs)) <+> parens (sepBy comma $ map pp params) $+$ pp anns )
 
+data LemmaDeclaration iden loc
+    = LemmaDeclaration loc
+        Bool -- is leakage
+        (ProcedureName iden loc)
+        [TemplateQuantifier iden loc] -- template arguments
+        [ProcedureParameter iden loc]
+        [ProcedureAnnotation iden loc]
+        (Maybe [Statement iden loc])
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+  
+instance (Binary iden,Binary loc) => Binary (LemmaDeclaration iden loc)  
+instance (Hashable iden,Hashable loc) => Hashable (LemmaDeclaration iden loc)
+
+instance Location loc => Located (LemmaDeclaration iden loc) where
+    type LocOf (LemmaDeclaration iden loc) = loc
+    loc (LemmaDeclaration l _ _ _ _ _ _) = l
+    updLoc (LemmaDeclaration _ isLeak n x y z ss) l = LemmaDeclaration l isLeak n x y z ss
+  
+instance PP iden => PP (LemmaDeclaration iden loc) where
+    pp (LemmaDeclaration _ isLeak n qs params anns body) = ppLeak isLeak (text "lemma" <+> pp n <+> abrackets (sepBy comma (fmap pp qs)) <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ ppOpt body (\stmts -> lbrace $+$ nest 4 (pp stmts) $+$ rbrace))
+
 data FunctionDeclaration iden loc
     = OperatorFunDeclaration loc
         Bool -- is leakage
@@ -1305,6 +1326,7 @@ data GlobalAnnotation iden loc
     | GlobalProcedureAnn loc (ProcedureDeclaration iden loc)
     | GlobalTemplateAnn loc (TemplateDeclaration iden loc)
     | GlobalAxiomAnn loc (AxiomDeclaration iden loc)
+    | GlobalLemmaAnn loc (LemmaDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (GlobalAnnotation iden loc)  
@@ -1322,6 +1344,7 @@ instance Location loc => Located (GlobalAnnotation iden loc) where
     updLoc (GlobalStructureAnn _ x)   l = (GlobalStructureAnn l x)
     updLoc (GlobalProcedureAnn _ x)   l = (GlobalProcedureAnn l x)
     updLoc (GlobalAxiomAnn _ x)   l = (GlobalAxiomAnn l x)
+    updLoc (GlobalLemmaAnn _ x)   l = (GlobalLemmaAnn l x)
 
 instance PP iden => PP (GlobalAnnotation iden loc) where
     pp (GlobalFunctionAnn _ f) = ppAnns $ pp f
@@ -1329,6 +1352,7 @@ instance PP iden => PP (GlobalAnnotation iden loc) where
     pp (GlobalProcedureAnn _ p) = ppAnns $ pp p
     pp (GlobalTemplateAnn _ t) = ppAnns $ pp t
     pp (GlobalAxiomAnn _ a) = ppAnns $ pp a
+    pp (GlobalLemmaAnn _ a) = ppAnns $ pp a
 
 instance PP iden => PP [GlobalAnnotation iden loc] where
     pp xs = vcat $ map pp xs
@@ -1336,6 +1360,8 @@ instance PP iden => PP [GlobalAnnotation iden loc] where
 data ProcedureAnnotation iden loc
     = RequiresAnn loc Bool Bool (Expression iden loc)
     | EnsuresAnn loc Bool Bool (Expression iden loc)
+    | InlineAnn loc Bool
+    | PDecreasesAnn loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ProcedureAnnotation iden loc)  
@@ -1344,13 +1370,20 @@ instance (Hashable iden,Hashable loc) => Hashable (ProcedureAnnotation iden loc)
 instance Location loc => Located (ProcedureAnnotation iden loc) where
     type LocOf (ProcedureAnnotation iden loc) = loc
     loc (RequiresAnn l _ _ _)    = l
+    loc (PDecreasesAnn l e) = l
     loc (EnsuresAnn l _ _ _) = l
+    loc (InlineAnn l b) = l
     updLoc (RequiresAnn _ isFree isLeak x)    l = (RequiresAnn l isFree isLeak x)   
     updLoc (EnsuresAnn _ isFree isLeak x)    l = (EnsuresAnn l isFree isLeak x)   
+    updLoc (InlineAnn _ b) l = InlineAnn l b
+    updLoc (PDecreasesAnn _ e) l = PDecreasesAnn l e
 
 instance PP iden => PP (ProcedureAnnotation iden loc) where
-    pp (RequiresAnn _ isFree isLeak e) = ppAnn $ ppFree isFree $ ppLeak isLeak $ text "requires" <+> pp e
-    pp (EnsuresAnn _ isFree isLeak e) = ppAnn $ ppFree isFree $ ppLeak isLeak $ text "ensures" <+> pp e
+    pp (RequiresAnn _ isFree isLeak e) = ppAnn $ ppFree isFree $ ppLeak isLeak $ text "requires" <+> pp e <> semicolon
+    pp (PDecreasesAnn l e) = ppAnn $ text "decreases" <+> pp e <> semicolon
+    pp (EnsuresAnn _ isFree isLeak e) = ppAnn $ ppFree isFree $ ppLeak isLeak $ text "ensures" <+> pp e <> semicolon
+    pp (InlineAnn _ True) = ppAnn $ text "inline" <> semicolon
+    pp (InlineAnn _ False) = ppAnn $ text "noinline" <> semicolon
 
 ppFree isFree doc = if isFree then text "free" <+> doc else doc
 ppLeak isLeak doc = if isLeak then text "leakage" <+> doc else doc
@@ -1374,8 +1407,8 @@ instance Location loc => Located (LoopAnnotation iden loc) where
     updLoc (InvariantAnn _ isFree isLeak x)    l = (InvariantAnn l isFree isLeak x)   
 
 instance PP iden => PP (LoopAnnotation iden loc) where
-    pp (DecreasesAnn _ free e) = ppAnn $ ppFree free $ text "decreases" <+> pp e
-    pp (InvariantAnn _ free isLeak e) = ppAnn $ ppFree free $ ppLeak isLeak $ text "invariant" <+> pp e
+    pp (DecreasesAnn _ free e) = ppAnn $ ppFree free $ text "decreases" <+> pp e <> semicolon
+    pp (InvariantAnn _ free isLeak e) = ppAnn $ ppFree free $ ppLeak isLeak $ text "invariant" <+> pp e <> semicolon
     
 instance PP iden => PP [LoopAnnotation iden loc] where
     pp xs = vcat $ map pp xs
@@ -1383,6 +1416,7 @@ instance PP iden => PP [LoopAnnotation iden loc] where
 data StatementAnnotation iden loc
     = AssumeAnn loc Bool (Expression iden loc)
     | AssertAnn loc Bool (Expression iden loc)
+    | EmbedAnn loc Bool (Statement iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (StatementAnnotation iden loc)  
@@ -1392,12 +1426,15 @@ instance Location loc => Located (StatementAnnotation iden loc) where
     type LocOf (StatementAnnotation iden loc) = loc
     loc (AssumeAnn l _ _)    = l
     loc (AssertAnn l _ _) = l
+    loc (EmbedAnn l isLeak e) = l
+    updLoc (EmbedAnn _ isLeak e) l = EmbedAnn l isLeak e
     updLoc (AssumeAnn _ isLeak x)    l = (AssumeAnn l isLeak x)   
     updLoc (AssertAnn _ isLeak x)    l = (AssertAnn l isLeak x)   
 
 instance PP iden => PP (StatementAnnotation iden loc) where
-    pp (AssumeAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assume" <+> pp e
-    pp (AssertAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assert" <+> pp e
+    pp (AssumeAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assume" <+> pp e <> semicolon
+    pp (AssertAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assert" <+> pp e <> semicolon
+    pp (EmbedAnn l isLeak s) = ppAnn $ ppLeak isLeak $ pp s
 
 instance PP iden => PP [StatementAnnotation iden loc] where
     pp xs = vcat $ map pp xs
@@ -1449,6 +1486,7 @@ $(deriveBifunctor ''Index)
 $(deriveBifunctor ''Op) 
 $(deriveBifunctor ''Expression) 
 $(deriveBifunctor ''GlobalAnnotation) 
+$(deriveBifunctor ''LemmaDeclaration) 
 $(deriveBifunctor ''AxiomDeclaration) 
 $(deriveBifunctor ''FunctionDeclaration) 
 $(deriveBifunctor ''ProcedureAnnotation) 

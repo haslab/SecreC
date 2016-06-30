@@ -108,7 +108,7 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 }
 
 //@ template <domain D,type T,dim N>
-//@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, uint n)
+//@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 //@ requires n < N;
 //@ {
 //@     __builtin("core.cat",x,y,n) :: D T[[N]]

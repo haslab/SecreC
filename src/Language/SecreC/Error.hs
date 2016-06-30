@@ -75,7 +75,8 @@ instance PP SecrecError where
     pp (TypecheckerError p err) = pp p <> char ':' $+$ nest 4 (pp err)
     pp (ParserError err) = pp err
     pp (ModuleError p err) = pp p <> char ':' $+$ nest 4 (pp err)
-    pp (GenericError p msg err) = pp p <> char ':' $+$ nest 4 msg $+$ text "Because of:" <+> pp err
+    pp (GenericError p msg Nothing) = pp p <> char ':' $+$ nest 4 msg
+    pp (GenericError p msg (Just err)) = pp p <> char ':' $+$ nest 4 msg $+$ text "Because of:" <+> pp err
     pp (MultipleErrors errs) = vcat $ map pp errs
     pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
     pp (OrWarn err) = text "Warning: " <+> pp err
@@ -242,7 +243,8 @@ instance Binary TypecheckerErr
 instance Hashable TypecheckerErr
 
 instance PP TypecheckerErr where
-    pp (GenTcError doc err) = doc $+$ nest 4 (text "Because of:" <+> pp err)
+    pp (GenTcError doc Nothing) = doc
+    pp (GenTcError doc (Just err)) = doc $+$ nest 4 (text "Because of:" <+> pp err)
     pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
     pp (IndexConditionNotValid c err) = text "Failed to satisfy index condition:" $+$ nest 4
         (text "Index condition:" <+> c

@@ -187,17 +187,20 @@ tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnota
 tcLoopAnn (DecreasesAnn l isFree e) = insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = insideAnnotation $ withLeak isLeak $ do
+tcLoopAnn (InvariantAnn l isFree isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
     (e') <- tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l isLeak e) = insideAnnotation $ withLeak isLeak $ do
+tcStmtAnn (AssumeAnn l isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
     (e') <- tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (AssertAnn l isLeak e) = insideAnnotation $ withLeak isLeak $ do
+tcStmtAnn (AssertAnn l isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
     (e') <- tcAnnGuard e
     return $ AssertAnn (Typed l $ typed $ loc e') isLeak e'
+tcStmtAnn (EmbedAnn l isLeak e) = insideAnnotation $ checkLeak l isLeak $ withKind LKind $ do
+    (e',t) <- tcStmt (ComplexT Void) e
+    return $ EmbedAnn (Typed l t) isLeak e'
 
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?

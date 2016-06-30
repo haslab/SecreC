@@ -136,13 +136,29 @@ mapSecrecM f (SecrecM m) = SecrecM $ Reader.mapReaderT f m
 runSecrecMWith :: Options -> SecrecM m a -> m (Either SecrecError (a,SecrecWarnings))
 runSecrecMWith opts m = flip runReaderT opts $ unSecrecM m
 
+printWarns :: SecrecWarnings -> IO ()
+printWarns (ScWarns warns) = do
+    forM_ warns $ \ws ->
+        forM_ (Map.elems ws) $ \w ->
+            forM_ w $ \x -> liftIO $ hPutStrLn stderr (ppr x)
+            
+flushWarnings :: MonadIO m => SecrecM m a -> SecrecM m a
+flushWarnings (SecrecM m) = SecrecM $ do
+    opts <- Reader.ask
+    e <- lift $ runReaderT m opts
+    case e of
+        Left err -> return $ Left err
+        Right (x,ws) -> do
+            liftIO $ printWarns ws
+            return $ Right (x,mempty)
+
 runSecrecM :: MonadIO m => Options -> SecrecM m a -> m a
 runSecrecM opts m = flip runReaderT opts $ do
     e <- unSecrecM m
     case e of
         Left err -> liftIO $ die $ ppr err
-        Right (x,ScWarns warns) -> do
-            forM_ warns $ \ws -> forM_ (Map.elems ws) $ \w -> forM_ w $ \x -> liftIO $ hPutStrLn stderr (ppr x)
+        Right (x,warns) -> do
+            liftIO $ printWarns warns
             return x
 
 instance Monad m => MonadReader Options (SecrecM m) where

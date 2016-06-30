@@ -211,7 +211,8 @@ tcPrimitiveDatatype p = do
 tcTemplateTypeArgument :: (ProverK loc m) => TemplateTypeArgument Identifier loc -> TcM m (TemplateTypeArgument VarIdentifier (Typed loc))
 tcTemplateTypeArgument (GenericTemplateTypeArgument l n) = do
     isAnn <- getAnn
-    n' <- checkTemplateArg isAnn (bimap mkVarId id n)
+    isLeak <- getLeak
+    n' <- checkTemplateArg isAnn isLeak (bimap mkVarId id n)
     let t = typed $ loc n'
     return $ GenericTemplateTypeArgument (Typed l t) n'
 tcTemplateTypeArgument (TemplateTemplateTypeArgument l n args) = do
@@ -314,7 +315,7 @@ projectSize p t i (Just x) y1 y2 = do
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
 structBody l d@(DecType _ Nothing _ _ _ _ _ _ b) = return b
 structBody l d@(DecType j (Just i) _ _ _ _ _ _ (StructType sl sid _ cl)) = do
-    (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) sid j
+    (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) (isLeakDec d) sid j
     return s        
 structBody l (DVar v@(nonTok -> True)) = resolveDVar l v >>= structBody l
 --structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d

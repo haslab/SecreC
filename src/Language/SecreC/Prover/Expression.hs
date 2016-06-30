@@ -149,7 +149,7 @@ expr2ProverMb e@(BuiltinExpr l n args) = builtin2Prover (unTyped l) n args
 expr2ProverMb e = lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression"
     
 proverProcError str (DecT (DVar v)) e = do
-    lift $ addGDependencies $ Left v
+    lift $ addGDependencies $ VIden v
     lift $ tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError (text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression") Nothing
 proverProcError str t e = do
     lift $ genTcError (locpos $ unTyped $ loc e) $ text "failed to convert" <+> text str <+> text "expression" <+> ppExprTy (fmap typed e) <+> text "to prover expression: unknown declaration type" <+> pp t

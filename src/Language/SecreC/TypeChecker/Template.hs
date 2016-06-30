@@ -72,7 +72,10 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
             defs <- forM errs $ \(e,err) -> do
                 t' <- ppM l $ entryType e
                 return (locpos $ entryLoc e,t',err)
-            tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure def defs
+            isAnn <- getAnn
+            isLeak <- getLeak
+            kind <- getKind
+            tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure (pp isAnn <+> pp isLeak <+> pp kind <+> def) defs
         [(e,e',subst,frees)] -> do
             dec <- resolveTemplateEntry l n targs pargs ret e e' subst frees
             return dec
@@ -122,7 +125,7 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
     addHeadTDict p $ templateCstrs (did : lineage) arr rec def p dict
     case n of
         Right _ -> do
-            let tycl@(DecClass isAnn rs ws) = tyDecClass $ DecT decrec
+            let tycl@(DecClass isAnn isInline rs ws) = tyDecClass $ DecT decrec
             isPure <- getPure
             when isPure $ unless (Map.null rs && Map.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
             addDecClass tycl
@@ -134,6 +137,10 @@ removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m DecType
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(ProcType {})) = do
     return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(FunType {})) = do
+    return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
+removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(LemmaType {})) = do
+    return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
+removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(AxiomType {})) = do
     return $ DecType i isRec [] hdict Set.empty bdict Set.empty [] d
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees [] d@(StructType {})) = do
     let specs' = map (mapFst (varNameToType . unConstrained)) targs
@@ -417,6 +424,8 @@ templateIdentifier (DecT t) = templateIdentifier' t
         where
         templateIdentifier'' (ProcType _ n _ _ _ _ _) = Right n
         templateIdentifier'' (FunType isLeak _ n _ _ _ _ _) = Right n
+        templateIdentifier'' (AxiomType isLeak _ _ _ _) = error "no identifier for axiom"
+        templateIdentifier'' (LemmaType isLeak _ n _ _ _ _) = Right $ Left n
         templateIdentifier'' (StructType _ n _ _) = Left n
    
 -- has type or procedure constrained arguments     
@@ -439,6 +448,10 @@ templateArgs l (Right name) t = case t of
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
     DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (FunType isLeak _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
+    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (LemmaType isLeak _ n vars ann stmts _)) -> do
+        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just $ ComplexT Void)
+    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (AxiomType isLeak _ vars ann _)) -> do
+        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Nothing)
     otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
 
 tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set VarIdentifier
@@ -456,7 +469,7 @@ templateTDict isPure e = case entryType e of
   where
     purify :: TCstrGraph -> TCstrGraph
     purify = Graph.nmap (fmap add)
-    add = updCstrState (\(x,y,z) -> (x,isPure || y,z))
+    add = updCstrState (\(x1,x2,x3,x4,l) -> (x1,isPure || x2,x3,x4,l))
 
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n
@@ -516,6 +529,18 @@ localTemplateInnerType (ss0::SubstsProxy VarIdentifier (TcM m)) ssBounds (l::loc
         stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
         c' <- substProxy "localTplt" ss False ssBounds1 c
         return (FunType isLeak p pid' args' ret' ann' stmts' c',ss,ssBounds1)
+    AxiomType isLeak p args ann c -> do
+        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
+        ann' <- substProxy "localTplt" ss False ssBounds1 ann
+        c' <- substProxy "localTplt" ss False ssBounds1 c
+        return (AxiomType isLeak p args' ann' c',ss,ssBounds1)
+    LemmaType isLeak p pid args ann stmts c -> do
+        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
+        pid' <- substProxy "localTplt" ss False ssBounds1 pid
+        ann' <- substProxy "localTplt" ss False ssBounds1 ann
+        stmts' <- substProxy "localTplt" ss False ssBounds1 stmts
+        c' <- substProxy "localTplt" ss False ssBounds1 c
+        return (LemmaType isLeak p pid' args' ann' stmts' c',ss,ssBounds1)
     StructType p sid atts c -> do
         sid' <- substProxy "localTplt" ss0 False ssBounds sid
         atts' <- substProxy "localTplt" ss0 False ssBounds atts

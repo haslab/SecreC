@@ -143,15 +143,22 @@ orWarn m = (liftM Just m) `catchError` \e -> do
 orWarn_ :: (MonadIO m) => TcM m a -> TcM m ()
 orWarn_ m = orWarn m >> return ()
 
-type GIdentifier = Either
-    VarIdentifier -- variable
-    (Either
-        (Either
-            VarIdentifier -- function or procedure
-            (Op VarIdentifier ()) -- operator
-        )
-        VarIdentifier -- type
-    )
+type POId = Either VarIdentifier (Op VarIdentifier ())
+
+data GIdentifier
+    = VIden VarIdentifier -- variable
+    | PIden VarIdentifier -- function or procedure or lemma
+    | OIden (Op VarIdentifier ()) -- operator function or procedure
+    | TIden VarIdentifier -- type
+  deriving (Eq,Ord,Show,Data,Typeable,Generic)
+instance Hashable GIdentifier
+instance Binary GIdentifier
+
+gIdenBase :: GIdentifier -> String
+gIdenBase (VIden v) = varIdBase v
+gIdenBase (PIden v) = varIdBase v
+gIdenBase (TIden v) = varIdBase v
+gIdenBase (OIden o) = ppr o
 
 data GlobalEnv = GlobalEnv
     { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on variables
@@ -176,12 +183,25 @@ data TcEnv = TcEnv {
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: (String,Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
-    , inAxiom :: Bool -- if typechecking inside an axiom
+    , decKind :: DecKind -- if typechecking inside a declaration
     , isPure :: Bool -- if typechecking pure expressions
     , isLeak :: Bool -- if typechecking leakage expressions
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
+
+data DecKind
+    = AKind -- axiom
+    | LKind -- lemma
+    | PKind -- procedure
+    | FKind -- function
+    | TKind -- axiom
+  deriving (Eq,Ord,Show,Data,Typeable,Generic)
+instance Hashable DecKind
+instance Binary DecKind
+
+instance PP DecKind where
+    pp = text . show
 
 -- module typechecking environment that can be exported to an interface file
 data ModuleTcEnv = ModuleTcEnv {
@@ -189,13 +209,12 @@ data ModuleTcEnv = ModuleTcEnv {
     , globalConsts :: Map Identifier VarIdentifier -- mapping from declared const variables to unique internal const variables: consts have to be in SSA to guarantee the typechecker's correctness
     , kinds :: Map VarIdentifier EntryEnv -- ^ defined kinds: name |-> type of the kind
     , domains :: Map VarIdentifier EntryEnv -- ^ defined domains: name |-> type of the domain
-    -- a list of overloaded operators; akin to Haskell type class operations
-    -- we don't allow specialization of function templates
-    , operators :: Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv) -- ^ defined operators: name |-> procedure decl
     -- a list of overloaded procedures; akin to Haskell type class operations
     -- we don't allow specialization of function templates
-    , procedures :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined procedures: name |-> procedure decl
+    , procedures :: Map POId (Map ModuleTyVarId EntryEnv) -- ^ defined procedures: name |-> procedure decl
     -- | a base template and a list of specializations; akin to Haskell type functions
+    , functions :: Map POId (Map ModuleTyVarId EntryEnv)
+    , lemmas :: Map VarIdentifier (Map ModuleTyVarId EntryEnv)
     , structs :: Map VarIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
     , axioms :: Map ModuleTyVarId EntryEnv -- defined axioms
     } deriving (Generic,Data,Typeable,Eq,Ord,Show)
@@ -213,8 +232,9 @@ instance Monoid (ModuleTcEnv) where
         , globalConsts = Map.empty
         , kinds = Map.empty
         , domains = Map.empty
-        , operators = Map.empty
         , procedures = Map.empty
+        , functions = Map.empty
+        , lemmas = Map.empty
         , axioms = Map.empty
         , structs = Map.empty
         }
@@ -223,14 +243,15 @@ instance Monoid (ModuleTcEnv) where
         , globalConsts = Map.union (globalConsts x) (globalConsts y)
         , kinds = Map.union (kinds x) (kinds y)
         , domains = Map.union (domains x) (domains y)
-        , operators = Map.unionWith Map.union (operators x) (operators y)
         , procedures = Map.unionWith Map.union (procedures x) (procedures y)
+        , functions = Map.unionWith Map.union (functions x) (functions y)
+        , lemmas = Map.unionWith Map.union (lemmas x) (lemmas y)
         , axioms = Map.union (axioms x) (axioms y)
         , structs = Map.unionWith Map.union (structs x) (structs y)
         }
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ModuleTcEnv where
-    traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7 x8) = do
+    traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7 x8 x9) = do
         x1' <- f x1
         x2' <- traverseMap return f x2
         x3' <- f x3
@@ -239,7 +260,8 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ModuleTcEnv 
         x6' <- f x6
         x7' <- f x7
         x8' <- f x8
-        return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7' x8'
+        x9' <- f x9
+        return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7' x8' x9'
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m EntryEnv where
     traverseVars f (EntryEnv x1 x2) = do
@@ -268,6 +290,14 @@ withLeak b m = do
     State.modify $ \env -> env { isLeak = old }
     return x
 
+withKind :: Monad m => DecKind -> TcM m a -> TcM m a
+withKind k m = do
+    old <- liftM decKind State.get
+    State.modify $ \env -> env { decKind = k }
+    x <- m
+    State.modify $ \env -> env { decKind = old }
+    return x
+
 getPure :: Monad m => TcM m Bool
 getPure = liftM isPure State.get
     
@@ -277,15 +307,20 @@ getLeak = liftM isLeak State.get
 getLineage :: Monad m => TcM m Lineage
 getLineage = State.gets lineage
 
+getKind :: Monad m => TcM m (DecKind)
+getKind = State.gets decKind
+
 getCstrState :: Monad m => TcM m CstrState
 getCstrState = do
     isAnn <- getAnn
     isPure <- getPure
     lineage <- getLineage
-    return (isAnn,isPure,lineage)
+    isLeak <- getLeak
+    kind <- getKind
+    return (isAnn,isPure,isLeak,kind,lineage)
 
 withCstrState :: Monad m => CstrState -> TcM m a -> TcM m a
-withCstrState (isAnn,isPure,lineage) m = withAnn isAnn $ withPure isPure $ withLineage lineage m
+withCstrState (isAnn,isPure,isLeak,kind,lineage) m = withAnn isAnn $ withPure isPure $ withLeak isLeak $ withKind kind $ withLineage lineage m
 
 withLineage :: Monad m => Lineage -> TcM m a -> TcM m a
 withLineage new m = do
@@ -314,46 +349,44 @@ getModuleField withBody f = do
     let xyz = mappend x (mappend y z)
     return $ f xyz
 
+-- get only the recursive declarations for the lineage
 getRecs :: Monad m => Bool -> TcM m ModuleTcEnv
 getRecs withBody = do
     lineage <- getLineage
-    State.gets (mconcat . map tRec . tDict)
+    State.gets (filterRecModuleTcEnv lineage True . mconcat . map tRec . tDict)
 
 filterRecModuleTcEnv :: Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = env
-    { operators = filterRecBody lineage withBody (operators env)
-    , structs = filterRecBody lineage withBody (structs env)
+    { structs = filterRecBody lineage withBody (structs env)
     , procedures = filterRecBody lineage withBody (procedures env)
+    , functions = filterRecBody lineage withBody (functions env)
+    , lemmas = filterRecBody lineage withBody (lemmas env)
     }
 
 filterRecBody :: Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
-filterRecBody lineage True xs = xs
-filterRecBody lineage False xs = Map.map (Map.map remEntryBody . Map.filter isLineage) xs
+filterRecBody lineage withBody xs = Map.map (Map.map remBody . Map.filter isLineage) xs
     where
+    remBody = if withBody then id else remEntryBody
     remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec d
     isLineage (EntryEnv l (DecT d)) = case decTypeId d of
         Nothing -> False
         Just x -> List.elem x lineage
 
 remDecRec :: DecType -> DecType
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n@(Left pn) pargs pret panns body cl)) =
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n pargs pret panns body cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns Nothing cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl (Right op) pargs pret panns Nothing cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n@(Left pn) pargs pret panns body cl)) =
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n pargs pret panns body cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns Nothing cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl (Right op) pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl (Right op) pargs pret panns Nothing cl)
 remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid Nothing cl)
 remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
     DecType i isRec ts hd hfrees bd bfrees specs (AxiomType isLeak p qs pargs cl)
+remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl n pargs panns body cl)) =
+    DecType i isRec ts hd hfrees bd bfrees specs (LemmaType isLeak pl n pargs panns Nothing cl)
 
-
-getStructs :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs withBody isAnn = do
-    lineage <- getLineage
-    liftM (filterAnns isAnn) $ getModuleField withBody structs
+getStructs :: Monad m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs withBody isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody structs
 getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getKinds = getModuleField True kinds
 getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
@@ -362,22 +395,25 @@ getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField True globalConsts
 getDomains :: Monad m => TcM m (Map VarIdentifier EntryEnv)
 getDomains = getModuleField True domains
-getOperators :: Monad m => Bool -> Bool -> TcM m (Map (Op VarIdentifier ()) (Map ModuleTyVarId EntryEnv))
-getOperators withBody isAnn = do
-    lineage <- getLineage
-    liftM (filterAnns isAnn) $ getModuleField withBody operators
-getProcedures :: Monad m => Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getProcedures withBody isAnn = do
-    lineage <- getLineage
-    liftM (filterAnns isAnn) $ getModuleField withBody procedures
-getAxioms :: Monad m => Bool -> TcM m (Map ModuleTyVarId EntryEnv)
-getAxioms isAnn = liftM (filterAnns1 isAnn) $ getModuleField True axioms
+getProcedures :: Monad m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getProcedures withBody isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody procedures
+getFunctions :: Monad m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getFunctions withBody isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody functions
+getLemmas :: Monad m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getLemmas withBody isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody lemmas
+getAxioms :: Monad m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True axioms
 
-filterAnns :: Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
-filterAnns isAnn = Map.map (filterAnns1 isAnn)
+filterAnns :: Bool -> Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
+filterAnns isAnn isLeak = Map.map (filterAnns1 isAnn isLeak)
 
-filterAnns1 :: Bool -> (Map y EntryEnv) -> (Map y EntryEnv)
-filterAnns1 isAnn = Map.filter (\e -> isAnnDecClass (tyDecClass $ entryType e) == isAnn)
+filterAnns1 :: Bool -> Bool -> (Map y EntryEnv) -> (Map y EntryEnv)
+filterAnns1 isAnn isLeak = Map.filter p
+    where
+    p e@(entryType -> t@(DecT d)) = (isAnnDecClass (tyDecClass t) == isAnn) && (isLeak >= isLeakDec d)
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation = withAnn True
@@ -391,10 +427,16 @@ withAnn b m = do
     return x
 
 chgAnnDecClass :: Bool -> DecClass -> DecClass
-chgAnnDecClass b (DecClass _ r w) = DecClass b r w
+chgAnnDecClass b (DecClass _ i r w) = DecClass b i r w
+
+chgInlineDecClass :: Bool -> DecClass -> DecClass
+chgInlineDecClass b (DecClass a _ r w) = DecClass a b r w
 
 isAnnDecClass :: DecClass -> Bool
-isAnnDecClass (DecClass b _ _) = b
+isAnnDecClass (DecClass b _ _ _) = b
+
+isInlineDecClass :: DecClass -> Bool
+isInlineDecClass (DecClass _ b _ _) = b
 
 withDependencies :: Monad m => Set LocIOCstr -> TcM m a -> TcM m a
 withDependencies deps m = do
@@ -418,7 +460,7 @@ emptyTcEnv = TcEnv
     , lineage = []
     , moduleCount = ("main",1)
     , inTemplate = False
-    , inAxiom = False
+    , decKind = FKind
     , isPure = False
     , isLeak = False
     , localConsts = Map.empty
@@ -507,6 +549,17 @@ mapTcM :: (m (Either SecrecError ((a,TcEnv,()),SecrecWarnings)) -> n (Either Sec
     -> TcM m a -> TcM n b
 mapTcM f (TcM m) = TcM $ RWS.mapRWST (mapSecrecM f) m
 
+flushTcWarnings :: MonadIO m => TcM m a -> TcM m a
+flushTcWarnings = mapTcM flush
+    where
+    flush m = do
+        e <- m
+        case e of
+            Left err -> return $ Left err
+            Right ((x,env,()),warns) -> do
+                liftIO $ printWarns warns
+                return $ Right ((x,env,()),mempty)
+
 instance MonadTrans (TcM) where
     lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,mempty)) m
 
@@ -552,8 +605,6 @@ failTcM l m = do
         else m
 
 type PIdentifier = Either VarIdentifier (Op VarIdentifier Type)
-
-type DecIdentifier = Either PIdentifier VarIdentifier
 
 -- | Does a constraint depend on global template, procedure or struct definitions?
 -- I.e., can it be overloaded?
@@ -713,7 +764,7 @@ type Var = VarName VarIdentifier Type
 type Expr = Expression VarIdentifier Type
 type ExprL loc = Expression VarIdentifier (Typed loc)
 
-type Lineage = [(DecIdentifier,ModuleTyVarId)] -- trace of parent declarations
+type Lineage = [(GIdentifier,ModuleTyVarId)] -- trace of parent declarations
 
 updCstrState :: (CstrState -> CstrState) -> TCstr -> TCstr
 updCstrState f (DelayedK c arr) = DelayedK (updCstrState f c) arr
@@ -722,10 +773,10 @@ updCstrState f (CheckK c st) = CheckK c (f st)
 updCstrState f (HypK c st) = HypK c (f st)
 
 newLineage :: Lineage -> TCstr -> TCstr
-newLineage l = updCstrState (\(x,y,z) -> (x,y,l))
+newLineage l = updCstrState (\(x1,x2,x3,x4,_) -> (x1,x2,x3,x4,l))
 
--- (is annotation,is pure,lineage)
-type CstrState = (Bool,Bool,Lineage)
+-- (is annotation,is pure,is leak,decKind,lineage)
+type CstrState = (Bool,Bool,Bool,DecKind,Lineage)
 
 data TCstr
     = TcK
@@ -1331,26 +1382,34 @@ tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (FunType _ _ _ _ _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (StructType _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (AxiomType _ _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (LemmaType _ _ _ _ _ _ cl))) = cl
 tyDecClass t = error $ "tyDecClass: " ++ show t
 
-tyIsAnn t = let (DecClass b _ _) = tyDecClass t in b
+tyIsAnn t = let (DecClass b _ _ _) = tyDecClass t in b
+tyIsInline t = let (DecClass _ b _ _) = tyDecClass t in b
 
 decTypeFrees :: DecType -> Set VarIdentifier
 decTypeFrees (DecType _ _ _ _ hfs _ bfs _ _) = Set.union hfs bfs
 
-decTypeId :: DecType -> Maybe (DecIdentifier,ModuleTyVarId)
+decTypeId :: DecType -> Maybe (GIdentifier,ModuleTyVarId)
 decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
     (Just x,Just y) -> Just (x,y)
     otherwise -> Nothing
     
-decTypeDecId :: DecType -> Maybe DecIdentifier
+decTypeDecId :: DecType -> Maybe GIdentifier
 decTypeDecId (DecType _ _ _ _ _ _ _ _ d) = decTypeDecId' d
     where
-    decTypeDecId' (ProcType _ p _ _ _ _ _) = Just $ Left p
-    decTypeDecId' (FunType _ _ p _ _ _ _ _) = Just $ Left p
-    decTypeDecId' (StructType _ (TypeName _ s) _ _) = Just $ Right s
+    decTypeDecId' (ProcType _ (Left p) _ _ _ _ _) = Just $ PIden p
+    decTypeDecId' (ProcType _ (Right o) _ _ _ _ _) = Just $ OIden $ funit o
+    decTypeDecId' (LemmaType _ _ p _ _ _ _) = Just $ PIden p
+    decTypeDecId' (FunType _ _ (Left p) _ _ _ _ _) = Just $ PIden p
+    decTypeDecId' (FunType _ _ (Right o) _ _ _ _ _) = Just $ OIden $ funit o
+    decTypeDecId' (StructType _ (TypeName _ s) _ _) = Just $ TIden s
     decTypeDecId' (AxiomType _ _ _ _ _) = Nothing
 decTypeDecId d = Nothing
+
+isLeakType :: Type -> Bool
+isLeakType (DecT d) = isLeakDec d
 
 isLeakDec :: DecType -> Bool
 isLeakDec (DecType _ _ _ _ _ _ _ _ i) = isLeakInnerDec i
@@ -1360,6 +1419,17 @@ isLeakInnerDec (ProcType {}) = False
 isLeakInnerDec (FunType isLeak _ _ _ _ _ _ _) = isLeak
 isLeakInnerDec (StructType {}) = False
 isLeakInnerDec (AxiomType isLeak _ _ _ _) = isLeak
+isLeakInnerDec (LemmaType isLeak _ _ _ _ _ _) = isLeak
+
+decTyKind :: DecType -> DecKind
+decTyKind (DecType _ _ _ _ _ _ _ _ i) = iDecTyKind i
+
+iDecTyKind :: InnerDecType -> DecKind
+iDecTyKind (ProcType {}) = PKind
+iDecTyKind (FunType {}) = FKind
+iDecTyKind (AxiomType {}) = AKind
+iDecTyKind (StructType {}) = TKind
+iDecTyKind (LemmaType {}) = LKind
 
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
@@ -1405,6 +1475,14 @@ data InnerDecType
         [(Bool,Var,IsVariadic)] -- typed function arguments
         [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the procedure's annotations
         DecClass
+    | LemmaType -- ^ lemma type
+        Bool -- is leakage
+        Position
+        VarIdentifier -- lemma's name
+        [(Bool,Var,IsVariadic)] -- typed lemma arguments
+        [ProcedureAnnotation VarIdentifier (Typed Position)] -- ^ the lemma's annotations
+        (Maybe [Statement VarIdentifier (Typed Position)]) -- ^ the lemma's body
+        DecClass -- the type of lemma
         
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 
@@ -1419,6 +1497,10 @@ isFunType _ = False
 isFunDecType :: DecType -> Bool
 isFunDecType (DecType _ _ _ _ _ _ _ specs (FunType {})) = True
 isFunDecType _ = False
+
+isFunInnerDecType :: InnerDecType -> Bool
+isFunInnerDecType (FunType {}) = True
+isFunInnerDecType _ = False
 
 isNonRecursiveDecType :: DecType -> Bool
 isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
@@ -1627,6 +1709,16 @@ instance PP DecType where
         $+$ text "axiom" <> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann)
+    pp (DecType did isrec vars hdict hfrees dict frees [] body@(LemmaType isLeak _ n args ann stmts _)) =
+        ppLeak isLeak (pp did <+> pp isrec
+        $+$ text "Frees:" <+> pp hfrees
+        $+$ pp hdict
+        $+$ text "Frees:" <+> pp frees
+        $+$ pp dict
+        $+$ text "lemma" <> pp n <+> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
+        <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
+        $+$ pp ann
+        $+$ ppOpt stmts (braces . pp))
     pp (DVar v) = pp v
     pp d = error $ "pp: " ++ show d
 
@@ -1653,6 +1745,10 @@ instance PP InnerDecType where
     pp (AxiomType isLeak _ args ann _) =
             ppLeak isLeak (text "axiom" <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann)
+    pp (LemmaType isLeak _ n args ann stmts _) =
+            ppLeak isLeak (text "lemma" <+> pp n <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
+        $+$ pp ann
+        $+$ ppOpt stmts (braces . pp))
         
 instance PP BaseType where
     pp (TyPrim p) = pp p
@@ -1855,15 +1951,19 @@ instance PP [TcCstr] where
     pp xs = brackets (sepBy comma $ map pp xs)
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m DecClass where
-    traverseVars f (DecClass x y z) = do
+    traverseVars f (DecClass x i y z) = do
         x' <- f x
+        i' <- f i
         y' <- f y
         z' <- f z
-        return (DecClass x' y' z')
+        return (DecClass x' i' y' z')
 
 instance PP DecClass where
-    pp (DecClass False r w) = text "procedure" <+> pp r <+> pp w
-    pp (DecClass True r w) = text "annotation procedure" <+> pp r <+> pp w
+    pp (DecClass False inline r w) = text "procedure" <+> ppInline inline <+> pp r <+> pp w
+    pp (DecClass True inline r w) = text "annotation procedure" <+> ppInline inline <+> pp r <+> pp w
+
+ppInline True = text "inline"
+ppInline False = text "noinline"
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType where
     traverseVars f (DecType tid isrec vs hd hfrees d frees spes t) = varsBlock $ do
@@ -1890,6 +1990,13 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m InnerDecType
         stmts' <- f stmts
         c' <- f c
         return $ ProcType p n' vs' t' ann' stmts' c'
+    traverseVars f (LemmaType isLeak p n vs ann stmts c) = varsBlock $ do
+        n' <- f n
+        vs' <- inLHS $ mapM f vs
+        ann' <- mapM f ann
+        stmts' <- f stmts
+        c' <- f c
+        return $ LemmaType isLeak p n' vs' ann' stmts' c'
     traverseVars f (FunType isLeak p n vs t ann stmts c) = varsBlock $ do
         n' <- f n
         vs' <- inLHS $ mapM f vs
@@ -2035,6 +2142,7 @@ data DecClass
     -- A procedure
     = DecClass
         Bool -- is an annotation
+        Bool -- perform inlining
         (Map VarIdentifier Type) -- read global variables
         (Map VarIdentifier Type) -- written global variables
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
@@ -2042,8 +2150,8 @@ instance Binary DecClass
 instance Hashable DecClass
 
 instance Monoid DecClass where
-    mempty = DecClass False Map.empty Map.empty
-    mappend (DecClass x r1 w1) (DecClass y r2 w2) = DecClass (x || y) (Map.union r1 r2) (Map.union w1 w2)
+    mempty = DecClass False True Map.empty Map.empty
+    mappend (DecClass x i1 r1 w1) (DecClass y i2 r2 w2) = DecClass (x || y) (i1 && i2) (Map.union r1 r2) (Map.union w1 w2)
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement

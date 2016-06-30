@@ -649,3 +649,16 @@ runShellCommand cmd = do
     result <- hGetContents hout
     waitForProcess ph
     return result
+
+leftsMap :: (Ord a) => Map (Either a b) x -> Map a x
+leftsMap = Map.foldrWithKey f Map.empty
+    where
+    f (Right b) v xs = xs
+    f (Left a) v xs = Map.insert a v xs
+    
+rightsMap :: (Ord b) => Map (Either a b) x -> Map b x
+rightsMap = Map.foldrWithKey f Map.empty
+    where
+    f (Left a) v xs = xs
+    f (Right b) v xs = Map.insert b v xs
+

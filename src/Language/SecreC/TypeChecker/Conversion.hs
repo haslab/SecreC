@@ -56,6 +56,15 @@ dec2AxiomDecl l dec@(DecType _ _ targs _ _ _ _ _ (AxiomType isLeak p pargs anns 
     return $ AxiomDeclaration (Typed l $ DecT dec) isLeak targs' pargs' (map (ftloc l) anns)
 dec2AxiomDecl l t = genError (locpos l) $ text "dec2AxiomDecl:" <+> pp t
 
+dec2LemmaDecl :: ConversionK loc m => loc -> DecType -> m (LemmaDeclaration VarIdentifier (Typed loc)) 
+dec2LemmaDecl l dec@(DecType _ _ targs _ _ _ _ _ (LemmaType isLeak p pn pargs anns body _)) = do
+    let vars = map (varNameId . unConstrained . fst) targs
+    targs' <- mapM (targ2TemplateQuantifier l vars) targs
+    pargs' <- mapM (parg2ProcedureParameter l) pargs
+    let pn' = (ProcedureName (Typed l $ DecT dec) pn)
+    return $ LemmaDeclaration (Typed l $ DecT dec) isLeak pn' targs' pargs' (map (ftloc l) anns) (fmap (map (ftloc l)) body)
+dec2LemmaDecl l t = genError (locpos l) $ text "dec2LemmaDecl:" <+> pp t
+
 dec2StructDecl :: ConversionK loc m => loc -> DecType -> m (StructureDeclaration VarIdentifier (Typed loc)) 
 dec2StructDecl l dec@(DecType _ _ _ _ _ _ _ _ (StructType p sid (Just atts) _)) = do
     let atts' = map (fmap (Typed l)) atts

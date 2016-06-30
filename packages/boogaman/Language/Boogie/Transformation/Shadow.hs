@@ -164,6 +164,7 @@ shadowBareDecl opts d@(AxiomDecl atts e) = if hasLeakageAtt atts
         atts' <- concatMapM (shadowAttribute opts False) $ atts
         e' <- shadowExpression opts ShadowE $ e
         return [removeLeakageAnns opts d,AxiomDecl atts' e']
+shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) | isProofFunName opts name && not (isLeakFunName opts name) = return [d]
 shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) = shadowLocal $ unlessExempt d name $ do
     (bools,rbools,modifies,leaks) <- getProcedure name
     name' <- shadowId name
@@ -185,25 +186,45 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
     
     let d' = ProcedureDecl atts' name' targs args' rets' contracts' (addMaybeBody defShadow initShadow body')
     return [d']
-shadowBareDecl opts d@(ImplementationDecl atts name targs args rets body) = shadowLocal $ unlessExempt d name $ do
-    (bools,rbools,modifies,leaks) <- getProcedure name
-    name' <- shadowId name
-    atts' <- concatMapM (shadowAttribute opts True) atts
-    args' <- concatMapM (uncurry $ shadowIdType opts) $ zip bools args
-    rets' <- concatMapM (uncurry $ shadowIdType opts) $ zip rbools rets
-    
-    -- create a fresh shadow assertion variable
-    shadow_ok <- freshVariable "shadow_ok"
-    -- declare shadow_ok at the start
-    let defShadow = IdTypeWhere shadow_ok BoolType $ Pos noPos tt
-    let initShadow = Pos noPos $ Assign [(shadow_ok,[])] [posTT]
-    
-    State.modify $ \st -> st { shadowOk = Just shadow_ok }
-    body' <- mapM (shadowBody opts modifies leaks) body
-    State.modify $ \st -> st { shadowOk = Nothing }
-    
-    let d' = ImplementationDecl atts' name' targs args' rets' (addBodies defShadow initShadow body')
-    return [d']
+shadowBareDecl opts d@(ImplementationDecl atts name targs args rets body) = shadowLocal $ unlessExempt d name $ if isLeakFunName opts name
+    then do
+        (bools,rbools,modifies,leaks) <- getProcedure name
+        name' <- shadowId name
+        atts' <- concatMapM (shadowAttribute opts True) atts
+        args' <- concatMapM (uncurry $ shadowIdType opts) $ zip bools args
+        rets' <- concatMapM (uncurry $ shadowIdType opts) $ zip rbools rets
+        
+        -- create a fresh shadow assertion variable
+        shadow_ok <- freshVariable "shadow_ok"
+        -- declare shadow_ok at the start
+        let defShadow = IdTypeWhere shadow_ok BoolType $ Pos noPos tt
+        let initShadow = Pos noPos $ Assign [(shadow_ok,[])] [posTT]
+        
+        State.modify $ \st -> st { shadowOk = Just shadow_ok }
+        body' <- mapM (shadowBody opts modifies leaks) body
+        State.modify $ \st -> st { shadowOk = Nothing }
+            
+        let d' = ImplementationDecl atts' name' targs args' rets' (addBodies defShadow initShadow body')
+        return [d']
+    else do
+        (bools,rbools,modifies,leaks) <- getProcedure name
+        name' <- shadowId ShadowE name
+        atts' <- concatMapM (shadowAttribute opts False) atts
+        args' <- concatMapM (uncurry $ shadowIdType opts) $ zip bools args
+        rets' <- concatMapM (uncurry $ shadowIdType opts) $ zip rbools rets
+        
+        -- create a fresh shadow assertion variable
+        shadow_ok <- freshVariable "shadow_ok"
+        -- declare shadow_ok at the start
+        let defShadow = IdTypeWhere shadow_ok BoolType $ Pos noPos tt
+        let initShadow = Pos noPos $ Assign [(shadow_ok,[])] [posTT]
+        
+        State.modify $ \st -> st { shadowOk = Just shadow_ok }
+        body' <- mapM (shadowBody opts modifies leaks) body
+        State.modify $ \st -> st { shadowOk = Nothing }
+            
+        let d' = ImplementationDecl atts' name' targs args' rets' (addBodies defShadow initShadow body')
+        return [removeLeakageAnns opts d,d']
 shadowBareDecl opts d@(FunctionDecl atts name targs args ret body) = shadowLocal $ unlessExempt d name $ if isLeakFunName opts name
     then do
         atts' <- concatMapM (shadowAttribute opts False) atts

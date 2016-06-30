@@ -402,12 +402,15 @@ resolveTcCstr l kid k = do
   where
     resolveTcCstr' kid k@(TDec isTplt n args x) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp n <+> parens (sepBy comma $ map pp args)))) $ do
         isAnn <- getAnn
+        isLeak <- getLeak
         let check = if isTplt then checkTemplateType else checkNonTemplateType
-        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing [] (check isAnn $ fmap (const l) n)
+        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing [] (check isAnn isLeak $ fmap (const l) n)
         unifiesDec l x res
     resolveTcCstr' kid k@(PDec (Left n) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
         isAnn <- getAnn
-        res <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) xs (checkProcedure isAnn $ ProcedureName l n)
+        isLeak <- getLeak
+        kind <- getKind
+        res <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) xs (checkProcedureFunctionLemma isAnn isLeak kind $ ProcedureName l n)
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
         --liftIO $ putStrLn $ "matchTemplate " ++ ppr n ++ " " ++ show doc
         unifiesDec l x res
@@ -415,7 +418,9 @@ resolveTcCstr l kid k = do
         --liftIO $ putStrLn $ "matchTemplate2 " ++ ppr n ++ " " ++ show doc
     resolveTcCstr' kid k@(PDec (Right o) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp o <+> parens (sepBy comma $ map pp args)))) $ do
         isAnn <- getAnn
-        res <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) xs (checkOperator isAnn $ fmap (const l) o)
+        isLeak <- getLeak
+        k <- getKind
+        res <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) xs (checkOperator isAnn isLeak k $ fmap (const l) o)
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
         --liftIO $ putStrLn $ "matchTemplate " ++ ppr o ++ " " ++ show doc
         unifiesDec l x res
@@ -2074,7 +2079,7 @@ tryResolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe Type)
 tryResolveTVar l v | varIdTok v = return Nothing
 tryResolveTVar l v = do
 --    liftIO $ putStrLn $ "resolvingTVar " ++ ppr v
-    addGDependencies $ Left v
+    addGDependencies $ VIden v
     -- lookup in the substitution environment
     s <- getTSubsts l
     mb <- substsFromMap (unTSubsts s) v
@@ -2085,7 +2090,7 @@ tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Mayb
 tryResolveEVar l v t | varIdTok v = return Nothing
 tryResolveEVar l v t = do
 --    liftIO $ putStrLn $ "resolvingEVar " ++ ppr v
-    addGDependencies $ Left v
+    addGDependencies $ VIden v
     ss <- getTSubsts l
     case Map.lookup v (unTSubsts ss) of
         Just (IdxT e) -> do

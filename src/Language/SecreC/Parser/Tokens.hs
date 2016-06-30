@@ -39,6 +39,7 @@ data Token
     | STR_FRAGMENT String
     | CHAR Char
     | ASSERT
+    | LEMMA
     | CONST
     | BOOL
     | BREAK
@@ -137,6 +138,8 @@ data Token
     | FUNCTION
     | AXIOM
     | HAVOC
+    | INLINE
+    | NOINLINE
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance PP Token where
@@ -241,6 +244,9 @@ instance PP Token where
     pp FUNCTION = text "function"
     pp AXIOM = text "axiom"
     pp HAVOC = text "HAVOC"
+    pp INLINE = text "inline"
+    pp NOINLINE = text "noinline"
+    pp LEMMA = text "lemma"
     pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]
