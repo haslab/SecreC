@@ -281,16 +281,16 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
     --return $ ProcedureDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' ann' s'
 
 tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (ProcedureAnnotation VarIdentifier (Typed loc))
-tcProcedureAnn (PDecreasesAnn l e) = insideAnnotation $ withLeak False $ do
+tcProcedureAnn (PDecreasesAnn l e) = tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ PDecreasesAnn (Typed l $ typed $ loc e') e'
-tcProcedureAnn (RequiresAnn l isFree isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
+tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ checkLeak l isLeak $ do
     e' <- tcAnnGuard e
     return $ RequiresAnn (Typed l $ typed $ loc e') isFree isLeak e'
-tcProcedureAnn (EnsuresAnn l isFree isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
+tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ checkLeak l isLeak $ do
     e' <- tcAnnGuard e
     return $ EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak e'
-tcProcedureAnn (InlineAnn l isInline) = do
+tcProcedureAnn (InlineAnn l isInline) = tcAddDeps l "pann" $ do
     addDecClass $ DecClass False isInline Map.empty Map.empty
     return $ InlineAnn (notTyped "inline" l) isInline
 

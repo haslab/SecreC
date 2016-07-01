@@ -184,21 +184,21 @@ tcStmt ret (AnnStatement l ann) = do
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation VarIdentifier (Typed loc))
-tcLoopAnn (DecreasesAnn l isFree e) = insideAnnotation $ withLeak False $ do
+tcLoopAnn (DecreasesAnn l isFree e) = tcAddDeps l "loopann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
+tcLoopAnn (InvariantAnn l isFree isLeak e) = tcAddDeps l "loopann" $ insideAnnotation $ checkLeak l isLeak $ do
     (e') <- tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
+tcStmtAnn (AssumeAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ checkLeak l isLeak $ do
     (e') <- tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (AssertAnn l isLeak e) = insideAnnotation $ checkLeak l isLeak $ do
+tcStmtAnn (AssertAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ checkLeak l isLeak $ do
     (e') <- tcAnnGuard e
     return $ AssertAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (EmbedAnn l isLeak e) = insideAnnotation $ checkLeak l isLeak $ withKind LKind $ do
+tcStmtAnn (EmbedAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ checkLeak l isLeak $ withKind LKind $ do
     (e',t) <- tcStmt (ComplexT Void) e
     return $ EmbedAnn (Typed l t) isLeak e'
 

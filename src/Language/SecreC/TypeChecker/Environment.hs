@@ -697,6 +697,7 @@ mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl pn
     
 buildCstrGraph :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m IOCstrGraph
 buildCstrGraph l cstrs = do
+    liftIO $ putStrLn $ "buildCstrGraph: " ++ show (sepBy space (map (pp . ioCstrId . unLoc) $ Set.toList cstrs))
     d <- concatTDict l NoCheckS =<< liftM tDict State.get
     let gr = tCstrs d
     let tgr = Graph.trc gr 
@@ -704,7 +705,10 @@ buildCstrGraph l cstrs = do
     let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,ioCstrId h)) cs) tgr
     let ns = nodes gr'
     let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) }
-    State.modify $ \env -> env { tDict = map remHeadCstrs $ tDict env }
+    State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr' } : map remHeadCstrs ds }
+--    mgr <- State.gets (foldr unionGr Graph.empty . map tCstrs . tail . tDict)
+--    doc <- ppConstraints mgr
+--    liftIO $ putStrLn $ "buildCstrGraphTail: " ++ show doc
     return gr'
     
 -- no free variable can be unbound
@@ -966,8 +970,9 @@ registerIOCstrDependencies iok gr ctx = do
 -- | adds a dependency on the given variable for all the opened constraints
 addGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 addGDependencies v = do
-    cstrs <- liftM openedCstrs State.get
-    addGDependency v (map fst cstrs)
+    cstrs <- liftM (map fst . openedCstrs) State.get
+    liftIO $ putStrLn $ "addGDependencies: " ++ ppr v ++ " " ++ show (sepBy space (map (pp . ioCstrId) cstrs))
+    addGDependency v cstrs
     
 addGDependency :: (MonadIO m) => GIdentifier -> [IOCstr] -> TcM m ()
 addGDependency v cstrs = do
@@ -1072,7 +1077,7 @@ updateHeadTDict upd = do
 -- | forget the result for a constraint when the value of a variable it depends on changes
 dirtyGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 dirtyGDependencies v = do
---    liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
+    liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
     opens <- liftM openedCstrs State.get
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
@@ -1082,12 +1087,12 @@ dirtyGDependencies v = do
             liftIO $ WeakMap.forM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
                 dirtyIOCstrDependencies (map fst opens) x
---    liftIO $ putStrLn "\n"
+    liftIO $ putStrLn "\n"
 
 dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
 dirtyIOCstrDependencies opens iok = do
     unless (elem iok opens) $ do
---        putStr $ " " ++ ppr (ioCstrId iok)
+        putStr $ " " ++ ppr (ioCstrId iok)
         writeUniqRef (kStatus iok) Unevaluated
     deps <- liftM ioDeps $ readIORef globalEnv
     mb <- WeakHash.lookup deps (uniqId $ kStatus iok)

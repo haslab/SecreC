@@ -154,6 +154,12 @@ data GIdentifier
 instance Hashable GIdentifier
 instance Binary GIdentifier
 
+instance PP GIdentifier where
+    pp (VIden v) = pp v
+    pp (PIden v) = pp v
+    pp (OIden v) = pp v
+    pp (TIden v) = pp v
+
 gIdenBase :: GIdentifier -> String
 gIdenBase (VIden v) = varIdBase v
 gIdenBase (PIden v) = varIdBase v

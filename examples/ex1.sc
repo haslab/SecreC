@@ -1,7 +1,3 @@
-
-
-module qsort;
-
 import axioms;
 
 kind privatek;
@@ -46,49 +42,17 @@ private uint[[1]] snoc (private uint[[1]] xs, private uint x) {
 //@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
 //@ }
 
-// partition a list by
-// the intermediate comparisons cannot be computed from the public values. they leak the "shape" of the input.
-partition_result partition (private uint[[1]] xs, private uint p)
-//@ leakage requires lcomparison(xs,p);
-//@ ensures multiset(xs) == multiset(\result.ls) + multiset(\result.rs);
-{
-    private uint[[1]] ls, rs;
-    for (uint i = 0; i < size (xs); i=i+1)
-    //@ invariant 0 <= i && i <= size(xs);
-    //@ invariant multiset(xs[:i]) == multiset(ls) + multiset(rs);
-    {
-        private uint y = xs[i];
-        // XXX public branching!
-        if (declassify (y <= p)) ls = snoc (ls, y);
-        else rs = snoc (rs, y);
-    }
+//@ template <type T>
+//@ leakage function bool lcomparisons (private T[[1]] xs)
+//@ {
+//@     forall uint i,uint j ; (0 <= i && i < size(xs) && 0 <= j && j < size(xs)) ==> public(xs[i] <= xs[j])
+//@ }
 
+partition_result leaky_sort (private uint[[1]] xs)
+
+//@ leakage requires lcomparisons(xs);
+{
     partition_result result;
-    result.ls = ls;
-    result.rs = rs;
+    //@ leakage assume lcomparisons(result.ls);
     return result;
-}
-
-//@ axiom <domain D,type T> (D T[[1]] xs)
-//@ requires size(xs) > 1;
-//@ ensures xs == cat({xs[0]},xs[1:]);
-
-//@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
-//@ requires size(xs) > 1;
-//@ ensures xs == cat({xs[0]},xs[1:]);
-
-private uint[[1]] leaky_sort (private uint[[1]] xs)
-//@ decreases size(xs);
-//@ ensures multiset(xs) == multiset(\result);
-{
-    if (size(xs) <= 1) return xs;
-
-    //@ ArrayHead(xs);
-    //@ assume xs == cat({xs[0]},xs[1:]);
-
-    private uint pivot = xs[0];
-    partition_result r = partition (xs[1:], pivot);
-    private uint[[1]] ls = leaky_sort (r.ls);
-    private uint[[1]] rs = leaky_sort (r.rs);
-    return cat (snoc (ls, pivot), rs);
 }

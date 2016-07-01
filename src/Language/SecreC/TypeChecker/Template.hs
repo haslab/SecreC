@@ -99,7 +99,6 @@ mkRecDec :: ProverK loc m => loc -> DecType -> TcM m DecType
 mkRecDec l dec@(DecType j (Just i) targs hdict hfrees bdict bfrees specs d) = return dec
 mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) = do
     j <- newModuleTyVarId
-    liftIO $ putStrLn $ "mkRecDec " ++ ppr j
     return $ DecType j (Just i) targs hdict hfrees bdict bfrees specs d
 
 resolveTemplateEntry :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> TDict -> Set VarIdentifier -> TcM m DecType

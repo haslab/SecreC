@@ -170,10 +170,10 @@ hasLeakageFunAnn :: Data a => Options -> a -> Bool
 hasLeakageFunAnn opts s = hasLeakFunName opts s || isJust (hasPublic opts s) || isJust (hasDeclassified opts s) || isJust (hasLeak opts s)
 
 isLeakFunName opts = isSubsequenceOf "Leakage"
-isLemmaFunName opts = isSubsequenceOf "Lemma"
-isAxiomFunName opts = isSubsequenceOf "Axiom"
-isProofFunName opts n = isAxiomFunName opts n || isLemmaFunName opts n
-isNoLeakFunName opts = isSubsequenceOf "Original"
+--isLemmaFunName opts = isSubsequenceOf "Lemma"
+--isAxiomFunName opts = isSubsequenceOf "Axiom"
+--isProofFunName opts n = isAxiomFunName opts n || isLemmaFunName opts n
+--isNoLeakFunName opts = isSubsequenceOf "Original"
 isLeakVarName opts = isSubsequenceOf "Private"
 
 hasLeakName opts x = hasLeakVarName opts x || hasLeakFunName opts x

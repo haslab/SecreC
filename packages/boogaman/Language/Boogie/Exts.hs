@@ -4,13 +4,15 @@ module Language.Boogie.Exts where
 
 import Language.Boogie.Position
 import Language.Boogie.AST
+import Language.Boogie.Pretty
+import Language.Boogie.PrettyAST
 
 import Control.Monad
 import Control.Monad.State as State
 
 import Data.Graph.Inductive.Graph as Gr
 import Data.Graph.Inductive.PatriciaTree as Gr
-import Data.Monoid
+import Data.Monoid hiding ((<>))
 import Data.Data
 import Data.Generics
 import Data.Map (Map(..))
@@ -119,3 +121,16 @@ hasOldExpr = everything (||) (mkQ False aux)
     aux (Old _) = True
     aux e = False
 
+instance Pretty Contract where
+    pretty (Requires free e) = option free (text "free") <+>
+      text "requires" <+>
+      pretty e <>
+      semi
+    pretty (Ensures free e) = option free (text "free") <+>
+      text "ensures" <+>
+      pretty e <>
+      semi
+    pretty (Modifies free ids) = option free (text "free") <+>
+      text "modifies" <+>
+      commaSep (map text ids) <>
+      semi
