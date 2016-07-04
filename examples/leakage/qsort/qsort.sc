@@ -79,6 +79,12 @@ partition_result partition (private uint[[1]] xs, private uint p)
 //@ requires lcomparisons(xs);
 //@ ensures lcomparisons(ys);
 
+//@ leakage lemma lcomparison_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys, D T[[1]] z)
+//@ requires multiset(ys) <= multiset(xs);
+//@ requires z in xs;
+//@ requires lcomparisons(xs);
+//@ ensures lcomparison(ys,z);
+
 //@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
 //@ requires size(xs) > 1;
 //@ ensures xs == cat({xs[0]},xs[1:]);
@@ -93,7 +99,7 @@ private uint[[1]] leaky_sort (private uint[[1]] xs)
     //@ ArrayHead(xs);
 
     private uint pivot = xs[0];
-    //@ leakage assume lcomparison(xs[1:],pivot);
+    //@ leakage lcomparison_subset(xs,xs[1:],pivot);
     partition_result r = partition (xs[1:], pivot);
     //@ leakage lcomparisons_subset(xs,r.ls);
     private uint[[1]] ls = leaky_sort (r.ls);

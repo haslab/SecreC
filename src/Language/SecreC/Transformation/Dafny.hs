@@ -815,6 +815,10 @@ builtinToDafny isLVal annK (Typed l ret) "core.subset" [x,y] = do
     (annx,px) <- expressionToDafny isLVal annK x
     (anny,py) <- expressionToDafny isLVal annK y
     return (annx++anny,parens $ px <> text "<=" <> py)
+builtinToDafny isLVal annK (Typed l ret) "core.in" [x,y] = do
+    (annx,px) <- expressionToDafny isLVal annK x
+    (anny,py) <- expressionToDafny isLVal annK y
+    return (annx++anny,parens $ px <> text "in" <> py)
 builtinToDafny isLVal annK (Typed l ret) "core.union" [x,y] = do
     (annx,px) <- expressionToDafny isLVal annK x
     (anny,py) <- expressionToDafny isLVal annK y
