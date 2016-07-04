@@ -187,20 +187,20 @@ tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnota
 tcLoopAnn (DecreasesAnn l isFree e) = tcAddDeps l "loopann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = tcAddDeps l "loopann" $ insideAnnotation $ checkLeak l isLeak $ do
-    (e') <- tcAnnGuard e
-    return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak e'
+tcLoopAnn (InvariantAnn l isFree isLeak e) = tcAddDeps l "loopann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+    return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ checkLeak l isLeak $ do
-    (e') <- tcAnnGuard e
+tcStmtAnn (AssumeAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (AssertAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ checkLeak l isLeak $ do
-    (e') <- tcAnnGuard e
-    return $ AssertAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (EmbedAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ checkLeak l isLeak $ withKind LKind $ do
-    (e',t) <- tcStmt (ComplexT Void) e
-    return $ EmbedAnn (Typed l t) isLeak e'
+tcStmtAnn (AssertAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+    return $ AssertAnn (Typed l $ typed $ loc e') isLeak' e'
+tcStmtAnn (EmbedAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ withKind LKind $ do
+    (isLeak',(e',t)) <- checkLeak l isLeak $ tcStmt (ComplexT Void) e
+    return $ EmbedAnn (Typed l t) isLeak' e'
 
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?

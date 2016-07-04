@@ -359,36 +359,40 @@ getModuleField withBody f = do
 getRecs :: Monad m => Bool -> TcM m ModuleTcEnv
 getRecs withBody = do
     lineage <- getLineage
-    State.gets (filterRecModuleTcEnv lineage True . mconcat . map tRec . tDict)
+    State.gets (filterRecModuleTcEnv lineage withBody . mconcat . map tRec . tDict)
 
+-- we reuse struct instantiations
+-- we don't reuse procedure/function/lemma instantiations because their parameter variables
 filterRecModuleTcEnv :: Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = env
-    { structs = filterRecBody lineage withBody (structs env)
-    , procedures = filterRecBody lineage withBody (procedures env)
-    , functions = filterRecBody lineage withBody (functions env)
-    , lemmas = filterRecBody lineage withBody (lemmas env)
+    { structs = filterRecBody Nothing withBody (structs env)
+    , procedures = filterRecBody (Just lineage) withBody (procedures env)
+    , functions = filterRecBody (Just lineage) withBody (functions env)
+    , lemmas = filterRecBody (Just lineage) withBody (lemmas env)
     }
 
-filterRecBody :: Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
-filterRecBody lineage withBody xs = Map.map (Map.map remBody . Map.filter isLineage) xs
+filterRecBody :: Maybe Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
+filterRecBody lineage withBody xs = Map.map (Map.map remBody . filterLineage) xs
     where
+    filterLineage = case lineage of
+        Nothing -> id
+        Just lin -> Map.filter (isLineage lin)
     remBody = if withBody then id else remEntryBody
-    remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecRec d
-    isLineage (EntryEnv l (DecT d)) = case decTypeId d of
+    remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecBody d
+    isLineage lin (EntryEnv l (DecT d)) = case decTypeId d of
         Nothing -> False
-        Just x -> List.elem x lineage
+        Just x -> List.elem x lin
 
-remDecRec :: DecType -> DecType
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(ProcType pl n pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (ProcType pl n pargs pret panns Nothing cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(FunType isLeak pl n pargs pret panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (FunType isLeak pl n pargs pret panns Nothing cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(StructType sl sid@(TypeName _ sn) atts cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (StructType sl sid Nothing cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs s@(AxiomType isLeak p qs pargs cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (AxiomType isLeak p qs pargs cl)
-remDecRec d@(DecType i isRec ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl n pargs panns body cl)) =
-    DecType i isRec ts hd hfrees bd bfrees specs (LemmaType isLeak pl n pargs panns Nothing cl)
+remDecBody :: DecType -> DecType
+remDecBody d@(DecType i isRec ts hd hfrees bd bfrees specs b) =
+    DecType i isRec ts hd hfrees bd bfrees specs (remIDecBody b)
+
+remIDecBody :: InnerDecType -> InnerDecType
+remIDecBody d@(ProcType pl n pargs pret panns body cl) = ProcType pl n pargs pret panns Nothing cl
+remIDecBody d@(FunType isLeak pl n pargs pret panns body cl) = FunType isLeak pl n pargs pret panns Nothing cl
+remIDecBody d@(StructType sl sid@(TypeName _ sn) atts cl) = StructType sl sid Nothing cl
+remIDecBody d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs cl
+remIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
 
 getStructs :: Monad m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getStructs withBody isAnn isLeak = do

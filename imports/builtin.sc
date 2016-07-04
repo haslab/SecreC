@@ -37,6 +37,11 @@ module builtin;
 //@     __builtin("core.band",x,y) :: D bool
 //@ }
 
+//@ template <domain D, type T, dim N>
+//@ function uint[[1]] shape (D T[[N]] arr) {
+//@     __builtin("core.shape",arr) :: uint[[1]]
+//@ }
+
 // classify
 template <domain D,type T,dim N { N > 0} >
 D T[[N]] classify (public T[[N]] x)

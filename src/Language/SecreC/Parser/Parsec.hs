@@ -12,7 +12,7 @@ import Language.SecreC.Pretty hiding (sepBy)
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Parser.Lexer
 
-import Text.Parsec hiding (many,many1)
+import Text.Parsec
 import qualified Text.Parsec as Parsec
 import Text.Parsec.Pos
 
@@ -42,12 +42,6 @@ instance MonadCatch m => MonadCatch (ParsecT s u m) where
     p `catch` h = mkPT $ \s ->
             runParsecT p s `catch` \e ->
                 runParsecT (h e) s
-
-many1 :: MonadCatch m => String -> ScParserT m a -> ScParserT m [a]
-many1 msg p = catch (Parsec.many1 p) (\(e::SomeException) -> error $ msg ++ show e)
-
-many :: MonadCatch m => String -> ScParserT m a -> ScParserT m [a]
-many msg p = catch (Parsec.many p) (\(e::SomeException) -> error $ msg ++ show e)
 
 -- parser inside an annotation or not
 type ScState = Bool
@@ -147,13 +141,13 @@ scCBrackets' p = do
 scFoldl1 :: (Monad m,MonadCatch m) => (a -> b -> ScParserT m a) -> ScParserT m a -> ScParserT m b -> ScParserT m a
 scFoldl1 f ma mb = do
     x <- ma
-    ys <- many1 "scFoldl1" mb
+    ys <- many1 mb
     Foldable.foldlM f x ys
     
 scFoldl :: (Monad m,MonadCatch m) => (a -> b -> ScParserT m a) -> ScParserT m a -> ScParserT m b -> ScParserT m a
 scFoldl f ma mb = do
     x <- ma
-    ys <- many "scFoldl" mb
+    ys <- many mb
     Foldable.foldlM f x ys
 
 scMaybeCont :: ScParserT m a -> (Maybe a -> ScParserT m b) -> ScParserT m b
@@ -247,10 +241,10 @@ scProgram = do
     apA2 scImportDeclarations scGlobalDeclarations (\x1 x2 -> Program (if null x1 then if null x2 then p else loc (headNote "scProgram" x2) else loc (headNote "scProgram" x1)) x1 x2) <?> "program"
 
 scImportDeclarations :: (Monad m,MonadCatch m) => ScParserT m [ImportDeclaration Identifier Position]
-scImportDeclarations = many "scImportDeclarations" scImportDeclaration <?> "import declarations"
+scImportDeclarations = many scImportDeclaration <?> "import declarations"
 
 scGlobalDeclarations :: (MonadIO m,MonadCatch m) => ScParserT m [GlobalDeclaration Identifier Position]
-scGlobalDeclarations = many "scGlobalDeclarations" scGlobalDeclaration <?> "global declarations"
+scGlobalDeclarations = many scGlobalDeclaration <?> "global declarations"
 
 scImportDeclaration :: (Monad m,MonadCatch m) => ScParserT m (ImportDeclaration Identifier Position)
 scImportDeclaration = apA3 (scTok IMPORT) scModuleId (scChar ';') (\x1 x2 x3 -> Import (loc x1) x2) <?> "import declaration"
@@ -411,7 +405,7 @@ scStructureDeclaration :: (Monad m,MonadCatch m) => ScParserT m (StructureDeclar
 scStructureDeclaration = apA3 (scTok STRUCT) scTypeId (scCBrackets scAttributeList) (\x1 x2 x3 -> StructureDeclaration (loc x1) x2 x3) <?> "structure declaration"
 
 scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier Position]
-scAttributeList = many "scAttributeList" scAttribute <?> "attribute list"
+scAttributeList = many scAttribute <?> "attribute list"
 
 scAttribute :: (Monad m,MonadCatch m) => ScParserT m (Attribute Identifier Position)
 scAttribute = scTypeSpecifier $ \x1 -> apA3 scAttributeId (optionMaybe scSizes) (scChar ';') (\x2 x3 x4 -> Attribute (loc x1) x1 x2 x3) <?> "attribute"
@@ -479,7 +473,7 @@ scOp = (apA (scChar '+') (OpAdd . loc)
 -- * Statements                                                           
 
 scCompoundStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Loc Position [Statement Identifier Position])
-scCompoundStatement = scCBrackets' $ \x1 -> apA (many "scCompoundStatement" scStatement) (\x2 -> Loc (loc x1) x2) <?> "compound statement"
+scCompoundStatement = scCBrackets' $ \x1 -> apA (many scStatement) (\x2 -> Loc (loc x1) x2) <?> "compound statement"
 
 scCompoundExpression :: (MonadIO m,MonadCatch m) => ScParserT m (Loc Position (Expression Identifier Position))
 scCompoundExpression = scCBrackets' $ \x1 -> apA (scExpression) (\x2 -> Loc (loc x1) x2) <?> "compound expression"
@@ -548,14 +542,14 @@ scSyscallStatement = apA3 (scTok SYSCALL) (scParens sysparams) (scChar ';') (\x1
   <?> "syscall statement"
     where
     sysparams = liftM unLoc scStringLiteral
-            >*< many "scSyscallStatement" (scChar ',' *> scSyscallParameter)
+            >*< many (scChar ',' *> scSyscallParameter)
 
 scBuiltinExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scBuiltinExpression = apA2 (scTok BUILTIN) (scParens builtinparams) (\x1 (x2,x3) -> BuiltinExpr (loc x1) x2 x3)
   <?> "builtin expression"
     where
     builtinparams = liftM unLoc scStringLiteral
-            >*< many "scBuiltinExpression" (scChar ',' *> scExpression)
+            >*< many (scChar ',' *> scExpression)
 
 scSyscallParameter :: (Monad m,MonadCatch m) => ScParserT m (SyscallParameter Identifier Position)
 scSyscallParameter = (apA2 (scTok SYSCALL_RETURN) scVarId (\x1 x2 -> SyscallReturn (loc x1) x2)
@@ -788,7 +782,7 @@ scPrimaryExpression = (scParens scExpression
                   <|> apA scLiteral (\x1 -> LitPExpr (loc x1) x1)) <?> "primary expression"
 
 scStringLiteral :: (Monad m,MonadCatch m) => ScParserT m (Loc Position String)
-scStringLiteral = apA (many1 "scStringLiteral" scStringPart) mergeStrs <?> "string literal"
+scStringLiteral = apA (many1 scStringPart) mergeStrs <?> "string literal"
     where
     mergeStrs xs = Loc (loc $ headNote "head parsec" xs) (concatMap unLoc xs)
 
@@ -810,7 +804,7 @@ scLiteral = (apA scIntLiteral (\x1 -> IntLit (loc x1) (unLoc x1))
 -- ** Annotations
 
 scGlobalAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [GlobalAnnotation Identifier Position]
-scGlobalAnnotations = scAnnotations1 $ many1 "scGlobalAnnotations" scGlobalAnnotation
+scGlobalAnnotations = scAnnotations1 $ many1 scGlobalAnnotation
 
 scGlobalAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (GlobalAnnotation Identifier Position)
 scGlobalAnnotation = (apA scAxiomDeclaration (\x1 -> GlobalAxiomAnn (loc x1) x1) <?> "axiom declaration")
@@ -821,14 +815,14 @@ scGlobalAnnotation = (apA scAxiomDeclaration (\x1 -> GlobalAxiomAnn (loc x1) x1)
                 <||> (apA scTemplateDeclaration (\x1 -> GlobalTemplateAnn (loc x1) x1) <?> "template declaration")
 
 scLoopAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [LoopAnnotation Identifier Position]
-scLoopAnnotations = scAnnotations0 $ many "scLoopAnnotations" scLoopAnnotation
+scLoopAnnotations = scAnnotations0 $ many scLoopAnnotation
 
 scLoopAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (LoopAnnotation Identifier Position)
 scLoopAnnotation = apA4 scFree (scTok DECREASES) scExpression (scChar ';') (\x0 x1 x2 x3 -> DecreasesAnn (loc x1) x0 x2)
                <||> apA5 scFree scLeak (scTok INVARIANT) scExpression (scChar ';') (\x0 x00 x1 x2 x3 -> InvariantAnn (loc x1) x0 x00 x2)
 
 scProcedureAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [ProcedureAnnotation Identifier Position]
-scProcedureAnnotations = scAnnotations0 $ many "scProcedureAnnotations" scProcedureAnnotation
+scProcedureAnnotations = scAnnotations0 $ many scProcedureAnnotation
 
 scProcedureAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureAnnotation Identifier Position)
 scProcedureAnnotation = apA (scTok INLINE) (\x1 -> InlineAnn (loc x1) True)
@@ -850,7 +844,7 @@ scLeak :: (MonadIO m,MonadCatch m) => ScParserT m Bool
 scLeak = liftM isJust $ optionMaybe (scTok LEAKAGE)
 
 scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnnotation Identifier Position]
-scStatementAnnotations = scAnnotations1 $ many1 "scStatementAnnotations" scStatementAnnotation
+scStatementAnnotations = scAnnotations1 $ many1 scStatementAnnotation
 
 scStatementAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (StatementAnnotation Identifier Position)
 scStatementAnnotation = do
@@ -863,10 +857,10 @@ scStatementAnnotation = do
 
 
 scAnnotations0 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
-scAnnotations0 = scAnnotations' (many "scAnnotations0")
+scAnnotations0 = scAnnotations' (many)
 
 scAnnotations1 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
-scAnnotations1 = scAnnotations' (many1 "scAnnotations1")
+scAnnotations1 = scAnnotations' (many1)
 
 scAnnotations' :: (PP a,Monoid a,MonadIO m,MonadCatch m) => (forall b . ScParserT m b -> ScParserT m [b]) -> ScParserT m a -> ScParserT m a
 scAnnotations' parseAnns parse = do

@@ -7,6 +7,7 @@ import qualified Data.List as List
 import Data.List.Split
 import Data.Either
 import Data.Version (showVersion)
+import Data.Maybe
 
 import Language.SecreC.Pretty as Pretty
 import Language.SecreC.Syntax
@@ -184,7 +185,7 @@ shadowBoogaman axioms bpl1 bpl2 = do
     command $ show $ text "boogaman" <+> text bpl1
         <+> text "--simplify"
         <+> text "--vcgen=dafny"
-        <+> text "--filterleakage=true"
+--        <+> text "--filterleakage=true"
         <+> text "--shadow"
         <+> Pretty.sepBy space (map addaxiom $ axioms)
         <+> text ">" <+> text bpl2
@@ -201,7 +202,7 @@ getEntryPoints files = do
         (List.null -> True) -> do
             let files' = map fst $ filter ((/=NoOutput) . snd) files
             liftM concat $ mapM entryPointsTypedModuleFile files'
-        es -> mapM resolveEntryPoint es
+        es -> liftM catMaybes $ mapM resolveEntryPoint es
 
 output :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)] 
 output secrecIns secrecOuts modules = do

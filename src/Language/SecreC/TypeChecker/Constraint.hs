@@ -122,16 +122,16 @@ solve' l msg failOnError = do
 
 solveMb :: (ProverK loc m) => loc -> String -> Bool -> Set LocIOCstr -> TcM m (Maybe SecrecError)
 solveMb l msg failOnError cs = do
-    doAll <- getDoAll
-    doSolve <- getDoSolve
-    liftIO $ putStrLn $ "solving " ++ msg ++ " " ++ show doAll ++ " " ++ show doSolve ++ " " ++ ppr l ++ ppr cs
+    --doAll <- getDoAll
+    --doSolve <- getDoSolve
+    --liftIO $ putStrLn $ "solving " ++ msg ++ " " ++ show doAll ++ " " ++ show doSolve ++ " " ++ ppr l ++ ppr cs
     if Set.null cs
         then return Nothing
         else newErrorM $ tcNoDeps $ do
-            gr' <- buildCstrGraph l cs
+            gr' <- buildCstrGraph l $ mapSet (ioCstrId . unLoc) cs
             ss <- ppConstraints gr'
             --env <- State.get
-            liftIO $ putStrLn $ "solve " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
+            --liftIO $ putStrLn $ "solve " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
             mb <- solveCstrs l msg failOnError
             --liftIO $ putStrLn $ "solved " ++ show msg ++ " " ++ ppr l
             --updateHeadTCstrs $ \d -> return ((),Graph.nfilter (`elem` Graph.nodes gr) d)
@@ -145,20 +145,20 @@ solveCstrs :: (ProverK loc m) => loc -> String -> Bool -> TcM m (Maybe SecrecErr
 solveCstrs l msg failOnError = do
     dicts <- liftM tDict State.get
     let dict = head dicts
-    ss <- ppConstraints (tCstrs dict)
-    liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
-    forM (tail dicts) $ \d -> do
-        ssd <- ppConstraints (tCstrs d)
-        liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
-    doc <- liftM ppTSubsts $ getTSubsts l
-    liftIO $ putStrLn $ show doc
+    --ss <- ppConstraints (tCstrs dict)
+    --liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
+    --forM (tail dicts) $ \d -> do
+        --ssd <- ppConstraints (tCstrs d)
+        --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+    --doc <- liftM ppTSubsts $ getTSubsts l
+    --liftIO $ putStrLn $ show doc
     gr <- liftM (tCstrs . head . tDict) State.get
     if (Graph.isEmpty gr)
         then return Nothing
         else do
             let roots = sortBy priorityRoots $ rootsGr gr -- sort by constraint priority
             when (List.null roots) $ error $ "solveCstrs: no root constraints to proceed " ++ ppr l ++ " " ++ ppr gr ++ "\n\n" ++ show (sepBy comma $ map pp $ Graph.edges gr)
-            liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
+            --liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
             go <- trySolveSomeCstrs failOnError $ map snd roots
             case go of
                 Left _ -> solveCstrs l msg failOnError
@@ -293,19 +293,22 @@ solveIOCstr_ l iok = do
     olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
     unless (List.elem iok opens) $ newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
-        let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
-        let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
-        liftIO $ putStrLn $ "solveIOCstr " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) ins') ++" --> "++ ppr (ioCstrId iok) ++" --> "++ show (sepBy space $ map (pp . ioCstrId . unLoc) outs')
+        --let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
+        --let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
+        --liftIO $ putStrLn $ "solveIOCstr " ++ show (sepBy space $ map (pp . snd) ins) ++" --> "++ ppr (ioCstrId iok) ++" --> "++ show (sepBy space $ map (pp . snd) outs)
         (res,rest) <- tcWith (locpos l) ("solveIOCstr " ++ ppr iok) $ resolveTCstr l (ioCstrId iok) k
         addHeadTDict l $ rest { tCstrs = Graph.empty }
         --doc <- ppConstraints $ tCstrs rest
-        liftIO $ putStrLn $ "solvedIOCstr " ++ ppr (ioCstrId iok) -- ++ " -->" ++ show doc
+        --liftIO $ putStrLn $ "solvedIOCstr " ++ ppr (ioCstrId iok) -- ++ " -->" ++ show doc
         unless (Graph.isEmpty $ tCstrs rest) $ do
+            top <- buildCstrGraph l $ Set.insert (ioCstrId iok) $ Set.fromList $ map snd $ ins ++ outs
+            let ins' = map (fromJustNote "ins" . Graph.lab top . snd) ins
+            let outs' = map (fromJustNote "outs" . Graph.lab top . snd) outs
             replaceCstrWithGraph l False (ioCstrId iok) (Set.fromList ins') (Graph.nfilter (\n -> not $ Set.member n olds) $ tCstrs rest) (Set.fromList outs')
         dicts <- State.gets tDict
-        forM dicts $ \d -> do
-            ssd <- ppConstraints (tCstrs d)
-            liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+        --forM dicts $ \d -> do
+            --ssd <- ppConstraints (tCstrs d)
+            --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
         return res
 
 solveNewCstr_ :: ProverK loc m => loc -> IOCstr -> TcM m ()
@@ -661,7 +664,7 @@ matchAll l kid cs (x:xs) errs = catchError
 
 matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
 matchOne l kid cs (match,deps,_) = do
-    liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
+    --liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
     --dict <- liftM (head . tDict) State.get
     --ss <- ppConstraints (tCstrs dict)
     --liftIO $ putStrLn $ "matchOne [" ++ show ss ++ "\n]"
@@ -1531,6 +1534,7 @@ comparesBase l isLattice t1@(TApp n1 ts1 d1) t2@(TApp n2 ts2 d2) = do
     comparesDec l d1 d2
 comparesBase l isLattice t1@(TyPrim p1) t2@(TyPrim p2) = equalsPrim l p1 p2 >> return (Comparison t1 t2 EQ)
 comparesBase l isLattice t1@(MSet b1) t2@(MSet b2) = comparesBase l isLattice b1 b2
+comparesBase l isLattice t1@(BVar v1) t2@(BVar v2) | v1 == v2 = return (Comparison t1 t2 EQ)
 comparesBase l isLattice t1@(BVar v1@(nonTok -> True)) t2@(BVar v2@(nonTok -> True)) = do
     mb1 <- tryResolveBVar l v1
     mb2 <- tryResolveBVar l v2
@@ -1566,6 +1570,7 @@ comparesComplex l isLattice ct1@(CType s1 t1 d1) ct2@(CType s2 t2 d2) = do -- we
     o2 <- comparesBase l isLattice t1 t2
     o3 <- comparesDim l isLattice d1 d2
     appendComparisons l [o1,o2,o3]
+comparesComplex l isLattice t1@(CVar v1) t2@(CVar v2) | v1 == v2 = return (Comparison t1 t2 EQ)
 comparesComplex l isLattice t1@(CVar v1@(nonTok -> True)) t2@(CVar v2@(nonTok -> True)) = do
     mb1 <- tryResolveCVar l v1
     mb2 <- tryResolveCVar l v2

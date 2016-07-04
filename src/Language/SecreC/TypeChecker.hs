@@ -160,7 +160,7 @@ tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (Kind
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType True)) $ mkVarId kn
 
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration VarIdentifier (Typed loc))
-tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ do
+tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -173,7 +173,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ do
     dec2AxiomDecl l dec
 
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration VarIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate $ withKind LKind $ do
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate $ withKind LKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -284,12 +284,12 @@ tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (
 tcProcedureAnn (PDecreasesAnn l e) = tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ PDecreasesAnn (Typed l $ typed $ loc e') e'
-tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ checkLeak l isLeak $ do
-    e' <- tcAnnGuard e
-    return $ RequiresAnn (Typed l $ typed $ loc e') isFree isLeak e'
-tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ checkLeak l isLeak $ do
-    e' <- tcAnnGuard e
-    return $ EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak e'
+tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+    return $ RequiresAnn (Typed l $ typed $ loc e') isFree isLeak' e'
+tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+    return $ EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 tcProcedureAnn (InlineAnn l isInline) = tcAddDeps l "pann" $ do
     addDecClass $ DecClass False isInline Map.empty Map.empty
     return $ InlineAnn (notTyped "inline" l) isInline

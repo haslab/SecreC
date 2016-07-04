@@ -144,7 +144,7 @@ parseModuleFile fn = do
         return $ Left (t,args,m)
 
 parseFileWithBuiltin :: ModK m => FilePath -> SecrecM m (PPArgs,Module Identifier Position)
-parseFileWithBuiltin fn = do
+parseFileWithBuiltin fn = flushWarnings $ do
     opts <- ask
     (args,m) <- parseFile fn
     let m' = if (implicitBuiltin (opts `mappend` ppOptions args) && moduleIdMb m /= Just "builtin")

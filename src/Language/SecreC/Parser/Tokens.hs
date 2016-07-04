@@ -8,6 +8,7 @@ import Data.Generics
 import Text.PrettyPrint
 
 import Data.Digits (digits, unDigits)
+import Data.List as List
 
 import Language.SecreC.Pretty
 import Language.SecreC.Position
@@ -253,7 +254,7 @@ isAnnotation :: String -> Maybe [String]
 isAnnotation s = if ok then Just (map (tail . dropWhile (/='@')) toks) else Nothing
     where
     toks = lines s
-    ok = and $ map (maybe False (=="@") . headMay . words) toks
+    ok = not (List.null toks) && and (map (maybe False (=="@") . headMay . words) toks)
 
 isIntToken :: Token -> Bool
 isIntToken (BIN_LITERAL i) = True

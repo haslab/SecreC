@@ -503,15 +503,15 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args r
             (ss1,t') <- simplifyTypeSpecifier False t
             let tl = notTyped "inline" l
             let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
-            reqs' <- simplifyStatementAnns False reqs
+            reqs' <- simplifyStatementAnns True reqs
             ss <- simplifyStatements (Just res) body'
-            ens' <- simplifyStatementAnns False ens
+            ens' <- simplifyStatementAnns True ens
             return $ Left (decls++ss1++[def,compoundStmt l (reqs'++ss++ens')],Just $ varExpr res)
         Nothing -> do
             let (reqs,ens) = splitProcAnns ann'
-            reqs' <- simplifyStatementAnns False reqs
+            reqs' <- simplifyStatementAnns True reqs
             ss <- simplifyStatements Nothing body'
-            ens' <- simplifyStatementAnns False ens
+            ens' <- simplifyStatementAnns True ens
             return $ Left ([compoundStmt l (decls++reqs'++ss++ens')],Nothing)
 inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     liftIO $ putStrLn $ "inlineFunFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
@@ -526,10 +526,10 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ 
     (ss1,t') <- simplifyTypeSpecifier False t
     let tl = notTyped "inline" l
     let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
-    reqs' <- simplifyStatementAnns False reqs
+    reqs' <- simplifyStatementAnns True reqs
     (ss,Just body'') <- simplifyExpression False body'
     let sbody = [ExpressionStatement tl $ BinaryAssign (loc res) (varExpr res) (BinaryAssignEqual tl) body'']
-    ens' <- simplifyStatementAnns False ens
+    ens' <- simplifyStatementAnns True ens
     return $ Left (decls++ss1++[def,compoundStmt l (reqs'++ss++sbody++ens')],Just $ varExpr res)
 inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     liftIO $ putStrLn $ "inlineFunTrue " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
@@ -546,10 +546,10 @@ inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ a
     reqs' <- simplifyStatementAnns True reqs >>= stmtsAnns
     ens' <- simplifyStatementAnns True ens >>= stmtsAnns
     return $ Left (decls++ss1++[compoundStmt l ([annStmt l reqs']++ss++[annStmt l ens'])],Just body'')
-inlineProcCall isExpr l n (DecT t) es = do
-    t' <- simplifyDecType t
-    liftIO $ putStrLn $ "not inline " ++ ppr isExpr ++ " " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t'
-    return $ Right $ DecT t'
+inlineProcCall isExpr l n t@(DecT d) es = do
+    d' <- simplifyDecType d
+    liftIO $ putStrLn $ "not inline " ++ ppr isExpr ++ " " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr d'
+    return $ Right $ DecT d'
 
 simplifyStmts :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyStmts ret ss = do
@@ -637,7 +637,7 @@ simplifyStatement ret (PrintStatement l es) = do
     (ss,es') <- simplifyVariadicExpressions False es
     return (ss++[PrintStatement l es'])
 simplifyStatement ret (AnnStatement l anns) = do
-    anns' <- simplifyStatementAnns False anns
+    anns' <- simplifyStatementAnns True anns
     return anns'
 simplifyStatement ret s = return [s]
 

@@ -4,30 +4,30 @@ domain pd_a3p additive3p;
 template <type T>
 pd_a3p T classify (public T x) {
     //stub
-    pd_a3p T ret;
+    havoc pd_a3p T ret;
     return ret;
 }
 
 template <type T>
 public T declassify (pd_a3p T x) {
     //stub
-    public T ret;
+    havoc public T ret;
     return ret;
 }
 
 pd_a3p uint operator + (pd_a3p uint x,pd_a3p uint y) {
     //stub
-    pd_a3p uint ret;
+    havoc pd_a3p uint ret;
     return ret;
 }
 pd_a3p uint operator * (pd_a3p uint x,pd_a3p uint y) {
     //stub
-    pd_a3p uint ret;
+    havoc pd_a3p uint ret;
     return ret;
 }
 pd_a3p bool operator == (pd_a3p uint x,pd_a3p uint y) {
     //stub
-    pd_a3p bool ret;
+    havoc pd_a3p bool ret;
     return ret;
 }
 

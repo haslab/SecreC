@@ -56,7 +56,7 @@ tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression V
 tcAnnExpr e = insideAnnotation $ tcExpr e
 
 tcLValue :: (ProverK loc m) => Bool -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
-tcLValue isWrite (PostIndexExpr l e s) = tcNoDeps $ do
+tcLValue isWrite (PostIndexExpr l e s) = do
     e' <- tcAddDeps l "lvalue" $ tcLValue isWrite e
     let t = typed $ loc e'
     (s',t') <- tcSubscript e' s
@@ -201,7 +201,7 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
-tcExpr (PostIndexExpr l e s) = tcNoDeps $ do
+tcExpr (PostIndexExpr l e s) = do
     e' <- tcAddDeps l "postindex" $ tcExpr e
     let t = typed $ loc e'
     (s',t') <- tcSubscript e' s

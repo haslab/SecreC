@@ -78,6 +78,9 @@ ppDecl opts d@(FunctionDecl atts name targs args ret body) = do
 --    when (isLeakFunName name) $ addExemption name
     State.modify $ \st -> st { functions = Map.insert name (map (isPrivateFArg opts) args) (functions st) }
     return d
+ppDecl opts d@(AxiomDecl atts e) = do
+    let atts' = if hasLeakageFunAnn opts e then Attribute "leakage" [] : atts else atts
+    return $ AxiomDecl atts' e
 ppDecl opts d = return d
 
 isPrivateFArg :: Options -> FArg -> Bool
@@ -563,24 +566,6 @@ shadowStatement opts mode (Pos p s) = do
     liftM (map (Pos p)) $ shadowBareStatement opts mode s
 
 shadowBareStatement :: Options -> ShadowEMode -> BareStatement -> ShadowM [BareStatement]
-shadowBareStatement opts mode@(isDualMode -> True) s@(Predicate atts spec@(SpecClause st isAssume (Pos _ (isPublicExpr opts -> Just (l,ty))))) = do
-    l' <- shadowBareExpression opts ShadowE l
-    Just shadow_ok <- liftM shadowOk State.get
-    let implies = case ty of
-                    PublicMid -> if isDualE mode then id else Pos noPos . BinaryExpression Implies (Pos noPos $ Var shadow_ok)
-                    otherwise -> id
-    let e' = Pos noPos $ BinaryExpression Eq (Pos noPos l) (Pos noPos l')
-    let spec' = SpecClause st isAssume $ implies e'
-    return [Predicate atts spec']
-shadowBareStatement opts mode@(isDualMode -> True) s@(Predicate atts spec@(SpecClause st False (Pos _ (isDeclassifiedExpr opts -> Just (l,ty))))) = do
-    l' <- shadowBareExpression opts ShadowE l
-    let e' = Pos noPos $ BinaryExpression Eq (Pos noPos l) (Pos noPos l')
-    if ty
-        then do -- delay assertion of equality
-            Just shadow_ok <- liftM shadowOk State.get
-            return [Assign [(shadow_ok,[])] [Pos noPos $ BinaryExpression And (Pos noPos $ Var shadow_ok) e'] ]
-        else do -- in-place assertion of equality
-            return [Predicate atts $ SpecClause st False e']
 shadowBareStatement opts mode s@(Havoc ids) = do
     ids' <- mapM (shadowId ShadowE) ids
     let s' = Havoc ids'
@@ -683,6 +668,24 @@ shadowWildcardExpression opts m (Expr e) = do
     return $ Expr e'
 
 shadowPredicate :: Options -> ShadowEMode -> BareStatement -> ShadowM [BareStatement]
+shadowPredicate opts mode@(isDualMode -> True) s@(Predicate atts spec@(SpecClause st isAssume (Pos _ (isPublicExpr opts -> Just (l,ty))))) = do
+    l' <- shadowBareExpression opts ShadowE l
+    Just shadow_ok <- liftM shadowOk State.get
+    let implies = case ty of
+                    PublicMid -> if isDualE mode then id else Pos noPos . BinaryExpression Implies (Pos noPos $ Var shadow_ok)
+                    otherwise -> id
+    let e' = Pos noPos $ BinaryExpression Eq (Pos noPos l) (Pos noPos l')
+    let spec' = SpecClause st isAssume $ implies e'
+    return [Predicate atts spec']
+shadowPredicate opts mode@(isDualMode -> True) s@(Predicate atts spec@(SpecClause st False (Pos _ (isDeclassifiedExpr opts -> Just (l,ty))))) = do
+    l' <- shadowBareExpression opts ShadowE l
+    let e' = Pos noPos $ BinaryExpression Eq (Pos noPos l) (Pos noPos l')
+    if ty
+        then do -- delay assertion of equality
+            Just shadow_ok <- liftM shadowOk State.get
+            return [Assign [(shadow_ok,[])] [Pos noPos $ BinaryExpression And (Pos noPos $ Var shadow_ok) e'] ]
+        else do -- in-place assertion of equality
+            return [Predicate atts $ SpecClause st False e']
 shadowPredicate opts mode@(isDualMode -> True) p@(Predicate atts (SpecClause st isAssume e)) | hasLeakageFunAnn opts e = do
     e' <- shadowExpression opts DualE e
     let s' = SpecClause st isAssume e'

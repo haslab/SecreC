@@ -163,7 +163,7 @@ decDafnyId d@(DecType tid _ _ _ _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (
 decDafnyId dec = Nothing
 
 fromDecDafnyId :: DecType -> DafnyId
-fromDecDafnyId = fromJustNote "fromDecDafnyId" . decDafnyId
+fromDecDafnyId d = fromJustNote ("fromDecDafnyId " ++ ppr d) (decDafnyId d)
 
 printDafnyModules :: DafnyK m => [(Identifier,Map DafnyId (Position,Doc))] -> DafnyM m (Doc,Doc)
 printDafnyModules xs = do
@@ -181,21 +181,21 @@ printDafnyModule mn xs imports = do
     let pis = vcat $ map (\i -> text "import opened" <+> text i) ("prelude":is)
     return (defstypes,text "module" <+> pp mn <+> vbraces (pis $+$ defsrest))
 
-resolveEntryPoint :: ProverK Position m => Identifier -> TcM m DafnyId
+resolveEntryPoint :: ProverK Position m => Identifier -> TcM m (Maybe DafnyId)
 resolveEntryPoint n = do
     let n' = mkVarId n
     env <- getModuleField True id
     case Map.lookup (Left n') (procedures env) of
-        Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
+        Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
         Nothing -> case Map.lookup n' (structs env) of
-            Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
+            Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
             Nothing -> case Map.lookup (Left n') (functions env) of
-                Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
+                Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
                 Nothing -> case Map.lookup n' (lemmas env) of
-                    Just (Map.toList -> [(k,e)]) -> return $ fromDecDafnyId $ unDecT $ entryType e
-                    Nothing -> genError noloc $ text "resolveEntryPoint: can't find" <+> pp n
-            otherwise -> genError noloc $ text "resolveEntryPoint: ambiguous" <+> pp n
-        otherwise -> genError noloc $ text "resolveEntryPoint: ambiguous" <+> pp n
+                    Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
+                    Nothing -> return Nothing
+            otherwise -> return Nothing
+        otherwise -> return Nothing
 
 getModule :: Monad m => DafnyM m Identifier
 getModule = lift $ State.gets (fst . moduleCount)
@@ -319,9 +319,10 @@ decToDafny n dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns
     (pbodyanns,pbody) <- expressionToDafny True RequireK body
+    let fanns = unfreeAnns $ parganns ++ panns ++ pbodyanns
     let tag = if isLeak then text "function" else text "function method"
-    return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLines parganns $+$ annLines panns $+$ annLines pbodyanns $+$ vbraces pbody)
-  where did = pIdenToDafnyId pn mid
+    return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLines fanns $+$ vbraces pbody)
+  where did = fIdenToDafnyId pn mid isLeak
 decToDafny n dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = insideDecl did $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny False args
@@ -452,6 +453,15 @@ annLine (StmtK,False,x) = text "assert" <+> x <> semicolon
 annLine (InvariantK,isFree,x) = ppFree isFree $ text "invariant" <+> x <> semicolon
 annLine (DecreaseK,isFree,x) = text "decreases" <+> x <> semicolon
 annLine (NoK,isFree,x) = x
+
+unfreeAnn :: AnnDoc -> AnnDoc
+unfreeAnn (k,False,x) = (k,False,x)
+unfreeAnn (RequireK,True,x) = (RequireK,False,x)
+unfreeAnn (DecreaseK,True,x) = (DecreaseK,False,x)
+unfreeAnn a = error $ show $ text "cannot unfree" <+> annLine a
+
+unfreeAnns :: AnnsDoc -> AnnsDoc
+unfreeAnns = map unfreeAnn
 
 annLines = vcat . map annLine
 
@@ -907,7 +917,7 @@ ppDafnyId current (FId pn (mn,uid) isLeak) = prefix <> ppn <> pp uid <> suffix
     where
     ppn = ppPOId current pn
     prefix = text mn
-    suffix = empty
+    suffix = if isLeak then text "LeakageFun" else text "OriginalFun"
 ppDafnyId current (LId pn (mn,uid) isLeak) = prefix <> ppn <> pp uid <> suffix
     where
     ppn = ppPOId current $ Left pn

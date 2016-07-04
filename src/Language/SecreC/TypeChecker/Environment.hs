@@ -445,7 +445,7 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ remBody d'
+    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Right o) $ getLns selector env
     dirtyGDependencies $ OIden o
@@ -506,7 +506,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remBody d'
+    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Left n) $ getLns selector env
     dirtyGDependencies $ PIden n
@@ -518,7 +518,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let dt = DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     noFrees e
-    liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
+    --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Left n) $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
   
@@ -560,7 +560,7 @@ checkProcedureFunctionLemma isAnn isLeak k pn@(ProcedureName l n) = do
     addGDependencies $ PIden n  
     ps <- getEntries l isAnn isLeak k
     case Map.lookup (Left n) ps of
-        Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp n)
+        Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp isAnn <+> pp isLeak <+> pp k <+> pp n)
         Just es -> return $ Map.elems es
 
 getEntries :: (ProverK loc m) => loc -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
@@ -576,7 +576,7 @@ getEntries l isAnn isLeak (PKind) = do
     ys <- getLemmas False isAnn isLeak 
     zs <- getProcedures False isAnn isLeak
     return $ Map.unionWith Map.union (Map.unionWith Map.union xs zs) (Map.mapKeys Left ys)
-getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
+--getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
 
 addDecClass :: Monad m => DecClass -> TcM m ()
 addDecClass cl = State.modify $ \env -> env { decClass = mappend cl $ decClass env }
@@ -671,13 +671,6 @@ withoutEntry e m = do
 decIsRec :: DecType -> Bool
 decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isJust isfree
 
-remBody :: InnerDecType -> InnerDecType
-remBody (ProcType pl n pargs pret panns body cl) = ProcType pl n pargs pret panns Nothing cl
-remBody (LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
-remBody (FunType isLeak pl n pargs pret panns body cl) = FunType isLeak pl n pargs pret panns Nothing cl
-remBody (AxiomType isLeak pl pargs panns cl) = AxiomType isLeak pl pargs panns cl
-remBody (StructType sl sid atts cl) = StructType sl sid Nothing cl
-
 mkDecEnv :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
 mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n pargs pret panns body cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
@@ -695,14 +688,13 @@ mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl pn
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { lemmas = Map.singleton pn $ Map.singleton i e }
     
-buildCstrGraph :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m IOCstrGraph
+buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> TcM m IOCstrGraph
 buildCstrGraph l cstrs = do
-    liftIO $ putStrLn $ "buildCstrGraph: " ++ show (sepBy space (map (pp . ioCstrId . unLoc) $ Set.toList cstrs))
+    --liftIO $ putStrLn $ "buildCstrGraph: " ++ show (sepBy space (map (pp) $ Set.toList cstrs))
     d <- concatTDict l NoCheckS =<< liftM tDict State.get
     let gr = tCstrs d
     let tgr = Graph.trc gr 
-    let cs = mapSet unLoc cstrs
-    let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,ioCstrId h)) cs) tgr
+    let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,h)) cstrs) tgr
     let ns = nodes gr'
     let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) }
     State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr' } : map remHeadCstrs ds }
@@ -777,7 +769,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     frees <- getFrees l
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remBody d'
+    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
@@ -818,7 +810,7 @@ addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locp
                         NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution" <+> pp v <+> text "=" <+> pp t'
                         CheckS -> do
                             let tv = (varNameToType v)
-                            addErrorM l (TypecheckerError (locpos l) . (EqualityException (show (varIdTok vn) ++ " " ++ ppr vns ++ "substitution with type")) (pp tv) (pp t') . Just) $ tcCstrM_ l $ Equals tv t'
+                            addErrorM l (TypecheckerError (locpos l) . (EqualityException ("substitution with type")) (pp tv) (pp t') . Just) $ tcCstrM_ l $ Equals tv t'
                 else add t'
   where
     add t' = do -- add substitution
@@ -939,7 +931,7 @@ resolveIOCstr l iok resolve = do
         Evaluated rest x -> do
             remove
             addHeadTDict l rest
-            liftIO $ putStrLn $ "restored constraint " ++ ppr (ioCstrId iok) ++ "\n" ++ ppr rest
+            --liftIO $ putStrLn $ "restored constraint " ++ ppr (ioCstrId iok) ++ "\n" ++ ppr rest
             return x
         Erroneous err -> throwError err
         Unevaluated -> trySolve
@@ -948,8 +940,8 @@ resolveIOCstr l iok resolve = do
         openCstr l iok
         gr <- liftM (tCstrs . head . tDict) State.get
         let ctx = contextGr gr (ioCstrId iok)
-        remove
         (x,rest) <- tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
+        remove
         liftIO $ writeUniqRef (kStatus iok) $ Evaluated rest x
         closeCstr
         addHeadTDict l rest
@@ -971,7 +963,7 @@ registerIOCstrDependencies iok gr ctx = do
 addGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 addGDependencies v = do
     cstrs <- liftM (map fst . openedCstrs) State.get
-    liftIO $ putStrLn $ "addGDependencies: " ++ ppr v ++ " " ++ show (sepBy space (map (pp . ioCstrId) cstrs))
+    --liftIO $ putStrLn $ "addGDependencies: " ++ ppr v ++ " " ++ show (sepBy space (map (pp . ioCstrId) cstrs))
     addGDependency v cstrs
     
 addGDependency :: (MonadIO m) => GIdentifier -> [IOCstr] -> TcM m ()
@@ -1013,6 +1005,9 @@ getCstrNodes :: Monad m => TcM m (Set Int)
 getCstrNodes = do
     dicts <- liftM tDict State.get
     return $ foldr (\d xs -> Set.fromList (nodes $ tCstrs d) `Set.union` xs) Set.empty dicts
+
+getCstrs :: Monad m => TcM m IOCstrGraph
+getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . tDict)
 
 addHeadTDict :: (ProverK loc m) => loc -> TDict -> TcM m ()
 addHeadTDict l d = updateHeadTDict $ \x -> liftM ((),) $ appendTDict l NoFailS x d
@@ -1077,7 +1072,7 @@ updateHeadTDict upd = do
 -- | forget the result for a constraint when the value of a variable it depends on changes
 dirtyGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 dirtyGDependencies v = do
-    liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
+    --liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
     opens <- liftM openedCstrs State.get
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
@@ -1087,12 +1082,12 @@ dirtyGDependencies v = do
             liftIO $ WeakMap.forM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
                 dirtyIOCstrDependencies (map fst opens) x
-    liftIO $ putStrLn "\n"
+    --liftIO $ putStrLn "\n"
 
 dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
 dirtyIOCstrDependencies opens iok = do
     unless (elem iok opens) $ do
-        putStr $ " " ++ ppr (ioCstrId iok)
+        --putStr $ " " ++ ppr (ioCstrId iok)
         writeUniqRef (kStatus iok) Unevaluated
     deps <- liftM ioDeps $ readIORef globalEnv
     mb <- WeakHash.lookup deps (uniqId $ kStatus iok)
@@ -1402,13 +1397,17 @@ getDecClass (Just gid) = do
     return $ DecClass isAnn (if isEntry then False else isInline) rs ws
 
 
-checkLeak :: ProverK loc m => loc -> Bool -> TcM m a -> TcM m a
-checkLeak l False m = m
+checkLeak :: ProverK loc m => loc -> Bool -> TcM m a -> TcM m (Bool,a)
+checkLeak l False m = do
+    isLeak <- getLeak
+    x <- m
+    return (isLeak,x)
 checkLeak l True m = do
     isLeak <- getLeak
     k <- getKind
     if isLeak
-        then withLeak True m
+        then liftM (True,) m
         else case k of
-            PKind -> withLeak True m
-            otherwise -> genTcError (locpos l) $ text "leakage annotation not supported in" <+> text (show k)
+            PKind -> liftM (True,) $ withLeak True m
+            LKind -> liftM (True,) $ withLeak True m
+            otherwise -> genTcError (locpos l) $ text "leakage annotation not supported in" <+> pp k

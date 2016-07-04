@@ -110,7 +110,7 @@ resolveTemplateEntry p n targs pargs ret olde e dict frees = do
     olddec <- typeToDecType p (entryType olde)
     dec <- typeToDecType p (entryType e)
     forM_ (decTypeFrees dec) addFree
-    liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr targs ++ " " ++ ppr pargs ++ " " ++ ppr dec
+    --liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr targs ++ " " ++ ppr pargs ++ " " ++ ppr dec
     -- prove the body (with a recursive declaration)
     let doWrap = isTemplateDecType olddec && not (decIsRec olddec)
     (decrec,rec) <- if doWrap
@@ -179,7 +179,7 @@ compareProcedureArgs l ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v2@(VarName t
 --    liftIO $ putStr $ show (compOrdering o0)
     ss <- getTSubsts l
     o1 <- compares l False t1 t2
-    liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
+    --liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
 --    liftIO $ putStr $ show (compOrdering o1)
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
     o2 <- compareProcedureArgs l xs ys
@@ -305,18 +305,18 @@ matchVariadicPArg doCoerce l (isConst,v,True) exs = do
             b <- typeBase l t
             (unzip -> (vs,exs1),exs2) <- flip spanMaybeM exs $ \ex -> tryCstrMaybe l $ do
                 v <- newTypedVar "pvarr" b Nothing
-                coercePArg doCoerce l isConst (varExpr v) ex >> return (v,ex)
+                coercePArg doCoerce l True (varExpr v) ex >> return (v,ex)
             -- match the array content
-            if isConst
-                then unifiesExprTy l True v (ArrayConstructorPExpr t $ map varExpr vs)
-                else tcCstrM_ l $ Unifies (loc v) t
+            --if isConst
+            unifiesExprTy l True v (ArrayConstructorPExpr t $ map varExpr vs)
+            --    else tcCstrM_ l $ Unifies (loc v) t
             -- match the array size
             unifiesExprTy l True sz (indexExpr $ toEnum $ length exs1)
             return exs2
 
 coercePArg :: (ProverK loc m) => Bool -> loc -> Bool -> Expr -> (Expr,Var) -> TcM m ()
 coercePArg doCoerce l isConst v2 (e,x2) = do
-    liftIO $ putStrLn $ show $ text "coercePArg" <+> ppExprTy v2 <+> ppExprTy e <+> ppExprTy x2
+    --liftIO $ putStrLn $ show $ text "coercePArg" <+> pp isConst <+> ppExprTy v2 <+> ppExprTy e <+> ppExprTy x2
     tcCstrM_ l $ Unifies (loc x2) (loc v2)
     if doCoerce
         then tcCstrM_ l $ Coerces e x2
@@ -356,7 +356,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
             --e <- localTemplate l e
 --            doc <- liftM ppTSubsts getTSubsts
 --            liftIO $ putStrLn $ "inst " ++ show doc
-            liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
+            --liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n (entryType e)
             isPure <- getPure
             (e',hdict,bdict,bgr) <- templateTDict isPure e
@@ -384,7 +384,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
                 Left err -> do
-                    liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++" "++ show (decTypeTyVarId $ unDecT $ entryType e) ++ "\n" ++ ppr err
+                    --liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++" "++ show (decTypeTyVarId $ unDecT $ entryType e) ++ "\n" ++ ppr err
                     return $ Left (e,err)
                 Right (_,TDict hgr _ subst recs) -> do
                         --removeIOCstrGraphFrees hgr
@@ -398,10 +398,10 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e = newErrorM $ withF
                         let depCstrs = TDict gr1 Set.empty subst' recs''
                         --depCstrs <- mergeDependentCstrs l subst' bgr''
                         remainder <- ppConstraints gr1
-                        liftIO $ putStrLn $ "remainder" ++ ppr n ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
+                        --liftIO $ putStrLn $ "remainder" ++ ppr n ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         dec2 <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
-                        liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
+                        --liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
                         frees <- getFrees l
                         return $ Right (e,e' { entryType = DecT dec2 },depCstrs,frees)
 
@@ -486,12 +486,12 @@ localTemplateDec l dec = do
 localTemplateWith :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> EntryEnv -> a -> TcM m (EntryEnv,a)
 localTemplateWith l e a = case entryType e of
     DecT t -> do
-        liftIO $ putStrLn $ "localTemplate: " ++ ppr l ++ "\n" ++ ppr t
+        --liftIO $ putStrLn $ "localTemplate: " ++ ppr l ++ "\n" ++ ppr t
         (t',ss,ssBounds) <- localTemplateType emptySubstsProxy Map.empty (entryLoc e) t
-        liftIO $ putStrLn $ "localSS: " ++ ppr l ++ "\n" ++ ppr ssBounds
-        liftIO $ putStrLn $ "localTemplate': " ++ ppr l ++ "\n" ++ ppr t'
+        --liftIO $ putStrLn $ "localSS: " ++ ppr l ++ "\n" ++ ppr ssBounds
+        --liftIO $ putStrLn $ "localTemplate': " ++ ppr l ++ "\n" ++ ppr t'
         a' <- substProxy "localTplt" ss False ssBounds a
-        liftIO $ putStrLn $ "localTemplateReturn: " ++ ppr l ++ ppr a'
+        --liftIO $ putStrLn $ "localTemplateReturn: " ++ ppr l ++ ppr a'
         return (EntryEnv (entryLoc e) $ DecT t',a')
 
 localTemplateType :: (ProverK loc m) => SubstsProxy VarIdentifier (TcM m) -> Map VarIdentifier VarIdentifier -> loc -> DecType -> TcM m (DecType,SubstsProxy VarIdentifier (TcM m),Map VarIdentifier VarIdentifier)

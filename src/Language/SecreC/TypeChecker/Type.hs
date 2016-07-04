@@ -495,21 +495,19 @@ defaultBaseExpr l s b@(TyPrim p) | isFloatPrimType p = defaultBaseClassify l s $
 defaultBaseExpr l s b@(TyPrim (DatatypeBool _)) = defaultBaseClassify l s $ falseExpr
 defaultBaseExpr l s b@(TyPrim (DatatypeString _)) = defaultBaseClassify l s $ stringExpr "\"\""
 defaultBaseExpr l s b@(MSet _) = return $ MultisetConstructorPExpr (ComplexT $ CType s b $ indexExpr 0) []
-defaultBaseExpr l s b@(TApp tn@(TypeName _ sn) targs (DVar v)) = do
-    dec <- resolveDVar l v
-    defaultBaseExpr l s $ TApp tn targs dec
-defaultBaseExpr l Public b@(TApp (TypeName _ sn) targs dec@(structPat -> Just (mid,atts))) = do
+--defaultBaseExpr l s b@(TApp tn@(TypeName _ sn) targs (DVar v)) = do
+--    dec <- resolveDVar l v
+--    defaultBaseExpr l s $ TApp tn targs dec
+defaultBaseExpr l Public b@(TApp (TypeName _ sn) targs sdec) = do
+--    StructType _ _ (Just atts) cl <- structBody l dec
     let ct = BaseT b
-    (dec,[]) <- pDecCstrM l False False (Left sn) (Just targs) [] ct
+    (pdec,[]) <- pDecCstrM l False False (Left sn) (Just targs) [] ct
     targs' <- mapM (\(x,y) -> liftM ((,y) . fmap typed) $ type2TemplateTypeArgument l x) targs
     let targs'' = if null targs' then Nothing else Just targs'
-    return $ ProcCallExpr ct (fmap (const $ DecT dec) $ ProcedureName () sn) targs'' []
+    return $ ProcCallExpr ct (fmap (const $ DecT pdec) $ ProcedureName () sn) targs'' []
+defaultBaseExpr l s b = genError (locpos l) $ text "defaultBaseExpr:" <+> pp s <+> pp b
 
 defaultBaseClassify :: ProverK loc m => loc -> SecType -> Expr -> TcM m Expr
 defaultBaseClassify l Public e = return e
 defaultBaseClassify l s@(Private {}) e@(loc -> BaseT b) = classifyExpr l False e (CType s b $ indexExpr 0)
 defaultBaseClassify l s e = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for" <+> pp s <+> ppExprTy e) Nothing
-
-structPat :: DecType -> Maybe (ModuleTyVarId,[Attribute VarIdentifier Type])
-structPat (DecType mid _ _ _ _ _ _ _ (StructType _ _ (Just atts) cl)) = Just (mid,atts)
-structPat d = Nothing
