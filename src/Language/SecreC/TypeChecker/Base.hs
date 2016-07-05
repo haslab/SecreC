@@ -359,16 +359,16 @@ getModuleField withBody f = do
 getRecs :: Monad m => Bool -> TcM m ModuleTcEnv
 getRecs withBody = do
     lineage <- getLineage
-    State.gets (filterRecModuleTcEnv lineage withBody . mconcat . map tRec . tDict)
+    State.gets (filterRecModuleTcEnv (Just lineage) withBody . mconcat . map tRec . tDict)
 
 -- we reuse struct instantiations
 -- we don't reuse procedure/function/lemma instantiations because their parameter variables
-filterRecModuleTcEnv :: Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
+filterRecModuleTcEnv :: Maybe Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = env
-    { structs = filterRecBody Nothing withBody (structs env)
-    , procedures = filterRecBody (Just lineage) withBody (procedures env)
-    , functions = filterRecBody (Just lineage) withBody (functions env)
-    , lemmas = filterRecBody (Just lineage) withBody (lemmas env)
+    { structs = filterRecBody lineage withBody (structs env)
+    , procedures = filterRecBody lineage withBody (procedures env)
+    , functions = filterRecBody lineage withBody (functions env)
+    , lemmas = filterRecBody lineage withBody (lemmas env)
     }
 
 filterRecBody :: Maybe Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
@@ -1444,7 +1444,7 @@ iDecTyKind (LemmaType {}) = LKind
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
-        (Maybe ModuleTyVarId) -- is a recursive invocation = Just original
+        (Maybe (ModuleTyVarId,[Type])) -- is a recursive invocation = Just (original,expanded template type arguments)
         [(Constrained Var,IsVariadic)] -- ^ template variables
         PureTDict -- ^ constraints for the header
         (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
@@ -1516,7 +1516,7 @@ isNonRecursiveDecType :: DecType -> Bool
 isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
     where
     aux :: DecType -> Bool
-    aux (DecType _ (Just j) _ _ _ _ _ _ _) = i == j
+    aux (DecType _ (Just (j,_)) _ _ _ _ _ _ _) = i == j
     aux d = False
 isNonRecursiveDecType d = False
 
@@ -1976,15 +1976,17 @@ ppInline True = text "inline"
 ppInline False = text "noinline"
 
 instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m DecType where
-    traverseVars f (DecType tid isrec vs hd hfrees d frees spes t) = varsBlock $ do
-        vs' <- inLHS $ mapM f vs
-        hfrees' <- liftM Set.fromList $ mapM f $ Set.toList hfrees
-        frees' <- liftM Set.fromList $ mapM f $ Set.toList frees
-        hd' <- f hd
-        d' <- f d
-        spes' <- mapM f spes
-        t' <- f t
-        return $ DecType tid isrec vs' hd' hfrees' d' frees' spes' t'
+    traverseVars f (DecType tid isRec vs hd hfrees d frees spes t) = do
+        isRec' <- mapM f isRec
+        varsBlock $ do
+            vs' <- inLHS $ mapM f vs
+            hfrees' <- liftM Set.fromList $ mapM f $ Set.toList hfrees
+            frees' <- liftM Set.fromList $ mapM f $ Set.toList frees
+            hd' <- f hd
+            d' <- f d
+            spes' <- mapM f spes
+            t' <- f t
+            return $ DecType tid isRec' vs' hd' hfrees' d' frees' spes' t'
     traverseVars f (DVar v) = do
         v' <- f v
         return $ DVar v'

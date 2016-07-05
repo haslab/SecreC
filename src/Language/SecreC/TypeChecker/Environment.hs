@@ -62,6 +62,19 @@ import qualified System.Mem.Weak.Map as WeakMap
 
 import System.Mem.Weak.Exts as Weak
 
+decPos :: DecType -> Position
+decPos = iDecPos . innerDec
+
+innerDec :: DecType -> InnerDecType
+innerDec (DecType i isRec ts hd hfrees bd bfrees specs idec) = idec
+
+iDecPos :: InnerDecType -> Position
+iDecPos d@(ProcType pl n pargs pret panns body cl) = pl
+iDecPos d@(FunType isLeak pl n pargs pret panns body cl) = pl
+iDecPos d@(StructType sl sid@(TypeName _ sn) atts cl) = sl
+iDecPos d@(AxiomType isLeak p qs pargs cl) = p
+iDecPos d@(LemmaType isLeak pl n pargs panns body cl) = pl
+
 withFrees :: Monad m => TcM m a -> TcM m a
 withFrees m = do
     old <- State.gets localFrees
@@ -135,15 +148,15 @@ chooseVar l v1 v2 = do
         otherwise -> return EQ
 
 -- replaces a constraint in the constraint graph by a constraint graph
-replaceCstrWithGraph :: (MonadIO m,Location loc) => loc -> Bool -> Int -> Set LocIOCstr -> IOCstrGraph -> Set LocIOCstr -> TcM m ()
+replaceCstrWithGraph :: (ProverK loc m) => loc -> Bool -> Int -> Set LocIOCstr -> IOCstrGraph -> Set LocIOCstr -> TcM m ()
 replaceCstrWithGraph l filterDeps kid ins gr outs = do
     let cs = flattenIOCstrGraph gr
     --liftIO $ putStrLn $ "replaceCstrWithGraph " ++ ppr kid
     --    ++ " from " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) $ Set.toList ins)
     --    ++ " to " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) $ Set.toList outs)
     --    ++ " for " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) cs)
-    updateHeadTDict $ \d -> return ((),d { tCstrs = unionGr gr $ delNode kid (tCstrs d) })
-    forM_ cs $ \c -> addIOCstrDependenciesM filterDeps (Set.filter (\x -> ioCstrId (unLoc x) /= kid) ins) c (Set.filter (\x -> ioCstrId (unLoc x) /= kid) outs)
+    updateHeadTDict l "replaceCstrWithGraph" $ \d -> return ((),d { tCstrs = unionGr gr $ delNode kid (tCstrs d) })
+    forM_ cs $ \c -> addIOCstrDependenciesM l filterDeps (Set.filter (\x -> ioCstrId (unLoc x) /= kid) ins) c (Set.filter (\x -> ioCstrId (unLoc x) /= kid) outs)
 --    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
 --    liftIO $ putStrLn $ "replaceCstrWithGraph2 [" ++ show ss ++ "\n]"
 
@@ -235,9 +248,9 @@ tryAddHypothesis l scope deps hyp = do
     opts <- askOpts
     when (checkAssertions opts) $ do
         st <- getCstrState
-        iok <- updateHeadTDict $ \d -> newTDictCstr (locpos l) (HypK hyp st) d
+        iok <- updateHeadTDict l "tryAddHypothesis" $ \d -> newTDictCstr (locpos l) (HypK hyp st) d
         addDep scope $ Loc (locpos l) iok
-        addIOCstrDependenciesM True deps (Loc (locpos l) iok) Set.empty
+        addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
 
 -- | Adds a new kind variable to the environment
 newKindVariable :: ProverK loc m => Bool -> Scope -> KindName VarIdentifier (Typed loc) -> TcM m ()
@@ -445,7 +458,7 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Right o) $ getLns selector env
     dirtyGDependencies $ OIden o
@@ -506,7 +519,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Left n) $ getLns selector env
     dirtyGDependencies $ PIden n
@@ -518,7 +531,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let dt = DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     noFrees e
-    --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
+    --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e) ++ "\n" ++ ppr dict
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Left n) $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
   
@@ -769,7 +782,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     frees <- getFrees l
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just i) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
@@ -815,7 +828,7 @@ addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locp
   where
     add t' = do -- add substitution
 --      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
-        updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
+        updateHeadTDict l "addSubstM" $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
         removeFree vn
         when dirty $ dirtyGDependencies $ VIden vn
         -- register variable assignment in the top-most open constraint
@@ -949,7 +962,7 @@ resolveIOCstr l iok resolve = do
         registerIOCstrDependencies iok gr ctx
         --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
         return x
-    remove = updateHeadTDict $ \d -> return ((),d { tCstrs = delNode (ioCstrId iok) (tCstrs d) })
+    remove = updateHeadTDict l "remove resolveIOCstr" $ \d -> return ((),d { tCstrs = delNode (ioCstrId iok) (tCstrs d) })
 
 registerIOCstrDependencies :: (MonadIO m) => IOCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ()
 registerIOCstrDependencies iok gr ctx = do
@@ -993,13 +1006,13 @@ addIOCstrDependencies dict from iok to = dict { tCstrs = add $ tCstrs dict }
     froms = map (\k -> ((gid k,k),(gid iok,iok),())) $ Set.toList from
     gid = ioCstrId . unLoc
 
-addIOCstrDependenciesM :: (MonadIO m) => Bool -> Deps -> LocIOCstr -> Deps -> TcM m ()
-addIOCstrDependenciesM filterDeps froms iok tos = do
+addIOCstrDependenciesM :: (ProverK loc m) => loc -> Bool -> Deps -> LocIOCstr -> Deps -> TcM m ()
+addIOCstrDependenciesM l filterDeps froms iok tos = do
     ns <- getCstrNodes
 --    liftIO $ putStrLn $ "addIOCstrDependenciesM " ++ ppr (mapSet (ioCstrId . unLoc) froms) ++ " --> " ++ ppr (ioCstrId $ unLoc iok) ++ " --> " ++ ppr (mapSet (ioCstrId . unLoc) tos)
     let froms' = if filterDeps then Set.filter (flip Set.member ns . ioCstrId . unLoc) froms else froms
     let tos' = if filterDeps then Set.filter (flip Set.member ns . ioCstrId . unLoc) tos else tos
-    updateHeadTDict $ \d -> return ((),addIOCstrDependencies d froms' iok tos')
+    updateHeadTDict l "addIOCstrDependenciesM" $ \d -> return ((),addIOCstrDependencies d froms' iok tos')
     
 getCstrNodes :: Monad m => TcM m (Set Int)
 getCstrNodes = do
@@ -1010,7 +1023,7 @@ getCstrs :: Monad m => TcM m IOCstrGraph
 getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . tDict)
 
 addHeadTDict :: (ProverK loc m) => loc -> TDict -> TcM m ()
-addHeadTDict l d = updateHeadTDict $ \x -> liftM ((),) $ appendTDict l NoFailS x d
+addHeadTDict l d = updateHeadTDict l "addHeadTDict" $ \x -> liftM ((),) $ appendTDict l NoFailS x d
 
 addHeadTCstrs :: (ProverK loc m) => loc -> IOCstrGraph -> TcM m ()
 addHeadTCstrs l ks = addHeadTDict l $ TDict ks Set.empty emptyTSubsts mempty
@@ -1044,27 +1057,31 @@ newTDictCstr l c dict = do
     return (iok,dict { tCstrs = insNode (ioCstrId iok,Loc (locpos l) iok) (tCstrs dict) })
 
 ---- | Adds a new template constraint to the environment
-newTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> TcM m IOCstr
+newTemplateConstraint :: (ProverK loc m) => loc -> TCstr -> TcM m IOCstr
 newTemplateConstraint l c = do
-    updateHeadTDict (newTDictCstr (locpos l) c)
+    updateHeadTDict l "newTemplateConstraint" (newTDictCstr (locpos l) c)
 
 --erroneousTemplateConstraint :: (MonadIO m,Location loc) => loc -> TCstr -> SecrecError -> TcM m IOCstr
 --erroneousTemplateConstraint l c err = do
 --    updateHeadTDict (insertTDictCstr (locpos l) c $ Erroneous err)
 
-removeCstr :: ProverK Position m => Unique -> TcM m ()
-removeCstr i = do
-    updateHeadTCstrs $ \gr -> return ((),Graph.delNode (hashUnique i) gr)
+removeCstr :: ProverK loc m => loc -> Unique -> TcM m ()
+removeCstr l i = do
+    updateHeadTCstrs l "removeCstr" $ \gr -> return ((),Graph.delNode (hashUnique i) gr)
 
-updateHeadTCstrs :: (Monad m) => (IOCstrGraph -> TcM m (a,IOCstrGraph)) -> TcM m a
-updateHeadTCstrs upd = updateHeadTDict $ \d -> do
+updateHeadTCstrs :: (ProverK loc m) => loc -> String -> (IOCstrGraph -> TcM m (a,IOCstrGraph)) -> TcM m a
+updateHeadTCstrs l msg upd = updateHeadTDict l (msg ++ ":updateHeadTCstrs") $ \d -> do
     (x,gr') <- upd (tCstrs d)
     return (x,d { tCstrs = gr' })
 
-updateHeadTDict :: (Monad m) => (TDict -> TcM m (a,TDict)) -> TcM m a
-updateHeadTDict upd = do
+updateHeadTDict :: (ProverK loc m) => loc -> String -> (TDict -> TcM m (a,TDict)) -> TcM m a
+updateHeadTDict l msg upd = do
     e <- State.get
-    (x,d') <- updHeadM upd (tDict e)
+    (x,d') <- case tDict e of
+        (y:ys) -> do
+            (a,y') <- upd y
+            return (a,y':ys)
+        [] -> error $ show $ pp (locpos l) <> char ':' <+> text msg <+> text ": unexpected empty dictionary"
     let e' = e { tDict = d' }
     State.put e'
     return x
@@ -1136,8 +1153,8 @@ isChoice l x = do
     d <- concatTDict l NoCheckS =<< liftM tDict State.get
     return $ Set.member (hashUnique x) $ tChoices d
 
-addChoice :: (Monad m) => Unique -> TcM m ()
-addChoice x = updateHeadTDict $ \d -> return ((),d { tChoices = Set.insert (hashUnique x) $ tChoices d })
+addChoice :: (ProverK loc m) => loc -> Unique -> TcM m ()
+addChoice l x = updateHeadTDict l "addChoice" $ \d -> return ((),d { tChoices = Set.insert (hashUnique x) $ tChoices d })
 
 bytes :: ComplexType
 bytes = CType Public (TyPrim $ DatatypeUint8 ()) (indexExpr 1)

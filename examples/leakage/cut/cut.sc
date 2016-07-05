@@ -45,7 +45,7 @@ private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
     private bool[[1]] mS = amS.right;
     
     uint i = 0;
-    private int[[1]] x = {};
+    private int[[1]] x;
 
     while (i < size(mS))
     //@ invariant 0 <= i && i <= size(aS);

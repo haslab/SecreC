@@ -150,6 +150,19 @@ scFoldl f ma mb = do
     ys <- many mb
     Foldable.foldlM f x ys
 
+scMany :: ScParserT m a -> ScParserT m [a]
+scMany p = scMaybeCont p $ \mb -> case mb of
+    Nothing -> return []
+    Just x -> do
+        xs <- scMany p
+        return (x:xs)
+
+scMany1 :: ScParserT m a -> ScParserT m [a]
+scMany1 p = do
+    x <- p
+    xs <- scMany p
+    return (x:xs)
+
 scMaybeCont :: ScParserT m a -> (Maybe a -> ScParserT m b) -> ScParserT m b
 scMaybeCont p cont = (p >>= cont . Just) <||> cont Nothing
                 
@@ -250,14 +263,14 @@ scImportDeclaration :: (Monad m,MonadCatch m) => ScParserT m (ImportDeclaration 
 scImportDeclaration = apA3 (scTok IMPORT) scModuleId (scChar ';') (\x1 x2 x3 -> Import (loc x1) x2) <?> "import declaration"
 
 scGlobalDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (GlobalDeclaration Identifier Position)
-scGlobalDeclaration = (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
-                 <||> (apA2 scDomainDeclaration (scChar ';') (\x1 x2 -> GlobalDomain (loc x1) x1) <?> "domain declaration")
-                 <||> (apA2 scKindDeclaration (scChar ';') (\x1 x2 -> GlobalKind (loc x1) x1) <?> "kind declaration")
+scGlobalDeclaration = ((scGlobalAnnotations >>= \x1 -> scLoc (headMay x1) >>= \lx1 -> return $ GlobalAnnotations lx1 x1) <?> "annotation declaration")
+                 <|>  (apA2 scDomainDeclaration (scChar ';') (\x1 x2 -> GlobalDomain (loc x1) x1) <?> "domain declaration")
+                 <|>  (apA2 scKindDeclaration (scChar ';') (\x1 x2 -> GlobalKind (loc x1) x1) <?> "kind declaration")
+                 <|>  (apA2 scVariableDeclaration (scChar ';') (\x1 x2 -> GlobalVariable (loc x1) x1) <?> "variable declaration")
                  <||> (apA scFunctionDeclaration (\x1 -> GlobalFunction (loc x1) x1) <?> "function declaration")
                  <||> (apA scProcedureDeclaration (\x1 -> GlobalProcedure (loc x1) x1) <?> "procedure declaration")
                  <||> (apA scStructureDeclaration (\x1 -> GlobalStructure (loc x1) x1) <?> "structure declaration")
                  <||> (apA scTemplateDeclaration (\x1 -> GlobalTemplate (loc x1) x1) <?> "template declaration")
-                 <||> ((scGlobalAnnotations >>= \x1 -> scLoc (headMay x1) >>= \lx1 -> return $ GlobalAnnotations lx1 x1) <?> "annotation declaration")
 
 scLoc :: (Monad m,LocOf a ~ Position,Located a) => Maybe a -> ScParserT m Position
 scLoc (Just x) = return $ loc x
@@ -421,13 +434,19 @@ scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Noth
         cont $ ReturnType (loc x1) (Just x1)
 
 scProcedureDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureDeclaration Identifier Position)
-scProcedureDeclaration = ((scReturnTypeSpecifier $ \x1 -> apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 x6 -> OperatorDeclaration (loc x1) x1 x3 x4 x5 (unLoc x6)))
-                    <||> (scReturnTypeSpecifier $ \x1 -> apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 -> ProcedureDeclaration (loc x1) x1 x2 x3 x4 (unLoc x5)))) <?> "procedure definition"
+scProcedureDeclaration = do
+    scReturnTypeSpecifier $ \x1 -> o1 x1 <|> o2 x1 <?> "procedure definition"
+  where
+    o1 x1 = apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 x6 -> OperatorDeclaration (loc x1) x1 x3 x4 x5 (unLoc x6))
+    o2 x1 = apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 -> ProcedureDeclaration (loc x1) x1 x2 x3 x4 (unLoc x5))
 
 scLemmaDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (LemmaDeclaration Identifier Position)
-scLemmaDeclaration = (apA7 scLeak (scTok LEMMA) scProcedureId scTArgs (scParens scProcedureParameterList) scProcedureAnnotations (optionMaybe scCompoundStatement) (\x1 x2 x3 x4 x5 x6 x7 -> LemmaDeclaration (loc x2) x1 x3 x4 x5 x6 $ fmap unLoc x7)) <?> "procedure definition"
+scLemmaDeclaration = (apA7 scLeak (scTok LEMMA) scProcedureId scTArgs scPArgs scAnns scBody (\isLeak x2 x3 x4 x5 x6 x7 -> LemmaDeclaration (loc x2) isLeak x3 x4 x5 x6 $ fmap unLoc x7)) <?> "lemma definition"
     where
     scTArgs = option [] (scABrackets scTemplateQuantifiers)
+    scPArgs = scParens scProcedureParameterList
+    scAnns = scProcedureAnnotations
+    scBody = optionMaybe scCompoundStatement
 
 scAxiomDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (AxiomDeclaration Identifier Position)
 scAxiomDeclaration = apA5 scLeak (scTok AXIOM) scTArgs (scParens scProcedureParameterList) scProcedureAnnotations (\x1 x2 x3 x4 x5 -> AxiomDeclaration (loc x2) x1 x3 x4 x5)
@@ -438,10 +457,11 @@ scFunctionDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (FunctionDeclar
 scFunctionDeclaration = do
     isLeak <- scLeak
     x0 <- scTok FUNCTION
-    (o1 isLeak x0 <||> o2 isLeak x0) <?> "function definition"
+    scTypeSpecifier $ \x1 -> do
+        (o1 isLeak x0 x1 <|> o2 isLeak x0 x1) <?> "function definition"
   where
-    o1 isLeak x0 = scTypeSpecifier $ \x1 -> apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundExpression (\x2 x3 x4 x5 x6 -> OperatorFunDeclaration (loc x0) isLeak x1 x3 x4 x5 (unLoc x6))
-    o2 isLeak x0 = scTypeSpecifier $ \x1 -> apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundExpression (\x2 x3 x4 x5 -> FunDeclaration (loc x0) isLeak x1 x2 x3 x4 (unLoc x5))
+    o1 isLeak x0 x1 = apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundExpression (\x2 x3 x4 x5 x6 -> OperatorFunDeclaration (loc x0) isLeak x1 x3 x4 x5 (unLoc x6))
+    o2 isLeak x0 x1 = apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundExpression (\x2 x3 x4 x5 -> FunDeclaration (loc x0) isLeak x1 x2 x3 x4 (unLoc x5))
     
 scProcedureParameterList :: (Monad m,MonadCatch m) => ScParserT m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"
@@ -818,18 +838,24 @@ scLoopAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [LoopAnnotation Ide
 scLoopAnnotations = scAnnotations0 $ many scLoopAnnotation
 
 scLoopAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (LoopAnnotation Identifier Position)
-scLoopAnnotation = apA4 scFree (scTok DECREASES) scExpression (scChar ';') (\x0 x1 x2 x3 -> DecreasesAnn (loc x1) x0 x2)
-               <||> apA5 scFree scLeak (scTok INVARIANT) scExpression (scChar ';') (\x0 x00 x1 x2 x3 -> InvariantAnn (loc x1) x0 x00 x2)
+scLoopAnnotation = do
+    isFree <- scFree
+    (o1 isFree <|> o2 isFree)
+  where
+    o1 isFree = apA3 (scTok DECREASES) scExpression (scChar ';') (\x1 x2 x3 -> DecreasesAnn (loc x1) isFree x2)
+    o2 isFree = apA4 scLeak (scTok INVARIANT) scExpression (scChar ';') (\x00 x1 x2 x3 -> InvariantAnn (loc x1) isFree x00 x2)
 
 scProcedureAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [ProcedureAnnotation Identifier Position]
 scProcedureAnnotations = scAnnotations0 $ many scProcedureAnnotation
 
 scProcedureAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureAnnotation Identifier Position)
-scProcedureAnnotation = apA (scTok INLINE) (\x1 -> InlineAnn (loc x1) True)
-                   <|> apA (scTok NOINLINE) (\x1 -> InlineAnn (loc x1) False)
+scProcedureAnnotation = apA2 (scTok INLINE) (scChar ';') (\x1 x2 -> InlineAnn (loc x1) True)
+                   <|> apA2 (scTok NOINLINE) (scChar ';') (\x1 x2 -> InlineAnn (loc x1) False)
                    <|> apA3 (scTok DECREASES) scExpression (scChar ';') (\x1 x2 x3 -> PDecreasesAnn (loc x1) x2)
-                   <||> apA5 scFree scLeak (scTok REQUIRES) scExpression (scChar ';') (\x0 x00 x1 x2 x3 -> RequiresAnn (loc x1) x0 x00 x2)
-                   <||> apA5 scFree scLeak (scTok ENSURES) scExpression (scChar ';') (\x0 x00 x1 x2 x3 -> EnsuresAnn (loc x1) x0 x00 x2)
+                   <|> try ((scFree >*< scLeak) >>= \(isFree,isLeak) -> requires isFree isLeak <|> ensures isFree isLeak)
+  where
+    requires isFree isLeak = apA3 (scTok REQUIRES) scExpression (scChar ';') (\x1 x2 x3 -> RequiresAnn (loc x1) isFree isLeak x2)
+    ensures isFree isLeak = apA3 (scTok ENSURES) scExpression (scChar ';') (\x1 x2 x3 -> EnsuresAnn (loc x1) isFree isLeak x2)
 
 scConst :: (MonadIO m,MonadCatch m) => ScParserT m Bool
 scConst = liftM isJust $ optionMaybe (scTok CONST)
@@ -842,6 +868,9 @@ scFree = liftM isJust $ optionMaybe (scTok FREE)
 
 scLeak :: (MonadIO m,MonadCatch m) => ScParserT m Bool
 scLeak = liftM isJust $ optionMaybe (scTok LEAKAGE)
+
+scLeak' :: (MonadIO m,MonadCatch m) => (Bool -> ScParserT m a) -> ScParserT m a
+scLeak' f = scMaybeCont (optionMaybe $ scTok LEAKAGE) (f . isJust)
 
 scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnnotation Identifier Position]
 scStatementAnnotations = scAnnotations1 $ many1 scStatementAnnotation

@@ -871,13 +871,13 @@ D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y)
 //@ }
 
 //@ template<domain D,type T>
-//@ function D bool operator in (D T x, D multiset<T> y)
+//@ function D bool in (D T x, D multiset<T> y)
 //@ {
 //@     __builtin("core.in",x,y) :: D bool
 //@ }
 
 //@ template<domain D,type T>
-//@ function D bool operator in (D T x, D T[[1]] y)
+//@ function D bool in (D T x, D T[[1]] y)
 //@ {
 //@     __builtin("core.in",x,y) :: D bool
 //@ }

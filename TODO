@@ -58,7 +58,6 @@ D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y) {
     return ret;
 }
 
-bl_strCat
 
 
 

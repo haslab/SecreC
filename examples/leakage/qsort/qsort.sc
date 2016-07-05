@@ -3,6 +3,8 @@ module qsort;
 
 import axioms;
 
+//* Domain declarations
+
 kind privatek;
 domain private privatek;
 
@@ -29,6 +31,39 @@ function private bool operator <= (private uint x,private uint y) {
     __builtin("core.le",x,y) :: private bool
 }
 
+//* Annotations
+
+//@ template <domain D,type T>
+//@ leakage function bool lcomparison (D T[[1]] xs,D T x)
+//@ noinline;
+//@ {
+//@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
+//@ }
+
+//@ template <domain D,type T>
+//@ leakage function bool lcomparisons (D T[[1]] xs)
+//@ noinline;
+//@ {
+//@     forall uint i,uint j ; (0 <= i && i < size(xs) && 0 <= j && j < size(xs)) ==> public(xs[i] <= xs[j])
+//@ }
+
+//@ leakage lemma lcomparisons_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys)
+//@ requires multiset(ys) <= multiset(xs);
+//@ requires lcomparisons(xs);
+//@ ensures lcomparisons(ys);
+
+//@ leakage lemma lcomparison_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys, D T z)
+//@ requires multiset(ys) <= multiset(xs);
+//@ requires in(z,xs);
+//@ requires lcomparisons(xs);
+//@ ensures lcomparison(ys,z);
+
+//@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
+//@ requires size(xs) > 1;
+//@ ensures xs == cat({xs[0]},xs[1:]);
+
+//* Code
+
 struct partition_result {
     private uint[[1]] ls; // <= pivot
     private uint[[1]] rs; // > pivot
@@ -38,18 +73,6 @@ struct partition_result {
 private uint[[1]] snoc (private uint[[1]] xs, private uint x) {
     return cat (xs, {x});
 }
-
-//@ template <type T>
-//@ leakage function bool lcomparison (private T[[1]] xs,private T x)
-//@ {
-//@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
-//@ }
-
-//@ template <type T>
-//@ leakage function bool lcomparisons (private T[[1]] xs)
-//@ {
-//@     forall uint i,uint j ; (0 <= i && i < size(xs) && 0 <= j && j < size(xs)) ==> public(xs[i] <= xs[j])
-//@ }
 
 // partition a list by
 // the intermediate comparisons cannot be computed from the public values. they leak the "shape" of the input.
@@ -73,21 +96,6 @@ partition_result partition (private uint[[1]] xs, private uint p)
     result.rs = rs;
     return result;
 }
-
-//@ leakage lemma lcomparisons_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys)
-//@ requires multiset(ys) <= multiset(xs);
-//@ requires lcomparisons(xs);
-//@ ensures lcomparisons(ys);
-
-//@ leakage lemma lcomparison_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys, D T[[1]] z)
-//@ requires multiset(ys) <= multiset(xs);
-//@ requires z in xs;
-//@ requires lcomparisons(xs);
-//@ ensures lcomparison(ys,z);
-
-//@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
-//@ requires size(xs) > 1;
-//@ ensures xs == cat({xs[0]},xs[1:]);
 
 private uint[[1]] leaky_sort (private uint[[1]] xs)
 //@ decreases size(xs);

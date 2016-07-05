@@ -173,7 +173,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak is
     dec2AxiomDecl l dec
 
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration VarIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate $ withKind LKind $ withLeak isLeak $ do
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate l $ withKind LKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -332,24 +332,24 @@ tcAttribute (Attribute l ty (AttributeName vl vn) szs) = do
     return $ Attribute (Typed vl t) ty' v' szs'
 
 tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration VarIdentifier (Typed loc))
-tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate $ do
+tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate l $ do
     (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
     s' <- tcStructureDecl (addTemplateStruct tvars') s
     return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' s'
-tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate $ do
+tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate l $ do
     (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
     tspecials' <- tcAddDeps l "tcTemplateDecl" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
     let tspecs = map (mapFst (typed . loc)) tspecials'
     s' <- tcStructureDecl (addTemplateStructSpecialization tvars' tspecs) s
     return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' tspecials' s'
-tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate $ do
+tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate l $ do
     (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
     p' <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
-tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate $ do
+tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
     (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
     p' <- tcFunctionDecl (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
@@ -413,11 +413,11 @@ tcTemplateQuantifier (DataQuantifier l isVariadic (TypeName tl tn)) = do
     newTypeVariable isAnn isLeak LocalScope v'
     return (DataQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v',(Constrained (VarName t' vtn) Nothing,isVariadic))
 
-tcTemplate :: (ProverK Position m) => TcM m a -> TcM m a
-tcTemplate m = do
+tcTemplate :: (ProverK loc m) => loc -> TcM m a -> TcM m a
+tcTemplate l m = do
     State.modify $ \env -> env { inTemplate = True }
     x <- m
-    updateHeadTDict $ \_ -> return ((),emptyTDict)
+    updateHeadTDict l "tcTemplate" $ \_ -> return ((),emptyTDict)
     State.modify $ \env -> env { inTemplate = False }
     return x
 

@@ -1339,6 +1339,7 @@ instance Location loc => Located (GlobalAnnotation iden loc) where
     loc (GlobalProcedureAnn l _) = l
     loc (GlobalTemplateAnn l _)    = l
     loc (GlobalAxiomAnn l _)    = l
+    loc (GlobalLemmaAnn l _)    = l
     updLoc (GlobalFunctionAnn _ x)    l = (GlobalFunctionAnn l x)  
     updLoc (GlobalTemplateAnn _ x)    l = (GlobalTemplateAnn l x)  
     updLoc (GlobalStructureAnn _ x)   l = (GlobalStructureAnn l x)
@@ -1434,7 +1435,7 @@ instance Location loc => Located (StatementAnnotation iden loc) where
 instance PP iden => PP (StatementAnnotation iden loc) where
     pp (AssumeAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assume" <+> pp e <> semicolon
     pp (AssertAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assert" <+> pp e <> semicolon
-    pp (EmbedAnn l isLeak s) = ppAnn $ ppLeak isLeak $ pp s
+    pp (EmbedAnn l isLeak s) = ppAnns $ ppLeak isLeak $ pp s
 
 instance PP iden => PP [StatementAnnotation iden loc] where
     pp xs = vcat $ map pp xs

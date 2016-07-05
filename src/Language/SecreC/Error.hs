@@ -203,7 +203,7 @@ data TypecheckerErr
         Doc -- ^ attribute
         SecrecError -- ^ sub-error
     | MultipleTypeSubstitutions -- a variable can be resolved in multiple ways
-        [Doc] -- list of different substitution options
+        [(Doc,SecrecError)] -- list of different substitution options
     | ConstraintStackSizeExceeded
         Doc -- limit
     | TypeConversionError
@@ -339,7 +339,7 @@ instance PP TypecheckerErr where
     pp (UnresolvedFieldProjection t att err) = text "Unable to resolve struct field:" $+$ nest 4
         ((text "Type:" <+> t <> char '.' <> att) $+$ (text "Error:" $+$ nest 4 (pp err)))
     pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
-        where f (i,ss) = text "Option" <+> integer i <> char ':' $+$ nest 4 (pp ss)
+        where f (i,(bind,ss)) = text "Option" <+> integer i <> char ':' <+> bind $+$ nest 4 (pp ss)
     pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes i
     pp w@(UncheckedRangeSelection t i rng err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension can not be checked for type" <+> quotes t $+$ nest 4
         (text "Because of:" <+> pp err)

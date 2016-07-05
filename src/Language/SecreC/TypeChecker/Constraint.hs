@@ -163,7 +163,7 @@ solveCstrs l msg failOnError = do
             case go of
                 Left _ -> solveCstrs l msg failOnError
                 Right errs -> do
-                    mb <- guessError failOnError errs
+                    mb <- guessError l failOnError errs
                     --liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " exit " ++ ppr mb
                     return mb
 
@@ -216,23 +216,23 @@ flattenErrors [] = []
 flattenErrors ((y,MultipleErrors errs):xs) = flattenErrors (map (\e -> (y,e)) errs ++ xs)
 flattenErrors (err:xs) = err : flattenErrors xs
     
-filterErrors :: (ProverK Position m) => Bool -> Bool -> [(LocIOCstr,SecrecError)] -> TcM m ([(LocIOCstr,SecrecError)])
-filterErrors False doSolve errs = do
-    errs1 <- filterWarnings errs
+filterErrors :: (ProverK loc m) => loc -> Bool -> Bool -> [(LocIOCstr,SecrecError)] -> TcM m ([(LocIOCstr,SecrecError)])
+filterErrors l False doSolve errs = do
+    errs1 <- filterWarnings l errs
     let errs2 = flattenErrors $ filter (not . isGlobalCstr . kCstr . unLoc . fst) errs1
     let errs3 = filter (not . isHaltError . snd) errs2
     let errs4 = filter (not . isHypCstr . kCstr . unLoc . fst) errs3
     return errs4
-filterErrors True doSolve errs = do
-    errs1 <- filterWarnings errs
+filterErrors l True doSolve errs = do
+    errs1 <- filterWarnings l errs
     errs2 <- filterDelayable doSolve errs1
     return errs2
 
-filterWarnings :: (ProverK Position m) => [(LocIOCstr,SecrecError)] -> TcM m [(LocIOCstr,SecrecError)]
-filterWarnings = filterM $ \(k,err) -> if isOrWarnError err
+filterWarnings :: (ProverK loc m) => loc -> [(LocIOCstr,SecrecError)] -> TcM m [(LocIOCstr,SecrecError)]
+filterWarnings l = filterM $ \(k,err) -> if isOrWarnError err
     then do
         errWarn err
-        removeCstr $ ioCstrUnique $ unLoc k
+        removeCstr l $ ioCstrUnique $ unLoc k
         return False
     else return True
 
@@ -246,11 +246,11 @@ filterDelayable doSolve errs = do
 filterNonMultipleSubsts :: Set LocIOCstr -> Set LocIOCstr
 filterNonMultipleSubsts = Set.filter (not . isMultipleSubstsCstr . kCstr . unLoc)
 
-guessError :: (ProverK Position m) => Bool -> [(LocIOCstr,SecrecError)] -> TcM m (Maybe SecrecError)
-guessError failOnError errs = do
+guessError :: (ProverK loc m) => loc -> Bool -> [(LocIOCstr,SecrecError)] -> TcM m (Maybe SecrecError)
+guessError l failOnError errs = do
     doAll <- getDoAll
     doSolve <- getDoSolve
-    errs' <- filterErrors doAll (if failOnError then True else doSolve) errs
+    errs' <- filterErrors l doAll (if failOnError then True else doSolve) errs
     if null errs'
         then return Nothing
         -- in case there are unsolved constraints that depend on multiple substitutions, solve one
@@ -377,7 +377,7 @@ newTCstr l k = do
     (i,delay) <- askErrorM'
     let k' = DelayedK k (i,SecrecErrArr delay)
     iok <- newTemplateConstraint l k'
-    addIOCstrDependenciesM True deps (Loc (locpos l) iok) Set.empty
+    addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
     
     if (isGlobalCstr k)
         then return Nothing
@@ -650,9 +650,9 @@ multipleSubstitutions l kid bv ss = do
             let fs = Set.unions $ map thr3 ss
             forM_ fs removeFree
             return ()
-        errs -> tcError (locpos l) $ MultipleTypeSubstitutions $ map pp errs
+        errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
     
-matchAll :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> [([TCstr],[TCstr],Set VarIdentifier)] -> [SecrecError] -> TcM m [SecrecError]
+matchAll :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> [([TCstr],[TCstr],Set VarIdentifier)] -> [(Doc,SecrecError)] -> TcM m [(Doc,SecrecError)]
 matchAll l kid cs [] errs = return errs
 matchAll l kid cs (x:xs) errs = catchError
     -- match and solve all remaining constraints
@@ -660,7 +660,7 @@ matchAll l kid cs (x:xs) errs = catchError
     -- backtrack and try another match
     (\e -> do
         --liftIO $ putStrLn $ "failed " ++ ppr (fst3 x) ++ ppr e
-        matchAll l kid cs xs $ errs++[e])
+        matchAll l kid cs xs $ errs++[(pp $ fst3 x,e)])
 
 matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
 matchOne l kid cs (match,deps,_) = do
@@ -825,7 +825,7 @@ equalsBase l t1 (BVar v@(nonTok -> True)) = do
 equalsBase l (TApp n1 ts1 d1) (TApp n2 ts2 d2) = do
     equalsTIdentifier l (Left n1) (Left n2)
     equalsTpltArgs l ts1 ts2
-    equalsDec l d1 d2
+    --equalsDec l d1 d2
 equalsBase l (TyPrim p1) (TyPrim p2) = equalsPrim l p1 p2
 equalsBase l (MSet b1) (MSet b2) = equalsBase l b1 b2
 equalsBase l b1 b2 = constraintError (EqualityException "base type") l b1 pp b2 pp Nothing
@@ -1531,7 +1531,7 @@ comparesBase :: (ProverK loc m) => loc -> Bool -> BaseType -> BaseType -> TcM m 
 comparesBase l isLattice t1@(TApp n1 ts1 d1) t2@(TApp n2 ts2 d2) = do
     equalsTIdentifier l (Left n1) (Left n2)
     comparesTpltArgs l isLattice ts1 ts2
-    comparesDec l d1 d2
+    --comparesDec l d1 d2
 comparesBase l isLattice t1@(TyPrim p1) t2@(TyPrim p2) = equalsPrim l p1 p2 >> return (Comparison t1 t2 EQ)
 comparesBase l isLattice t1@(MSet b1) t2@(MSet b2) = comparesBase l isLattice b1 b2
 comparesBase l isLattice t1@(BVar v1) t2@(BVar v2) | v1 == v2 = return (Comparison t1 t2 EQ)
@@ -1939,7 +1939,7 @@ unifiesBase l t1 (BVar v@(nonTok -> True)) = do
 unifiesBase l (TApp n1 ts1 d1) (TApp n2 ts2 d2) = do
     unifiesTIdentifier l (Left n1) (Left n2)
     unifiesTpltArgs l ts1 ts2
-    unifiesDec l d1 d2
+    --unifiesDec l d1 d2
 unifiesBase l t1 t2 = addErrorM l
     (TypecheckerError (locpos l) . (UnificationException "base type") (pp t1) (pp t2) . Just)
     (equalsBase l t1 t2)
