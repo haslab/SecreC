@@ -75,7 +75,7 @@ tcModule m@(Module l name prog) = failTcM l $ do
         liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr (moduleId $ fmap locpos m) ++ "...")
     -- reset module typechecking environment and increment module count
     State.modify $ \env -> env
-        { moduleCount = (moduleId m,succ $ snd $ moduleCount env)
+        { moduleCount = ((moduleId m,TyVarId 0),succ $ snd $ moduleCount env)
         , moduleEnv = let (x,y) = moduleEnv env in (x `mappend` y,mempty)
         }
     liftIO resetTyVarId
@@ -431,8 +431,9 @@ tcGlobal l m = do
     dict <- liftM (top . tDict) State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [] }
+    State.modify $ \e -> e { decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [], moduleCount = let ((m,TyVarId j),i) = moduleCount e in ((m,TyVarId $ succ j),i) }
     liftIO resetGlobalEnv
+    liftIO resetTyVarId
     return x'
   where
     top [x] = x

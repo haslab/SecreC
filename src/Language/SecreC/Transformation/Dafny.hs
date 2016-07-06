@@ -69,7 +69,7 @@ dafnyIdModuleTyVarId (SId _ tid) = tid
 dafnyIdModuleTyVarId (AId tid isLeak) = tid
 
 dafnyIdModule :: DafnyId -> Identifier
-dafnyIdModule = fst . dafnyIdModuleTyVarId
+dafnyIdModule = fst . modTyName . dafnyIdModuleTyVarId
 
 type DafnyEntry = ([Type],Position,DafnyId,Doc)
 
@@ -79,6 +79,7 @@ data DafnySt = DafnySt {
     , leakageMode :: Bool -- True=leakage, False=correctness
     , axiomIds :: Set DafnyId
     , inDecl :: Maybe DafnyId
+    , currentModule :: Identifier
     }
 
 getLeakMode :: DafnyK m => DafnyM m Bool
@@ -109,7 +110,7 @@ insideDecl b m = do
     return x
 
 toDafny :: DafnyK m => FilePath -> Bool -> [DafnyId] -> TcM m (Doc,[String])
-toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing) $ do
+toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing "") $ do
     dfy <- liftIO $ readFile prelude
     loadAxioms
     mapM_ (loadDafnyId noloc) entries
@@ -124,10 +125,15 @@ toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.
 boogieName :: DafnyK m => [Identifier] -> DafnyId -> DafnyM m String
 boogieName modules did = do
     pdid <- ppDafnyIdM did
-    return $ show $ text "InterModuleCall$$_" <> int mnum <> text "_" <> text mn <> text ".__default." <> pdid
+    return $ show $ text "InterModuleCall$$_" <> int mnum <> text "_" <> text mn <> text ".__default." <> text (duplicateUnderscores $ show pdid)
   where
     mn = dafnyIdModule did
     mnum = fromJust $ List.lookup mn (zip modules [(2::Int)..])
+
+duplicateUnderscores :: String -> String
+duplicateUnderscores [] = []
+duplicateUnderscores ('_':xs) = "__" ++ duplicateUnderscores xs
+duplicateUnderscores (x:xs) = x : duplicateUnderscores xs
 
 loadAxioms :: DafnyK m => DafnyM m ()
 loadAxioms = do
@@ -221,14 +227,14 @@ resolveEntryPoint n = do
         otherwise -> return Nothing
 
 getModule :: Monad m => DafnyM m Identifier
-getModule = lift $ State.gets (fst . moduleCount)
+getModule = State.gets currentModule
 
 withModule :: Monad m => Identifier -> DafnyM m a -> DafnyM m a
 withModule c m = do
     oldc <- getModule
-    lift $ State.modify $ \env -> env { moduleCount = let (_,i) = moduleCount env in (c,i) }
+    State.modify $ \env -> env { currentModule = c }
     x <- m
-    lift $ State.modify $ \env -> env { moduleCount = let (_,i) = moduleCount env in (oldc,i) }
+    State.modify $ \env -> env { currentModule = oldc }
     return x
 
 loadDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m (Maybe DafnyId)
@@ -284,33 +290,33 @@ newEntry l dec (bid,did,ts) = do
             
 
 lookupDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m EntryEnv
-lookupDafnyId l did@(SId sn tid@(m,_)) = do
+lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
     ss <- lift $ getModuleField True structs
     case Map.lookup sn ss of
         Nothing -> genError l $ text "lookupDafnyId: can't find struct" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
             Nothing -> genError l $ text "lookupDafnyId: can't find struct" <+> pp did
-lookupDafnyId l did@(AId tid@(m,_) isLeak) = do
+lookupDafnyId l did@(AId tid@(ModuleTyVarId m _) isLeak) = do
     as <- lift $ getModuleField True axioms
     case Map.lookup tid as of
         Just e -> return e
         Nothing -> genError l $ text "lookupDafnyId: can't find axiom" <+> pp did
-lookupDafnyId l did@(PId pn tid@(m,_)) = do
+lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
     ss <- lift $ getModuleField True procedures
     case Map.lookup pn ss of
         Nothing -> genError l $ text "lookupDafnyId: can't find procedure" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
             Nothing -> genError l $ text "lookupDafnyId: can't find procedure" <+> pp did
-lookupDafnyId l did@(LId pn tid@(m,_) isLeak) = do
+lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
     ss <- lift $ getModuleField True lemmas
     case Map.lookup pn ss of
         Nothing -> genError l $ text "lookupDafnyId: can't find lemma" <+> pp did
         Just es -> case Map.lookup tid es of
             Just e -> return e
             Nothing -> genError l $ text "lookupDafnyId: can't find lemma" <+> pp did
-lookupDafnyId l did@(FId pn tid@(m,_) isLeak) = do
+lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
     ss <- lift $ getModuleField True functions
     case Map.lookup pn ss of
         Nothing -> genError l $ text "lookupDafnyId: can't find function" <+> pp did
@@ -933,7 +939,7 @@ dafnyVarId current v = pm <> text (varIdBase v) <> pid
     where
     pm = case varIdModule v of
             Nothing -> empty
-            Just m -> text m <> char '_'
+            Just (m,blk) -> text m <> char '_' <> pp blk <> char '_'
     pid = ppOpt (varIdUniq v) (\x -> char '_' <> pp x)
 
 dafnyVarIdM :: DafnyK m => VarIdentifier -> DafnyM m Doc
@@ -949,30 +955,30 @@ ppPOId current (Left pn) = dafnyVarId current pn
 ppPOId current (Right on) = pp on
 
 ppDafnyId :: Identifier -> DafnyId -> Doc
-ppDafnyId current (PId pn (mn,uid)) = prefix <> ppn <> pp uid <> suffix
+ppDafnyId current (PId pn (ModuleTyVarId (mn,blk) uid)) = prefix <> ppn <> pp uid <> suffix
     where
     ppn = ppPOId current pn
-    prefix = text mn 
+    prefix = text mn <> char '_' <> pp blk
     suffix = text "LeakageProc"
-ppDafnyId current (FId pn (mn,uid) isLeak) = prefix <> ppn <> pp uid <> suffix
+ppDafnyId current (FId pn (ModuleTyVarId (mn,blk) uid) isLeak) = prefix <> ppn <> pp uid <> suffix
     where
     ppn = ppPOId current pn
-    prefix = text mn
+    prefix = text mn <> char '_' <> pp blk
     suffix = if isLeak then text "LeakageFun" else text "OriginalFun"
-ppDafnyId current (LId pn (mn,uid) isLeak) = prefix <> ppn <> pp uid <> suffix
+ppDafnyId current (LId pn (ModuleTyVarId (mn,blk) uid) isLeak) = prefix <> ppn <> pp uid <> suffix
     where
     ppn = ppPOId current $ Left pn
-    prefix = text mn
+    prefix = text mn <> char '_' <> pp blk
     suffix = if isLeak then text "LeakageLemma" else text "OriginalLemma"
-ppDafnyId current (SId sn (mn,uid)) = prefix <> psn <> pp uid <> suffix
+ppDafnyId current (SId sn (ModuleTyVarId (mn,blk) uid)) = prefix <> psn <> pp uid <> suffix
     where
     psn = dafnyVarId current sn
-    prefix = text mn 
+    prefix = text mn <> char '_' <> pp blk
     suffix = empty
-ppDafnyId current (AId (mn,uid) isLeak) = prefix <> psn <> pp uid <> suffix
+ppDafnyId current (AId (ModuleTyVarId (mn,blk) uid) isLeak) = prefix <> psn <> pp uid <> suffix
     where
     psn = dafnyVarId current $ mkVarId "axiom"
-    prefix = text mn 
+    prefix = text mn <> char '_' <> pp blk
     suffix = if isLeak then text "LeakageAxiom" else text "OriginalAxiom"
 
 ppDafnyIdM :: DafnyK m => DafnyId -> DafnyM m Doc

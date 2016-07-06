@@ -115,7 +115,9 @@ solve l msg = solve' l msg False
 solve' :: (ProverK loc m) => loc -> String -> Bool -> TcM m ()
 solve' l msg failOnError = do
     cs <- liftM (flattenIOCstrGraphSet . tCstrs . head . tDict) State.get
-    mb <- solveMb l msg failOnError cs
+    opens <- dependentCstrs l []
+    let cs' = cs `Set.difference` opens
+    mb <- solveMb l msg failOnError cs'
     case mb of
         Nothing -> return ()
         Just err -> throwError err
@@ -145,26 +147,32 @@ solveCstrs :: (ProverK loc m) => loc -> String -> Bool -> TcM m (Maybe SecrecErr
 solveCstrs l msg failOnError = do
     dicts <- liftM tDict State.get
     let dict = head dicts
-    --ss <- ppConstraints (tCstrs dict)
-    --liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
-    --forM (tail dicts) $ \d -> do
-        --ssd <- ppConstraints (tCstrs d)
-        --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
-    --doc <- liftM ppTSubsts $ getTSubsts l
-    --liftIO $ putStrLn $ show doc
+    debugTc $ do
+        ss <- ppConstraints (tCstrs dict)
+        liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
+        --forM (tail dicts) $ \d -> do
+        --  --ssd <- ppConstraints (tCstrs d)
+        --  --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+        --doc <- liftM ppTSubsts $ getTSubsts l
+        --liftIO $ putStrLn $ show doc
     gr <- liftM (tCstrs . head . tDict) State.get
     if (Graph.isEmpty gr)
         then return Nothing
         else do
             let roots = sortBy priorityRoots $ rootsGr gr -- sort by constraint priority
             when (List.null roots) $ error $ "solveCstrs: no root constraints to proceed " ++ ppr l ++ " " ++ ppr gr ++ "\n\n" ++ show (sepBy comma $ map pp $ Graph.edges gr)
-            --liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
+            debugTc $ liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
             go <- trySolveSomeCstrs failOnError $ map snd roots
             case go of
-                Left _ -> solveCstrs l msg failOnError
+                -- no constraint left to solve
+                Left False -> error $ "solveCstrs hiatus"
+                -- at least one constraint solved
+                Left True -> do
+                    solveCstrs l msg failOnError
+                -- no constraint solved because of errors
                 Right errs -> do
                     mb <- guessError l failOnError errs
-                    --liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " exit " ++ ppr mb
+                    --debugTc $ liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " exit " ++ ppr mb
                     return mb
 
 -- Left True = one constraint solved
@@ -199,7 +207,7 @@ trySolveSomeCstrs failOnError = foldlM solveBound (Left False)
                         ok <- trySolveCstr (if failOnError then True else doSolve) doAll x
                         return (mergeSolveRes b ok)
                     else do
-                        --liftIO $ putStrLn $ "didn't find queued constraint " ++ ppr (ioCstrId $ unLoc x)
+                        debugTc $ liftIO $ putStrLn $ "didn't find queued constraint " ++ ppr (ioCstrId $ unLoc x)
                         return b
 
 findCstr :: Monad m => LocIOCstr -> TcM m Bool
@@ -268,7 +276,9 @@ guessError l failOnError errs = do
                 else return $ Just (MultipleErrors $ getErrors errs')
 
 guessCstr :: ProverK Position m => [(LocIOCstr,SecrecError)] -> TcM m (Maybe (LocIOCstr,[LocIOCstr]))
-guessCstr errs = search errs
+guessCstr errs = do
+    opens <- State.gets (map fst . openedCstrs)
+    search $ filter (\(Loc l iok,err) -> not $ List.elem iok opens) errs
   where
     search [] = return Nothing
     search (x:xs) | isSubst x = do
@@ -284,31 +294,36 @@ trySolveCstr False doAll (Loc l iok) | isMultipleSubstsCstr (kCstr iok) = do
 trySolveCstr doSolve False (Loc l iok) | isGlobalCstr (kCstr iok) = do
     return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved global constraint") Nothing)]
 trySolveCstr doSolve doAll (Loc l iok) = catchError
-    (solveIOCstr_ l iok >> return (Left True))
+    (do
+        opens <- State.gets (map fst . openedCstrs)
+        if List.elem iok opens
+            then return (Left False)
+            else solveIOCstr_ l iok >> return (Left True)
+    )
     (\e -> return $ Right [(Loc l iok,e)])
 
 solveIOCstr_ :: (ProverK loc m) => loc -> IOCstr -> TcM m ()
 solveIOCstr_ l iok = do
-    opens <- State.gets (map fst . openedCstrs)
     olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
-    unless (List.elem iok opens) $ newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
+    newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
         --let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         --let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
-        --liftIO $ putStrLn $ "solveIOCstr " ++ show (sepBy space $ map (pp . snd) ins) ++" --> "++ ppr (ioCstrId iok) ++" --> "++ show (sepBy space $ map (pp . snd) outs)
+        debugTc $ liftIO $ putStrLn $ "solveIOCstr " ++ show (sepBy space $ map (pp . snd) ins) ++" --> "++ ppr (ioCstrId iok) ++" --> "++ show (sepBy space $ map (pp . snd) outs)
         (res,rest) <- tcWith (locpos l) ("solveIOCstr " ++ ppr iok) $ resolveTCstr l (ioCstrId iok) k
         addHeadTDict l $ rest { tCstrs = Graph.empty }
-        --doc <- ppConstraints $ tCstrs rest
-        --liftIO $ putStrLn $ "solvedIOCstr " ++ ppr (ioCstrId iok) -- ++ " -->" ++ show doc
+        debugTc $ do
+            doc <- ppConstraints $ tCstrs rest
+            liftIO $ putStrLn $ "solvedIOCstr " ++ ppr (ioCstrId iok) -- ++ " -->" ++ show doc
         unless (Graph.isEmpty $ tCstrs rest) $ do
             top <- buildCstrGraph l $ Set.insert (ioCstrId iok) $ Set.fromList $ map snd $ ins ++ outs
             let ins' = map (fromJustNote "ins" . Graph.lab top . snd) ins
             let outs' = map (fromJustNote "outs" . Graph.lab top . snd) outs
             replaceCstrWithGraph l False (ioCstrId iok) (Set.fromList ins') (Graph.nfilter (\n -> not $ Set.member n olds) $ tCstrs rest) (Set.fromList outs')
         dicts <- State.gets tDict
-        --forM dicts $ \d -> do
-            --ssd <- ppConstraints (tCstrs d)
-            --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+        debugTc $ forM_ dicts $ \d -> do
+            ssd <- ppConstraints (tCstrs d)
+            liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
         return res
 
 solveNewCstr_ :: ProverK loc m => loc -> IOCstr -> TcM m ()
@@ -543,7 +558,7 @@ resolveCheckCstr l k = addErrorM l (OrWarn . TypecheckerError (locpos l) . Stati
 
 ioCstrResult :: (Hashable a,IsScVar a,MonadIO m,Location loc) => loc -> IOCstr -> Proxy a -> TcM m (Maybe a)
 ioCstrResult l iok proxy = do
-    st <- liftIO $ readUniqRef (kStatus iok)
+    st <- liftIO $ readIdRef (kStatus iok)
     case st of
         Evaluated rest t -> liftM Just $ cstrResult l (kCstr iok) proxy t
         Erroneous err -> return Nothing
@@ -629,17 +644,18 @@ reachableVarGr cs g = mconcat $ Graph.preorderF (Graph.udffWith getCstrs (Map.el
     where
     getCstrs (froms,n,v,tos) = Set.fromList $ (catMaybes $ map fst froms) ++ (catMaybes $ map fst tos)
 
-dependentCstrs :: ProverK loc m => loc -> Int -> TcM m (Set LocIOCstr)
-dependentCstrs l kid = do
-    gr <- State.gets (foldr unionGr Graph.empty . map tCstrs . tDict)
-    return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr [kid] gr
+dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocIOCstr)
+dependentCstrs l kids = do
+    opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
+    gr <- getCstrs
+    return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++opens) gr
 
 multipleSubstitutions :: ProverK loc m => loc -> Int -> [Type] -> [([TCstr],[TCstr],Set VarIdentifier)] -> TcM m ()
 multipleSubstitutions l kid bv ss = do
     bvs <- liftM Map.keysSet $ fvs bv -- variables bound by the multiple substitutions
     (vgr,(_,st)) <- State.runStateT (buildVarGr l) (0,Map.empty)
     -- note: we don't need to solve nested multiplesubstitutions, since they are guaranteed to succeed later
-    dependents <- dependentCstrs l kid
+    dependents <- dependentCstrs l [kid]
     let cs = Set.difference
                 (filterNonMultipleSubsts $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") bvs) vgr)
                 (dependents)

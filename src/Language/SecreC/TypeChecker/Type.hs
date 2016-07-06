@@ -510,4 +510,5 @@ defaultBaseExpr l s b = genError (locpos l) $ text "defaultBaseExpr:" <+> pp s <
 defaultBaseClassify :: ProverK loc m => loc -> SecType -> Expr -> TcM m Expr
 defaultBaseClassify l Public e = return e
 defaultBaseClassify l s@(Private {}) e@(loc -> BaseT b) = classifyExpr l False e (CType s b $ indexExpr 0)
-defaultBaseClassify l s e = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for" <+> pp s <+> ppExprTy e) Nothing
+defaultBaseClassify l s@(SVar v k) e@(loc -> BaseT b) | isPrivateKind k = classifyExpr l False e (CType s b $ indexExpr 0)
+defaultBaseClassify l s e = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pp s <+> ppExprTy e) Nothing

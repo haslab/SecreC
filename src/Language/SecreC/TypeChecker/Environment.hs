@@ -20,6 +20,7 @@ import Language.SecreC.Prover.Base
 import Language.SecreC.TypeChecker.Conversion
 
 import Data.IORef
+import Data.Hashable
 import Data.Either
 import Data.Int
 import Data.Word
@@ -939,7 +940,7 @@ resolveIOCstr_ l iok resolve = resolveIOCstr l iok resolve >> return ()
 
 resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
 resolveIOCstr l iok resolve = do
-    st <- liftIO $ readUniqRef (kStatus iok)
+    st <- liftIO $ readIdRef (kStatus iok)
     case st of
         Evaluated rest x -> do
             remove
@@ -955,7 +956,7 @@ resolveIOCstr l iok resolve = do
         let ctx = contextGr gr (ioCstrId iok)
         (x,rest) <- tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
         remove
-        liftIO $ writeUniqRef (kStatus iok) $ Evaluated rest x
+        liftIO $ writeIdRef (kStatus iok) $ Evaluated rest x
         closeCstr
         addHeadTDict l rest
         -- register constraints dependencies from the dictionary into the global state
@@ -986,16 +987,16 @@ addGDependency v cstrs = do
     m <- case mb of
         Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps v m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
-    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
+    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 
 addIODependency :: (MonadIO m) => IOCstr -> Set IOCstr -> TcM m ()
 addIODependency v cstrs = do
     deps <- liftM ioDeps $ liftIO $ readIORef globalEnv
-    mb <- liftIO $ WeakHash.lookup deps (uniqId $ kStatus v)
+    mb <- liftIO $ WeakHash.lookup deps (modTyId $ uniqId $ kStatus v)
     m <- case mb of
-        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (uniqId $ kStatus v) m (MkWeak $ mkWeakKey m) >> return m
+        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (modTyId $ uniqId $ kStatus v) m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
-    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
+    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 
 -- adds a dependency to the constraint graph
 addIOCstrDependencies :: TDict -> Set LocIOCstr -> LocIOCstr -> Set LocIOCstr -> TDict
@@ -1053,7 +1054,7 @@ cstrSetToGraph l xs = foldr (\x gr -> insNode (ioCstrId x,Loc (locpos l) x) gr) 
 
 newTDictCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TDict -> TcM m (IOCstr,TDict)
 newTDictCstr l c dict = do
-    iok <- liftIO $ newIOCstr c
+    iok <- newIOCstr c
     return (iok,dict { tCstrs = insNode (ioCstrId iok,Loc (locpos l) iok) (tCstrs dict) })
 
 ---- | Adds a new template constraint to the environment
@@ -1065,9 +1066,9 @@ newTemplateConstraint l c = do
 --erroneousTemplateConstraint l c err = do
 --    updateHeadTDict (insertTDictCstr (locpos l) c $ Erroneous err)
 
-removeCstr :: ProverK loc m => loc -> Unique -> TcM m ()
+removeCstr :: ProverK loc m => loc -> ModuleTyVarId -> TcM m ()
 removeCstr l i = do
-    updateHeadTCstrs l "removeCstr" $ \gr -> return ((),Graph.delNode (hashUnique i) gr)
+    updateHeadTCstrs l "removeCstr" $ \gr -> return ((),Graph.delNode (hashModuleTyVarId i) gr)
 
 updateHeadTCstrs :: (ProverK loc m) => loc -> String -> (IOCstrGraph -> TcM m (a,IOCstrGraph)) -> TcM m a
 updateHeadTCstrs l msg upd = updateHeadTDict l (msg ++ ":updateHeadTCstrs") $ \d -> do
@@ -1105,9 +1106,9 @@ dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
 dirtyIOCstrDependencies opens iok = do
     unless (elem iok opens) $ do
         --putStr $ " " ++ ppr (ioCstrId iok)
-        writeUniqRef (kStatus iok) Unevaluated
+        writeIdRef (kStatus iok) Unevaluated
     deps <- liftM ioDeps $ readIORef globalEnv
-    mb <- WeakHash.lookup deps (uniqId $ kStatus iok)
+    mb <- WeakHash.lookup deps (modTyId $ uniqId $ kStatus iok)
     case mb of
         Nothing -> return ()
         Just m -> WeakMap.forM_ m $ \(u,x) -> dirtyIOCstrDependencies opens x
@@ -1277,16 +1278,18 @@ appendPureTDict l noFail (PureTDict u1 ss1 rec1) (PureTDict u2 ss2 rec2) = do
 
 insertNewCstr :: (MonadIO m,Location loc) => loc -> TCstr -> IOCstrGraph -> TcM m IOCstrGraph
 insertNewCstr l c gr = do
-    iok <- liftIO $ newIOCstr c
+    iok <- newIOCstr c
     return $ insNode (ioCstrId iok,Loc (locpos l) iok) gr
 
-newIOCstr :: TCstr -> IO IOCstr
+newIOCstr :: MonadIO m => TCstr -> TcM m IOCstr
 --newIOCstr c = liftM (IOCstr c) $ newUniqRef Unevaluated
 newIOCstr c = do
     cstrs <- liftM gCstrs $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup cstrs c
     case mb of
-        Nothing -> liftM (IOCstr c) $ newUniqRef Unevaluated
+        Nothing -> do
+            mn <- newModuleTyVarId
+            liftM (IOCstr c) $ liftIO $ newIdRef mn Unevaluated
         Just (IOCstr _ st) -> return $ IOCstr c st
 
 getTSubsts :: (ProverK loc m) => loc -> TcM m TSubsts
@@ -1346,7 +1349,7 @@ throwTcError err = do
     ios <- liftM openedCstrs State.get
     let add (io,vs) = do
         -- write error to the constraint's result
-        liftIO $ writeUniqRef (kStatus io) (Erroneous err2)
+        liftIO $ writeIdRef (kStatus io) (Erroneous err2)
         -- dirty variables assigned by this constraint
         forM_ vs (dirtyGDependencies . VIden)
     mapM_ add ios

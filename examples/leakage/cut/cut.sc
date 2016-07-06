@@ -3,6 +3,8 @@ module ex;
 
 import axioms;
 
+//* Domain declarations
+
 kind privatek;
 domain private privatek;
 
@@ -19,32 +21,14 @@ private bool classify(bool x) {
     return __builtin("core.classify",x) :: private bool;
 }
 
-struct pair {
-    private int[[1]] left;
-    private bool[[1]] right;
-}
+//* Code
 
-pair shuffle_pair (private int[[1]] x,private bool[[1]] y)
-//@ requires size(x) == size(y);
-//@ free ensures multiset(x) == multiset(\result.left);
-//@ free ensures multiset(y) == multiset(\result.right);
-//@ free leakage ensures public(multiset(x)) ==> public(\result.left);
-//@ free leakage ensures public(multiset(y)) ==> public(\result.right);
-{
-    havoc pair ret;
-    return ret;
-}
-
-private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
-//@ requires size(a) == size(m);
-//@ leakage requires public(multiset(m));
-//@ ensures multiset(\result) <= multiset(a);
-{
-    pair amS = shuffle_pair (a,m);
-    private int[[1]] aS = amS.left;
-    private bool[[1]] mS = amS.right;
-    
-    uint i = 0;
+private int[[1]] cut (private int[[1]] aS, private bool [[1]] mS)
+//@ requires size(aS) == size(mS);
+//@ leakage requires public(mS);
+//@ ensures multiset(\result) <= multiset(aS);
+{   
+    uint i;
     private int[[1]] x;
 
     while (i < size(mS))

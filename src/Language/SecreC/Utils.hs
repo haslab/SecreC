@@ -182,8 +182,8 @@ instance (Data a,Data b) => Data (Gr a b) where
 mapFoldlM :: Monad m => (a -> k -> v -> m a) -> a -> Map k v -> m a
 mapFoldlM f z m = foldlM (\x (y,z) -> f x y z) z $ Map.toList m
 
-instance WeakKey (UniqRef a) where
-    mkWeakKey r = mkWeakKey (uniqRef r)
+instance WeakKey (IdRef id a) where
+    mkWeakKey r = mkWeakKey (idRef r)
 
 mconcatNe :: Monoid a => NeList a -> a
 mconcatNe = mconcat . toList
@@ -543,34 +543,33 @@ instance Show (a -> b) where
 instance Show Unique where
     show = show . hashUnique
 
-data UniqRef a = UniqRef
-    { uniqId :: !Unique
-    , uniqRef :: !(IORef a)
+data IdRef id a = IdRef
+    { uniqId :: !id
+    , idRef :: !(IORef a)
     }
   deriving (Data,Typeable)
 
-instance Eq (UniqRef a) where
+instance Eq id => Eq (IdRef id a) where
     i1 == i2 = uniqId i1 == uniqId i2
-instance Ord (UniqRef a) where
+instance Ord id => Ord (IdRef id a) where
     compare i1 i2 = compare (uniqId i1) (uniqId i2)
     
-instance Show (UniqRef a) where
-    show r = "<UniqRef>"
+instance Show (IdRef id a) where
+    show r = "<IdRef id>"
     
-instance PP (UniqRef a) where
+instance PP (IdRef id a) where
     pp r = text (show r)
     
-newUniqRef :: a -> IO (UniqRef a)
-newUniqRef a = do
-    i <- newUnique
+newIdRef :: id -> a -> IO (IdRef id a)
+newIdRef i a = do
     r <- newIORef a
-    return $ UniqRef i r
+    return $ IdRef i r
 
-readUniqRef :: UniqRef a -> IO a
-readUniqRef r = readIORef (uniqRef r)
+readIdRef :: IdRef id a -> IO a
+readIdRef r = readIORef (idRef r)
 
-writeUniqRef :: UniqRef a -> a -> IO ()
-writeUniqRef r x = writeIORef (uniqRef r) x
+writeIdRef :: IdRef id a -> a -> IO ()
+writeIdRef r x = writeIORef (idRef r) x
 
 instance Data Unique where
     gunfold = error "gunfold Unique"

@@ -78,7 +78,7 @@ import Debug.Trace
 
 data IOCstr = IOCstr
     { kCstr :: TCstr
-    , kStatus :: !(UniqRef TCstrStatus)
+    , kStatus :: !(IdRef ModuleTyVarId TCstrStatus)
     }
   deriving (Data,Typeable,Show)
 
@@ -167,8 +167,8 @@ gIdenBase (TIden v) = varIdBase v
 gIdenBase (OIden o) = ppr o
 
 data GlobalEnv = GlobalEnv
-    { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on variables
-    , ioDeps :: WeakHash.BasicHashTable Unique (WeakMap.WeakMap Unique IOCstr) -- IOCstr dependencies on other IOCstrs
+    { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on variables
+    , ioDeps :: WeakHash.BasicHashTable TyVarId (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on other IOCstrs
     , gCstrs :: WeakHash.BasicHashTable TCstr IOCstr -- hashtable of generated constraints for possbile reuse
     }
 
@@ -187,7 +187,7 @@ data TcEnv = TcEnv {
     , tDict :: [TDict] -- ^ A stack of dictionaries
     , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
     , lineage :: Lineage -- lineage of the constraint being processed
-    , moduleCount :: (String,Int)
+    , moduleCount :: ((String,TyVarId),Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , decKind :: DecKind -- if typechecking inside a declaration
     , isPure :: Bool -- if typechecking pure expressions
@@ -468,7 +468,7 @@ emptyTcEnv = TcEnv
     , tDict = []
     , openedCstrs = []
     , lineage = []
-    , moduleCount = ("main",1)
+    , moduleCount = (("main",TyVarId 0),1)
     , inTemplate = False
     , decKind = FKind
     , isPure = False
@@ -1165,20 +1165,21 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m PureTDict wh
         rec' <- f rec
         return $ PureTDict ks' ss' rec'
 
-fromPureTDict :: PureTDict -> IO TDict
+fromPureTDict :: MonadIO m => PureTDict -> TcM m TDict
 fromPureTDict (PureTDict g ss rec) = do
     g' <- fromPureCstrs g
     return $ TDict g' Set.empty ss rec
 
-fromPureCstrs :: TCstrGraph -> IO IOCstrGraph
+fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m IOCstrGraph
 fromPureCstrs g = do
     (g',is) <- runStateT (mapGrM newIOCstr g) Map.empty
     let g'' = gmap (\(ins,j,x,outs) -> (fmapSnd (is!) ins,j,x,fmapSnd (is!) outs)) g'
     return g''
   where
     newIOCstr (ins,i,Loc l k,outs) = do
-        st <- lift $ newUniqRef Unevaluated
-        let j = hashUnique $ uniqId st
+        mn <- lift $ newModuleTyVarId
+        st <- lift $ liftIO $ newIdRef mn Unevaluated
+        let j = hashModuleTyVarId $ uniqId st
         State.modify $ \is -> Map.insert i j is
         return (ins,j,Loc l $ IOCstr k st,outs)
 
@@ -1239,9 +1240,9 @@ emptyTSubsts = TSubsts Map.empty
 --            WeakMap.insertWithMkWeak m (uniqId $ kStatus iok) iok (MkWeak $ mkWeakKey $ kStatus iok)
 
 ioCstrId :: IOCstr -> Int
-ioCstrId = hashUnique . uniqId . kStatus
+ioCstrId = hashModuleTyVarId . uniqId . kStatus
 
-ioCstrUnique :: IOCstr -> Unique
+ioCstrUnique :: IOCstr -> ModuleTyVarId
 ioCstrUnique = uniqId . kStatus
 
 instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier m (Loc loc a) where
@@ -1250,17 +1251,11 @@ instance (Vars VarIdentifier m loc,Vars VarIdentifier m a) => Vars VarIdentifier
         a' <- f a
         return $ Loc l' a'
 
---instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m IOCstr where
---    traverseVars f (IOCstr k ref) = do
---        k' <- f k
---        ref' <- liftIO $ readUniqRef ref >>= newUniqRef
---        return $ IOCstr k' ref'
-
 newModuleTyVarId :: MonadIO m => TcM m ModuleTyVarId
 newModuleTyVarId = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    return (mn,i)
+    return $ ModuleTyVarId mn i
 
 freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 freshVarId n doc = do
@@ -1289,7 +1284,7 @@ instance PP PureTDict where
 ppConstraints :: MonadIO m => IOCstrGraph -> TcM m Doc
 ppConstraints d = do
     let ppK (Loc l c) = do
-        s <- liftIO $ readUniqRef $ kStatus c
+        s <- liftIO $ readIdRef $ kStatus c
         let pre = pp c
         case s of
             Evaluated rest t -> return $ pre <+> char '=' <+> text (show t)
@@ -1300,7 +1295,7 @@ ppConstraints d = do
 
 data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
-        , varIdModule :: Maybe Identifier
+        , varIdModule :: Maybe (Identifier,TyVarId)
         , varIdUniq :: Maybe TyVarId
         , varIdTok :: Bool -- if the variable is a token (not to be resolved) (only used for comparisons)
         , varIdPretty :: Maybe Doc -- for free variables introduced by typechecking
@@ -1322,11 +1317,11 @@ mkVarId s = VarIdentifier s Nothing Nothing False Nothing
 
 instance PP VarIdentifier where
     pp v = case varIdPretty v of
-        Just s -> ppVarId v <> char '#' <> s
+        Just s -> s --ppVarId v <> char '#' <> s
         Nothing -> ppVarId v
       where
-        ppVarId (VarIdentifier n m Nothing _ _) = ppOpt m (\x -> text x <> char '.') <> text n
-        ppVarId (VarIdentifier n m (Just i) _ _) = ppOpt m (\x -> text x <> char '.') <> text n <> char '_' <> pp i
+        ppVarId (VarIdentifier n m Nothing _ _) = ppOpt m (\(x,blk) -> text x <> char '.' <> pp blk <> char '.') <> text n
+        ppVarId (VarIdentifier n m (Just i) _ _) = ppOpt m (\(x,blk) -> text x <> char '.' <> pp blk <> char '.') <> text n <> char '_' <> pp i
 
 newtype TyVarId = TyVarId Integer deriving (Eq,Ord,Data,Generic)
 instance Show TyVarId where
@@ -1334,7 +1329,8 @@ instance Show TyVarId where
 instance PP TyVarId where
     pp (TyVarId i) = pp i
 instance Binary TyVarId
-instance Hashable TyVarId
+instance Hashable TyVarId where
+    hashWithSalt i (TyVarId x) = hashWithSalt i x
 
 instance (GenVar iden m,MonadIO m,IsScVar iden) => Vars iden m TyVarId where
     traverseVars f x = return x
@@ -1725,7 +1721,7 @@ instance PP DecType where
         $+$ pp hdict
         $+$ text "Frees:" <+> pp frees
         $+$ pp dict
-        $+$ text "lemma" <> pp n <+> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
+        $+$ text "lemma" <+> pp n <+> abrackets (sepBy comma $ map (ppVariadicArg ppTpltArg) vars)
         <+> parens (sepBy comma $ map (\(isConst,(VarName t n),isVariadic) -> ppConst isConst (ppVariadic (pp t) isVariadic <+> pp n)) args)
         $+$ pp ann
         $+$ ppOpt stmts (braces . pp))
@@ -2253,7 +2249,21 @@ isPublicSecType :: SecType -> Bool
 isPublicSecType Public = True
 isPublicSecType _ = False
 
-type ModuleTyVarId = (Identifier,TyVarId)
+data ModuleTyVarId = ModuleTyVarId
+    { modTyName :: (Identifier,TyVarId)
+    , modTyId :: TyVarId
+    }
+  deriving (Eq,Ord,Data,Generic,Show)
+instance PP ModuleTyVarId where
+    pp (ModuleTyVarId (m,blk) i) = pp m <> char '.' <> pp blk <> char '.' <> pp i
+instance Binary ModuleTyVarId
+instance Hashable ModuleTyVarId
+
+hashModuleTyVarId :: ModuleTyVarId -> Int
+hashModuleTyVarId = hashWithSalt 0 . modTyId
+
+instance (GenVar iden m,MonadIO m,IsScVar iden) => Vars iden m ModuleTyVarId where
+    traverseVars f x = return x
 
 decTypeTyVarId :: DecType -> Maybe ModuleTyVarId
 decTypeTyVarId (DecType i _ _ _ _ _ _ _ _) = Just i
@@ -2455,3 +2465,14 @@ isDomain k = k == KindC || k == VArrayC KindC
 isKind k = k == KindStarC || k == VArrayC KindStarC
 isType k = k == TypeStarC || k == VArrayC TypeStarC
 isVariable k = k == TypeC || k == VArrayStarC TypeC
+
+debugTc :: MonadIO m => m () -> m ()
+--debugTc m = return ()
+debugTc m = m
+
+--instance (Vars iden (TcM m) a,MonadIO m) => Vars iden (TcM m) (IdRef ModuleTyVarId a) where
+--    traverseVars f ref = do
+--        x <- liftIO $ readIdRef ref
+--        x' <- f x
+--        i <- newModuleTyVarId
+--        liftIO $ newIdRef i x'

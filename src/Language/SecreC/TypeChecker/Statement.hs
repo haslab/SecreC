@@ -100,27 +100,27 @@ tcStmt ret (CompoundStatement l s) = do
     (ss',t) <- tcLocal l "tcStmt compound" $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
 tcStmt ret (IfStatement l condE thenS Nothing) = do
-    condE' <- tcGuard condE
+    condE' <- tcAddDeps l "ifguard" $ tcGuard condE
     (thenS',StmtType cs) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     -- an if statement falls through if the condition is not satisfied
     let t = StmtType $ Set.insert (StmtFallthru) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
-    condE' <- tcGuard condE
+    condE' <- tcAddDeps l "ifguard" $ tcGuard condE
     (thenS',StmtType cs1) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     (elseS',StmtType cs2) <- tcLocal l "tcStmt if else" $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
 tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for" $ do
-    startE' <- tcForInitializer startE
-    whileE' <- mapM (tcGuard) whileE
-    incE' <- mapM (tcExpr) incE
+    startE' <- tcAddDeps l "forinit" $ tcForInitializer startE
+    whileE' <- tcAddDeps l "forguard" $ mapM (tcGuard) whileE
+    incE' <- tcAddDeps l "forinc" $ mapM (tcExpr) incE
     ann' <- mapM tcLoopAnn ann
     (bodyS',t') <- tcLocal l "tcStmt for body" $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' ann' bodyS',t')
 tcStmt ret (WhileStatement l condE ann bodyS) = do
     ann' <- mapM tcLoopAnn ann
-    condE' <- tcGuard condE
+    condE' <- tcAddDeps l "whileguard" $ tcGuard condE
     (bodyS',t') <- tcLocal l "tcStmt while body" $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped "tcStmt" l) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do

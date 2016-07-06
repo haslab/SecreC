@@ -923,12 +923,15 @@ function bool operator == (float64 x,float64 y) {
 function bool operator == (bool x,bool y) {
     __builtin("core.eq",x,y)
 } 
+function bool operator == (string x,string y) {
+    __builtin("core.eq",x,y)
+} 
 
 // array equal
 
 template <domain D, type T>
 D bool[[1]] operator == (D T[[1]] x,D T[[1]] y)
-//@ requires shape(x) == shape(y);
+//@ requires size(x) == size(y);
 {
 
     havoc D bool[[1]] ret;
@@ -983,7 +986,10 @@ function bool operator != (float64 x,float64 y) {
 } 
 function bool operator != (bool x,bool y) {
     __builtin("core.neq",x,y)
-} 
+}
+function bool operator != (string x,string y) {
+    __builtin("core.neq",x,y)
+}
 
 // array not equal
 

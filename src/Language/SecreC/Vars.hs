@@ -934,12 +934,6 @@ instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Position where
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Bool where
     traverseVars f b = return b
 
-instance (Vars iden m a,MonadIO m) => Vars iden m (UniqRef a) where
-    traverseVars f ref = do
-        x <- liftIO $ readUniqRef ref
-        x' <- f x
-        liftIO $ newUniqRef x'
-
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Ordering where
     traverseVars f x = return x
 

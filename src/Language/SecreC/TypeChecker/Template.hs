@@ -353,9 +353,9 @@ coerceProcedureArgs doCoerce l lhs rhs = do
 
 instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set VarIdentifier))
 instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = newErrorM $ withFrees $ do
---            doc <- liftM ppTSubsts getTSubsts
---            liftIO $ putStrLn $ "inst " ++ show doc
-            --liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
+            --doc <- liftM ppTSubsts getTSubsts
+            --liftIO $ putStrLn $ "inst " ++ show doc
+            debugTc $ liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t
             isPure <- getPure
             (e',hdict,bdict,bgr) <- templateTDict isPure e
@@ -368,7 +368,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 (_,ks) <- tcWithCstrs l "instantiate" $ do   
                     tcAddDeps l "tplt type args" $ do
                         -- unify the explicit invocation template arguments unify with the base template
-                        when (isJust targs) $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
+                        when (isJust targs) $ tcAddDeps l "targs" $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
                         -- unify the procedure return type
                         unifiesList l (maybeToList tplt_ret) (maybeToList ret)
                         -- coerce procedure arguments into the base procedure arguments
@@ -391,8 +391,8 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
                         hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
                         recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
-                        bgr1 <- liftIO $ fromPureCstrs bgr''
-                        hgr1 <- liftIO $ fromPureCstrs hgr''
+                        bgr1 <- fromPureCstrs bgr''
+                        hgr1 <- fromPureCstrs hgr''
                         let gr1 = unionGr bgr1 hgr1
                         let depCstrs = TDict gr1 Set.empty subst' recs''
                         --depCstrs <- mergeDependentCstrs l subst' bgr''
@@ -459,7 +459,7 @@ tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName 
 templateTDict :: (ProverK Position m) => Bool -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
 templateTDict isPure e = case entryType e of
     DecT (DecType i isRec vars hd hfrees d bfrees specs ss) -> do
-        hd' <- liftIO $ fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
+        hd' <- fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
         let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d)
         let e' = e { entryType = DecT (DecType i isRec vars emptyPureTDict hfrees emptyPureTDict bfrees specs ss) }
         return (e',hd',d',purify $ pureCstrs d)
@@ -547,7 +547,7 @@ localTemplateInnerType (ss0::SubstsProxy VarIdentifier (TcM m)) ssBounds (l::loc
        
 freeVar :: ProverK Position m => VarIdentifier -> TcM m (VarIdentifier,(VarIdentifier,VarIdentifier))
 freeVar v = do
-    (mn,j) <- newModuleTyVarId
+    ModuleTyVarId mn j <- newModuleTyVarId
     let v' = v { varIdUniq = Just j, varIdModule = Just mn }
     --addFree v'
     return (v',(v,v'))

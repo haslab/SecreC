@@ -488,7 +488,7 @@ loopAnn2StmtAnn (InvariantAnn l False isLeak e) = AssertAnn l isLeak e
 -- we assume that typechecking has already tied the procedure's type arguments
 inlineProcCall :: SimplifyK loc m => Bool -> loc -> PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> TcM m (Either ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))) Type)
 inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
-    liftIO $ putStrLn $ "inlineProcFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    debugTc $ liftIO $ putStrLn $ "inlineProcFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs False l args es'
     ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
@@ -514,7 +514,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args r
             ens' <- simplifyStatementAnns True ens
             return $ Left ([compoundStmt l (decls++reqs'++ss++ens')],Nothing)
 inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
-    liftIO $ putStrLn $ "inlineFunFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    debugTc $ liftIO $ putStrLn $ "inlineFunFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs False l args es'
     res <- liftM (VarName (Typed l ret)) $ genVar (mkVarId "res")
@@ -532,7 +532,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ 
     ens' <- simplifyStatementAnns True ens
     return $ Left (decls++ss1++[def,compoundStmt l (reqs'++ss++sbody++ens')],Just $ varExpr res)
 inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
-    liftIO $ putStrLn $ "inlineFunTrue " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    debugTc $ liftIO $ putStrLn $ "inlineFunTrue " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs True l args es'
     body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
@@ -548,7 +548,7 @@ inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ a
     return $ Left (decls++ss1++[compoundStmt l ([annStmt l reqs']++ss++[annStmt l ens'])],Just body'')
 inlineProcCall isExpr l n t@(DecT d) es = do
     d' <- simplifyDecType d
-    liftIO $ putStrLn $ "not inline " ++ ppr isExpr ++ " " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr d'
+    debugTc $ liftIO $ putStrLn $ "not inline " ++ ppr isExpr ++ " " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr d'
     return $ Right $ DecT d'
 
 simplifyStmts :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> TcM m [Statement VarIdentifier (Typed loc)]
