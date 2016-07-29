@@ -52,8 +52,8 @@ To verify the security properties of a SecreC program, you can invoke the tool w
 > secrec examples/leakage/cut/cut.sc --verify
 Modules builtin, axioms, cut are well-typed OK.
 ...
-Verified 30 functional properties with 0 errors
-Verified 38 leakage properties with 0 errors
+Verified 30 functional properties with 0 errors.
+Verified 38 leakage properties with 0 errors.
 ```
 
 You can verify particular procedures by initializing the `entrypoints` flag, e.g.:
