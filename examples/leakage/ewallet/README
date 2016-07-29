@@ -1,6 +1,0 @@
-Algorithm:
-Given an account balance and a fixed amount, tries to withdraw the amount until there is no more balance left, returning the number of successful tries. It leaks the return value.
-
-Dafny:
-Assume that we know (balance `div` amount) as leakage, the final return value.
-In the loop that decreases the balance, we need to place an additional invariant that relates the loop condition to the input leakage.
