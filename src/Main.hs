@@ -205,7 +205,7 @@ verifOutput isLeak isDafny output = do
         Left err -> genError noloc $ text "error parsing verification output: " <+> text (show err)
         Right (oks,kos) -> do
             let c = if isLeak then "leakage" else "functional"
-            unless isDafny $ liftIO $ putStrLn $ show $ text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors"
+            unless isDafny $ liftIO $ putStrLn $ show $ text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
 
 axiomatizeBoogaman :: (MonadIO m,MonadError SecrecError m) => Bool -> [String] -> FilePath -> FilePath -> m ()
 axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do
