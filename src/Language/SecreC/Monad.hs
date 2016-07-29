@@ -47,6 +47,7 @@ data Options
         , debugParser           :: Bool
         , debugTypechecker      :: Bool
         , debugTransformation   :: Bool
+        , debugVerification           :: Bool
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitCoercions      :: Bool
@@ -74,6 +75,7 @@ instance Monoid Options where
         , debugParser = debugParser x || debugParser y
         , debugTypechecker = debugTypechecker x || debugTypechecker y
         , debugTransformation = debugTransformation x || debugTransformation y
+        , debugVerification = debugVerification x || debugVerification y
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitCoercions = implicitCoercions x && implicitCoercions y
@@ -98,6 +100,7 @@ defaultOptions = Opts
     , debugParser = False
     , debugTypechecker = False
     , debugTransformation = False
+    , debugVerification = False
     , constraintStackSize = 100
     , evalTimeOut = 5
     , implicitCoercions = True

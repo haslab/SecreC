@@ -109,6 +109,7 @@ instance PP Options where
           <+> text "--debugparser=" <> pp (debugParser opts)
           <+> text "--debugtypechecker=" <> pp (debugTypechecker opts)
           <+> text "--debugtransformation=" <> pp (debugTransformation opts)
+          <+> text "--debugverify=" <> pp (debugVerification opts)
           <+> text "--implicitcoercions=" <> pp (implicitCoercions opts)
           <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
           <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
@@ -138,6 +139,7 @@ optionsDecl  = Opts {
     , debugParser           = debugParser defaultOptions &= help "Print parser result to stderr" &= groupname "Debugging"
     , debugTypechecker      = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"
     , debugTransformation   = debugTransformation defaultOptions &= help "Print transformation result to stderr" &= groupname "Debugging"
+    , debugVerification   = debugVerification defaultOptions &= help "Print verification result to stderr" &= groupname "Debugging"
     
     -- Typechecker
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"

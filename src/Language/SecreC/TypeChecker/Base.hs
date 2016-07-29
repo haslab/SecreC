@@ -2479,8 +2479,8 @@ isType k = k == TypeStarC || k == VArrayC TypeStarC
 isVariable k = k == TypeC || k == VArrayStarC TypeC
 
 debugTc :: MonadIO m => m () -> m ()
---debugTc m = return ()
-debugTc m = m
+debugTc m = return ()
+--debugTc m = m
 
 --instance (Vars iden (TcM m) a,MonadIO m) => Vars iden (TcM m) (IdRef ModuleTyVarId a) where
 --    traverseVars f ref = do
