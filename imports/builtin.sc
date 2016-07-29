@@ -107,6 +107,9 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
 template <domain D, type T, dim N>
 function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 //@ requires n < N;
+//@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
+//@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
+//@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
 {
 
     __builtin("core.cat", x,y,n) :: D T[[N]]
@@ -115,6 +118,9 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 //@ template <domain D,type T,dim N>
 //@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 //@ requires n < N;
+//@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
+//@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
+//@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
 //@ {
 //@     __builtin("core.cat",x,y,n) :: D T[[N]]
 //@ }
@@ -122,7 +128,7 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 // reshape
 
 template <domain D, type T, dim N>
-function D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns) {
+function D T[[size...(ns)]] reshape (D T[[N]] arr, const uint... ns) {
     __builtin("core.reshape",arr,ns) :: D T[[size...(ns)]]
 }
 
@@ -991,6 +997,43 @@ function bool operator != (string x,string y) {
     __builtin("core.neq",x,y)
 }
 
+//@ function bool operator != (int8 x,int8 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (int16 x,int16 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (int32 x,int32 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (int64 x,int64 y) {
+//@     __builtin("core.neq",x,y)
+//@ }
+//@ function bool operator != (uint8 x,uint8 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (uint16 x,uint16 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (uint32 x,uint32 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (uint64 x,uint64 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (float32 x,float32 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (float64 x,float64 y) {
+//@     __builtin("core.neq",x,y)
+//@ } 
+//@ function bool operator != (bool x,bool y) {
+//@     __builtin("core.neq",x,y)
+//@ }
+//@ function bool operator != (string x,string y) {
+//@     __builtin("core.neq",x,y)
+//@ }
+
 // array not equal
 
 template <domain D, type T, dim N { N > 0 } >
@@ -1010,7 +1053,12 @@ function bool operator ! (bool x) {
 
 template <domain D,dim N { N > 0 }>
 D bool[[N]] operator ! (D bool[[N]] x) {
-    return size(x) > 0 ? cat({!x[0]},!x[1:]) : {};
+    
+    havoc D bool [[N]] ret;
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = !x[i];
+    }
+    return ret;
 }
 
 // casts

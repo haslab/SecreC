@@ -348,7 +348,7 @@ modifyModuleEnvM f = do
     y' <- f y
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
 
-getModuleField :: (Monad m) => Bool -> (ModuleTcEnv -> x) -> TcM m x
+getModuleField :: (MonadIO m) => Bool -> (ModuleTcEnv -> x) -> TcM m x
 getModuleField withBody f = do
     (x,y) <- State.gets moduleEnv
     z <- getRecs withBody
@@ -356,13 +356,12 @@ getModuleField withBody f = do
     return $ f xyz
 
 -- get only the recursive declarations for the lineage
-getRecs :: Monad m => Bool -> TcM m ModuleTcEnv
+getRecs :: MonadIO m => Bool -> TcM m ModuleTcEnv
 getRecs withBody = do
     lineage <- getLineage
+--    debugTc $ liftIO $ putStrLn $ "getRecs: " ++ show (sepBy comma $ map pp lineage)
     State.gets (filterRecModuleTcEnv (Just lineage) withBody . mconcat . map tRec . tDict)
 
--- we reuse struct instantiations
--- we don't reuse procedure/function/lemma instantiations because their parameter variables
 filterRecModuleTcEnv :: Maybe Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = env
     { structs = filterRecBody lineage withBody (structs env)
@@ -394,27 +393,27 @@ remIDecBody d@(StructType sl sid@(TypeName _ sn) atts cl) = StructType sl sid No
 remIDecBody d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs cl
 remIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
 
-getStructs :: Monad m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getStructs withBody isAnn isLeak = do
     liftM (filterAnns isAnn isLeak) $ getModuleField withBody structs
-getKinds :: Monad m => TcM m (Map VarIdentifier EntryEnv)
+getKinds :: MonadIO m => TcM m (Map VarIdentifier EntryEnv)
 getKinds = getModuleField True kinds
-getGlobalVars :: Monad m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
+getGlobalVars :: MonadIO m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
 getGlobalVars = getModuleField True globalVars
-getGlobalConsts :: Monad m => TcM m (Map Identifier VarIdentifier)
+getGlobalConsts :: MonadIO m => TcM m (Map Identifier VarIdentifier)
 getGlobalConsts = getModuleField True globalConsts
-getDomains :: Monad m => TcM m (Map VarIdentifier EntryEnv)
+getDomains :: MonadIO m => TcM m (Map VarIdentifier EntryEnv)
 getDomains = getModuleField True domains
-getProcedures :: Monad m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getProcedures :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
 getProcedures withBody isAnn isLeak = do
     liftM (filterAnns isAnn isLeak) $ getModuleField withBody procedures
-getFunctions :: Monad m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getFunctions :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
 getFunctions withBody isAnn isLeak = do
     liftM (filterAnns isAnn isLeak) $ getModuleField withBody functions
-getLemmas :: Monad m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getLemmas :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
 getLemmas withBody isAnn isLeak = do
     liftM (filterAnns isAnn isLeak) $ getModuleField withBody lemmas
-getAxioms :: Monad m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms :: MonadIO m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
 getAxioms isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True axioms
 
 filterAnns :: Bool -> Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
@@ -675,7 +674,6 @@ data TcCstr
         Type Type -- ^ type unification
     | Assigns -- assignment
         Type Type
-    | UnifiesSizes (Maybe [(Expr,IsVariadic)]) (Maybe [(Expr,IsVariadic)])
     | SupportedPrint
         [(Expr,IsVariadic)] -- ^ can call tostring on the argument type
         [Var] -- resulting coerced procedure arguments
@@ -831,27 +829,34 @@ instance Ord TCstr where
     compare (CheckK x b1) (CheckK y b4) = mconcat [compare x y,compare b1 b4]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
-priorityTCstr :: TCstr -> TCstr -> Ordering
+priorityTCstr :: MonadIO m => TCstr -> TCstr -> TcM m Ordering
 priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
 priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2
-priorityTCstr (HypK x _) (HypK y _) = compare x y
-priorityTCstr (CheckK x _) (CheckK y _) = compare x y
-priorityTCstr (TcK {}) y = LT
-priorityTCstr x (TcK {}) = GT
-priorityTCstr (HypK {}) y = LT
-priorityTCstr x (HypK {}) = GT
+priorityTCstr (HypK x _) (HypK y _) = return $ compare x y
+priorityTCstr (CheckK x _) (CheckK y _) = return $ compare x y
+priorityTCstr (TcK {}) y  = return LT
+priorityTCstr x (TcK {})  = return GT
+priorityTCstr (HypK {}) y = return LT
+priorityTCstr x (HypK {}) = return GT
 
-priorityTcCstr :: TcCstr -> TcCstr -> Ordering
-priorityTcCstr (isMultipleSubstitionsTcCstr -> True) (isMultipleSubstitionsTcCstr -> False) = GT
-priorityTcCstr (isMultipleSubstitionsTcCstr -> False) (isMultipleSubstitionsTcCstr -> True) = LT
-priorityTcCstr (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = GT
-priorityTcCstr (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = LT
-priorityTcCstr (isValidTcCstr -> True) (isValidTcCstr -> False) = GT
-priorityTcCstr (isValidTcCstr -> False) (isValidTcCstr -> True) = LT
-priorityTcCstr c1 c2 = compare c1 c2
+priorityTcCstr :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
+priorityTcCstr (isMultipleSubstsTcCstr -> True) (isMultipleSubstsTcCstr -> False) = return GT
+priorityTcCstr (isMultipleSubstsTcCstr -> False) (isMultipleSubstsTcCstr -> True) = return LT
+priorityTcCstr c1@(isMultipleSubstsTcCstr -> True) c2@(isMultipleSubstsTcCstr -> True) = priorityMultipleSubsts c1 c2
+priorityTcCstr (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = return GT
+priorityTcCstr (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = return LT
+priorityTcCstr (isValidTcCstr -> True) (isValidTcCstr -> False) = return GT
+priorityTcCstr (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
+priorityTcCstr c1 c2 = return $ compare c1 c2
 
-isMultipleSubstitionsTcCstr (MultipleSubstitutions {}) = True
-isMultipleSubstitionsTcCstr _ = False
+priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
+priorityMultipleSubsts c1@(MultipleSubstitutions vs1 _) c2@(MultipleSubstitutions vs2 _) = do
+    x1::Set VarIdentifier <- fvsSet vs1
+    x2::Set VarIdentifier <- fvsSet vs2
+    case compare (Set.size x1) (Set.size x2) of
+        LT -> return LT
+        GT -> return GT
+        EQ -> return $ compare c1 c2
 
 isValidTcCstr (IsValid {}) = True
 isValidTcCstr (NotEqual {}) = True
@@ -872,7 +877,6 @@ instance PP TcCstr where
     pp (CoercesN exs) = text "coercesn" <+> sepBy comma (map (ppExprTy . fst) exs) <+> char '=' <+> sepBy comma (map (ppVarTy . snd) exs)
     pp (Unifies t1 t2) = text "unifies" <+> pp t1 <+> pp t2
     pp (Assigns t1 t2) = text "assigns" <+> pp t1 <+> pp t2
-    pp (UnifiesSizes t1 t2) = text "unifiessizes" <+> pp t1 <+> pp t2
     pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
@@ -884,7 +888,7 @@ instance PP TcCstr where
     pp (IsPublic e) = text "ispublic" <+> pp e
     pp (IsPrivate e) = text "isprivate" <+> pp e
     pp (Resolve e) = text "resolve" <+> pp e
-    pp (Default szs e) = text "default" <+> pp szs <+> pp e
+    pp (Default szs e) = text "default" <+> pp szs <+> ppExprTy e
     pp (ToMultiset t r) = text "tomultiset" <+> pp t <+> pp r
 
 instance PP CheckCstr where
@@ -1041,10 +1045,6 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         t1' <- f t1
         t2' <- f t2
         return $ Assigns t1' t2'
-    traverseVars f (UnifiesSizes t1 t2) = do
-        t1' <- f t1
-        t2' <- f t2
-        return $ UnifiesSizes t1' t2'
     traverseVars f (SupportedPrint ts xs) = do
         ts' <- mapM f ts
         xs' <- mapM f xs
@@ -2425,6 +2425,12 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
 --    gr' <- varsCstrGraph vs gr
 --    return $ Set.fromList $ map snd $ endsGr gr'
 
+compoundStmts :: Location loc => loc -> [Statement iden (Typed loc)] -> [Statement iden (Typed loc)]
+compoundStmts l = maybeToList . compoundStmtMb l
+
+compoundStmtMb :: Location loc => loc -> [Statement iden (Typed loc)] -> Maybe (Statement iden (Typed loc))
+compoundStmtMb l ss = if null ss then Nothing else Just (compoundStmt l ss)
+
 compoundStmt :: Location loc => loc -> [Statement iden (Typed loc)] -> Statement iden (Typed loc)
 compoundStmt l ss = CompoundStatement (Typed l t) ss
     where
@@ -2433,8 +2439,14 @@ compoundStmt l ss = CompoundStatement (Typed l t) ss
     unStmts (StmtType x':xs) = do
         case unStmts xs of
             (StmtType xs') -> StmtType $ Set.union x' xs'
-            t -> NoType "compoundStmt"
-    unStmts (x:xs) = NoType "compoundStmt"
+            t -> NoType "compoundStmtMb"
+    unStmts (x:xs) = NoType "compoundStmtMb"
+
+annStmts :: Location loc => loc -> [StatementAnnotation iden (Typed loc)] -> [Statement iden (Typed loc)]
+annStmts l = maybeToList . annStmtMb l
+
+annStmtMb :: Location loc => loc -> [StatementAnnotation iden (Typed loc)] -> Maybe (Statement iden (Typed loc))
+annStmtMb l ss = if null ss then Nothing else Just (annStmt l ss)
 
 annStmt :: Location loc => loc -> [StatementAnnotation iden (Typed loc)] -> Statement iden (Typed loc)
 annStmt l ss = AnnStatement (Typed l t) ss
@@ -2444,8 +2456,8 @@ annStmt l ss = AnnStatement (Typed l t) ss
     unStmts (StmtType x':xs) = do
         case unStmts xs of
             (StmtType xs') -> StmtType $ Set.union x' xs'
-            t -> NoType "compoundStmt"
-    unStmts (x:xs) = NoType "compoundStmt"
+            t -> NoType "compoundStmtMb"
+    unStmts (x:xs) = NoType "compoundStmtMb"
 
 assertStmtAnn isLeak e = AnnStatement ast [AssertAnn ast isLeak e]
     where

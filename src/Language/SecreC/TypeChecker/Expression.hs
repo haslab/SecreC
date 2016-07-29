@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, FlexibleContexts, DataKinds, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, ViewPatterns, FlexibleContexts, DataKinds, TypeFamilies #-}
 
 module Language.SecreC.TypeChecker.Expression where
 
@@ -169,7 +169,7 @@ tcExpr (StringFromBytesExpr l e) = do
 tcExpr (BytesFromStringExpr l e) = do
     e' <- tcExprTy (BaseT string) e
     return $ BytesFromStringExpr (Typed l $ ComplexT bytes) e'
-tcExpr (VArraySizeExpr l e) = withPure False $ do -- the size of a variadic array is always pure
+tcExpr (VArraySizeExpr l e) = do
     e' <- tcExpr e
     let t = typed $ loc e'
     unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (pp e)

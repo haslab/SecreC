@@ -140,7 +140,7 @@ solveMb l msg failOnError cs = do
             --liftIO $ putStrLn $ "solved " ++ msg ++ " " ++ ppr l ++ ppr (isJust mb)
             return mb
 
-priorityRoots :: (x,LocIOCstr) -> (x,LocIOCstr) -> Ordering
+priorityRoots :: ProverK Position m => (x,LocIOCstr) -> (x,LocIOCstr) -> TcM m Ordering
 priorityRoots x y = priorityTCstr (kCstr $ unLoc $ snd x) (kCstr $ unLoc $ snd y)
 
 solveCstrs :: (ProverK loc m) => loc -> String -> Bool -> TcM m (Maybe SecrecError)
@@ -159,7 +159,7 @@ solveCstrs l msg failOnError = do
     if (Graph.isEmpty gr)
         then return Nothing
         else do
-            let roots = sortBy priorityRoots $ rootsGr gr -- sort by constraint priority
+            roots <- sortByM priorityRoots $ rootsGr gr -- sort by constraint priority
             when (List.null roots) $ error $ "solveCstrs: no root constraints to proceed " ++ ppr l ++ " " ++ ppr gr ++ "\n\n" ++ show (sepBy comma $ map pp $ Graph.edges gr)
             debugTc $ liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ " [" ++ show (sepBy space $ map (pp . ioCstrId . unLoc . snd) roots) ++ "\n]"
             go <- trySolveSomeCstrs failOnError $ map snd roots
@@ -303,9 +303,13 @@ trySolveCstr doSolve doAll (Loc l iok) = catchError
     (\e -> return $ Right [(Loc l iok,e)])
 
 solveIOCstr_ :: (ProverK loc m) => loc -> IOCstr -> TcM m ()
-solveIOCstr_ l iok = do
-    olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
-    newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
+solveIOCstr_ l iok = solve
+    --catchError solve (\err -> do
+    --    debugTc $ liftIO $ putStrLn $ "nonsolvedIOCstr " ++ ppr err
+    --    throwError err)
+  where
+    solve = newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
+        olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
         --let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         --let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
@@ -375,7 +379,7 @@ tcCstrM_ l k = tcCstrM l k >> return ()
 tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
 tcCstrM l k | isTrivialTcCstr k = return Nothing
 tcCstrM l k = do
-    --liftIO $ putStrLn $ "tcCstrM " ++ ppr l ++ " " ++ ppr k
+    debugTc $ liftIO $ putStrLn $ "tcCstrM " ++ ppr l ++ " " ++ ppr k
     st <- getCstrState
     k <- newTCstr l $ TcK k st
     --gr <- liftM (tCstrs . head . tDict) State.get
@@ -454,21 +458,35 @@ resolveTcCstr l kid k = do
     resolveTcCstr' kid k@(Equals t1 t2) = do
         equals l t1 t2
     resolveTcCstr' kid k@(Coerces e1 x2) = do
-        coerces l (e1) x2
+        opts <- askOpts
+        if implicitCoercions opts
+            then coerces l e1 x2 else
+                unifiesExpr l True (varExpr x2) e1
     resolveTcCstr' kid k@(CoercesN exs) = do
-        coercesN l exs
+        opts <- askOpts
+        if implicitCoercions opts
+            then coercesN l exs
+            else do
+                unifiesN l $ map (loc . fst) exs
+                assignsExprTys l exs
     resolveTcCstr' kid k@(CoercesLit e) = do
         coercesLit l e
     resolveTcCstr' kid k@(CoercesSecDimSizes e1 x2) = do
-        coercesSecDimSizes l (e1) x2
+        opts <- askOpts
+        if implicitCoercions opts
+            then coercesSecDimSizes l e1 x2
+            else unifiesExpr l True (varExpr x2) e1
     resolveTcCstr' kid k@(CoercesNSecDimSizes exs) = do
-        coercesNSecDimSizes l exs
+        opts <- askOpts
+        if implicitCoercions opts
+            then coercesNSecDimSizes l exs
+            else do
+                unifiesN l $ map (loc . fst) exs
+                assignsExprTys l exs
     resolveTcCstr' kid k@(Unifies t1 t2) = do
         unifies l t1 t2
     resolveTcCstr' kid k@(Assigns t1 t2) = do
         assigns l t1 t2
-    resolveTcCstr' kid k@(UnifiesSizes szs1 szs2) = do
-        unifiesSizes l szs1 szs2
     resolveTcCstr' kid k@(TypeBase t x) = do
         BaseT b <- typeBase l t
         unifiesBase l x b
@@ -675,12 +693,14 @@ matchAll l kid cs (x:xs) errs = catchError
     (matchOne l kid cs x >> return [])
     -- backtrack and try another match
     (\e -> do
-        --liftIO $ putStrLn $ "failed " ++ ppr (fst3 x) ++ ppr e
-        matchAll l kid cs xs $ errs++[(pp $ fst3 x,e)])
+        debugTc $ liftIO $ putStrLn $ "failed " ++ ppr (fst3 x) ++ ppr e
+        matchAll l kid cs xs $ errs++[(pp $ fst3 x,e)]
+        --throwError e
+    )
 
 matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
 matchOne l kid cs (match,deps,_) = do
-    --liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
+    debugTc $ liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
     --dict <- liftM (head . tDict) State.get
     --ss <- ppConstraints (tCstrs dict)
     --liftIO $ putStrLn $ "matchOne [" ++ show ss ++ "\n]"
@@ -1088,10 +1108,10 @@ coercesSec :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
 coercesSec l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = addErrorM l (TypecheckerError (locpos l) . (CoercionException "security type") (ppExprTy e1) (ppVarTy x2) . Just) $ do
     s2 <- cSecM l t2
     opts <- askOpts
-    if implicitCoercions opts
-        then do
-            coercesSec' l e1 ct1 x2 s2
-        else assignsExprTy l x2 e1
+    --if implicitCoercions opts
+    --    then do
+    coercesSec' l e1 ct1 x2 s2
+    --    else assignsExprTy l x2 e1
 
 -- a token security type variable is seen as a private domain
 coercesSec' :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> SecType -> TcM m ()
@@ -1181,8 +1201,11 @@ coercesSec' l e1 ct1@(cSec -> Just s1@(SVar v1@(nonTok -> True) k1)) x2 s2@(SVar
                 then do
                     (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
                     st <- getCstrState
+                    -- public --> public
                     let choice1 = ([TcK (IsPublic (SecT s1)) st,TcK (IsPublic (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+                    -- public --> private
                     let choice2 = ([TcK (IsPublic (SecT s1)) st,TcK (IsPrivate (SecT s2)) st],ks,fs)
+                    -- private --> private
                     let choice3 = ([TcK (IsPrivate (SecT s1)) st,TcK (IsPrivate (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
                     tcCstrM_ l $ MultipleSubstitutions [SecT s1,SecT s2] [choice1,choice2,choice3]
                 else do

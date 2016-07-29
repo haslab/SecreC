@@ -90,6 +90,7 @@ evalIExpr l (ISize (IArr _ xs)) = do
 evalIExpr l (IShape (IArr _ xs)) = do
     let szs = List.map (fromInteger . toInteger . length) xs
     return $ ILitArr index [List.map (IUint64) szs]
+evalIExpr l e = genTcError (locpos l) $ text "evalIExpr: unsupported" <+> pp e
 
 evalIBinOp :: ProverK loc m => loc -> IBOp -> ILit -> ILit -> TcM m ILit
 evalIBinOp l IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2

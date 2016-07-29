@@ -428,21 +428,38 @@ checkTemplateArg isAnn isLeak (TemplateArgName l n) = do
             return $ TemplateArgName (Typed l $ varNameToType $ VarName (entryType e) vn) vn
         (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (pp n) $ map (locpos . entryLoc) $ maybe [] (\(es) -> Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap (thr3 . snd) mb3)
 
+unresolvedQVars :: ProverK loc m => loc -> String -> [(Constrained Var,IsVariadic)] -> TcM m ()
+--unresolvedQVars l qs = return ()
+unresolvedQVars l msg qs = do
+    let vs = map (unConstrained . fst) qs
+    s <- getTSubsts l
+    mapM_ (unresolvedQVar l msg s . varNameId) vs
+
+unresolvedQVar :: ProverK loc m => loc -> String -> TSubsts -> VarIdentifier -> TcM m ()
+unresolvedQVar l msg s v = do
+    mb <- substsFromMap (unTSubsts s) v
+    case mb of
+        Nothing -> return ()
+        Just (x::Type) -> genTcError (locpos l) $ text msg <> char ':' <+> text "quantified variable" <+> pp v <+> text "=" <+> pp x <+> text "should be unbound"
+
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
 addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))
 addTemplateOperator vars hdeps op = do
     let Typed l (IDecT d) = loc op
+    unresolvedQVars l "0" vars
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
     let o = funit op
+    unresolvedQVars l "1" vars
     solve l "addTemplateOperator"
+    unresolvedQVars l "2" vars
     (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
-    --liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
+    debugTc $ liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Right o) $ getLns selector env
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
@@ -500,6 +517,7 @@ addTemplateProcedureFunction vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n)
                     PKind -> Lns procedures (\x v -> x { procedures = v })
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
+    unresolvedQVars l "addTemplateProcedureFunction" vars
     (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
@@ -547,6 +565,7 @@ newAxiom l hdeps tvars d = do
     
     doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     solveTop l "newAxiom"
+    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (head . tDict) State.get
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict False Map.empty d'
     let dt = DecType i Nothing tvars emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
@@ -560,6 +579,7 @@ newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Procedu
 newLemma vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addLemma"
+    unresolvedQVars l "newLemma" vars
     (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
@@ -750,6 +770,7 @@ splitHead l deps dec = do
 addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
+    unresolvedQVars l "addTemplateStruct" vars
     (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
@@ -765,6 +786,7 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
 addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc))
 addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStructSpecialization"
+    unresolvedQVars l "addTemplateStructSpecialization" vars
     (hdict,hfrees,bdict,bfrees,(vars',specials',d')) <- splitHead l hdeps (vars,specials,d)
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees specials' d'
@@ -1090,7 +1112,7 @@ updateHeadTDict l msg upd = do
 -- | forget the result for a constraint when the value of a variable it depends on changes
 dirtyGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 dirtyGDependencies v = do
-    --liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
+    --debugTc $ liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
     opens <- liftM openedCstrs State.get
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
@@ -1100,12 +1122,12 @@ dirtyGDependencies v = do
             liftIO $ WeakMap.forM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
                 dirtyIOCstrDependencies (map fst opens) x
-    --liftIO $ putStrLn "\n"
+    --debugTc $ liftIO $ putStrLn "\n"
 
 dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
 dirtyIOCstrDependencies opens iok = do
     unless (elem iok opens) $ do
-        --putStr $ " " ++ ppr (ioCstrId iok)
+        --debugTc $ putStr $ " " ++ ppr (ioCstrId iok)
         writeIdRef (kStatus iok) Unevaluated
     deps <- liftM ioDeps $ readIORef globalEnv
     mb <- WeakHash.lookup deps (modTyId $ uniqId $ kStatus iok)

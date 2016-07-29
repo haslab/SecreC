@@ -88,7 +88,9 @@ axiomatizeP opts p = do
 shadowP :: Options -> Program -> IO Program
 shadowP opts p = do
     (exemptions,tyExemptions) <- getExemptions (vcgen opts) p
-    return $ if shadow opts then runShadow opts exemptions tyExemptions p else p
+    if shadow opts
+        then runShadow opts exemptions tyExemptions p
+        else return p
 
 
 

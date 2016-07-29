@@ -12,6 +12,7 @@ import Data.Graph.Inductive.Graph as Gr
 import Data.Graph.Inductive.Basic as Gr
 import Data.Graph.Inductive.Query.TransClos as Gr
 import Data.Graph.Inductive.Query.ArtPoint as Gr
+import Data.Graph.Inductive.Query.DFS as Gr
 import Data.Monoid
 import Data.Map (Map(..))
 import qualified Data.Map as Map
@@ -26,21 +27,27 @@ import Control.Monad.State as State
 
 import Text.PrettyPrint.ANSI.Leijen
 
-import Debug.Trace
+import System.IO
 
-type BlockM = State GraphSt
+
+strace :: MonadIO m => String -> m a -> m a
+strace str m = do
+--    liftIO $ hPutStrLn stderr str
+    m
+
+type BlockM m = StateT GraphSt m
 
 -- | A directed graph between blocks formed by gotos
 type BlockGraph = Gr BasicBlock ()
 
-basicBlocksGr :: [BasicBlock] -> BlockM BlockGraph
+basicBlocksGr :: MonadIO m => [BasicBlock] -> BlockM m BlockGraph
 basicBlocksGr blocks = do
     let labels = map fst blocks
     nodes <- mapM labelGr labels
     let gr = Gr.mkGraph (zip nodes blocks) []
     foldM basicBlockGr gr blocks
 
-basicBlockGr :: BlockGraph -> BasicBlock -> BlockM BlockGraph
+basicBlockGr :: MonadIO m => BlockGraph -> BasicBlock -> BlockM m BlockGraph
 basicBlockGr gr b@(l,ss) = do
     from <- labelGr l
     let add gr goto = do
@@ -58,32 +65,35 @@ gotos = everything (++) (mkQ [] goto)
 type BasicBlocksNext = ([BasicBlock],Maybe Id)
 
 -- | Flattens a block graph into a sequence of consecutive blocks
-flattenBlockGr :: Int -> BlockGraph -> Int -> [BasicBlocksNext]
-flattenBlockGr start gr end = traverse [start] Set.empty gr' [] (Set.insert end points)
+flattenBlockGr :: MonadIO m => Int -> BlockGraph -> Int -> m [BasicBlocksNext]
+flattenBlockGr start gr end = {-strace ("flatten " ++ prettifyBlockGr gr ++ show reachable) $-} traverse [start] Set.empty gr' [] (Set.insert end points)
   where
     gr' = Gr.nfilter (flip Set.member reachable) gr
-    reachable = Set.fromList $ Gr.suc (Gr.trc gr) start
+    reachable = Set.fromList $ Gr.reachable start gr --Set.fromList $ Gr.suc (Gr.trc gr) start
     points = Set.fromList $ Gr.ap $ Gr.undir gr'
-    traverse :: [Int] -> Set Int -> BlockGraph -> [BasicBlock] -> Set Int -> [BasicBlocksNext]
-    traverse [] (Set.toList -> []) gr xs ps = wrap (xs,Nothing)
-    traverse [] (Set.toList -> [l]) gr xs ps = case Gr.match l gr of
-        (Just lctx@(_,_,_,outs),gr') -> wrap (xs,fmap fst $ lab gr l) ++ traverse (map snd outs) Set.empty gr' [fromJust $ lab gr l] (Set.delete l ps) 
+    traverse :: MonadIO m => [Int] -> Set Int -> BlockGraph -> [BasicBlock] -> Set Int -> m [BasicBlocksNext]
+    traverse [] (Set.toList -> []) gr xs ps = return $ wrap (xs,Nothing)
+    traverse [] (Set.toList -> [l]) gr xs ps = {-strace ("articulation " ++ show l) $-} case Gr.match l gr of
+        (Just lctx@(_,_,_,outs),gr') -> do
+            let ls = wrap (xs,fmap fst $ lab gr l)
+            rs <- {-strace "articulation" $-} traverse (map snd outs) Set.empty gr' [fromJust $ lab gr l] (Set.delete l ps)
+            return (ls++rs)
         (Nothing,gr') -> error $ "label not found " ++ show l
     traverse [] as gr xs ps = error $ "multiple articulation points: " ++ show as
-    traverse (l:ls) as gr xs ps = if Set.member l ps
-        then traverse ls (Set.insert l as) gr xs ps
-        else case Gr.match l gr of
-            (Just lctx@(_,_,_,outs),gr') -> traverse ((map snd outs) ++ ls) as gr' (xs++[fromJust $ lab gr l]) ps
+    traverse (l:ls) as gr xs ps = {-strace ("point " ++ show (l:ls) ++ " " ++ show as ++ " " ++ show ps) $-} if Set.member l ps
+        then {- strace ("skip end") $-} traverse ls (Set.insert l as) gr xs ps
+        else {-strace ("follow") $-} case Gr.match l gr of
+            (Just lctx@(_,_,_,outs),gr') -> {-strace ("follow") $-} traverse ((map snd outs) ++ ls) as gr' (xs++[fromJust $ lab gr l]) ps
             (Nothing,gr') -> error $ "label not found " ++ show l
     wrap (xs,mb) = if null xs then [] else [(xs,mb)]
 
-flattenBasicBlocks :: [BasicBlock] -> Id -> [BasicBlocksNext]
-flattenBasicBlocks [] end = []
-flattenBasicBlocks bs end = flip evalState (GraphSt Map.empty 0) $ do
+flattenBasicBlocks :: MonadIO m => [BasicBlock] -> Id -> m [BasicBlocksNext]
+flattenBasicBlocks [] end = return []
+flattenBasicBlocks bs end = flip evalStateT (GraphSt Map.empty 0) $ do
     gr <- basicBlocksGr bs
     lstart <- labelGr (fst $ head bs)
     lend <- labelGr end
-    let blocks = flattenBlockGr lstart gr lend
+    blocks <- lift $ flattenBlockGr lstart gr lend
     --trace ("flatten: " ++ show end ++ "\n" ++ unlines (map (\(x,y) -> show (map fst x,y)) blocks) ++ "\n") $
     return blocks
 

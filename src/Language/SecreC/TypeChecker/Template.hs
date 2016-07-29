@@ -63,6 +63,7 @@ instance PP [(Var,IsVariadic)] where
 matchTemplate :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> TcM m [EntryEnv] -> TcM m DecType
 matchTemplate l doCoerce n targs pargs ret rets check = do
     entries <- check
+    debugTc $ liftIO $ putStrLn $ "matches " ++ show (vcat $ map (pp . entryType) entries)
     instances <- instantiateTemplateEntries l doCoerce n targs pargs ret rets entries
     let oks = rights instances
     let errs = lefts instances
@@ -121,7 +122,10 @@ resolveTemplateEntry p n targs pargs ret olde e targs' dict frees = do
             return (decrec,rec)
         else return (dec,mempty)
     lineage <- getLineage
-    let did = fromJustNote "resolveDecId" (decTypeId dec)
+    let did = fromJustNote "resolveDecId" (decTypeId decrec)
+    debugTc $ liftIO $ putStrLn $ "resolveTplt "
+        ++ show (isTemplateDecType olddec) ++ show (decIsRec olddec)
+        ++ " " ++ ppr did ++ " : " ++ show (sepBy comma $ map pp lineage)
     addHeadTDict p $ templateCstrs (did : lineage) arr rec def p dict
     case n of
         Right _ -> do
@@ -400,7 +404,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         --liftIO $ putStrLn $ "remainder" ++ ppr n ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
-                        --liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
+                        --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
                         frees <- getFrees l
                         return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',depCstrs,frees)
 
@@ -487,7 +491,7 @@ localTemplateWith l e a = case entryType e of
     DecT t -> do
         --liftIO $ putStrLn $ "localTemplate: " ++ ppr l ++ "\n" ++ ppr t
         (t',ss,ssBounds) <- localTemplateType emptySubstsProxy Map.empty (entryLoc e) t
-        --liftIO $ putStrLn $ "localSS: " ++ ppr l ++ "\n" ++ ppr ssBounds
+        --debugTc $ liftIO $ putStrLn $ "localSS: " ++ ppr l ++ "\n" ++ ppr ssBounds
         --liftIO $ putStrLn $ "localTemplate': " ++ ppr l ++ "\n" ++ ppr t'
         a' <- substProxy "localTplt" ss False ssBounds a
         --liftIO $ putStrLn $ "localTemplateReturn: " ++ ppr l ++ ppr a'

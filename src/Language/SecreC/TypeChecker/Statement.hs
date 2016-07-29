@@ -262,7 +262,8 @@ tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
 tcDefaultInitExpr :: ProverK loc m => loc -> IsHavoc -> Type -> Maybe (Sizes VarIdentifier (Typed loc)) -> Maybe (Expression Identifier loc) -> TcM m (Maybe (Expression VarIdentifier (Typed loc)))
-tcDefaultInitExpr l isHavoc ty szs (Just e) = liftM Just $ tcExprTy ty e
+tcDefaultInitExpr l isHavoc ty szs (Just e) = do
+    liftM Just $ tcExprTy ty e
 tcDefaultInitExpr l True ty szs Nothing = return Nothing
 tcDefaultInitExpr l False ty szs Nothing = liftM Just $ do
     x <- liftM varExpr $ newTypedVar "def" ty Nothing
@@ -271,7 +272,6 @@ tcDefaultInitExpr l False ty szs Nothing = liftM Just $ do
                 Just (Sizes xs) -> Just $ map (mapFst $ fmap typed) $ Foldable.toList xs
     topTcCstrM_ l $ Default szsl x
     return $ fmap (Typed l) x
-
 
     
 

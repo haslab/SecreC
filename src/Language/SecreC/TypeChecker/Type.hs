@@ -143,7 +143,7 @@ buildTypeSpec l tsec tdta tdim True = do
     case ts of
         [t] -> do
             sz@(RVariablePExpr _ n) <- newSizeVar Nothing
-            removeFree $ varNameId n
+            --removeFree $ varNameId n
             return $ VAType t sz
         otherwise -> return $ VArrayT $ VAVal ts TType
 buildTypeSpec l tsec tdta dim False = do
@@ -471,11 +471,12 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
             let ct1 = CType s b $ indexExpr 1
             case szs of
                 Nothing -> do
-                    let rep = ArrayConstructorPExpr (ComplexT ct1) []
-                    let ns = replicate (fromInteger $ toInteger n) (indexExpr 0,False)
+                    let arr = ArrayConstructorPExpr (ComplexT ct) []
                     case n of
-                        1 -> return rep
-                        otherwise -> reshapeExpr l False rep ns (ComplexT ct)
+                        1 -> return arr
+                        otherwise -> do
+                            let ns = replicate (fromInteger $ toInteger n) (indexExpr 0,False)
+                            reshapeExpr l False arr ns (ComplexT ct)
                 Just ns -> do 
                     bdef <- defaultBaseExpr l s b
                     sz1 <- multiplyIndexVariadicExprs l False ns
@@ -510,5 +511,11 @@ defaultBaseExpr l s b = genError (locpos l) $ text "defaultBaseExpr:" <+> pp s <
 defaultBaseClassify :: ProverK loc m => loc -> SecType -> Expr -> TcM m Expr
 defaultBaseClassify l Public e = return e
 defaultBaseClassify l s@(Private {}) e@(loc -> BaseT b) = classifyExpr l False e (CType s b $ indexExpr 0)
-defaultBaseClassify l s@(SVar v k) e@(loc -> BaseT b) | isPrivateKind k = classifyExpr l False e (CType s b $ indexExpr 0)
+defaultBaseClassify l s@(SVar v k) e@(loc -> BaseT b) = do
+    mb <- tryResolveSVar l v
+    case mb of
+        Just s' -> defaultBaseClassify l s' e
+        Nothing -> if isPrivateKind k
+            then classifyExpr l False e (CType s b $ indexExpr 0)
+            else throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pp s <+> ppExprTy e) Nothing
 defaultBaseClassify l s e = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pp s <+> ppExprTy e) Nothing

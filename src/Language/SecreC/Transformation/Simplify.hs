@@ -435,21 +435,21 @@ simplifyStatementAnn :: SimplifyK loc m => Bool -> StatementAnnotation VarIdenti
 simplifyStatementAnn isExpr (AssumeAnn l isLeak e) = do
     (ss,Just e') <- simplifyExpression isExpr e
     let ss' = makeAnnStmts (unTyped l) isLeak ss
-    return $ ss' ++ [annStmt (unTyped l) [AssumeAnn l isLeak e']]
+    return $ ss' ++ annStmts (unTyped l) [AssumeAnn l isLeak e']
 simplifyStatementAnn isExpr (AssertAnn l isLeak e) = do
     (ss,Just e') <- simplifyExpression isExpr e
     let ss' = makeAnnStmts (unTyped l) isLeak ss
-    return $ ss' ++ [annStmt (unTyped l) [AssertAnn l isLeak e']]
+    return $ ss' ++ annStmts (unTyped l) [AssertAnn l isLeak e']
 simplifyStatementAnn isExpr (EmbedAnn l isLeak e) = do
     (ss) <- simplifyStatement Nothing e
     let ss' = makeAnnStmts (unTyped l) isLeak ss
     return $ ss'
 
 makeAnnStmts :: Location loc => loc -> Bool -> [Statement VarIdentifier (Typed loc)] -> [Statement VarIdentifier (Typed loc)]
-makeAnnStmts l isLeak = map (makeAnnStmt l isLeak)
+makeAnnStmts l isLeak = concatMap (makeAnnStmt l isLeak)
 
-makeAnnStmt :: Location loc => loc -> Bool -> Statement VarIdentifier (Typed loc) -> Statement VarIdentifier (Typed loc)
-makeAnnStmt l isLeak s = annStmt l [EmbedAnn (notTyped "makeAnn" l) isLeak s]
+makeAnnStmt :: Location loc => loc -> Bool -> Statement VarIdentifier (Typed loc) -> [Statement VarIdentifier (Typed loc)]
+makeAnnStmt l isLeak s = maybeToList $ annStmtMb l [EmbedAnn (notTyped "makeAnn" l) isLeak s]
 
 simplifyLoopAnns :: SimplifyK loc m => [LoopAnnotation VarIdentifier (Typed loc)] -> TcM m [LoopAnnotation VarIdentifier (Typed loc)]
 simplifyLoopAnns = liftM concat . mapM simplifyLoopAnn
@@ -506,13 +506,13 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args r
             reqs' <- simplifyStatementAnns True reqs
             ss <- simplifyStatements (Just res) body'
             ens' <- simplifyStatementAnns True ens
-            return $ Left (decls++ss1++[def,compoundStmt l (reqs'++ss++ens')],Just $ varExpr res)
+            return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++ens'),Just $ varExpr res)
         Nothing -> do
             let (reqs,ens) = splitProcAnns ann'
             reqs' <- simplifyStatementAnns True reqs
             ss <- simplifyStatements Nothing body'
             ens' <- simplifyStatementAnns True ens
-            return $ Left ([compoundStmt l (decls++reqs'++ss++ens')],Nothing)
+            return $ Left (compoundStmts l (decls++reqs'++ss++ens'),Nothing)
 inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     debugTc $ liftIO $ putStrLn $ "inlineFunFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
@@ -530,7 +530,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ 
     (ss,Just body'') <- simplifyExpression False body'
     let sbody = [ExpressionStatement tl $ BinaryAssign (loc res) (varExpr res) (BinaryAssignEqual tl) body'']
     ens' <- simplifyStatementAnns True ens
-    return $ Left (decls++ss1++[def,compoundStmt l (reqs'++ss++sbody++ens')],Just $ varExpr res)
+    return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++sbody++ens'),Just $ varExpr res)
 inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     debugTc $ liftIO $ putStrLn $ "inlineFunTrue " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
     es' <- concatMapM unfoldVariadicExpr es
@@ -545,7 +545,7 @@ inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ a
     let tl = notTyped "inline" l
     reqs' <- simplifyStatementAnns True reqs >>= stmtsAnns
     ens' <- simplifyStatementAnns True ens >>= stmtsAnns
-    return $ Left (decls++ss1++[compoundStmt l ([annStmt l reqs']++ss++[annStmt l ens'])],Just body'')
+    return $ Left (decls++ss1++compoundStmts l (annStmts l reqs'++ss++annStmts l ens'),Just body'')
 inlineProcCall isExpr l n t@(DecT d) es = do
     d' <- simplifyDecType d
     debugTc $ liftIO $ putStrLn $ "not inline " ++ ppr isExpr ++ " " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr d'
@@ -568,12 +568,12 @@ simplifyStatements ret (s:ss) = do
 simplifyStatement :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> Statement VarIdentifier (Typed loc) -> TcM m [Statement VarIdentifier (Typed loc)]
 simplifyStatement ret (CompoundStatement l ss) = do
     ss' <- simplifyStatements ret ss
-    return [CompoundStatement l ss']
+    if null ss' then return [] else return [CompoundStatement l ss']
 simplifyStatement ret (IfStatement l c s1 s2) = do
     (ss,Just c') <- simplifyExpression False c
     s1' <- simplifyStatement ret s1
     s2' <- simplifyStatements ret $ maybeToList s2
-    return $ (ss++[IfStatement l c' (compoundStmt (unTyped l) s1') (if null s2 then Nothing else Just (compoundStmt (unTyped l) s2'))])
+    return $ (ss++[IfStatement l c' (compoundStmt (unTyped l) s1') (compoundStmtMb (unTyped l) s2')])
 simplifyStatement Nothing (ReturnStatement l Nothing) = return [ReturnStatement l Nothing]
 simplifyStatement Nothing (ReturnStatement l (Just e)) = do
     (ss,e') <- simplifyNonVoidExpression False e
@@ -611,9 +611,9 @@ simplifyStatement ret (WhileStatement l c ann s) = do
 --    wcond <- liftM (VarName ty) $ genVar (mkVarId "wcond")
 --    let def = VarStatement tl $ VariableDeclaration tl t' $ WrapNe $ VariableInitialization tl wcond Nothing Nothing
 --    let assign = ExpressionStatement l $ BinaryAssign (loc wcond) (varExpr wcond) (BinaryAssignEqual l) c
---    let ifbreak = IfStatement tl (negBoolExprLoc $ varExpr wcond) (compoundStmt (unTyped l) [assertinv,BreakStatement tl]) Nothing
---    s' <- simplifyStatement ret $ compoundStmt (unTyped l) $ [assign,ifbreak,s,assertinv]
---    return [def,assertinv,WhileStatement l (fmap (Typed p) trueExpr) [] $ compoundStmt (unTyped l) s']
+--    let ifbreak = IfStatement tl (negBoolExprLoc $ varExpr wcond) (compoundStmtMb (unTyped l) [assertinv,BreakStatement tl]) Nothing
+--    s' <- simplifyStatement ret $ compoundStmtMb (unTyped l) $ [assign,ifbreak,s,assertinv]
+--    return [def,assertinv,WhileStatement l (fmap (Typed p) trueExpr) [] $ compoundStmtMb (unTyped l) s']
 simplifyStatement ret (ForStatement l e c i ann s) = do
     ss <- simplifyForInitializer e
     (ssc,c') <- simplifyMaybe (simplifyNonVoidExpression True) c

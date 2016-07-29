@@ -1,5 +1,5 @@
 
-module ex;
+module cut;
 
 import axioms;
 
@@ -8,17 +8,17 @@ import axioms;
 kind privatek;
 domain private privatek;
 
-int declassify(private int x) {
-    return __builtin("core.declassify",x) :: int;
+function int declassify(private int x) {
+    __builtin("core.declassify",x) :: int
 }
-bool declassify(private bool x) {
-    return __builtin("core.declassify",x) :: bool;
+function bool declassify(private bool x) {
+    __builtin("core.declassify",x) :: bool
 }
-private int classify(int x) {
-    return __builtin("core.classify",x) :: private int;
+function private int classify(int x) {
+    __builtin("core.classify",x) :: private int
 }
-private bool classify(bool x) {
-    return __builtin("core.classify",x) :: private bool;
+function private bool classify(bool x) {
+    __builtin("core.classify",x) :: private bool
 }
 
 //* Code

@@ -23,11 +23,26 @@ Executable secrec
                         Paths_SecreC
         
   Hs-source-dirs:   src
-  Build-Depends:    base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty >= 1.1.3.2, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async, sbv, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process
+  Build-Depends:    base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty >= 1.1.3.2, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable == 1.2.3.2, async, sbv, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process
 --  ghc-options: -Wall
 --  ghc-prof-options: -prof -auto -fforce-recomp -rtsopts
   Build-Tools:      alex
 
+test-suite tests
+  type:
+      exitcode-stdio-1.0
+  ghc-options:
+      -Wall
+  hs-source-dirs:
+      tests
+  main-is:
+      Tests.hs
+  build-depends:
+      base
+    , HUnit
+    , hashable == 1.2.3.2
+    , hspec   
+    , hspec-contrib
 
 --Library
 --  exposed-modules:
