@@ -17,7 +17,7 @@ import Test.Hspec.Contrib.HUnit (fromHUnitTest)
 buildTestTree :: IO Test
 buildTestTree = do
 --    tests1 <- buildTestDirectoryTree "imports/stdlib"
-    tests2 <- buildTestDirectoryTree "tests"
+    tests2 <- buildTestDirectoryTree "tests/regression/scalars"
     return $ TestList [tests2]
 
 buildTestDirectoryTree :: FilePath -> IO Test

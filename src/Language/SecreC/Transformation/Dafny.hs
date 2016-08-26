@@ -12,6 +12,7 @@ import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Environment
+import Language.SecreC.TypeChecker.Conversion
 import Language.SecreC.Modules
 import Language.SecreC.Prover.Semantics
 import Language.SecreC.Vars
@@ -344,7 +345,7 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pret,pretanns,anns',body') <- case ret of
-        ComplexT Void -> return (empty,[],anns,body)
+        ComplexT Void -> return (empty,[],anns,body ++ [ReturnStatement (Typed l ret) Nothing])
         ComplexT ct -> do
             result <- lift $ liftM (VarName (ComplexT ct)) $ genVar (mkVarId "result")
             let ss = TSubsts $ Map.singleton (mkVarId "\\result") (IdxT $ varExpr result)
@@ -551,9 +552,18 @@ statementToDafny (ExpressionStatement _ (BinaryAssign l le (BinaryAssignEqual _)
     (pres,pre) <- expressionToDafny False False StmtK re
     (post,pass) <- assignmentToDafny StmtK le (Left pre)
     return $ annLines pres $+$ pass <> semicolon $+$ annLines post
-statementToDafny (ExpressionStatement l e) = do
-    (anne,pe) <- expressionToDafny False False StmtK e
-    return $ annLines anne $+$ pe <> semicolon
+statementToDafny es@(ExpressionStatement (Typed l _) e) = do
+    let t = typed $ loc e
+    case t of
+        ComplexT Void -> do
+            (anne,pe) <- expressionToDafny False False StmtK e
+            return $ annLines anne $+$ pe <> semicolon
+        otherwise -> do
+            let tl = Typed l (StmtType $ Set.singleton StmtFallthru)
+            eres <- lift $ liftM (VarName (Typed l t)) $ genVar (mkVarId "eres")
+            t' <- type2TypeSpecifierNonVoid l t
+            let edef = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl eres Nothing (Just e)
+            statementToDafny edef
 statementToDafny (AssertStatement l e) = do
     (anne,pe) <- expressionToDafny False False StmtK e
     assert <- annExpr False False StmtK pe
@@ -896,6 +906,10 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.add" [x,y] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
     qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "+" <+> py)
+builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sub" [x,y] = do
+    (annx,px) <- expressionToDafny isLVal False annK x
+    (anny,py) <- expressionToDafny isLVal False annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "-" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.declassify" [x] = do -- we ignore security types
     (annx,px) <- expressionToDafny isLVal False annK x
     leakMode <- getLeakMode
@@ -942,7 +956,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
                 Right 1 -> qExprToDafny isQExpr (annx) (brackets $ dafnySize px)
                 otherwise -> genError l $ text "builtinToDafny: unknown shape" <+> pp x <+> pp tx
         otherwise -> genError l $ text "builtinToDafny: unknown shape" <+> pp x <+> pp tx
-builtinToDafny isLVal isQExpr annK (Typed l ret) n es = genError l $ text "builtinToDafny:" <+> pp isLVal <+> pp annK <+> pp ret <+> pp n <+> pp es
+builtinToDafny isLVal isQExpr annK (Typed l ret) n es = genError l $ text "builtinToDafny: unexpected" <+> pp annK <+> pp ret <+> pp n <+> pp es
 
 literalToDafny :: DafnyK m => Literal (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 literalToDafny lit = do

@@ -8,6 +8,7 @@ import Data.List.Split
 import Data.Either
 import Data.Version (showVersion)
 import Data.Maybe
+import qualified Data.Text as Text
 
 import Language.SecreC.Pretty as Pretty
 import Language.SecreC.Syntax
@@ -32,6 +33,8 @@ import System.IO
 import System.Posix.Escape
 import System.Process
 import System.Exit
+
+import qualified Shelly as Shelly
 
 import Control.Monad
 import Control.Monad.IO.Class
@@ -133,8 +136,11 @@ typecheck modules = flushTcWarnings $ do
             printMsg "parsed OK" 
             return Nothing
 
+verifyOpts :: [(TypedModuleFile,OutputType)] -> Options
+verifyOpts = mconcat . map (ppOptions . either snd3 sciPPArgs . fst)
+
 verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
-verifyDafny files = do
+verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
     opts <- askOpts
     when (verify opts) $ do
         let dfyfile = "out.dfy"
@@ -167,9 +173,9 @@ command doDebug cmd = do
         ExitFailure err -> genError noloc $ int err
 
 commandOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> String -> m String
-commandOutput doDebug cmd = do
-    when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show cmd
-    let process = (shell cmd) { std_out = CreatePipe }
+commandOutput doDebug str = do
+    when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show str
+    let process = (shell str) { std_out = CreatePipe }
     (_,Just hout,_,ph) <- liftIO $ createProcess process
     exit <- liftIO $ waitForProcess ph
     result <- liftIO $ hGetContents hout
@@ -177,10 +183,16 @@ commandOutput doDebug cmd = do
         ExitSuccess -> return result
         ExitFailure code -> genError noloc $ text "error:" <+> int code $+$ text result
 
+shellyOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> String -> [String] -> m String
+shellyOutput doDebug name args = do
+    when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show (name ++ " " ++ unwords args)
+    result <- liftIO $ Shelly.shelly $ Shelly.silently $ Shelly.run (Shelly.fromText $ Text.pack name) (map Text.pack args)
+    return $ Text.unpack result
+
 compileDafny :: (MonadIO m,MonadError SecrecError m) => Bool -> Bool -> FilePath -> FilePath -> m ()
 compileDafny isLeak isDebug dfy bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Compiling Dafny file" <+> text (show dfy)
-    res <- commandOutput isDebug $ "dafny /compile:0 " ++ dfy ++ " /print:" ++ bpl ++ " /noVerify"
+    res <- shellyOutput isDebug "dafny" ["/compile:0",dfy,"/print:"++bpl,"/noVerify"]
     verifOutput isLeak True res
 
 verifOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> Bool -> String -> m ()
@@ -231,7 +243,7 @@ shadowBoogaman isDebug axioms bpl1 bpl2 = do
 runBoogie :: (MonadIO m,MonadError SecrecError m) => Bool -> Bool -> FilePath -> m ()
 runBoogie isLeak isDebug bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Verifying Boogie file" <+> text (show bpl)
-    res <- commandOutput isDebug $ show $ text "boogie /doModSetAnalysis" <+> text bpl
+    res <- shellyOutput isDebug "boogie" ["/doModSetAnalysis",bpl]
     verifOutput isLeak False res
 
 getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]

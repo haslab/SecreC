@@ -23,7 +23,7 @@ Executable secrec
                         Paths_SecreC
         
   Hs-source-dirs:   src
-  Build-Depends:    base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty >= 1.1.3.2, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable == 1.2.3.2, async, sbv, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process, parsec-numbers
+  Build-Depends:    base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty >= 1.1.3.2, mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable == 1.2.3.2, async, sbv, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process, parsec-numbers, shelly
 --  ghc-options: -Wall
 --  ghc-prof-options: -prof -auto -fforce-recomp -rtsopts
   Build-Tools:      alex

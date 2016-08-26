@@ -1,4 +1,8 @@
-uint bar (const uint n { n > 0 } ) {
+#OPTIONS_SECREC --verify
+
+uint bar (const uint n)
+//@ requires n > 0;
+{
    return 0; 
 }
 void foo () {
