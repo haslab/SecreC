@@ -111,13 +111,17 @@ solveTop l msg = do
 solve :: ProverK loc m => loc -> String -> TcM m ()
 solve l msg = solve' l msg False
 
+topCstrs :: ProverK loc m => loc -> TcM m (Set LocIOCstr)
+topCstrs l = do
+    cs <- liftM (flattenIOCstrGraphSet . tCstrs . head . tDict) State.get
+    opens <- dependentCstrs l []
+    return $ cs `Set.difference` opens
+    
 -- | solves all constraints in the top environment
 solve' :: (ProverK loc m) => loc -> String -> Bool -> TcM m ()
 solve' l msg failOnError = do
-    cs <- liftM (flattenIOCstrGraphSet . tCstrs . head . tDict) State.get
-    opens <- dependentCstrs l []
-    let cs' = cs `Set.difference` opens
-    mb <- solveMb l msg failOnError cs'
+    cs <- topCstrs l
+    mb <- solveMb l msg failOnError cs
     case mb of
         Nothing -> return ()
         Just err -> throwError err
@@ -171,7 +175,7 @@ solveCstrs l msg failOnError = do
                     solveCstrs l msg failOnError
                 -- no constraint solved because of errors
                 Right errs -> do
-                    mb <- guessError l failOnError errs
+                    mb <- solveErrors l failOnError errs
                     --debugTc $ liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " exit " ++ ppr mb
                     return mb
 
@@ -251,11 +255,14 @@ filterDelayable doSolve errs = do
         then return errs
         else return $ filter (not . isDelayableCstr . kCstr . unLoc . fst) errs
 
-filterNonMultipleSubsts :: Set LocIOCstr -> Set LocIOCstr
-filterNonMultipleSubsts = Set.filter (not . isMultipleSubstsCstr . kCstr . unLoc)
+filterNonMultipleSubstsCstrs :: Set LocIOCstr -> Set LocIOCstr
+filterNonMultipleSubstsCstrs = Set.filter (not . isMultipleSubstsCstr . kCstr . unLoc)
 
-guessError :: (ProverK loc m) => loc -> Bool -> [(LocIOCstr,SecrecError)] -> TcM m (Maybe SecrecError)
-guessError l failOnError errs = do
+filterNonGlobalCstrs :: Set LocIOCstr -> Set LocIOCstr
+filterNonGlobalCstrs = Set.filter (not . isGlobalCstr . kCstr . unLoc)
+
+solveErrors :: (ProverK loc m) => loc -> Bool -> [(LocIOCstr,SecrecError)] -> TcM m (Maybe SecrecError)
+solveErrors l failOnError errs = do
     doAll <- getDoAll
     doSolve <- getDoSolve
     errs' <- filterErrors l doAll (if failOnError then True else doSolve) errs
@@ -637,7 +644,7 @@ buildVarGr l = do
             vals <- lift $ liftM Map.keys $ fvs $ kCstr k
             addEdges g (Just iok) vals
         addEdges g mb [] = return g
-        addEdges g mb [x] = return g
+        addEdges g mb [x] = addEdge g mb x x
         addEdges g mb (x:y:zs) = do
             g' <- addEdge g mb x y
             addEdges g' mb (y:zs)
@@ -668,15 +675,19 @@ dependentCstrs l kids = do
     gr <- getCstrs
     return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++opens) gr
 
+relatedCstrs :: ProverK loc m => loc -> [Int] -> Set VarIdentifier -> (Set LocIOCstr -> Set LocIOCstr) -> TcM m (Set LocIOCstr)
+relatedCstrs l kids vs filter = do
+    (vgr,(_,st)) <- State.runStateT (buildVarGr l) (0,Map.empty)
+    -- note: we don't need to solve nested multiplesubstitutions, since they are guaranteed to succeed later
+    dependents <- dependentCstrs l kids
+    return $ Set.difference
+        (filter $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") vs) vgr)
+        dependents
+    
 multipleSubstitutions :: ProverK loc m => loc -> Int -> [Type] -> [([TCstr],[TCstr],Set VarIdentifier)] -> TcM m ()
 multipleSubstitutions l kid bv ss = do
     bvs <- liftM Map.keysSet $ fvs bv -- variables bound by the multiple substitutions
-    (vgr,(_,st)) <- State.runStateT (buildVarGr l) (0,Map.empty)
-    -- note: we don't need to solve nested multiplesubstitutions, since they are guaranteed to succeed later
-    dependents <- dependentCstrs l [kid]
-    let cs = Set.difference
-                (filterNonMultipleSubsts $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") bvs) vgr)
-                (dependents)
+    cs <- relatedCstrs l [kid] bvs filterNonMultipleSubstsCstrs
     --liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
     ok <- newErrorM $ matchAll l kid cs ss []
     case ok of
@@ -1519,7 +1530,7 @@ comparesSec l isLattice t1@(SVar v@(nonTok -> True) _) t2 = do
         Nothing -> do
             addSubstM l False CheckS (tyToVar $ SecT t1) $ SecT t2
             return $ Comparison t1 t2 GT
-comparesSec l isLattice t1 t2 = constraintError (ComparisonException "security type") l t1 pp t2 pp Nothing
+comparesSec l isLattice t1 t2 = constraintError (ComparisonException $ show isLattice ++ " security type") l t1 pp t2 pp Nothing
 
 comparesKind :: (ProverK loc m) => loc -> Bool -> KindType -> KindType -> TcM m (Comparison (TcM m))
 comparesKind l isLattice t1@PublicK t2@PublicK = return (Comparison t1 t2 EQ)

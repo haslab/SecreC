@@ -310,6 +310,10 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 //@ function D float64 operator + (D float64 x,D float64 y) {
 //@     __builtin("core.add",x,y) :: D float64
 //@ }
+//@ template<domain D>
+//@ function D string operator + (D string x,D string y) {
+//@     __builtin("core.add",x,y) :: D string
+//@ }
 
 function int8 operator + (int8 x,int8 y) {
     __builtin("core.add",x,y)
@@ -339,6 +343,9 @@ function float32 operator + (float32 x,float32 y) {
     __builtin("core.add",x,y)
 } 
 function float64 operator + (float64 x,float64 y) {
+    __builtin("core.add",x,y)
+} 
+function string operator + (string x,string y) {
     __builtin("core.add",x,y)
 } 
 
@@ -540,6 +547,10 @@ D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 //@ function D bool operator > (D bool x,D bool y) {
 //@     __builtin("core.gt",x,y) :: D bool
 //@ } 
+//@ template<domain D>
+//@ function D bool operator > (D string x,D string y) {
+//@     __builtin("core.gt",x,y) :: D bool
+//@ } 
 
 function bool operator > (int8 x,int8 y) {
     __builtin("core.gt",x,y)
@@ -572,6 +583,9 @@ function bool operator > (float64 x,float64 y) {
     __builtin("core.gt",x,y)
 } 
 function bool operator > (bool x,bool y) {
+    __builtin("core.gt",x,y)
+} 
+function bool operator > (string x,string y) {
     __builtin("core.gt",x,y)
 } 
 
@@ -634,6 +648,10 @@ D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 //@ function D bool operator < (D bool x,D bool y) {
 //@     __builtin("core.lt",x,y) :: D bool
 //@ } 
+//@ template<domain D>
+//@ function D bool operator < (D string x,D string y) {
+//@     __builtin("core.lt",x,y) :: D bool
+//@ } 
 
 function bool operator < (int8 x,int8 y) {
     __builtin("core.lt",x,y)
@@ -666,6 +684,9 @@ function bool operator < (float64 x,float64 y) {
     __builtin("core.lt",x,y)
 } 
 function bool operator < (bool x,bool y) {
+    __builtin("core.lt",x,y)
+} 
+function bool operator < (string x,string y) {
     __builtin("core.lt",x,y)
 } 
 
@@ -728,6 +749,10 @@ D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 //@ function D bool operator >= (D bool x,D bool y) {
 //@     __builtin("core.ge",x,y) :: D bool
 //@ } 
+//@ template<domain D>
+//@ function D bool operator >= (D string x,D string y) {
+//@     __builtin("core.ge",x,y) :: D bool
+//@ } 
 
 function bool operator >= (int8 x,int8 y) {
     __builtin("core.ge",x,y)
@@ -760,6 +785,9 @@ function bool operator >= (float64 x,float64 y) {
     __builtin("core.ge",x,y)
 } 
 function bool operator >= (bool x,bool y) {
+    __builtin("core.ge",x,y)
+} 
+function bool operator >= (string x,string y) {
     __builtin("core.ge",x,y)
 } 
 
@@ -822,6 +850,10 @@ D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 //@ function D bool operator <= (D bool x,D bool y) {
 //@     __builtin("core.le",x,y) :: D bool
 //@ } 
+//@ template<domain D>
+//@ function D bool operator <= (D string x,D string y) {
+//@     __builtin("core.le",x,y) :: D bool
+//@ } 
 
 function bool operator <= (int8 x,int8 y) {
     __builtin("core.le",x,y)
@@ -854,6 +886,9 @@ function bool operator <= (float64 x,float64 y) {
     __builtin("core.le",x,y)
 } 
 function bool operator <= (bool x,bool y) {
+    __builtin("core.le",x,y)
+} 
+function bool operator <= (string x,string y) {
     __builtin("core.le",x,y)
 } 
 

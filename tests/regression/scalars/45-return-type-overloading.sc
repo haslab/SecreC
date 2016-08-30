@@ -3,6 +3,15 @@ kind additive3pp;
 domain p1 additive3pp;
 domain p2 additive3pp;
 
+p1 int classify (int x) {
+    havoc p1 int y;
+    return y;
+}
+p2 int classify (int x) {
+    havoc p2 int y;
+    return y;
+}
+
 // by domain type
 public int foo (int n) { assert (n == 1); return 0; }
 p1 int foo (int n) { assert (n == 2); return 0; }

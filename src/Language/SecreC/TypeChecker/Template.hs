@@ -82,7 +82,7 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
             return dec
         otherwise -> do
             -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
-            ((e,e',targs',subst,frees):es) <- sortByM (compareTemplateDecls def l n) oks
+            ((e,e',targs',subst,frees):es) <- sortByM (compareTemplateDecls def l True n) oks
             mapM_ discardMatchingEntry es
             -- return the instantiated body of the most specific declaration
             dec <- resolveTemplateEntry l n targs pargs ret e e' targs' subst frees
@@ -167,29 +167,29 @@ ppTpltApp (Left n) args Nothing Nothing = text "struct" <+> pp n <> abrackets (s
 ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> ppVariadic (pp $ loc e) b) $ concat args)
 ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> ppVariadic (pp $ loc e) b) $ concat args)
 
-compareTypeArgs :: ProverK loc m => loc -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
-compareTypeArgs l xs@[] ys@[] = return (Comparison xs ys EQ)
-compareTypeArgs l ((Constrained t1 c1,isVariadic1):xs) ((Constrained t2 c2,isVariadic2):ys) = do
-    o1 <- compares l False t1 t2
+compareTypeArgs :: ProverK loc m => loc -> Bool -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
+compareTypeArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ)
+compareTypeArgs l isLattice ((Constrained t1 c1,isVariadic1):xs) ((Constrained t2 c2,isVariadic2):ys) = do
+    o1 <- compares l isLattice t1 t2
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "type argument") l t1 pp t2 pp Nothing
-    o2 <- compareTypeArgs l xs ys
+    o2 <- compareTypeArgs l isLattice xs ys
     appendComparisons l [o1,o2]
-compareTypeArgs l xs ys = constraintError (ComparisonException "type argument") l xs pp ys pp Nothing
+compareTypeArgs l isLattice xs ys = constraintError (ComparisonException "type argument") l xs pp ys pp Nothing
 
-compareProcedureArgs :: (ProverK loc m) => loc -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m (Comparison (TcM m))
-compareProcedureArgs l xs@[] ys@[] = return (Comparison xs ys EQ)
-compareProcedureArgs l ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v2@(VarName t2 n2),isVariadic2):ys) = do
+compareProcedureArgs :: (ProverK loc m) => loc -> Bool -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m (Comparison (TcM m))
+compareProcedureArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ)
+compareProcedureArgs l isLattice ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v2@(VarName t2 n2),isVariadic2):ys) = do
 --    liftIO $ putStrLn $ "comparePArgExp " ++ ppr v1 ++ " " ++ ppr v2 ++ " "
     o0 <- comparesExpr l True (varExpr v1) (varExpr v2)
 --    liftIO $ putStr $ show (compOrdering o0)
     ss <- getTSubsts l
-    o1 <- compares l False t1 t2
+    o1 <- compares l isLattice t1 t2
     --liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
 --    liftIO $ putStr $ show (compOrdering o1)
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
-    o2 <- compareProcedureArgs l xs ys
+    o2 <- compareProcedureArgs l isLattice xs ys
     appendComparisons l [o0,o1,o2]
-compareProcedureArgs l xs ys = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
+compareProcedureArgs l isLattice xs ys = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
 
 -- | Tells if one declaration is strictly more specific than another, and if not it fails.
 -- Since we are unifying base types during instantiation, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
@@ -201,8 +201,8 @@ compareProcedureArgs l xs ys = constraintError (ComparisonException "procedure a
 -- We would be choosing choosing (1), even though the best match is in principle (2), that does not instantiate T.
 -- doesn't take into consideration index conditions
 -- compare original declarations, not instantiated ones
-compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set VarIdentifier) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set VarIdentifier) -> TcM m Ordering
-compareTemplateDecls def l n (e1,_,_,_,_) (e2,_,_,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
+compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set VarIdentifier) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set VarIdentifier) -> TcM m Ordering
+compareTemplateDecls def l isLattice n (e1,_,_,d1,_) (e2,_,_,d2,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
     --liftIO $ putStrLn $ "compareTemplateDecls " ++ ppr e1 ++ "\n" ++ ppr e2
     State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
     --e1' <- localTemplate e1
@@ -212,7 +212,7 @@ compareTemplateDecls def l n (e1,_,_,_,_) (e2,_,_,_,_) = liftM fst $ tcProveTop 
     unless (isJust ret1 == isJust ret2) $ error $ "declarations should have the same type " ++ ppr e1 ++ "\n" ++ ppr e2
     --removeTSubsts $ tpltTyVars targs1
     --removeTSubsts $ tpltTyVars targs2
-    let defs = map (\e -> (locpos $ entryLoc e,pp (entryType e))) [e1,e2]
+    let defs = map (\(e,d) -> (locpos $ entryLoc e,pp (entryType e) $+$ text "Context:" <+> pp d)) [(e1,d1),(e2,d2)]
     let err = TypecheckerError (locpos l) . Halt . ConflictingTemplateInstances def defs
     ord <- addErrorM l err $ do
 --        ss <- liftM (tSubsts . mconcat . tDict) State.get
@@ -220,10 +220,10 @@ compareTemplateDecls def l n (e1,_,_,_,_) (e2,_,_,_,_) = liftM fst $ tcProveTop 
 --        liftIO $ putStrLn $ "compareTplt " ++ ppr l ++" "++ show (fmap (map (ppVarTy . unConstrained. snd3)) pargs1) ++" "++ ppr ret1 ++" "++ show (fmap (map (ppVarTy . unConstrained. snd3)) pargs2) ++" "++ ppr ret2
         ord2 <- if (isJust ret1)
             -- for procedures, compare the procedure arguments
-            then compareProcedureArgs l (concat pargs1) (concat pargs2)
+            then compareProcedureArgs l isLattice (concat pargs1) (concat pargs2)
             -- for structs, compare the specialization types
-            else compareTypeArgs l (concat targs1) (concat targs2)
-        ord3 <- comparesList l False (maybeToList ret1) (maybeToList ret2)
+            else compareTypeArgs l isLattice (concat targs1) (concat targs2)
+        ord3 <- comparesList l isLattice (maybeToList ret1) (maybeToList ret2)
         ord4 <- comparesDecIds (entryType e1) (entryType e2)
         appendComparisons l [ord2,ord3,ord4]
     when (compOrdering ord == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
@@ -359,7 +359,7 @@ instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> May
 instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = newErrorM $ withFrees $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
-            debugTc $ liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
+            liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t
             isPure <- getPure
             (e',hdict,bdict,bgr) <- templateTDict isPure e
@@ -382,7 +382,26 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                     forM_ (maybe [] (catMaybes . map (\(Constrained x c,isVariadic) -> c)) tplt_targs) $ \c -> do
                         withDependencies ks $ tcCstrM_ l $ IsValid c
                 return ()
-            ok <- proveWith l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead)
+            let promote = do
+                tops <- topCstrs l
+                let tops' = mapSet (ioCstrId . unLoc) tops
+                vs <- liftM Map.keysSet $ fvs (targs,ret,pargs)
+                rels <- relatedCstrs l (Set.toList tops') vs filterNonGlobalCstrs
+                let rels' = mapSet (ioCstrId . unLoc) rels
+                buildCstrGraph l (Set.union tops' rels')
+                do
+                    liftIO $ putStrLn $ "tpltVars " ++ ppr vs
+                    liftIO $ putStrLn $ "relVars " ++ ppr rels'
+                    dicts <- State.gets tDict
+                    ss <- ppConstraints (tCstrs $ head dicts)
+                    liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "tpltCstrs " ++ ppr l ++ " [" ++ show ss ++ "\n]"
+                    forM (tail dicts) $ \d -> do
+                        ssd <- ppConstraints (tCstrs d)
+                        liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+                    --doc <- liftM ppTSubsts $ getTSubsts l
+                    --liftIO $ putStrLn $ show doc
+                return ()
+            ok <- proveWith l ("instantiate with names " ++ ppr n) (addDicts >> matchName >> proveHead >> promote)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
@@ -400,7 +419,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         let gr1 = unionGr bgr1 hgr1
                         let depCstrs = TDict gr1 Set.empty subst' recs''
                         --depCstrs <- mergeDependentCstrs l subst' bgr''
-                        remainder <- ppConstraints gr1
+                        --remainder <- ppConstraints gr1
                         --liftIO $ putStrLn $ "remainder" ++ ppr n ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
