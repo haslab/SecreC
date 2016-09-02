@@ -74,6 +74,35 @@ import System.IO.Error
 
 import Debug.Trace
 
+data SolveMode = SolveMode { solveFail :: SolveFail, solveScope :: SolveScope }
+  deriving (Data,Typeable,Show,Eq,Ord,Generic)
+
+data SolveFail
+    = FirstFail Bool -- fail on first non-halt error (receives halt failure as parameter)
+    | AllFail Bool -- compile all errors (receives halt failure as parameter)
+    | NoFail -- do not fail on error
+  deriving (Data,Typeable,Show,Eq,Ord,Generic)
+
+haltFail :: SolveFail -> Bool
+haltFail (FirstFail h) = h
+haltFail (AllFail h) = h
+haltFail NoFail = False
+
+data SolveScope
+    = SolveAll -- solve all constraints
+    | SolveGlobal -- solve all but delayable constraints
+    | SolveLocal -- do not solve global constraints
+  deriving (Data,Typeable,Show,Eq,Generic)
+
+instance Ord SolveScope where
+    compare SolveLocal SolveLocal = EQ
+    compare SolveLocal _ = LT
+    compare _ SolveLocal = GT
+    compare SolveGlobal SolveGlobal = EQ
+    compare SolveGlobal _ = LT
+    compare _ SolveGlobal = GT
+    compare SolveAll SolveAll = EQ
+
 -- warn for unused local variables
 
 data IOCstr = IOCstr
@@ -594,6 +623,13 @@ tcBlock m = do
     (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
     Writer.tell w'
     return x
+    
+tcDictBlock :: Monad m => TcM m a -> TcM m a
+tcDictBlock m = do
+    dicts <- State.gets tDict
+    x <- m
+    State.modify $ \env -> env { tDict = dicts }
+    return x
 
 execTcM :: (MonadIO m) => TcM m a -> (Int,SecrecErrArr) -> TcEnv -> SecrecM m (a,TcEnv)
 execTcM m arr env = do
@@ -615,20 +651,36 @@ failTcM l m = do
 
 type PIdentifier = Either VarIdentifier (Op VarIdentifier Type)
 
+cstrScope :: VarsIdTcM m => TCstr -> TcM m SolveScope
+cstrScope k = do
+    isAll <- isDelayableCstr k
+    if isAll
+        then return SolveAll
+        else if isGlobalCstr k
+            then return SolveGlobal
+            else return SolveLocal
+
 -- | Does a constraint depend on global template, procedure or struct definitions?
 -- I.e., can it be overloaded?
 isGlobalCstr :: TCstr -> Bool
 isGlobalCstr k = isCheckCstr k || isHypCstr k || everything (||) (mkQ False isGlobalTcCstr) k
 
-isMultipleSubstsCstr :: TCstr -> Bool
-isMultipleSubstsCstr k = everything (||) (mkQ False isMultipleSubstsTcCstr) k
+isMultipleSubstsCstr :: VarsIdTcM m => TCstr -> TcM m Bool
+isMultipleSubstsCstr k = everything orM (mkQ (return False) isMultipleSubstsTcCstr) k
 
-isDelayableCstr :: TCstr -> Bool
-isDelayableCstr k = everything (||) (mkQ False (\x -> isMultipleSubstsTcCstr x || isResolveTcCstr x)) k
+isDelayableCstr :: VarsIdTcM m => TCstr -> TcM m Bool
+isDelayableCstr k = everything orM (mkQ (return False) mk) k
+    where
+    mk x = do
+        is1 <- isMultipleSubstsTcCstr x
+        return (is1 || isResolveTcCstr x)
 
-isMultipleSubstsTcCstr :: TcCstr -> Bool
-isMultipleSubstsTcCstr (MultipleSubstitutions {}) = True
-isMultipleSubstsTcCstr _ = False
+isMultipleSubstsTcCstr :: VarsIdTcM m => TcCstr -> TcM m Bool
+isMultipleSubstsTcCstr (MultipleSubstitutions ts _) = do
+    xs::Set VarIdentifier <- fvsSet ts
+    if Set.null xs then return False else return True
+isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
+isMultipleSubstsTcCstr _ = return False
 
 isResolveTcCstr :: TcCstr -> Bool
 isResolveTcCstr (Resolve {}) = True
@@ -829,7 +881,7 @@ instance Ord TCstr where
     compare (CheckK x b1) (CheckK y b4) = mconcat [compare x y,compare b1 b4]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
-priorityTCstr :: MonadIO m => TCstr -> TCstr -> TcM m Ordering
+priorityTCstr :: VarsIdTcM m => TCstr -> TCstr -> TcM m Ordering
 priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
 priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2
 priorityTCstr (HypK x _) (HypK y _) = return $ compare x y
@@ -839,15 +891,20 @@ priorityTCstr x (TcK {})  = return GT
 priorityTCstr (HypK {}) y = return LT
 priorityTCstr x (HypK {}) = return GT
 
-priorityTcCstr :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
-priorityTcCstr (isMultipleSubstsTcCstr -> True) (isMultipleSubstsTcCstr -> False) = return GT
-priorityTcCstr (isMultipleSubstsTcCstr -> False) (isMultipleSubstsTcCstr -> True) = return LT
-priorityTcCstr c1@(isMultipleSubstsTcCstr -> True) c2@(isMultipleSubstsTcCstr -> True) = priorityMultipleSubsts c1 c2
-priorityTcCstr (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = return GT
-priorityTcCstr (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = return LT
-priorityTcCstr (isValidTcCstr -> True) (isValidTcCstr -> False) = return GT
-priorityTcCstr (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
-priorityTcCstr c1 c2 = return $ compare c1 c2
+priorityTcCstr :: VarsIdTcM m => TcCstr -> TcCstr -> TcM m Ordering
+priorityTcCstr k1 k2 = do
+    mul1 <- isMultipleSubstsTcCstr k1
+    mul2 <- isMultipleSubstsTcCstr k2
+    case (mul1,mul2) of
+        (True,False) -> return GT
+        (False,True) -> return LT
+        (True,True) -> priorityMultipleSubsts k1 k2
+        (False,False) -> priorityTcCstr' k1 k2 
+priorityTcCstr' (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = return GT
+priorityTcCstr' (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = return LT
+priorityTcCstr' (isValidTcCstr -> True) (isValidTcCstr -> False) = return GT
+priorityTcCstr' (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
+priorityTcCstr' c1 c2 = return $ compare c1 c2
 
 priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
 priorityMultipleSubsts c1@(MultipleSubstitutions vs1 _) c2@(MultipleSubstitutions vs2 _) = do
@@ -1317,7 +1374,7 @@ mkVarId s = VarIdentifier s Nothing Nothing False Nothing
 
 instance PP VarIdentifier where
     pp v = case varIdPretty v of
-        Just s -> s --ppVarId v <> char '#' <> s
+        Just s -> ppVarId v <> char '#' <> s
         Nothing -> ppVarId v
       where
         ppVarId (VarIdentifier n m Nothing _ _) = ppOpt m (\(x,blk) -> text x <> char '.' <> pp blk <> char '.') <> text n
@@ -2479,8 +2536,8 @@ isType k = k == TypeStarC || k == VArrayC TypeStarC
 isVariable k = k == TypeC || k == VArrayStarC TypeC
 
 debugTc :: MonadIO m => m () -> m ()
-debugTc m = return ()
---debugTc m = m
+--debugTc m = return ()
+debugTc m = m
 
 --instance (Vars iden (TcM m) a,MonadIO m) => Vars iden (TcM m) (IdRef ModuleTyVarId a) where
 --    traverseVars f ref = do

@@ -36,24 +36,24 @@ void main () {
     private int x;
     private bool b;
 
-    //assert (x +  x     ==  0);
-    assert (x +  0     ==  1);
-    //assert (1 +  x     ==  2);
-    //assert (x +  true  ==  3);
-    //assert (x +  b     ==  4);
-    //assert (x -  x     ==  5);
-    //assert (x *  x     ==  6);
-    //assert (x /  x     ==  7);
-    //assert (x %  x     ==  8);
-    //assert (x == x     ==  9);
-    //assert (x <  x     == 10);
-    //assert (x <= x     == 11);
-    //assert (x >  x     == 12);
-    //assert (x >= x     == 13);
-    //assert ((x && x)   == 14);
-    //assert ((x || x)   == 15);
-    //
-    //assert ((! b) == 42);
-    //assert ((- x) == 43);
-    //assert ((- b) == 44);
+    assert (x +  x     ==  0);
+    assert (x +  0     ==  (1::int));
+    assert (1 +  x     ==  2);
+    assert (x +  true  ==  3);
+    assert (x +  b     ==  4);
+    assert (x -  x     ==  5);
+    assert (x *  x     ==  6);
+    assert (x /  x     ==  7);
+    assert (x %  x     ==  8);
+    assert (x == x     ==  (9::int));
+    assert (x <  x     == (10::int));
+    assert (x <= x     == (11::int));
+    assert (x >  x     == (12::int));
+    assert (x >= x     == (13::int));
+    assert ((x && x)   == (14::int));
+    assert ((x || x)   == 15);
+    
+    assert ((! b) == (42::int));
+    assert ((- x) == 43);
+    assert ((- b) == (44::int));
 }

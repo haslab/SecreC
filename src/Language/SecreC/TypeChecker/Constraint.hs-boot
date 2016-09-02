@@ -11,6 +11,8 @@ import Language.SecreC.Position
 import Language.SecreC.Prover.Base
 import {-# SOURCE #-} Language.SecreC.Prover.Expression
 
+import GHC.Generics (Generic)
+
 import Text.PrettyPrint
 
 import Control.Monad.IO.Class
@@ -24,7 +26,9 @@ solveHypotheses :: (ProverK loc m) => loc -> TcM m [IExpr]
 
 topTcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 
-proveWith :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (Either SecrecError (a,TDict))
+proveWith :: (ProverK loc m) => loc -> String -> SolveMode -> TcM m a -> TcM m (a,TDict)
+
+proveWithMode :: (ProverK loc m) => loc -> String -> SolveMode -> TcM m a -> TcM m a
 
 prove :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m a
 

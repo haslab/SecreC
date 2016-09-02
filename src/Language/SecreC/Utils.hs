@@ -194,6 +194,15 @@ mapSet f xs = Set.fromList $ map f $ Set.toList xs
 mapSetM :: (Monad m,Ord a,Ord b) => (a -> m b) -> Set a -> m (Set b)
 mapSetM f xs = liftM Set.fromList $ mapM f $ Set.toList xs
 
+filterSetM :: (Monad m,Ord a) => (a -> m Bool) -> Set a -> m (Set a)
+filterSetM f xs = liftM Set.fromList $ filterM f $ Set.toList xs
+
+orM :: Monad m => m Bool -> m Bool -> m Bool
+orM mx my = do
+    x <- mx
+    y <- my
+    return (x || y)
+
 -- | Non-empty list
 data NeList a = WrapNe a | ConsNe a (NeList a)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Foldable,Traversable,Generic)
