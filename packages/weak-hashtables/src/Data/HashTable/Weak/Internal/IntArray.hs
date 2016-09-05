@@ -112,4 +112,4 @@ length (IA a) = A.sizeofMutableByteArray a `div` wordSizeInBytes
 toPtr :: IntArray s -> Ptr a
 toPtr (IA a) = Ptr a#
   where
-    !(Addr !a#) = A.mutableByteVArrayContents a
+    !(Addr !a#) = A.mutableByteArrayContents a
