@@ -123,12 +123,6 @@ defaultSolveMode = do
         (True,True) -> return $ SolveMode (AllFail True) SolveAll
         (True,False) -> return $ SolveMode (AllFail False) SolveGlobal
         otherwise -> return $ SolveMode (AllFail False) SolveLocal
-
-topCstrs :: ProverK loc m => loc -> TcM m (Set LocIOCstr)
-topCstrs l = do
-    cs <- liftM (flattenIOCstrGraphSet . tCstrs . head . tDict) State.get
-    opens <- dependentCstrs l []
-    return $ cs `Set.difference` opens
     
 -- | solves all constraints in the top environment
 solveWith :: (ProverK loc m) => loc -> String -> SolveMode -> TcM m ()
@@ -212,7 +206,7 @@ trySolveSomeCstrs :: (ProverK Position m) => SolveMode -> [LocIOCstr] -> TcM m S
 trySolveSomeCstrs mode = foldlM solveBound (Left False)
     where
     solveBound b x = case solveFail mode of
-        FirstFail haltFail -> if isErrorSolveRes haltFail b
+        FirstFail haltFail -> if isErrorSolveRes False b -- we don't fail on halting errors during constraint resolution
             then return b
             else find b x
         otherwise -> find b x
@@ -328,7 +322,7 @@ solveIOCstr_ l mode iok = --solve
         throwError err)
   where
     solve = newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
-        olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
+        --olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
         --let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         --let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
@@ -342,7 +336,12 @@ solveIOCstr_ l mode iok = --solve
             top <- buildCstrGraph l $ Set.insert (ioCstrId iok) $ Set.fromList $ map snd $ ins ++ outs
             let ins' = map (fromJustNote "ins" . Graph.lab top . snd) ins
             let outs' = map (fromJustNote "outs" . Graph.lab top . snd) outs
-            replaceCstrWithGraph l False (ioCstrId iok) (Set.fromList ins') (Graph.nfilter (\n -> not $ Set.member n olds) $ tCstrs rest) (Set.fromList outs')
+            let rest' = tCstrs rest
+            --let rest' = Graph.nfilter (\n -> not $ Set.member n olds) $ tCstrs rest
+            debugTc $ do
+                doc <- ppConstraints rest'
+                liftIO $ putStrLn $ "solvedIOCstr rest" ++ show doc
+            replaceCstrWithGraph l False (ioCstrId iok) (Set.fromList ins') rest' (Set.fromList outs')
         dicts <- State.gets tDict
         debugTc $ forM_ dicts $ \d -> do
             ssd <- ppConstraints (tCstrs d)
@@ -690,12 +689,6 @@ reachableVarGr :: Map VarIdentifier Int -> VarGr -> Set LocIOCstr
 reachableVarGr cs g = mconcat $ Graph.preorderF (Graph.udffWith getCstrs (Map.elems cs) g)
     where
     getCstrs (froms,n,v,tos) = Set.fromList $ (catMaybes $ map fst froms) ++ (catMaybes $ map fst tos)
-
-dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocIOCstr)
-dependentCstrs l kids = do
-    opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
-    gr <- getCstrs
-    return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++opens) gr
 
 relatedCstrs :: ProverK loc m => loc -> [Int] -> Set VarIdentifier -> (Set LocIOCstr -> TcM m (Set LocIOCstr)) -> TcM m (Set LocIOCstr)
 relatedCstrs l kids vs filter = do

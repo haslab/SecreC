@@ -391,7 +391,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 vs <- liftM Map.keysSet $ fvs (n,targs,pargs,ret)
                 rels <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
                 let rels' = mapSet (ioCstrId . unLoc) rels
-                buildCstrGraph l (Set.union tops' rels')
+                buildCstrGraph l rels'
                 debugTc $ do
                     liftIO $ putStrLn $ "tpltVars " ++ ppr l ++ " " ++ ppr vs
                     liftIO $ putStrLn $ "relVars " ++ ppr l ++ " " ++ ppr rels'

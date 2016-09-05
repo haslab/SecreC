@@ -722,13 +722,28 @@ mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl pn
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { lemmas = Map.singleton pn $ Map.singleton i e }
     
+topCstrs :: ProverK loc m => loc -> TcM m (Set LocIOCstr)
+topCstrs l = do
+    cs <- liftM (flattenIOCstrGraphSet . tCstrs . head . tDict) State.get
+    opens <- dependentCstrs l []
+    return $ cs `Set.difference` opens
+    
+dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocIOCstr)
+dependentCstrs l kids = do
+    opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
+    gr <- getCstrs
+    return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++opens) gr
+    
 buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> TcM m IOCstrGraph
 buildCstrGraph l cstrs = do
+    tops <- topCstrs l
+    let tops' = mapSet (ioCstrId . unLoc) tops
+    let cstrs' = Set.union tops' cstrs
     --liftIO $ putStrLn $ "buildCstrGraph: " ++ show (sepBy space (map (pp) $ Set.toList cstrs))
     d <- concatTDict l NoCheckS =<< liftM tDict State.get
     let gr = tCstrs d
     let tgr = Graph.trc gr 
-    let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,h)) cstrs) tgr
+    let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,h)) cstrs') tgr
     let ns = nodes gr'
     let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) }
     State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr' } : map remHeadCstrs ds }
