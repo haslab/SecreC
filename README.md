@@ -13,6 +13,7 @@ A programmer interacts with the SecreC analyser in the same way as with a typica
 * [Haskell Platform](https://www.haskell.org/platform/) (with GHC version 7.8.x)
 * [Dafny](https://dafny.codeplex.com/) (only for verification)
 * [Boogie](https://boogie.codeplex.com/) (only for verification)
+* [Z3](https://z3.codeplex.com/) (only for verification)
 
 #### Installation:
 1. Install each package `xyz` from the `packages` directory
@@ -34,6 +35,12 @@ secrec --help
 ```
 
 #### Tests:
+Before testing make sure that you have packages 'hspec' and 'hspec-contrib' installed:
+```
+cabal install hspec
+cabal install hspec-contrib
+```
+
 To run the SecreC regression tests with nice output, you can invoke:
 ````
 runhaskell tests/Tests.hs

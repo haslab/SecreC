@@ -7,14 +7,18 @@ import Language.SecreC.Location
 import Language.SecreC.Pretty
 import Language.SecreC.Position
     
-import Control.Monad.IO.Class
-import Control.Monad.Except
-import Control.Monad.Writer
+import Control.Monad
+import Control.Monad.IO.Class (MonadIO(..))
+import Control.Monad.Except (MonadError(..))
+import Control.Monad.Writer (MonadWriter(..))
+import Control.Monad.Trans (MonadTrans(..))
+import Control.Monad.Trans.Reader (ReaderT(..))
+import Control.Monad.Trans.Writer (WriterT(..))
 import Control.Applicative
 import Control.Monad.Catch
 import Control.Exception (throwIO)
 import Control.Monad.Signatures
-import Control.Monad.Reader (MonadReader,ReaderT(..),ask,local)
+import Control.Monad.Reader (MonadReader,ask,local)
 import qualified Control.Monad.Reader as Reader
 import qualified Control.Monad.Writer as Writer
 import Control.Monad.Trans.Control

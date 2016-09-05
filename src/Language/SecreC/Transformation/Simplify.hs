@@ -174,13 +174,13 @@ simplifyProcedureDeclaration (ProcedureDeclaration l ret op args anns body) = do
 simplifyFunctionDeclaration :: SimplifyG loc m FunctionDeclaration
 simplifyFunctionDeclaration (OperatorFunDeclaration l isLeak ret op args anns body) = do
     anns' <- simplifyProcedureAnns anns
-    (ss,Just body') <- simplifyExpression True body
+    (ss,body') <- simplifyNonVoidExpression True body
     bodyanns <- stmtsAnns ss
     bodyanns' <- concatMapM (procAnn False) bodyanns
     return $ OperatorFunDeclaration l isLeak ret op args (anns' ++ bodyanns') body'
 simplifyFunctionDeclaration (FunDeclaration l isLeak ret op args anns body) = do
     anns' <- simplifyProcedureAnns anns
-    (ss,Just body') <- simplifyExpression True body
+    (ss,body') <- simplifyNonVoidExpression True body
     bodyanns <- stmtsAnns ss
     bodyanns' <- concatMapM (procAnn False) bodyanns
     return $ FunDeclaration l isLeak ret op args (anns' ++ bodyanns') body'
@@ -222,7 +222,7 @@ simplifyTypeSpecifier isExpr (TypeSpecifier l s t d) = do
 
 simplifyDimtypeSpecifier :: Bool -> SimplifyT loc m DimtypeSpecifier
 simplifyDimtypeSpecifier isExpr (DimSpecifier l e) = do
-    (ss,Just e') <- simplifyExpression isExpr e
+    (ss,e') <- simplifyNonVoidExpression isExpr e
     return (ss,DimSpecifier l e')
 
 simplifyDatatypeSpecifier :: Bool -> SimplifyT loc m DatatypeSpecifier
@@ -240,7 +240,7 @@ simplifyTemplateTypeArgument isExpr a@(GenericTemplateTypeArgument l arg) = retu
 simplifyTemplateTypeArgument isExpr a@(TemplateTemplateTypeArgument l n args) = return ([],a)
 simplifyTemplateTypeArgument isExpr a@(PrimitiveTemplateTypeArgument {}) = return ([],a)
 simplifyTemplateTypeArgument isExpr (ExprTemplateTypeArgument l e) = do
-    (ss,Just e') <- simplifyExpression isExpr e
+    (ss,e') <- simplifyNonVoidExpression isExpr e
     return (ss,ExprTemplateTypeArgument l e')
 simplifyTemplateTypeArgument isExpr a@(PublicTemplateTypeArgument {}) = return ([],a)
 
@@ -267,42 +267,42 @@ simplifyExpression isExpr (ProcCallExpr l n@(loc -> Typed pl pt) ts es) = do
         Right t' -> return (ss++ss',Just $ ProcCallExpr l (updLoc n $ Typed pl t') ts' es')
         Left (ss'',res) -> return (ss++ss'++ss'',res)
 simplifyExpression isExpr e@(BinaryExpr l e1 o@(loc -> Typed ol ot) e2) = do
-    (ss1,Just e1') <- simplifyExpression isExpr e1
-    (ss2,Just e2') <- simplifyExpression isExpr e2
+    (ss1,e1') <- simplifyNonVoidExpression isExpr e1
+    (ss2,e2') <- simplifyNonVoidExpression isExpr e2
     mb <- inlineProcCall isExpr (unTyped l) (Right $ fmap typed o) ot [(e1',False),(e2',False)]
     case mb of
         Right t' -> return (ss1++ss2,Just $ BinaryExpr l e1' (updLoc o $ Typed ol t') e2')
         Left (ss3,res) -> return (ss1++ss2++ss3,res)
 simplifyExpression isExpr (UnaryExpr l o@(loc -> Typed ol ot) e) = do
-    (ss,Just e') <- simplifyExpression isExpr e
+    (ss,e') <- simplifyNonVoidExpression isExpr e
     mb <- inlineProcCall isExpr (unTyped l) (Right $ fmap typed o) ot [(e',False)]
     case mb of
         Right t' -> return (ss,Just $ UnaryExpr l (updLoc o $ Typed ol t') e')
         Left (ss',res) -> return (ss++ss',res)
 simplifyExpression isExpr (CondExpr l c e1 e2) = do
-    (ssc,Just c') <- simplifyExpression isExpr c
-    (ss1,Just e1') <- simplifyExpression isExpr e1
-    (ss2,Just e2') <- simplifyExpression isExpr e2
+    (ssc,c') <- simplifyNonVoidExpression isExpr c
+    (ss1,e1') <- simplifyNonVoidExpression isExpr e1
+    (ss2,e2') <- simplifyNonVoidExpression isExpr e2
     return (ssc++ss1++ss2,Just $ CondExpr l c' e1' e2')
 simplifyExpression isExpr (BinaryAssign l e1 bop e2) = do
     let mb_op = binAssignOpToOp bop
-    (ss,Just e2') <- case mb_op of
-        Just op -> simplifyExpression isExpr (BinaryExpr l e1 op e2)
-        Nothing -> simplifyExpression isExpr e2
+    (ss,e2') <- case mb_op of
+        Just op -> simplifyNonVoidExpression isExpr (BinaryExpr l e1 op e2)
+        Nothing -> simplifyNonVoidExpression isExpr e2
     return (ss,Just $ BinaryAssign l e1 (BinaryAssignEqual l) e2')
 simplifyExpression isExpr (PostIndexExpr l e s) = do
-    (ss1,Just e') <- simplifyExpression isExpr e
+    (ss1,e') <- simplifyNonVoidExpression isExpr e
     (ss2,s') <- simplifySubscript isExpr s
     return (ss1++ss2,Just $ PostIndexExpr l e' s')
 simplifyExpression isExpr (QualExpr l e t) = do
-    (sse,Just e') <- simplifyExpression isExpr e
+    (sse,e') <- simplifyNonVoidExpression isExpr e
     (sst,t') <- simplifyTypeSpecifier isExpr t
     return (sse++sst,Just $ QualExpr l e' t')
 simplifyExpression isExpr (SelectionExpr l e att) = do
-    (ss,Just e') <- simplifyExpression isExpr e
+    (ss,e') <- simplifyNonVoidExpression isExpr e
     return (ss,Just $ SelectionExpr l e' att)
 simplifyExpression isExpr (ToMultisetExpr l e) = do
-    (ss,Just e') <- simplifyExpression isExpr e
+    (ss,e') <- simplifyNonVoidExpression isExpr e
     return (ss,Just $ ToMultisetExpr l e')
 simplifyExpression isExpr (BuiltinExpr l n es) = do
     (ss,es') <- simplifyExpressions isExpr es
@@ -332,8 +332,10 @@ simplifyQuantifierArg (t,v) = do
 
 simplifyNonVoidExpression :: Bool -> SimplifyT loc m Expression
 simplifyNonVoidExpression isExpr e = do
-    (ss,Just e') <- simplifyExpression isExpr e
-    return (ss,e')
+    (ss,mbe') <- simplifyExpression isExpr e
+    case mbe' of
+        Just e' -> return (ss,e')
+        Nothing -> return ([],e)
 
 simplifySubscript :: Bool -> SimplifyT loc m Subscript
 simplifySubscript isExpr es = do

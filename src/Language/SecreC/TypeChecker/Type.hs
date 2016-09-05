@@ -89,11 +89,13 @@ typeToBaseType l t@(ComplexT ct) = case ct of
         tcCstrM_ l $ Equals (SecT s) (SecT Public)
         tcCstrM_ l $ Equals (IdxT d) (IdxT $ indexExpr 0)
         return b
-    CVar v@(nonTok -> True) -> do
+    CVar v@(nonTok -> True) isNotVoid -> do
         mb <- tryResolveCVar l v
         ct' <- case mb of
             Just ct' -> return ct'
-            Nothing -> expandCTypeVar l v
+            Nothing -> if isNotVoid
+                then expandCTypeVar l v
+                else throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to base type" <+> pp t) Nothing
         typeToBaseType l (ComplexT ct')     
     otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
 typeToBaseType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
@@ -101,7 +103,7 @@ typeToBaseType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp BT
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType
 typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
-typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp TType)
+typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp (TType False))
 
 isComplex :: Type -> Bool
 isComplex (ComplexT s) = True
@@ -145,7 +147,7 @@ buildTypeSpec l tsec tdta tdim True = do
             sz@(RVariablePExpr _ n) <- newSizeVar Nothing
             --removeFree $ varNameId n
             return $ VAType t sz
-        otherwise -> return $ VArrayT $ VAVal ts TType
+        otherwise -> return $ VArrayT $ VAVal ts (TType True)
 buildTypeSpec l tsec tdta dim False = do
     ts <- typeToSecType l tsec
     td <- typeToBaseType l tdta
@@ -263,7 +265,7 @@ projectMatrixType l (ComplexT ct) rngs = liftM ComplexT $ projectMatrixCType l c
     projectMatrixCType l ct@(CType sec t dim) rngs = do
         (dim'') <- projectSizes l ct 1 dim rngs  
         return $ CType sec t dim''
-    projectMatrixCType l (CVar v@(nonTok -> True)) rngs = do
+    projectMatrixCType l (CVar v@(nonTok -> True) isNotVoid) rngs = do
         t <- resolveCVar l v
         projectMatrixCType l t rngs
 projectMatrixType l (VAType t sz) [rng] = projectSizeTyArray l t sz rng
@@ -401,7 +403,7 @@ typeBase :: (ProverK loc m) => loc -> Type -> TcM m Type
 typeBase l (BaseT b) = return $ BaseT b
 typeBase l (ComplexT (CType Public b _)) = return $ BaseT b
 typeBase l (ComplexT (CType s b _)) = return $ ComplexT $ CType s b (indexExpr 0)
-typeBase l (ComplexT (CVar v@(nonTok -> True))) = do
+typeBase l (ComplexT (CVar v@(nonTok -> True) _)) = do
     ct <- resolveCVar l v
     typeBase l (ComplexT ct)
 typeBase l (VAType b sz) = return b
@@ -409,7 +411,7 @@ typeBase l t = genTcError (locpos l) $ text "No static base type for type" <+> q
     
 isPublic :: ProverK loc m => loc -> Type -> TcM m ()
 isPublic l (BaseT b) = return ()
-isPublic l (ComplexT (CVar v@(nonTok -> True))) = do
+isPublic l (ComplexT (CVar v@(nonTok -> True) _)) = do
     ct <- resolveCVar l v
     isPublic l (ComplexT ct)
 isPublic l (ComplexT (CType s _ _)) = isPublicSec l s
@@ -420,7 +422,7 @@ isPublicSec :: ProverK loc m => loc -> SecType -> TcM m ()
 isPublicSec l s = unifiesSec l s Public
     
 isPrivate :: ProverK loc m => loc -> Type -> TcM m ()
-isPrivate l (ComplexT (CVar v@(nonTok -> True))) = do
+isPrivate l (ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
     ct <- resolveCVar l v
     isPrivate l (ComplexT ct)
 isPrivate l (ComplexT (CType s _ _)) = isPrivateSec l s
@@ -446,12 +448,14 @@ typeSize l (VAType t sz) = return sz
 typeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
 
 toMultisetType :: ProverK loc m => loc -> Type -> TcM m ComplexType
-toMultisetType l (ComplexT (CVar v@(nonTok -> False))) = return $ CVar v
-toMultisetType l (ComplexT (CVar v@(nonTok -> True))) = do
+toMultisetType l (ComplexT (CVar v@(nonTok -> False) isNotVoid)) = return $ CVar v isNotVoid
+toMultisetType l t@(ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
     mb <- tryResolveCVar l v
     ct' <- case mb of
         Just ct' -> return ct'
-        Nothing -> expandCTypeVar l v
+        Nothing -> if isNotVoid
+            then expandCTypeVar l v
+            else throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> pp t) Nothing
     toMultisetType l $ ComplexT ct'
 toMultisetType l (ComplexT (CType s b d)) = do
     tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
@@ -460,7 +464,7 @@ toMultisetType l t = genTcError (locpos l) $ text "cannot convert type" <+> pp t
 
 defaultExpr :: ProverK loc m => loc -> Type -> Maybe [(Expr,IsVariadic)] -> TcM m Expr
 defaultExpr l t@(BaseT b) szs = defaultBaseExpr l Public b
-defaultExpr l t@(ComplexT (CVar v)) szs = do
+defaultExpr l t@(ComplexT (CVar v _)) szs = do
     c <- resolveCVar l v
     defaultExpr l (ComplexT c) szs
 defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do

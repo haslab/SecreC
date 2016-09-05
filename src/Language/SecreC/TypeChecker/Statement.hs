@@ -126,7 +126,7 @@ tcStmt ret (WhileStatement l condE ann bodyS) = do
 tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- mapM (tcVariadicArg tcExpr) argsE
     xs <- forM argsE' $ \argE' -> do
-        tx <- newTyVar Nothing
+        tx <- newTyVar True Nothing
         newTypedVar "print" tx $ Just $ ppVariadicArg pp argE'
     topTcCstrM_ l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs

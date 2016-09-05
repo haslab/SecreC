@@ -877,7 +877,7 @@ newTypedVar :: (MonadIO m) => String -> a -> Maybe Doc -> TcM m (VarName VarIden
 newTypedVar s t doc = liftM (VarName t) $ freeVarId s doc
 
 newVarOf :: (MonadIO m) => String -> Type -> Maybe Doc -> TcM m Type
-newVarOf str TType doc = newTyVar doc
+newVarOf str (TType b) doc = newTyVar b doc
 newVarOf str BType doc = liftM BaseT $ newBaseTyVar doc
 newVarOf str (KindT k) doc = liftM SecT $ newDomainTyVar str k doc
 newVarOf str t doc | typeClass "newVarOf" t == TypeC = liftM (IdxT . varExpr) $ newTypedVar str t doc
@@ -888,10 +888,10 @@ newArrayVar b sz doc = do
     n <- freeVarId "varr" doc
     return $ VAVar n b sz
 
-newTyVar :: (MonadIO m) => Maybe Doc -> TcM m Type
-newTyVar doc = do
+newTyVar :: (MonadIO m) => Bool -> Maybe Doc -> TcM m Type
+newTyVar isNotVoid doc = do
     n <- freeVarId "t" doc
-    return $ ComplexT $ CVar n
+    return $ ComplexT $ CVar n isNotVoid
 
 newDecVar :: (MonadIO m) => Maybe Doc -> TcM m DecType
 newDecVar doc = do

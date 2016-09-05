@@ -336,7 +336,7 @@ expandPArgExpr :: (ProverK loc m) => loc -> ((Expr,IsVariadic),Var) -> TcM m [(E
 expandPArgExpr l ((e,False),x) = return [(e,x)]
 expandPArgExpr l ((e,True),x) = do
     vs <- expandVariadicExpr l (e,True)
-    ct0 <- newTyVar Nothing
+    ct0 <- newTyVar False Nothing
     let at = VAType ct0 (indexExpr $ toEnum $ length vs)
     xs <- forM vs $ \v -> newTypedVar "xi" ct0 Nothing
     -- match array content
@@ -405,11 +405,11 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                     --liftIO $ putStrLn $ show doc
                 return ()
             mode <- defaultSolveMode
-            ok <- orError $ tcWith l "instantiate" $ do
+            ok <- orError $ tcWith (locpos p) "instantiate" $ do
                 addDicts >> matchName >> proveHead
-                solveWith l ("instantiate with names " ++ ppr n ++ " " ++ ppr p ++ " " ++ ppr l ++ " " ++ show mode) mode
+                solveWith p ("instantiate with names " ++ ppr n ++ " " ++ ppr p ++ " " ++ ppr l ++ " " ++ show mode) mode
                 promote
-                solveWith l ("promote " ++ ppr n) (mode { solveFail = FirstFail False })
+                solveWith p ("promote " ++ ppr n) (mode { solveFail = FirstFail False })
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of

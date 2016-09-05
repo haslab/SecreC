@@ -164,7 +164,7 @@ solveCstrs l msg mode = do
     let dict = head dicts
     debugTc $ do
         ss <- ppConstraints (tCstrs dict)
-        liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
+        liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ show mode ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
         --forM (tail dicts) $ \d -> do
         --  --ssd <- ppConstraints (tCstrs d)
         --  --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
@@ -743,7 +743,7 @@ matchOne l kid cs (match,deps,_) = do
     -- solve all other dependencies
     --liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
     mode <- defaultSolveMode
-    solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail (haltFail $ solveFail mode) }) cs
+    solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True }) cs
     --liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr match
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
@@ -798,7 +798,7 @@ equals l (ComplexT c1) (BaseT b2) = do
     equalsComplex l c1 (defCType b2)
 equals l (BaseT b1) (ComplexT c2) = do
     equalsComplex l (defCType b1) c2
-equals l TType TType = return ()
+equals l (TType b1) (TType b2) | b1 == b2 = return ()
 equals l DType DType = return ()
 equals l BType BType = return ()
 equals l (KType _) (KType _) = return ()
@@ -873,11 +873,11 @@ equalsComplex l (CType s1 t1 d1) (CType s2 t2 d2) = do
     tcCstrM_ l $ Equals (SecT s1) (SecT s2)
     tcCstrM_ l $ Equals (BaseT t1) (BaseT t2)
     equalsExprTy l True d1 d2
-equalsComplex l (CVar v1) (CVar v2) | v1 == v2 = return ()
-equalsComplex l (CVar v@(nonTok -> True)) c2 = do
+equalsComplex l (CVar v1 _) (CVar v2 _) | v1 == v2 = return ()
+equalsComplex l (CVar v@(nonTok -> True) _) c2 = do
     c1 <- resolveCVar l v
     tcCstrM_ l $ Equals (ComplexT c1) (ComplexT c2)
-equalsComplex l c1 (CVar v@(nonTok -> True)) = do
+equalsComplex l c1 (CVar v@(nonTok -> True) _) = do
     c2 <- resolveCVar l v
     tcCstrM_ l $ Equals (ComplexT c1) (ComplexT c2)
 equalsComplex l Void Void = return ()
@@ -920,7 +920,7 @@ expandCTypeVar l v = do
     t <- newBaseTyVar Nothing
     dim <- newDimVar Nothing
     let ct = CType d t dim 
-    addSubstM l True NoFailS (VarName TType v) $ ComplexT ct
+    addSubstM l True NoFailS (VarName (TType True) v) $ ComplexT ct
     return ct
 
 -- | Non-directed coercion for a list of expressions.
@@ -943,10 +943,12 @@ coercesNComplex l exs | any (isVoid . unComplexT . loc . fst) exs = addErrorM l 
     assignsExprTys l exs
 coercesNComplex l exs | any (isCVar . unComplexT . loc . fst) exs = do
     exs' <- forM exs $ \(e,x) -> case loc e of
-        ComplexT (CVar v@(nonTok -> True)) -> do
+        ComplexT (CVar v@(nonTok -> True) isNotVoid) -> do
             mb <- tryResolveCVar l v
             t' <- case mb of
-                Nothing -> expandCTypeVar l v
+                Nothing -> if isNotVoid
+                    then expandCTypeVar l v
+                    else tcError (locpos l) $ Halt $ NCoercionException "complex type" Nothing (map (ppExprTy . fst) exs) Nothing
                 Just t' -> return t'
             return (updLoc e $ ComplexT t',x)
         otherwise -> return (e,x)
@@ -1036,7 +1038,7 @@ coercesComplex l e1@(loc -> ComplexT t1) x2@(loc -> ComplexT t2) | isVoid t1 || 
 coercesComplex l e1@(loc -> ComplexT ct1@(CType s1 t1 d1)) x2@(loc -> ComplexT ct2@(CType s2 t2 d2)) = addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type") (ppExprTy e1) (ppVarTy x2) . Just) $ do
         tcCstrM_ l $ Unifies (BaseT t1) (BaseT t2) -- we unify base types, no coercions here
         tcCstrM_ l $ CoercesSecDimSizes e1 x2
-coercesComplex l e1@(loc -> ComplexT ct1@(CVar v1@(nonTok -> True))) x2@(loc -> ComplexT ct2@(CVar v2@(nonTok -> True))) = do
+coercesComplex l e1@(loc -> ComplexT ct1@(CVar v1@(nonTok -> True) _)) x2@(loc -> ComplexT ct2@(CVar v2@(nonTok -> True) _)) = do
     mb1 <- tryResolveCVar l v1
     mb2 <- tryResolveCVar l v2
     case (mb1,mb2) of
@@ -1047,20 +1049,24 @@ coercesComplex l e1@(loc -> ComplexT ct1@(CVar v1@(nonTok -> True))) x2@(loc -> 
         (Nothing,Just ct2') -> do
             tcCstrM_ l $ Coerces e1 (updLoc x2 $ ComplexT ct2')
         (Nothing,Nothing) -> constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
-coercesComplex l e1@(loc -> ComplexT (CVar v@(nonTok -> True))) x2@(loc -> ComplexT ct2) = do
+coercesComplex l e1@(loc -> ct1@(ComplexT (CVar v@(nonTok -> True) isNotVoid1))) x2@(loc -> ComplexT ct2) = do
     mb <- tryResolveCVar l v
     case mb of
         Just ct1' -> coercesComplex l (updLoc e1 $ ComplexT ct1') x2
-        Nothing -> do
-            ct1' <- expandCTypeVar l v
-            tcCstrM_ l $ Coerces (updLoc e1 $ ComplexT ct1') x2
-coercesComplex l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT (CVar v@(nonTok -> True))) = do
+        Nothing -> if isNotVoid1 || isNotVoid ct2
+            then do
+                ct1' <- expandCTypeVar l v
+                tcCstrM_ l $ Coerces (updLoc e1 $ ComplexT ct1') x2
+            else constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
+coercesComplex l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT (CVar v@(nonTok -> True) isNotVoid2)) = do
     mb <- tryResolveCVar l v
     case mb of
         Just ct2' -> coercesComplex l e1 (updLoc x2 $ ComplexT ct2')
-        Nothing -> do
-            ct2' <- expandCTypeVar l v
-            tcCstrM_ l $ Coerces e1 (updLoc x2 $ ComplexT ct2')
+        Nothing -> if isNotVoid2 || isNotVoid ct1
+            then do
+                ct2' <- expandCTypeVar l v
+                tcCstrM_ l $ Coerces e1 (updLoc x2 $ ComplexT ct2')
+            else  constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
 coercesComplex l e1 x2 = constraintError (CoercionException "complex type") l e1 ppExprTy x2 ppVarTy Nothing
 
 cSec :: ComplexType -> Maybe SecType
@@ -1069,14 +1075,14 @@ cSec ct = Nothing
 
 cSecM :: ProverK loc m => loc -> ComplexType -> TcM m SecType
 cSecM l (CType s _ _) = return s
-cSecM l (CVar v@(nonTok -> True)) = resolveCVar l v >>= cSecM l
+cSecM l (CVar v@(nonTok -> True) _) = resolveCVar l v >>= cSecM l
 cSecM l Void = genTcError (locpos l) $ text "no security type for void"
 
 coercesSecDimSizes :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesSecDimSizes l e1@(loc -> ComplexT (CVar v1@(nonTok -> True))) x2 = do
+coercesSecDimSizes l e1@(loc -> ComplexT (CVar v1@(nonTok -> True) _)) x2 = do
     ct1 <- resolveCVar l v1
     coercesSecDimSizes l (updLoc e1 $ ComplexT ct1) x2
-coercesSecDimSizes l e1 x2@(loc -> ComplexT (CVar v2@(nonTok -> True))) = do
+coercesSecDimSizes l e1 x2@(loc -> ComplexT (CVar v2@(nonTok -> True) _)) = do
     ct2 <- resolveCVar l v2
     coercesSecDimSizes l e1 (updLoc x2 $ ComplexT ct2)
 coercesSecDimSizes l e1@(loc -> ComplexT (CType s1 b1 d1)) x2@(loc -> ComplexT (CType s2 b2 d2)) = do
@@ -1398,7 +1404,7 @@ complexToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "ctok" (Just mn) (Just i) True Nothing
-    return $ CVar v
+    return $ CVar v False
 
 exprToken :: MonadIO m => TcM m Expr
 exprToken = do
@@ -1642,8 +1648,8 @@ comparesComplex l isLattice ct1@(CType s1 t1 d1) ct2@(CType s2 t2 d2) = do -- we
     o2 <- comparesBase l isLattice t1 t2
     o3 <- comparesDim l isLattice d1 d2
     appendComparisons l [o1,o2,o3]
-comparesComplex l isLattice t1@(CVar v1) t2@(CVar v2) | v1 == v2 = return (Comparison t1 t2 EQ)
-comparesComplex l isLattice t1@(CVar v1@(nonTok -> True)) t2@(CVar v2@(nonTok -> True)) = do
+comparesComplex l isLattice t1@(CVar v1 _) t2@(CVar v2 _) | v1 == v2 = return (Comparison t1 t2 EQ)
+comparesComplex l isLattice t1@(CVar v1@(nonTok -> True) _) t2@(CVar v2@(nonTok -> True) _) = do
     mb1 <- tryResolveCVar l v1
     mb2 <- tryResolveCVar l v2
     case (mb1,mb2) of
@@ -1655,14 +1661,14 @@ comparesComplex l isLattice t1@(CVar v1@(nonTok -> True)) t2@(CVar v2@(nonTok ->
         (Just t1',Nothing) -> comparesComplex l isLattice t1' t2
         (Nothing,Just t2') -> comparesComplex l isLattice t1 t2'
         (Just t1',Just t2') -> comparesComplex l isLattice t1' t2'        
-comparesComplex l isLattice t1 t2@(CVar v@(nonTok -> True)) = do
+comparesComplex l isLattice t1 t2@(CVar v@(nonTok -> True) _) = do
     mb <- tryResolveCVar l v
     case mb of
         Just t2 -> comparesComplex l isLattice t1 t2
         Nothing -> do
             addSubstM l False CheckS (tyToVar $ ComplexT t2) $ ComplexT t1
             return $ Comparison t1 t2 LT
-comparesComplex l isLattice t1@(CVar v@(nonTok -> True)) t2 = do
+comparesComplex l isLattice t1@(CVar v@(nonTok -> True) _) t2 = do
     mb <- tryResolveCVar l v
     case mb of
         Just t1 -> comparesComplex l isLattice t1 t2
@@ -1728,8 +1734,8 @@ assigns :: ProverK loc m => loc -> Type -> Type -> TcM m ()
 assigns l (IdxT (RVariablePExpr _ v1)) (IdxT e2) = assignsExpr l v1 e2
 assigns l (SecT (SVar v1 k1)) (SecT s2) = assignsSec l v1 k1 s2
 assigns l (BaseT (BVar v1)) (BaseT b2) = assignsBase l v1 b2
-assigns l (ComplexT (CVar v1)) (ComplexT ct2) = assignsComplex l v1 ct2
-assigns l (ComplexT (CVar v1)) (BaseT b2) = assignsComplex l v1 (defCType b2)
+assigns l (ComplexT (CVar v1 _)) (ComplexT ct2) = assignsComplex l v1 ct2
+assigns l (ComplexT (CVar v1 _)) (BaseT b2) = assignsComplex l v1 (defCType b2)
 assigns l (DecT (DVar v1)) (DecT d2) = assignsDec l v1 d2
 assigns l (VArrayT (VAVar v1 b1 sz1)) (VArrayT a2) = assignsArray l v1 b1 sz1 a2
 assigns l t1 t2 = tcError (locpos l) $ UnificationException "type assignment" (pp t1) (pp t2) Nothing
@@ -1846,7 +1852,7 @@ assignsComplex :: ProverK loc m => loc -> VarIdentifier -> ComplexType -> TcM m 
 assignsComplex l v1@(nonTok -> True) d2 = do
     mb1 <- tryResolveCVar l v1
     case mb1 of
-        Nothing -> addSubstM l True NoFailS (VarName TType v1) (ComplexT d2)
+        Nothing -> addSubstM l True NoFailS (VarName (TType $ isNotVoid d2) v1) (ComplexT d2)
         Just d1' -> tcCstrM_ l $ Unifies (ComplexT d1') (ComplexT d2)
 
 unifiesComplex :: (ProverK loc m) => loc -> ComplexType -> ComplexType -> TcM m ()
@@ -1855,7 +1861,7 @@ unifiesComplex l ct1@(CType s1 t1 d1) ct2@(CType s2 t2 d2) = addErrorM l (Typech
     tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
     tcCstrM_ l $ Unifies (BaseT t1) (BaseT t2)
     unifiesExprTy l True d1 d2
-unifiesComplex l d1@(CVar v1@(nonTok -> True)) d2@(CVar v2@(nonTok -> True)) = do
+unifiesComplex l d1@(CVar v1@(nonTok -> True) isNotVoid1) d2@(CVar v2@(nonTok -> True) isNotVoid2) = do
     mb1 <- tryResolveCVar l v1
     mb2 <- tryResolveCVar l v2
     case (mb1,mb2) of
@@ -1865,18 +1871,18 @@ unifiesComplex l d1@(CVar v1@(nonTok -> True)) d2@(CVar v2@(nonTok -> True)) = d
         (Nothing,Nothing) -> do
             o <- chooseVar l v1 v2
             case o of
-                GT -> addSubstM l True CheckS (VarName TType v2) (ComplexT d1)
-                otherwise -> addSubstM l True CheckS (VarName TType v1) (ComplexT d2)
-unifiesComplex l (CVar v@(nonTok -> True)) c2 = do
+                GT -> addSubstM l True CheckS (VarName (TType $ isNotVoid1 || isNotVoid2) v2) (ComplexT d1)
+                otherwise -> addSubstM l True CheckS (VarName (TType $ isNotVoid1 || isNotVoid2) v1) (ComplexT d2)
+unifiesComplex l (CVar v@(nonTok -> True) isNotVoid1) c2 = do
     mb <- tryResolveCVar l v
     case mb of
         Just c1 -> tcCstrM_ l $ Unifies (ComplexT c1) (ComplexT c2)
-        Nothing -> addSubstM l True CheckS (VarName TType v) (ComplexT c2)
-unifiesComplex l c1 (CVar v@(nonTok -> True)) = do
+        Nothing -> addSubstM l True CheckS (VarName (TType $ isNotVoid1 || isNotVoid c2) v) (ComplexT c2)
+unifiesComplex l c1 (CVar v@(nonTok -> True) isNotVoid2) = do
     mb <- tryResolveCVar l v
     case mb of
         Just c2 -> tcCstrM_ l $ Unifies (ComplexT c1) (ComplexT c2)
-        Nothing -> addSubstM l True CheckS (VarName TType v) (ComplexT c1)
+        Nothing -> addSubstM l True CheckS (VarName (TType $ isNotVoid2 || isNotVoid c1) v) (ComplexT c1)
 unifiesComplex l t1 t2 = addErrorM l
     (TypecheckerError (locpos l) . (UnificationException "complex type") (pp t1) (pp t2) . Just)
     (equalsComplex l t1 t2)
@@ -2406,7 +2412,7 @@ pDecCstrM l isTop doCoerce pid targs es tret = do
     if (doCoerce && implicitCoercions opts)
         then do
             xs <- forM es $ \e -> do
-                tx <- newTyVar Nothing
+                tx <- newTyVar True Nothing
                 x <- newTypedVar "parg" tx $ Just $ ppVariadicArg pp e
                 return x
             tck l $ PDec pid targs es tret dec True xs

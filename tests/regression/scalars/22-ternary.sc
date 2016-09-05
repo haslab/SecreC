@@ -10,9 +10,9 @@ bool declassify (sharemind_test_pd bool x) {
     return y;
 }
 
-sharemind_test_pd int operator == (sharemind_test_pd int x,sharemind_test_pd int y) {
+sharemind_test_pd bool operator == (sharemind_test_pd int x,sharemind_test_pd int y) {
     // stub
-    havoc sharemind_test_pd int ret;
+    havoc sharemind_test_pd bool     ret;
     return ret;
 }
 
@@ -28,7 +28,7 @@ void main () {
 
   assert ( (t ? (int)11 : 12) == 11 );
   assert ( (f ? (int)13 : 14) == 14 );
-
+  
   sharemind_test_pd int one = 1;
   sharemind_test_pd int two = 2;
   assert ( declassify ((t ? one : two) == one) );
@@ -36,7 +36,7 @@ void main () {
 
   t ? load_one() : load_two();
   assert (val == 1);
-
+  
   f ? load_one() : load_two();
   assert (val == 2);
 }

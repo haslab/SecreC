@@ -124,7 +124,7 @@ complexType2TypeSpecifier l ct@(CType s t d) = do
     t' <- baseType2DatatypeSpecifier l t
     return (Just (TypeSpecifier (Typed l $ ComplexT ct) (Just s') t' (Just $ DimSpecifier (Typed l $ BaseT index) $ fmap (Typed l) d)))
 complexType2TypeSpecifier l Void = return (Nothing)
-complexType2TypeSpecifier l c@(CVar v) = genError (locpos l) $ text "complexType2TypeSpecifier" <+> pp c
+complexType2TypeSpecifier l c@(CVar v _) = genError (locpos l) $ text "complexType2TypeSpecifier" <+> pp c
 
 sizes2Sizes :: ConversionK loc m => [(Expr,IsVariadic)] -> m (Sizes VarIdentifier (Typed loc))
 sizes2Sizes = undefined

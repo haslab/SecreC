@@ -66,7 +66,7 @@ tcLValue isWrite (SelectionExpr l pe a) = do
     pe' <- tcLValue isWrite pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    res <- newTyVar Nothing
+    res <- newTyVar True Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
     return $ SelectionExpr (Typed l res) pe' (fmap (flip Typed res) va)
 tcLValue isWrite (RVariablePExpr l v) = do
@@ -117,7 +117,7 @@ tcExpr (CondExpr l c e1 e2) = do
         tcExpr e2
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
-    t3 <- newTyVar Nothing
+    t3 <- newTyVar False Nothing
     x1 <- newTypedVar "then" t3 $ Just $ pp e1'
     x2 <- newTypedVar "else" t3 $ Just $ pp e2'
     topTcCstrM_ l $ CoercesN [(fmap typed e1',x1),(fmap typed e2',x2)] 
@@ -130,7 +130,7 @@ tcExpr (BinaryExpr l e1 op e2) = do
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     top <- tcOp op
-    v <- newTyVar Nothing
+    v <- newTyVar False Nothing
     (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr pe@(PreOp l op e) = do
@@ -155,7 +155,7 @@ tcExpr (UnaryExpr l op e) = do
             topTcCstrM_ l $ Unifies b (BaseT castty)
         otherwise -> return ()
     
-    v <- newTyVar Nothing
+    v <- newTyVar False Nothing
     (dec,[(x,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
     let ex = fmap (Typed l) x
     return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
@@ -197,7 +197,7 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
     es' <- mapM (tcVariadicArg tcExpr) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
-    v <- newTyVar Nothing
+    v <- newTyVar False Nothing
     (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
@@ -211,7 +211,7 @@ tcExpr (SelectionExpr l pe a) = do
     pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    tres <- newTyVar Nothing
+    tres <- newTyVar True Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
     return $ SelectionExpr (Typed l tres) pe' (fmap (flip Typed tres) va)
 tcExpr (ArrayConstructorPExpr l es) = do
@@ -233,7 +233,7 @@ tcExpr (BuiltinExpr l n args) = do
     return $ BuiltinExpr (Typed l ret) n args'
 tcExpr me@(ToMultisetExpr l e) = onlyAnn l (pp me) $ do
     e' <- tcExpr e
-    ComplexT mset <- newTyVar Nothing
+    ComplexT mset <- newTyVar True Nothing
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
 tcExpr e@(ResultExpr l) = onlyAnn l (pp e) $ do
@@ -243,7 +243,7 @@ tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <
 
 isSupportedBuiltin :: (MonadIO m,Location loc) => loc -> Identifier -> [Type] -> TcM m Type
 isSupportedBuiltin l n args = do -- TODO: check specific builtins?
-    ret <- newTyVar Nothing
+    ret <- newTyVar True Nothing
     return ret
 
 stmtsReturnExprs :: (Data iden,Data loc) => [Statement iden loc] -> [Expression iden loc]
@@ -280,7 +280,7 @@ tcSubscript e s = do
     let t = typed $ loc e
     let l = loc s
     ((s',rngs),ks) <- tcWithCstrs l "subscript" $ mapAndUnzipM tcIndex s
-    ret <- newTyVar Nothing
+    ret <- newTyVar False Nothing
     withDependencies ks $ topTcCstrM_ l $ ProjectMatrix t (Foldable.toList rngs) ret
     return (s',ret)
 

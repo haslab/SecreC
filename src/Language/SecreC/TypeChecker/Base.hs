@@ -525,7 +525,7 @@ instance PP EntryEnv where
 varNameToType :: Var -> Type
 varNameToType (VarName (KType b) k) = KindT $ KVar k b
 varNameToType (VarName (KindT k) n) = SecT $ SVar n k
-varNameToType (VarName TType n) = ComplexT $ CVar n
+varNameToType (VarName (TType b) n) = ComplexT $ CVar n b
 varNameToType (VarName BType n) = BaseT $ BVar n
 varNameToType (VarName DType n) = DecT $ DVar n
 varNameToType (VarName (VAType b sz) n) = VArrayT $ VAVar n b sz
@@ -538,7 +538,7 @@ condVarNameToType (Constrained v c) = constrainedType (varNameToType v) c
 typeToVarName :: Type -> Maybe Var
 typeToVarName (KindT (KVar n b)) = Just $ VarName (KType b) n
 typeToVarName (SecT (SVar n k)) = Just (VarName (KindT k) n)
-typeToVarName (ComplexT (CVar n)) = Just (VarName TType n)
+typeToVarName (ComplexT (CVar n b)) = Just (VarName (TType b) n)
 typeToVarName (BaseT (BVar n)) = Just (VarName BType n)
 typeToVarName (DecT (DVar n)) = Just (VarName DType n)
 typeToVarName (VArrayT (VAVar n b sz)) = Just (VarName (VAType b sz) n)
@@ -1629,7 +1629,7 @@ data ComplexType
         SecType -- ^ security type
         BaseType -- ^ data type
         Expr -- ^ dimension (default = 0, i.e., scalars)
-    | CVar VarIdentifier
+    | CVar VarIdentifier Bool -- (isNotVoid flag)
     | Void -- ^ Empty type
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
@@ -1648,7 +1648,7 @@ instance Hashable SysType
 
 data Type
     = NoType String -- ^ For locations with no associated type information
-    | TType -- ^ Type of complex types
+    | TType Bool -- ^ Type of complex types
     | DType -- ^ Type of declarations
     | BType -- ^ Type of base types
     | KType Bool -- ^ Type of kinds
@@ -1688,7 +1688,7 @@ tyOf :: Type -> Type
 tyOf (IdxT e) = loc e
 tyOf (SecT s) = KindT (secTypeKind s)
 tyOf (KindT k) = KType (isPrivateKind k)
-tyOf (ComplexT _) = TType
+tyOf (ComplexT t) = TType (isNotVoid t)
 tyOf (BaseT _) = BType
 tyOf (DecT _) = DType
 tyOf (VArrayT (VAVal ts b)) = VAType b (indexExpr $ toEnum $ length ts)
@@ -1821,7 +1821,7 @@ instance PP BaseType where
 instance PP ComplexType where
     pp Void = text "void"
     pp (CType s t d) = pp s <+> pp t <> brackets (brackets (pp d))
-    pp (CVar v) = pp v
+    pp (CVar v b) = pp v
 instance PP SysType where
     pp t@(SysPush {}) = text (show t)
     pp t@(SysRet {}) = text (show t)
@@ -1831,7 +1831,7 @@ instance PP SysType where
 instance PP Type where
     pp t@(NoType msg) = text "no type" <+> text msg
     pp (VAType t sz) = parens $ pp t <> text "..." <> nonemptyParens (pp sz)
-    pp t@TType = text "complex type"
+    pp t@(TType b) = text "complex type"
     pp t@BType = text "base type"
     pp t@DType = text "declaration type"
     pp t@(KindT k) = pp k
@@ -1879,7 +1879,7 @@ instance PP TypeClass where
 
 typeClass :: String -> Type -> TypeClass
 typeClass msg (CondType t _) = typeClass msg t
-typeClass msg TType = TypeStarC
+typeClass msg (TType b) = TypeStarC
 typeClass msg (VAType b _) = VArrayStarC (typeClass msg b)
 typeClass msg BType = TypeStarC
 typeClass msg (KType _) = KindStarC
@@ -1907,7 +1907,12 @@ isVoid :: ComplexType -> Bool
 isVoid Void = True
 isVoid _ = False
 
-isCVar (CVar v) = True
+isNotVoid :: ComplexType -> Bool
+isNotVoid Void = False
+isNotVoid (CType {}) = True
+isNotVoid (CVar _ b) = b
+
+isCVar (CVar v _) = True
 isCVar _ = False
 
 isCType (CType {}) = True
@@ -2118,11 +2123,12 @@ instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m ComplexType 
         t' <- f t
         d' <- f d
         return $ CType s' t' d' 
-    traverseVars f (CVar v) = do
+    traverseVars f (CVar v b) = do
         v' <- f v
-        return $ CVar v'
+        b' <- f b
+        return $ CVar v' b'
     traverseVars f Void = return Void
-    substL (CVar v) | not (varIdTok v) = return $ Just v
+    substL (CVar v b) | not (varIdTok v) = return $ Just v
     substL e = return Nothing
 
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m SysType where
@@ -2156,7 +2162,7 @@ instance PP KindType where
     
 instance (GenVar VarIdentifier m,MonadIO m) => Vars VarIdentifier m Type where
     traverseVars f (NoType x) = return (NoType x)
-    traverseVars f TType = return TType
+    traverseVars f (TType b) = return (TType b)
     traverseVars f (VAType t sz) = do
         t' <- f t
         sz' <- f sz
