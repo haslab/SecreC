@@ -7,3 +7,6 @@ The cut function receives as known leakage the number 1s in the input mask m.
 
 EasyCrypt:
 We need to prove that, for a shuffle function, if we know all the elements that belong to an input vector (but not their positions), then we can leak the shuffled vector.
+
+Execute:
+secrec examples/leakage/cut/cut.sc --verify

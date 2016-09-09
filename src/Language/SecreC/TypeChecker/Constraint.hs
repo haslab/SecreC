@@ -451,13 +451,13 @@ resolveTcCstr l mode kid k = do
         isAnn <- getAnn
         isLeak <- getLeak
         let check = if isTplt then checkTemplateType else checkNonTemplateType
-        res <- matchTemplate l True (Left n) (Just args) Nothing Nothing [] (check isAnn isLeak $ fmap (const l) n)
+        res <- matchTemplate l kid True (Left n) (Just args) Nothing Nothing [] (check isAnn isLeak $ fmap (const l) n)
         unifiesDec l x res
     resolveTcCstr' kid k@(PDec (Left n) specs args r x doCoerce xs) = addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (pp r <+> pp n <+> parens (sepBy comma $ map pp args)))) $ do
         isAnn <- getAnn
         isLeak <- getLeak
         kind <- getKind
-        res <- matchTemplate l doCoerce (Right $ Left n) specs (Just args) (Just r) xs (checkProcedureFunctionLemma isAnn isLeak kind $ ProcedureName l n)
+        res <- matchTemplate l kid doCoerce (Right $ Left n) specs (Just args) (Just r) xs (checkProcedureFunctionLemma isAnn isLeak kind $ ProcedureName l n)
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
         --liftIO $ putStrLn $ "matchTemplate " ++ ppr n ++ " " ++ show doc
         unifiesDec l x res
@@ -467,7 +467,7 @@ resolveTcCstr l mode kid k = do
         isAnn <- getAnn
         isLeak <- getLeak
         k <- getKind
-        res <- matchTemplate l doCoerce (Right $ Right o) specs (Just args) (Just r) xs (checkOperator isAnn isLeak k $ fmap (const l) o)
+        res <- matchTemplate l kid doCoerce (Right $ Right o) specs (Just args) (Just r) xs (checkOperator isAnn isLeak k $ fmap (const l) o)
         --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
         --liftIO $ putStrLn $ "matchTemplate " ++ ppr o ++ " " ++ show doc
         unifiesDec l x res
@@ -528,7 +528,8 @@ resolveTcCstr l mode kid k = do
                 unifies l x res
             )
     resolveTcCstr' kid (MultipleSubstitutions v s) = do
-        multipleSubstitutions l kid v s
+        let s' = map (\(x,y,z) -> ((mapM_ (tCstrM_ l) x,pp x),(\b -> mapM_ (tCstrM_ l) y,pp y),(const $ return (),PP.empty),z)) s
+        multipleSubstitutions l kid v s'
     resolveTcCstr' kid (MatchTypeDimension t d) = matchTypeDimension l t d
     resolveTcCstr' kid (IsValid c) = do
         x <- ppM l c
@@ -698,46 +699,47 @@ relatedCstrs l kids vs filter = do
     filtered <- (filter $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") vs) vgr)
     return $ Set.difference filtered dependents
     
-multipleSubstitutions :: ProverK loc m => loc -> Int -> [Type] -> [([TCstr],[TCstr],Set VarIdentifier)] -> TcM m ()
+multipleSubstitutions :: (ProverK loc m,VarsId (TcM m) a) => loc -> Int -> a -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> TcM m d
 multipleSubstitutions l kid bv ss = do
     bvs <- liftM Map.keysSet $ fvs bv -- variables bound by the multiple substitutions
     cs <- relatedCstrs l [kid] bvs (filterCstrSetScope SolveGlobal)
     --liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
     ok <- newErrorM $ matchAll l kid cs ss []
     case ok of
-        [] -> do
-            let fs = Set.unions $ map thr3 ss
+        Left d -> do
+            let fs = Set.unions $ map fou4 ss
             forM_ fs removeFree
-            return ()
-        errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
+            return d
+        Right errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
     
-matchAll :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> [([TCstr],[TCstr],Set VarIdentifier)] -> [(Doc,SecrecError)] -> TcM m [(Doc,SecrecError)]
-matchAll l kid cs [] errs = return errs
+matchAll :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> [(Doc,SecrecError)] -> TcM m (Either d [(Doc,SecrecError)])
+matchAll l kid cs [] errs = return $ Right errs
 matchAll l kid cs (x:xs) errs = catchError
     -- match and solve all remaining constraints
-    (matchOne l kid cs x >> return [])
+    (liftM Left $ matchOne l kid cs x)
     -- backtrack and try another match
     (\e -> do
-        debugTc $ liftIO $ putStrLn $ "failed " ++ ppr (fst3 x) ++ ppr e
-        matchAll l kid cs xs $ errs++[(pp $ fst3 x,e)]
+        debugTc $ liftIO $ putStrLn $ "failed " ++ show (snd (fst4 x)) ++ " " ++ ppr e
+        matchAll l kid cs xs $ errs++[(snd (fst4 x),e)]
         --throwError e
     )
 
-matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ([TCstr],[TCstr],Set VarIdentifier) -> TcM m ()
-matchOne l kid cs (match,deps,_) = do
-    debugTc $ liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++" "++ ppr match
+matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
+matchOne l kid cs (match,deps,post,_) = do
+    debugTc $ liftIO $ putStrLn $ ppr l ++ " trying to match "++show kid ++ " " ++ show (snd match)
     --dict <- liftM (head . tDict) State.get
     --ss <- ppConstraints (tCstrs dict)
     --liftIO $ putStrLn $ "matchOne [" ++ show ss ++ "\n]"
-    prove l ("matchOneHead"++show kid) $ do
-        (_,ks) <- tcWithCstrs l ("matchOneHead"++show kid) $ mapM_ (tCstrM_ l) match
-        withDependencies ks $ mapM_ (tCstrM_ l) deps
+    c <- prove l ("matchOneHead"++show kid) $ do
+        (b,ks) <- tcWithCstrs l ("matchOneHead"++show kid) (fst match)
+        withDependencies ks ((fst deps) b)
     
     -- solve all other dependencies
     --liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
     mode <- defaultSolveMode
     solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True }) cs
     --liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr match
+    (fst post) c
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
 tryCstr l m = (liftM Right $ prove l "tryCstr" $ m) `catchError` (return . Left)

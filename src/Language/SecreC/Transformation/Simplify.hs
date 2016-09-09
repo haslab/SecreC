@@ -572,7 +572,7 @@ simplifyStatement ret (CompoundStatement l ss) = do
     ss' <- simplifyStatements ret ss
     if null ss' then return [] else return [CompoundStatement l ss']
 simplifyStatement ret (IfStatement l c s1 s2) = do
-    (ss,Just c') <- simplifyExpression False c
+    (ss,c') <- simplifyNonVoidExpression False c
     s1' <- simplifyStatement ret s1
     s2' <- simplifyStatements ret $ maybeToList s2
     return $ (ss++[IfStatement l c' (compoundStmt (unTyped l) s1') (compoundStmtMb (unTyped l) s2')])
@@ -598,7 +598,7 @@ simplifyStatement ret (ExpressionStatement l e) = do
 simplifyStatement ret (VarStatement l v) = do
     simplifyVariableDeclaration v
 simplifyStatement ret (WhileStatement l c ann s) = do
-    (ss,Just c') <- simplifyExpression True c
+    (ss,c') <- simplifyNonVoidExpression True c
     anns <- liftM (map stmtAnn2LoopAnn) (stmtsAnns ss)
     ann' <- simplifyLoopAnns (anns++ann)
     s' <- simplifyStatement ret s

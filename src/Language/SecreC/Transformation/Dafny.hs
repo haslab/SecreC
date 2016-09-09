@@ -744,7 +744,7 @@ expressionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> 
     (anne,pe) <- expressionToDafny isLVal False annK e
     (anni,pi) <- indexToDafny isLVal annK i
     let pse = pe <> brackets pi
-    annp <- genDafnyPublics (unTyped l) (hasLeakExpr se || False) annK pse (typed l)
+    annp <- genDafnyPublics (unTyped l) (hasLeakExpr se) annK pse (typed l)
     qExprToDafny isQExpr (anne++anni++annp) pse
 expressionToDafny isLVal isQExpr annK se@(SelectionExpr l e att) = do
     (anne,pe) <- expressionToDafny isLVal False annK e
@@ -752,12 +752,12 @@ expressionToDafny isLVal isQExpr annK se@(SelectionExpr l e att) = do
     psn <- ppDafnyIdM did
     patt <- structAttToDafny (unTyped l) False psn $ fmap typed att
     let pse = pe <> char '.' <> patt
-    annp <- genDafnyPublics (unTyped l) (hasLeakExpr se || False) annK pse (typed l)
+    annp <- genDafnyPublics (unTyped l) (hasLeakExpr se) annK pse (typed l)
     -- always assert equality of projection, if it is a base type, since we don't do so when declaring the struct variable
     qExprToDafny isQExpr (anne++annp) pse
 expressionToDafny isLVal isQExpr annK e@(RVariablePExpr l v) = do
     pv <- varToDafny v
-    annp <- genDafnyPublics (unTyped $ loc v) (hasLeakExpr e || False) annK pv (typed $ loc v)
+    annp <- genDafnyPublics (unTyped $ loc v) (hasLeakExpr e) annK pv (typed $ loc v)
     qExprToDafny isQExpr annp pv
 expressionToDafny isLVal isQExpr annK (LitPExpr l lit) = do
     (anns,pe) <- literalToDafny lit
@@ -780,7 +780,7 @@ expressionToDafny isLVal isQExpr annK (ArrayConstructorPExpr l es) = do
 expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     (anne,pe) <- expressionToDafny False False annK e
     let pme = text "multiset" <> parens pe
-    annp <- genDafnyPublics (unTyped l) (hasLeakExpr me || False) annK pme (typed l)
+    annp <- genDafnyPublics (unTyped l) (hasLeakExpr me) annK pme (typed l)
     qExprToDafny isQExpr (anne++annp) pme
 expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = builtinToDafny isLVal isQExpr annK l n es
 expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ (DecT dec)) n) targs args) = do

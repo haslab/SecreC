@@ -35,7 +35,7 @@ import Control.Monad.Except
 import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
 
-import Text.PrettyPrint
+import Text.PrettyPrint as PP
 
 instance (MonadIO m) => Vars VarIdentifier (TcM m) [(Bool,Var,IsVariadic)] where
     traverseVars f = mapM f
@@ -60,8 +60,8 @@ instance PP [(Var,IsVariadic)] where
 
 -- Procedure arguments are maybe provided with index expressions
 -- | Matches a list of template arguments against a list of template declarations
-matchTemplate :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> TcM m [EntryEnv] -> TcM m DecType
-matchTemplate l doCoerce n targs pargs ret rets check = do
+matchTemplate :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> TcM m [EntryEnv] -> TcM m DecType
+matchTemplate l kid doCoerce n targs pargs ret rets check = do
     entries <- check
     debugTc $ liftIO $ putStrLn $ "matches " ++ show (vcat $ map (pp . entryType) entries)
     instances <- instantiateTemplateEntries l doCoerce n targs pargs ret rets entries
@@ -78,23 +78,18 @@ matchTemplate l doCoerce n targs pargs ret rets check = do
             kind <- getKind
             tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure (pp isAnn <+> pp isLeak <+> pp kind <+> def) defs
         [(e,e',targs',subst,dicts,frees)] -> do
-            dec <- resolveTemplateEntry l n targs pargs ret e e' targs' subst dicts frees
+            dec <- resolveTemplateEntry l kid n targs pargs ret e e' targs' subst dicts frees
             return dec
         otherwise -> do
             -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
-            ((e,e',targs',subst,dicts,frees):es) <- sortByM (compareTemplateDecls def l True n) oks
+            (e,e',targs',dict,dicts,frees):es <- sortByM (compareTemplateDecls def l False n) oks
             mapM_ discardMatchingEntry es
-            -- return the instantiated body of the most specific declaration
-            dec <- resolveTemplateEntry l n targs pargs ret e e' targs' subst dicts frees
-            return dec
+            resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees
+            --es <- sortByM (compareTemplateDecls def l True n) oks
+            --resolveTemplateEntries l kid n targs pargs es
 
 discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier) -> TcM m ()
 discardMatchingEntry (e,e',_,dict,_,frees) = forM_ frees removeFree
-
-templateCstrs :: Location loc => Lineage -> (Int,SecrecError -> SecrecError) -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
-templateCstrs lineage (i,arr) rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
-    where
-    upd (Loc l k) = Loc l $ k { kCstr = DelayedK (newLineage lineage $ kCstr k) (succ i,SecrecErrArr arr) }
 
 mkRecDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
 mkRecDec l dec@(DecType j (Just (i,_)) targs hdict hfrees bdict bfrees specs d) targs' = return dec
@@ -103,8 +98,20 @@ mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs
     ts' <- concatMapM (expandVariadicType l) targs'
     return $ DecType j (Just (i,ts')) targs hdict hfrees bdict bfrees specs d
 
-resolveTemplateEntry :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> [(Type,IsVariadic)] -> TDict -> [TDict] -> Set VarIdentifier -> TcM m DecType
-resolveTemplateEntry p n targs pargs ret olde e targs' dict dicts frees = do
+--           mapM_ discardMatchingEntry es
+--           -- return the instantiated body of the most specific declaration
+--           dec <- resolveTemplateEntry l n targs pargs ret e e' targs' subst dicts frees
+--           return dec
+
+--resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [(EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier)] -> TcM m DecType
+--resolveTemplateEntries l kid n targs pargs ret [(e,e',targs',dict,dicts,frees)] = do
+--    resolveTemplateEntry l n targs pargs ret e e' targs' dict dicts frees
+--resolveTemplateEntries l kid n targs pargs ret es = do
+--    let choice (e,e',targs',dict,dicts,frees) = ((resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees,text "resolveTemplateEntry"),(return,PP.empty),frees)
+--    multipleSubstitutions l kid (targs,pargs,ret) (map choice es)
+
+resolveTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> [(Type,IsVariadic)] -> TDict -> [TDict] -> Set VarIdentifier -> TcM m DecType
+resolveTemplateEntry p kid n targs pargs ret olde e targs' dict dicts frees = do
     State.modify $ \env -> env { tDict = dicts }
     forM_ frees addFree
     def <- ppTpltAppM p n targs pargs ret
@@ -137,6 +144,11 @@ resolveTemplateEntry p n targs pargs ret olde e targs' dict dicts frees = do
         Left _ -> return ()
     return decrec
 
+templateCstrs :: Location loc => Lineage -> (Int,SecrecError -> SecrecError) -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
+templateCstrs lineage (i,arr) rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
+    where
+    upd (Loc l k) = Loc l $ k { kCstr = DelayedK (newLineage lineage $ kCstr k) (succ i,SecrecErrArr arr) }
+
 -- removes type arguments from a template declaration, as a step of instantiation
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m (DecType,[(Constrained Var,IsVariadic)])
 removeTemplate l t@(DecType i isRec targs hdict hfrees bdict bfrees specs d@(ProcType {})) = do
@@ -168,29 +180,48 @@ ppTpltApp (Left n) args Nothing Nothing = text "struct" <+> pp n <> abrackets (s
 ppTpltApp (Right (Left n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> ppVariadic (pp $ loc e) b) $ concat args)
 ppTpltApp (Right (Right n)) targs args (Just ret) = pp ret <+> pp n <> abrackets (sepBy comma $ map pp $ concat targs) <> parens (sepBy comma $ map (\(e,b) -> pp e <+> text "::" <+> ppVariadic (pp $ loc e) b) $ concat args)
 
-compareTypeArgs :: ProverK loc m => loc -> Bool -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
-compareTypeArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ)
-compareTypeArgs l isLattice ((Constrained t1 c1,isVariadic1):xs) ((Constrained t2 c2,isVariadic2):ys) = do
-    o1 <- compares l isLattice t1 t2
-    unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "type argument") l t1 pp t2 pp Nothing
-    o2 <- compareTypeArgs l isLattice xs ys
-    appendComparisons l [o1,o2]
-compareTypeArgs l isLattice xs ys = constraintError (ComparisonException "type argument") l xs pp ys pp Nothing
+compareTwice :: (ProverK loc m,PP x,VarsId (TcM m) x) => loc -> x -> x -> x -> x -> (x -> x -> TcM m (Comparison (TcM m))) -> TcM m (Comparison (TcM m))
+compareTwice l x x' y y' cmp = do
+    o <- cmp x y
+    case compOrdering o of
+        EQ -> return o
+        otherwise -> do
+            o' <- cmp x' y'
+            case compOrdering o' of
+                EQ -> return o
+                otherwise -> constraintError (ComparisonException "comparetwice") l x' pp y' pp Nothing
 
-compareProcedureArgs :: (ProverK loc m) => loc -> Bool -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m (Comparison (TcM m))
-compareProcedureArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ)
-compareProcedureArgs l isLattice ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v2@(VarName t2 n2),isVariadic2):ys) = do
+comparesListTwice :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
+comparesListTwice l isLattice a@[] a'@[] b@[] b'@[] = return $ Comparison a b EQ
+comparesListTwice l isLattice a@(x:xs) a'@(x':xs') b@(y:ys) b'@(y':ys') = do
+    f <- compareTwice l x x' y y' (compares l isLattice)
+    g <- comparesListTwice l isLattice xs xs' ys ys'
+    appendComparison l f g
+comparesListTwice l isLattice xs xs' ys ys' = constraintError (ComparisonException "type") l xs pp ys pp Nothing
+
+compareTypeArgs :: ProverK loc m => loc -> Bool -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
+compareTypeArgs l isLattice xs@[] xs'@[] ys@[] ys'@[] = return (Comparison xs ys EQ)
+compareTypeArgs l isLattice ((Constrained t1 c1,isVariadic1):xs) ((Constrained t1' c1',isVariadic1'):xs') ((Constrained t2 c2,isVariadic2):ys) ((Constrained t2' c2',isVariadic2'):ys') = do
+    o1 <- compareTwice l t1 t1' t2 t2' (compares l isLattice)
+    unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "type argument") l t1 pp t2 pp Nothing
+    o2 <- compareTypeArgs l isLattice xs xs' ys ys'
+    appendComparisons l [o1,o2]
+compareTypeArgs l isLattice xs xs' ys ys' = constraintError (ComparisonException "type argument") l xs pp ys pp Nothing
+
+compareProcedureArgs :: (ProverK loc m) => loc -> Bool -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m (Comparison (TcM m))
+compareProcedureArgs l isLattice xs@[] xs'@[] ys@[] ys'@[] = return (Comparison xs ys EQ)
+compareProcedureArgs l isLattice ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v1'@(VarName t1' n1'),isVariadic1'):xs') ((_,v2@(VarName t2 n2),isVariadic2):ys) ((_,v2'@(VarName t2' n2'),isVariadic2'):ys') = do
 --    liftIO $ putStrLn $ "comparePArgExp " ++ ppr v1 ++ " " ++ ppr v2 ++ " "
-    o0 <- comparesExpr l True (varExpr v1) (varExpr v2)
+    o0 <- compareTwice l (varExpr v1) (varExpr v1') (varExpr v2) (varExpr v2') (comparesExpr l True)
 --    liftIO $ putStr $ show (compOrdering o0)
-    ss <- getTSubsts l
-    o1 <- compares l isLattice t1 t2
+    --ss <- getTSubsts l
+    o1 <- compareTwice l t1 t1' t2 t2' (compares l isLattice)
     --liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
 --    liftIO $ putStr $ show (compOrdering o1)
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
-    o2 <- compareProcedureArgs l isLattice xs ys
+    o2 <- compareProcedureArgs l isLattice xs xs' ys ys'
     appendComparisons l [o0,o1,o2]
-compareProcedureArgs l isLattice xs ys = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
+compareProcedureArgs l isLattice xs xs' ys ys' = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
 
 -- | Tells if one declaration is strictly more specific than another, and if not it fails.
 -- Since we are unifying base types during instantiation, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
@@ -199,17 +230,19 @@ compareProcedureArgs l isLattice xs ys = constraintError (ComparisonException "p
 -- bool f (int x) { ... }     (1)
 -- bool f (T x) { ... }       (2)
 -- bool f (T [[N]] x) { ... } (3)
--- We would be choosing choosing (1), even though the best match is in principle (2), that does not instantiate T.
+-- We would be choosing (1), even though the best match is in principle (2), that does not instantiate T.
 -- doesn't take into consideration index conditions
 -- compare original declarations, not instantiated ones
 compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier) -> TcM m Ordering
-compareTemplateDecls def l isLattice n (e1,_,_,d1,_,_) (e2,_,_,d2,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
+compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_) (e2,e2',_,d2,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
     --liftIO $ putStrLn $ "compareTemplateDecls " ++ ppr e1 ++ "\n" ++ ppr e2
     State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
     --e1' <- localTemplate e1
     --e2' <- localTemplate e2
     (targs1,pargs1,ret1) <- templateArgs (entryLoc e1) n (entryType e1)
+    (targs1',pargs1',ret1') <- templateArgs (entryLoc e1) n (entryType e1)
     (targs2,pargs2,ret2) <- templateArgs (entryLoc e2) n (entryType e2)
+    (targs2',pargs2',ret2') <- templateArgs (entryLoc e2) n (entryType e2)
     unless (isJust ret1 == isJust ret2) $ error $ "declarations should have the same type " ++ ppr e1 ++ "\n" ++ ppr e2
     --removeTSubsts $ tpltTyVars targs1
     --removeTSubsts $ tpltTyVars targs2
@@ -221,10 +254,10 @@ compareTemplateDecls def l isLattice n (e1,_,_,d1,_,_) (e2,_,_,d2,_,_) = liftM f
 --        liftIO $ putStrLn $ "compareTplt " ++ ppr l ++" "++ show (fmap (map (ppVarTy . unConstrained. snd3)) pargs1) ++" "++ ppr ret1 ++" "++ show (fmap (map (ppVarTy . unConstrained. snd3)) pargs2) ++" "++ ppr ret2
         ord2 <- if (isJust ret1)
             -- for procedures, compare the procedure arguments
-            then compareProcedureArgs l isLattice (concat pargs1) (concat pargs2)
+            then compareProcedureArgs l isLattice (concat pargs1) (concat pargs1') (concat pargs2) (concat pargs2')
             -- for structs, compare the specialization types
-            else compareTypeArgs l isLattice (concat targs1) (concat targs2)
-        ord3 <- comparesList l isLattice (maybeToList ret1) (maybeToList ret2)
+            else compareTypeArgs l isLattice (concat targs1) (concat targs1') (concat targs2) (concat targs2')
+        ord3 <- comparesListTwice l isLattice (maybeToList ret1) (maybeToList ret1') (maybeToList ret2) (maybeToList ret2')
         ord4 <- comparesDecIds (entryType e1) (entryType e2)
         appendComparisons l [ord2,ord3,ord4]
     when (compOrdering ord == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
@@ -424,11 +457,11 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
                         bgr1 <- fromPureCstrs bgr''
                         hgr1 <- fromPureCstrs hgr''
-                        let gr1 = unionGr bgr1 hgr1
-                        let depCstrs = TDict gr1 Set.empty subst' recs''
-                        --depCstrs <- mergeDependentCstrs l subst' bgr''
+                        --let gr1 = unionGr bgr1 hgr1
+                        --let depCstrs = TDict gr1 Set.empty subst' recs''
+                        depCstrs <- mergeDependentCstrs l (TDict hgr1 Set.empty subst' recs'') (TDict bgr1 Set.empty emptyTSubsts mempty)
                         debugTc $ do
-                            remainder <- ppConstraints gr1
+                            remainder <- ppConstraints $ tCstrs depCstrs
                             liftIO $ putStrLn $ "remainder" ++ ppr n ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
@@ -438,14 +471,14 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',depCstrs,dicts,frees)
 
 -- merge two dictionaries with the second depending on the first
---mergeDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m (TDict)
---mergeDependentCstrs l from to = do
---    let froms = map fst $ endsGr $ tCstrs from
---    let tos = map fst $ rootsGr $ tCstrs to
---    let deps = [ (f,t) | f <- froms, t <- tos ]
---    fromto <- appendTDict l CheckS from to
---    let merge = foldl' (\d (f,t) -> d { tCstrs = insEdge (f,t,()) (tCstrs d) } ) fromto deps
---    return merge
+mergeDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m (TDict)
+mergeDependentCstrs l from to = do
+    let froms = map fst $ endsGr $ tCstrs from
+    let tos = map fst $ rootsGr $ tCstrs to
+    let deps = [ (f,t) | f <- froms, t <- tos ]
+    fromto <- appendTDict l CheckS from to
+    let merge = foldl' (\d (f,t) -> d { tCstrs = insEdge (f,t,()) (tCstrs d) } ) fromto deps
+    return merge
 
 templateIdentifier :: Type -> TIdentifier
 templateIdentifier (DecT t) = templateIdentifier' t

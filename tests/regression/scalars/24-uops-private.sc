@@ -22,12 +22,12 @@ sharemind_test_pd bool operator == (sharemind_test_pd int x,sharemind_test_pd in
 
 sharemind_test_pd bool operator ! (sharemind_test_pd bool x) {
     //stub
-    sharemind_test_pd bool ret;
+    havoc sharemind_test_pd bool ret;
     return ret;
 }
 sharemind_test_pd int operator - (sharemind_test_pd int x) {
     //stub
-    sharemind_test_pd int ret;
+    havoc sharemind_test_pd int ret;
     return ret;
 }
 

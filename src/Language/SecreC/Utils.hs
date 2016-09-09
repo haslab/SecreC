@@ -589,6 +589,11 @@ fst3 (x,y,z) = x
 snd3 (x,y,z) = y
 thr3 (x,y,z) = z
 
+fst4 (x,y,z,w) = x
+snd4 (x,y,z,w) = y
+thr4 (x,y,z,w) = z
+fou4 (x,y,z,w) = w
+
 instance Hashable Unique where
     hashWithSalt i a = hashWithSalt i (hashUnique a)
 
