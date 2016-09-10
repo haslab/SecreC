@@ -41,7 +41,10 @@ import Control.Monad.IO.Class
 import Control.Monad.Except
 import Control.Monad.Reader as Reader
 
+import Control.Concurrent.Async
+
 import Text.PrettyPrint hiding (mode,Mode(..))
+import qualified Text.PrettyPrint as PP
 import qualified Text.Parsec as Parsec
 import qualified Text.ParserCombinators.Parsec.Number as Parsec
 
@@ -149,6 +152,8 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         let bplfile2 = "out_axiom.bpl"
         let bpllfile = "out_leak.bpl"
         let bpllfile2 = "out_leak_axiom.bpl"
+        
+        -- generate dafny files
         when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
         prelude <- liftIO dafnyPrelude
         es <- getEntryPoints files
@@ -157,20 +162,47 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output leakage file" <+> text (show dfylfile)
         (dfyl,axsl) <- toDafny prelude True es
         liftIO $ writeFile dfylfile (show dfyl)
-        compileDafny False (debugVerification opts) dfyfile bplfile
-        axiomatizeBoogaman (debugVerification opts) axs bplfile bplfile2
-        runBoogie False (debugVerification opts) bplfile2
-        compileDafny True (debugVerification opts) dfylfile bpllfile
-        shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
-        runBoogie True (debugVerification opts) bpllfile2
+        
+        -- verify functional specification
+        let func = do
+            ok1 <- compileDafny False (debugVerification opts) dfyfile bplfile
+            axiomatizeBoogaman (debugVerification opts) axs bplfile bplfile2
+            ok2 <- runBoogie False (debugVerification opts) bplfile2
+            return (mappend ok1 ok2)
+        
+        -- verify leakage specification
+        let spec = do
+            ok1 <- compileDafny True (debugVerification opts) dfylfile bpllfile
+            shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
+            ok2 <- runBoogie True (debugVerification opts) bpllfile2
+            return (mappend ok1 ok2)
 
-command :: (MonadIO m,MonadError SecrecError m) => Bool -> String -> m ()
+        (fres,sres) <- lift $ concurrently func spec
+        let res = mappend fres sres
+        printStatus res
+
+newtype Status = Status { unStatus :: Either Doc SecrecError }
+
+instance Monoid Status where
+    mempty = Status $ Left PP.empty
+    mappend (Status (Left d1)) (Status (Left d2)) = Status $ Left $ d1 $+$ d2
+    mappend (Status (Right err)) _ = Status $ Right err
+    mappend _ (Status (Right err)) = Status $ Right err
+
+statusOk :: Status
+statusOk = mempty
+
+printStatus :: (MonadIO m,MonadError SecrecError m) => Status -> m ()
+printStatus (Status (Left d)) = liftIO $ putStrLn $ show d
+printStatus (Status (Right err)) = throwError err
+
+command :: (MonadIO m) => Bool -> String -> m Status
 command doDebug cmd = do
     when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show cmd
     exit <- liftIO $ system cmd
     case exit of
-        ExitSuccess -> return ()
-        ExitFailure err -> genError noloc $ int err
+        ExitSuccess -> return statusOk
+        ExitFailure err -> return $ Status $ Right $ GenericError noloc (int err) Nothing
 
 commandOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> String -> m String
 commandOutput doDebug str = do
@@ -183,19 +215,19 @@ commandOutput doDebug str = do
         ExitSuccess -> return result
         ExitFailure code -> genError noloc $ text "error:" <+> int code $+$ text result
 
-shellyOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> String -> [String] -> m String
+shellyOutput :: (MonadIO m) => Bool -> String -> [String] -> m String
 shellyOutput doDebug name args = do
     when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show (name ++ " " ++ unwords args)
     result <- liftIO $ Shelly.shelly $ Shelly.silently $ Shelly.run (Shelly.fromText $ Text.pack name) (map Text.pack args)
     return $ Text.unpack result
 
-compileDafny :: (MonadIO m,MonadError SecrecError m) => Bool -> Bool -> FilePath -> FilePath -> m ()
+compileDafny :: (MonadIO m) => Bool -> Bool -> FilePath -> FilePath -> m Status
 compileDafny isLeak isDebug dfy bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Compiling Dafny file" <+> text (show dfy)
     res <- shellyOutput isDebug "dafny" ["/compile:0",dfy,"/print:"++bpl,"/noVerify"]
     verifOutput isLeak True res
 
-verifOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> Bool -> String -> m ()
+verifOutput :: (MonadIO m) => Bool -> Bool -> String -> m Status
 verifOutput isLeak isDafny output = do
     let w = last $ lines output
     let tool = if isDafny then "Dafny" else "Boogie"
@@ -214,12 +246,13 @@ verifOutput isLeak isDafny output = do
         return (verified,errors)
     let e = Parsec.parse parser "output" w
     case e of
-        Left err -> genError noloc $ text "error parsing verification output: " <+> text (show err)
+        Left err -> return $ Status $ Right $ GenericError noloc (text "error parsing verification output: " <+> text (show err)) Nothing
         Right (oks,kos) -> do
             let c = if isLeak then "leakage" else "functional"
-            unless isDafny $ liftIO $ putStrLn $ show $ text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
+            let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
+            return $ Status $ Left res
 
-axiomatizeBoogaman :: (MonadIO m,MonadError SecrecError m) => Bool -> [String] -> FilePath -> FilePath -> m ()
+axiomatizeBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath -> m Status
 axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Axiomatizing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
@@ -228,7 +261,7 @@ axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do
         <+> Pretty.sepBy space (map addaxiom axioms)
         <+> text ">" <+> text bpl2
     
-shadowBoogaman :: (MonadIO m,MonadError SecrecError m) => Bool -> [String] -> FilePath -> FilePath -> m ()
+shadowBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath -> m Status
 shadowBoogaman isDebug axioms bpl1 bpl2 = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Shadowing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
@@ -240,7 +273,7 @@ shadowBoogaman isDebug axioms bpl1 bpl2 = do
         <+> Pretty.sepBy space (map addaxiom $ axioms)
         <+> text ">" <+> text bpl2
 
-runBoogie :: (MonadIO m,MonadError SecrecError m) => Bool -> Bool -> FilePath -> m ()
+runBoogie :: (MonadIO m) => Bool -> Bool -> FilePath -> m Status
 runBoogie isLeak isDebug bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Verifying Boogie file" <+> text (show bpl)
     res <- shellyOutput isDebug "boogie" ["/doModSetAnalysis",bpl]

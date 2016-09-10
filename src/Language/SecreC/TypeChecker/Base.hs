@@ -937,7 +937,7 @@ instance PP TcCstr where
     pp (SupportedPrint ts xs) = text "print" <+> sepBy space (map pp ts) <+> sepBy space (map pp xs)
     pp (ProjectStruct t a x) = pp t <> char '.' <> pp a <+> char '=' <+> pp x
     pp (ProjectMatrix t as x) = pp t <> brackets (sepBy comma $ map pp as) <+> char '=' <+> pp x
-    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> vcat (map (\(x,y,z) -> pp x $+$ nest 4 (text "=>" $+$ pp y)) s)
+    pp (MultipleSubstitutions v s) = text "multiplesubstitutions" <+> pp v <+> vcat (map (\(x,y,z) -> pp x $+$ nest 4 (text "=>" $+$ pp y <+> text ":" <+> pp z)) s)
     pp (MatchTypeDimension d sz) = text "matchtypedimension" <+> pp d <+> pp sz
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (NotEqual e1 e2) = text "not equal" <+> pp e1 <+> pp e2
