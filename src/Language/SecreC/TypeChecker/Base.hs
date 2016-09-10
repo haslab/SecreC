@@ -676,10 +676,10 @@ isDelayableCstr k = everything orM (mkQ (return False) mk) k
         return (is1 || isResolveTcCstr x)
 
 isMultipleSubstsTcCstr :: VarsIdTcM m => TcCstr -> TcM m Bool
+isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
 isMultipleSubstsTcCstr (MultipleSubstitutions ts _) = do
     xs::Set VarIdentifier <- fvsSet ts
     if Set.null xs then return False else return True
-isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
 isMultipleSubstsTcCstr _ = return False
 
 isResolveTcCstr :: TcCstr -> Bool
