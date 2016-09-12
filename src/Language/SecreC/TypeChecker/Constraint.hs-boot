@@ -55,10 +55,10 @@ constraintList :: (ProverK loc m,VarsId (TcM m) [a],VarsId (TcM m) [b]) =>
     -> (a -> b -> TcM m x) -> loc -> [a] -> [b] -> TcM m [x]
 
 data Comparison m where
-    Comparison :: VarsId m a => a -> a -> Ordering -> Comparison m
+    Comparison :: VarsId m a => a -> a -> Ordering -> Ordering -> Comparison m
   deriving (Typeable)
 
-compOrdering :: Comparison m -> Ordering
+compOrdering :: Comparison m -> (Ordering,Ordering)
 
 appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (TcM m) -> TcM m (Comparison (TcM m))
 

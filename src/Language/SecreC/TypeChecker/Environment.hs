@@ -471,8 +471,8 @@ newOperator hdeps op = do
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
     let o = funit op
-    (_,recdict) <- tcProve l "newOp head" $ addHeadTFlatCstrs l hdeps
-    addHeadTDict l recdict
+    (_,recdict) <- tcProve l "newOp head" $ addHeadTFlatCstrs l "newOp head" hdeps
+    addHeadTDict l "newOp" recdict
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
@@ -533,8 +533,8 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
     -- prove the head constraints first
-    (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l hdeps
-    addHeadTDict l recdict
+    (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l "newProc head" hdeps
+    addHeadTDict l "newProcedureFunction" recdict
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
@@ -557,8 +557,8 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 newAxiom :: ProverK loc m => loc -> Deps -> [(Constrained Var,IsVariadic)] -> InnerDecType -> TcM m DecType
 newAxiom l hdeps tvars d = do
     -- prove the head constraints first
-    (_,recdict) <- tcProve l "newAxiom head" $ addHeadTFlatCstrs l hdeps
-    addHeadTDict l recdict
+    (_,recdict) <- tcProve l "newAxiom head" $ addHeadTFlatCstrs l "newAxiom head" hdeps
+    addHeadTDict l "newAxiom" recdict
     i <- newModuleTyVarId
     frees <- getFrees l
     d' <- substFromTDict "newAxiom head" l recdict False Map.empty d
@@ -814,8 +814,8 @@ newStruct :: (ProverK loc m) => Deps -> TypeName VarIdentifier (Typed loc) -> Tc
 newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     addGDependencies $ TIden n
     -- solve head constraints
-    (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l hdeps
-    addHeadTDict l recdict
+    (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l "newStruct head" hdeps
+    addHeadTDict l "newStruct" recdict
     i <- newModuleTyVarId
     -- add a temporary declaration for recursive invocations
     frees <- getFrees l
@@ -981,7 +981,7 @@ resolveIOCstr l iok resolve = do
     case st of
         Evaluated rest x -> do
             remove
-            addHeadTDict l rest
+            addHeadTDict l "resolveIOCstr" rest
             --liftIO $ putStrLn $ "restored constraint " ++ ppr (ioCstrId iok) ++ "\n" ++ ppr rest
             return x
         Erroneous err -> throwError err
@@ -995,7 +995,7 @@ resolveIOCstr l iok resolve = do
         remove
         liftIO $ writeIdRef (kStatus iok) $ Evaluated rest x
         closeCstr
-        addHeadTDict l rest
+        addHeadTDict l "resolveIOCstr" rest
         -- register constraints dependencies from the dictionary into the global state
         registerIOCstrDependencies iok gr ctx
         --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
@@ -1060,14 +1060,14 @@ getCstrNodes = do
 getCstrs :: Monad m => TcM m IOCstrGraph
 getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . tDict)
 
-addHeadTDict :: (ProverK loc m) => loc -> TDict -> TcM m ()
-addHeadTDict l d = updateHeadTDict l "addHeadTDict" $ \x -> liftM ((),) $ appendTDict l NoFailS x d
+addHeadTDict :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
+addHeadTDict l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l NoFailS x d
 
-addHeadTCstrs :: (ProverK loc m) => loc -> IOCstrGraph -> TcM m ()
-addHeadTCstrs l ks = addHeadTDict l $ TDict ks Set.empty emptyTSubsts mempty
+addHeadTCstrs :: (ProverK loc m) => loc -> String -> IOCstrGraph -> TcM m ()
+addHeadTCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict ks Set.empty emptyTSubsts mempty
 
-addHeadTFlatCstrs :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m ()
-addHeadTFlatCstrs l ks = addHeadTDict l $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty) mempty
+addHeadTFlatCstrs :: (ProverK loc m) => loc -> String -> Set LocIOCstr -> TcM m ()
+addHeadTFlatCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty) mempty
     where nodes = map (\n -> (ioCstrId $ unLoc n,n)) $ Set.toList ks
 
 getHyps :: (MonadIO m) => TcM m Deps
@@ -1083,7 +1083,7 @@ getDeps = do
 tcWithCstrs :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,Set LocIOCstr)
 tcWithCstrs l msg m = do
     (x,d) <- tcWith (locpos l) msg m
-    addHeadTDict l d
+    addHeadTDict l (msg++" tcWithCstrs") d
     return (x,flattenIOCstrGraphSet $ tCstrs d)
 
 cstrSetToGraph :: Location loc => loc -> Set IOCstr -> IOCstrGraph
