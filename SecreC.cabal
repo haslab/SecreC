@@ -43,6 +43,7 @@ test-suite tests
     , hashable == 1.2.3.2
     , hspec   
     , hspec-contrib
+    , hspec-core
 
 --Library
 --  exposed-modules:

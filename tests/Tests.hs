@@ -13,6 +13,7 @@ import System.Exit
 import Test.HUnit.Base
 import Test.Hspec
 import Test.Hspec.Contrib.HUnit (fromHUnitTest)
+import Test.Hspec.Core.Runner (hspecWith, Config(..),defaultConfig)
 
 buildTestTree :: IO Test
 buildTestTree = do
