@@ -68,6 +68,7 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
     let oks = rights instances
     let errs = lefts instances
     def <- ppTpltAppM l n targs pargs ret
+    opts <- askOpts
     case oks of
         [] -> do
             defs <- forM errs $ \(e,err) -> do
@@ -83,16 +84,16 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
         -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
         otherwise -> if backtrack opts
             then do
-                es <- compMins (compareTemplateDecls def l (implicitCoercion opts) n) [] oks
+                es <- compMins (compareTemplateDecls def l (implicitCoercions opts) n) [] oks
                 dec <- resolveTemplateEntries l kid n targs pargs ret es
                 debugTc $ do
                     n <- State.gets (length . tDict)
                     liftIO $ putStrLn $ "matchedTemplate " ++ ppr kid ++ " " ++ ppr dec ++ " " ++ ppr n
                 return dec
             else do
-                (e,e',targs',dict,dicts,frees):es <- sortByM (compareTemplateDecls def l False n) oks
+                (e,e',targs',dict,promotes,frees):es <- sortByM (\x y -> compareTemplateDecls def l False n x y >>= \(o1,o2) -> return (mappend o1 o2)) oks
                 mapM_ discardMatchingEntry es
-                resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees
+                resolveTemplateEntry l kid n targs pargs ret e e' targs' dict promotes frees
             
 
 -- sort the templates, filtering out greater templates that do not template on coercions
