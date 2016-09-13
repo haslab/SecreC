@@ -747,8 +747,8 @@ data TcCstr
     | NotEqual -- expressions not equal
         Expr Expr
     | TypeBase Type BaseType
-    | IsPublic Type
-    | IsPrivate Type
+    | IsPublic Bool Type
+    | IsPrivate Bool Type
     | ToMultiset Type ComplexType
     | Resolve Type
     | Default (Maybe [(Expr,IsVariadic)]) Expr
@@ -942,8 +942,8 @@ instance PP TcCstr where
     pp (IsValid c) = text "isvalid" <+> pp c
     pp (NotEqual e1 e2) = text "not equal" <+> pp e1 <+> pp e2
     pp (TypeBase t b) = text "typebase" <+> pp t <+> pp b
-    pp (IsPublic e) = text "ispublic" <+> pp e
-    pp (IsPrivate e) = text "isprivate" <+> pp e
+    pp (IsPublic b e) = text "ispublic" <+> pp b <+> pp e
+    pp (IsPrivate b e) = text "isprivate" <+> pp b <+> pp e
     pp (Resolve e) = text "resolve" <+> pp e
     pp (Default szs e) = text "default" <+> pp szs <+> ppExprTy e
     pp (ToMultiset t r) = text "tomultiset" <+> pp t <+> pp r
@@ -1131,12 +1131,14 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TcCstr where
         e1' <- f e1
         e2' <- f e2
         return $ NotEqual e1' e2'
-    traverseVars f (IsPublic c) = do
+    traverseVars f (IsPublic b c) = do
+        b' <- f b
         c' <- f c
-        return $ IsPublic c'
-    traverseVars f (IsPrivate c) = do
+        return $ IsPublic b' c'
+    traverseVars f (IsPrivate b c) = do
+        b' <- f b
         c' <- f c
-        return $ IsPrivate c'
+        return $ IsPrivate b' c'
     traverseVars f (Resolve t) = do
         t' <- f t
         return $ Resolve t'

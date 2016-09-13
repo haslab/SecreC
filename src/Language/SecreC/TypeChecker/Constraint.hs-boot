@@ -121,3 +121,4 @@ unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 unifiesExprTy :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m ()
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
+equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()

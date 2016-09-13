@@ -129,7 +129,7 @@ tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
     let tdta = typed $ loc dta'
     -- enforce structs to be public
     case tdta of
-        BaseT (TApp {}) -> tcCstrM_ l $ IsPublic tsec
+        BaseT (TApp {}) -> tcCstrM_ l $ IsPublic True tsec
         otherwise -> return ()
     (dim',tdim) <- tcMbDimtypeSpec l (pp tsec <+> pp tdta) dim
     t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic
@@ -409,31 +409,34 @@ typeBase l (ComplexT (CVar v@(nonTok -> True) _)) = do
 typeBase l (VAType b sz) = return b
 typeBase l t = genTcError (locpos l) $ text "No static base type for type" <+> quotes (pp t)
     
-isPublic :: ProverK loc m => loc -> Type -> TcM m ()
-isPublic l (BaseT b) = return ()
-isPublic l (ComplexT (CVar v@(nonTok -> True) _)) = do
+isPublic :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
+isPublic l doUnify (BaseT b) = return ()
+isPublic l doUnify (ComplexT (CVar v@(nonTok -> True) _)) = do
     ct <- resolveCVar l v
-    isPublic l (ComplexT ct)
-isPublic l (ComplexT (CType s _ _)) = isPublicSec l s
-isPublic l (SecT s) = isPublicSec l s
-isPublic l t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
+    isPublic l doUnify (ComplexT ct)
+isPublic l doUnify (ComplexT (CType s _ _)) = isPublicSec l doUnify s
+isPublic l doUnify (SecT s) = isPublicSec l doUnify s
+isPublic l doUnify t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
     
-isPublicSec :: ProverK loc m => loc -> SecType -> TcM m ()
-isPublicSec l s = unifiesSec l s Public
+isPublicSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
+isPublicSec l True s = unifiesSec l s Public
+isPublicSec l False s = equalsSec l s Public
     
-isPrivate :: ProverK loc m => loc -> Type -> TcM m ()
-isPrivate l (ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
+isPrivate :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
+isPrivate l doUnify (ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
     ct <- resolveCVar l v
-    isPrivate l (ComplexT ct)
-isPrivate l (ComplexT (CType s _ _)) = isPrivateSec l s
-isPrivate l (SecT s) = isPrivateSec l s
-isPrivate l t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
+    isPrivate l doUnify (ComplexT ct)
+isPrivate l doUnify (ComplexT (CType s _ _)) = isPrivateSec l doUnify s
+isPrivate l doUnify (SecT s) = isPrivateSec l doUnify s
+isPrivate l doUnify t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
     
-isPrivateSec :: ProverK loc m => loc -> SecType -> TcM m ()
-isPrivateSec l s = do
+isPrivateSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
+isPrivateSec l True s = do
     k' <- newKindVar "pk" True Nothing
     s' <- newDomainTyVar "ps" k' Nothing
     unifiesSec l s s'
+isPrivateSec l False (Private {}) = return ()
+isPrivateSec l False s = genTcError (locpos l) $ text "security type" <+> pp s <+> text "is not private"
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeSize l (BaseT _) = return $ indexExpr 1

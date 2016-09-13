@@ -184,13 +184,13 @@ tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (pp qe) $ tcLocal l "tcExpr quan
         t' <- tcTypeSpec t False
         let ty = typed $ loc t'
         let v' = bimap mkVarId (flip Typed ty) v
-        topTcCstrM_ l $ IsPublic $ typed $ loc v'
+        topTcCstrM_ l $ IsPublic True $ typed $ loc v'
         isAnn <- getAnn
         newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
         return (t',v')
 tcExpr le@(LeakExpr l e) = onlyLeak l (pp le) $ onlyAnn l (pp le) $ do
     e' <- tcExpr e
-    topTcCstrM_ l $ IsPrivate $ typed $ loc e'
+    topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
     return $ LeakExpr (Typed l $ BaseT bool) e'
 tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     let vn = bimap mkVarId id n
