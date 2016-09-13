@@ -20,13 +20,13 @@ int one () { return 1; }
 
 sharemind_test_pd bool ft () { return true; }
 
-//void ret () {
-//  if (true) return;
-//  assert (false);
-//}
+void ret () {
+  if (true) return;
+  assert (false);
+}
 
 void main() {
-  //ret ();
-  //assert (one() == 1);
+  ret ();
+  assert (one() == 1);
   assert (declassify (ft() == true));
 }

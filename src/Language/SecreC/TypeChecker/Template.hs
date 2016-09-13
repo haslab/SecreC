@@ -80,17 +80,20 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
         [(e,e',targs',subst,dicts,frees)] -> do
             dec <- resolveTemplateEntry l kid n targs pargs ret e e' targs' subst dicts frees
             return dec
-        otherwise -> do
-            -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
-            --(e,e',targs',dict,dicts,frees):es <- sortByM (compareTemplateDecls def l False n) oks
-            --mapM_ discardMatchingEntry es
-            --resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees
-            es <- compMins (compareTemplateDecls def l False n) [] oks
-            dec <- resolveTemplateEntries l kid n targs pargs ret es
-            debugTc $ do
-                n <- State.gets (length . tDict)
-                liftIO $ putStrLn $ "matchedTemplate " ++ ppr kid ++ " " ++ ppr dec ++ " " ++ ppr n
-            return dec
+        -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
+        otherwise -> if backtrack opts
+            then do
+                es <- compMins (compareTemplateDecls def l (implicitCoercion opts) n) [] oks
+                dec <- resolveTemplateEntries l kid n targs pargs ret es
+                debugTc $ do
+                    n <- State.gets (length . tDict)
+                    liftIO $ putStrLn $ "matchedTemplate " ++ ppr kid ++ " " ++ ppr dec ++ " " ++ ppr n
+                return dec
+            else do
+                (e,e',targs',dict,dicts,frees):es <- sortByM (compareTemplateDecls def l False n) oks
+                mapM_ discardMatchingEntry es
+                resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees
+            
 
 -- sort the templates, filtering out greater templates that do not template on coercions
 compMins :: Monad m => (a -> a -> m (Ordering,Ordering)) -> [a] -> [a] -> m [a]

@@ -111,6 +111,7 @@ instance PP Options where
           <+> text "--debugtransformation=" <> pp (debugTransformation opts)
           <+> text "--debugverify=" <> pp (debugVerification opts)
           <+> text "--implicitcoercions=" <> pp (implicitCoercions opts)
+          <+> text "--backtrack=" <> pp (backtrack opts)
           <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
           <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
           <+> text "--evaltimeout=" <> pp (evalTimeOut opts)
@@ -143,6 +144,7 @@ optionsDecl  = Opts {
     
     -- Typechecker
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"
+    , backtrack   = backtrack defaultOptions &= help "Allows the typechecker to try multiple options" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"

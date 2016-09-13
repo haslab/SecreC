@@ -55,6 +55,7 @@ data Options
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitCoercions      :: Bool
+        , backtrack              :: Bool
         , failTypechecker       :: Bool
         , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
@@ -83,6 +84,7 @@ instance Monoid Options where
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitCoercions = implicitCoercions x && implicitCoercions y
+        , backtrack = backtrack x && backtrack y
         , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
         , failTypechecker = failTypechecker x || failTypechecker y
         , externalSMT = externalSMT x && externalSMT y
@@ -108,6 +110,7 @@ defaultOptions = Opts
     , constraintStackSize = 100
     , evalTimeOut = 5
     , implicitCoercions = True
+    , backtrack = True
     , implicitBuiltin = True
     , failTypechecker = False
     , externalSMT = True
