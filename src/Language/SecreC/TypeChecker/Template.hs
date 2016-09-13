@@ -85,8 +85,12 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
             --(e,e',targs',dict,dicts,frees):es <- sortByM (compareTemplateDecls def l False n) oks
             --mapM_ discardMatchingEntry es
             --resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees
-            es <- compMins (compareTemplateDecls def l True n) [] oks
-            resolveTemplateEntries l kid n targs pargs ret es
+            es <- compMins (compareTemplateDecls def l False n) [] oks
+            dec <- resolveTemplateEntries l kid n targs pargs ret es
+            debugTc $ do
+                n <- State.gets (length . tDict)
+                liftIO $ putStrLn $ "matchedTemplate " ++ ppr kid ++ " " ++ ppr dec ++ " " ++ ppr n
+            return dec
 
 -- sort the templates, filtering out greater templates that do not template on coercions
 compMins :: Monad m => (a -> a -> m (Ordering,Ordering)) -> [a] -> [a] -> m [a]
@@ -112,7 +116,7 @@ compMins cmp (min:mins) (x:xs) = do
             else compMins cmp [x] xs
 compMins cmp mins [] = return mins
 
-discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier) -> TcM m ()
+discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier) -> TcM m ()
 discardMatchingEntry (e,e',_,dict,_,frees) = forM_ frees removeFree
 
 mkRecDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
@@ -122,17 +126,22 @@ mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs
     ts' <- concatMapM (expandVariadicType l) targs'
     return $ DecType j (Just (i,ts')) targs hdict hfrees bdict bfrees specs d
 
-resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [(EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier)] -> TcM m DecType
+resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [(EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier)] -> TcM m DecType
 resolveTemplateEntries l kid n targs pargs ret [(e,e',targs',dict,dicts,frees)] = do
     resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees
 resolveTemplateEntries l kid n targs pargs ret es = do
     debugTc $ liftIO $ putStrLn $ "resolveTemplateEntries " ++ ppr kid
-    let choice (e,e',targs',dict,dicts,frees) = ((resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees,text "resolveTemplateEntry"),(return,PP.empty),(return,PP.empty),frees)
+    let choice (e,e',targs',dict,dicts,frees) = ((resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees,text "resolveTemplateEntry" <+> pp kid),(return,PP.empty),(return,PP.empty),frees)
     multipleSubstitutions l kid (targs,pargs,ret) (map choice es)
 
-resolveTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> [(Type,IsVariadic)] -> TDict -> [TDict] -> Set VarIdentifier -> TcM m DecType
-resolveTemplateEntry p kid n targs pargs ret olde e targs' dict dicts frees = do
-    State.modify $ \env -> env { tDict = dicts }
+resolveTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> [(Type,IsVariadic)] -> TDict -> Set Int -> Set VarIdentifier -> TcM m DecType
+resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees = do
+    -- delete promoted constraints
+    tops <- topCstrs p
+    let tops' = mapSet (ioCstrId . unLoc) tops
+    let rels' = Set.union tops' promoted
+    buildCstrGraph p rels'              
+    -- remove frees
     forM_ frees addFree
     def <- ppTpltAppM p n targs pargs ret
     -- guarantee that the most specific template can be fully instantiated
@@ -254,7 +263,7 @@ compareProcedureArgs l isLattice xs xs' ys ys' = constraintError (ComparisonExce
 -- We would be choosing (1), even though the best match is in principle (2), that does not instantiate T.
 -- doesn't take into consideration index conditions
 -- compare original declarations, not instantiated ones
-compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier) -> TcM m (Ordering,Ordering)
+compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier) -> TcM m (Ordering,Ordering)
 compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_) (e2,e2',_,d2,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
     --liftIO $ putStrLn $ "compareTemplateDecls " ++ ppr e1 ++ "\n" ++ ppr e2
     State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
@@ -294,7 +303,7 @@ comparesDecIds d1 d2 = return $ Comparison d1 d2 EQ EQ -- do nothing
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
-instantiateTemplateEntries :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> [EntryEnv] -> TcM m [Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier)]
+instantiateTemplateEntries :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> [EntryEnv] -> TcM m [Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier)]
 instantiateTemplateEntries l doCoerce n targs pargs ret rets es = do
     mapM (instantiateTemplateEntry l doCoerce n targs pargs ret rets) es
 
@@ -412,7 +421,7 @@ coerceProcedureArgs doCoerce l lhs rhs = do
         return ()
     return ()
 
-instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,[TDict],Set VarIdentifier))
+instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier))
 instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = newErrorM $ tcDictBlock $ withFrees $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
@@ -441,9 +450,9 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 return ()
             -- try to make progress on general constraints that may be bound to bindings of this instance
             let promote = do
+                vs <- liftM Map.keysSet $ fvs (n,targs,pargs,ret)
                 tops <- topCstrs l
                 let tops' = mapSet (ioCstrId . unLoc) tops
-                vs <- liftM Map.keysSet $ fvs (n,targs,pargs,ret)
                 rels <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
                 let rels' = mapSet (ioCstrId . unLoc) rels
                 buildCstrGraph l rels'
@@ -458,20 +467,21 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
                     --doc <- liftM ppTSubsts $ getTSubsts l
                     --liftIO $ putStrLn $ show doc
-                return ()
+                return rels'
             mode <- defaultSolveMode
             ok <- orError $ tcWith (locpos p) "instantiate" $ do
                 addDicts >> matchName >> proveHead
                 solveWith p ("instantiate with names " ++ ppr n ++ " " ++ ppr p ++ " " ++ ppr l ++ " " ++ show mode) mode
-                promote
+                promoted <- promote
                 solveWith p ("promote " ++ ppr n) (mode { solveFail = FirstFail False })
+                return promoted
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
             case ok of
                 Left err -> do
                     debugTc $ liftIO $ putStrLn $ "failed to instantiate " ++ ppr n ++" "++ show (decTypeTyVarId $ unDecT $ entryType e) ++ "\n" ++ ppr err
                     return $ Left (e,err)
-                Right (_,TDict hgr _ subst recs) -> do
+                Right (promoted,TDict hgr _ subst recs) -> do
                         --removeIOCstrGraphFrees hgr
                         (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
                         bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
@@ -489,8 +499,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
                         frees <- getFrees l
-                        dicts <- State.gets tDict
-                        return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',depCstrs,dicts,frees)
+                        return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',depCstrs,promoted,frees)
 
 -- merge two dictionaries with the second depending on the first
 mergeDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m (TDict)

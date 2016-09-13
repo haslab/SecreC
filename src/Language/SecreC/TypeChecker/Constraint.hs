@@ -146,7 +146,7 @@ solveMb l msg mode cs = do
             mb <- solveCstrs l msg mode
             --liftIO $ putStrLn $ "solved " ++ show msg ++ " " ++ ppr l
             --updateHeadTCstrs $ \d -> return ((),Graph.nfilter (`elem` Graph.nodes gr) d)
-            --liftIO $ putStrLn $ "solved " ++ msg ++ " " ++ ppr l ++ ppr (isJust mb)
+            debugTc $ liftIO $ putStrLn $ "solvedMb " ++ msg ++ " " ++ ppr l ++ ppr (isJust mb)
             return mb
 
 priorityRoots :: ProverK Position m => (x,LocIOCstr) -> (x,LocIOCstr) -> TcM m Ordering
@@ -159,14 +159,16 @@ solveCstrs l msg mode = do
     debugTc $ do
         ss <- ppConstraints (tCstrs dict)
         liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "solveCstrs " ++ show msg ++ " " ++ show mode ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
-        --forM (tail dicts) $ \d -> do
-        --  --ssd <- ppConstraints (tCstrs d)
-        --  --liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+        forM (tail dicts) $ \d -> do
+          ssd <- ppConstraints (tCstrs d)
+          liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
         doc <- liftM ppTSubsts $ getTSubsts l
         liftIO $ putStrLn $ show doc
     gr <- liftM (tCstrs . head . tDict) State.get
     if (Graph.isEmpty gr)
-        then return Nothing
+        then do
+            debugTc $ liftIO $ putStrLn $ "solvesCstrs " ++ msg ++ " empty "
+            return Nothing
         else do
             roots <- sortByM priorityRoots $ rootsGr gr -- sort by constraint priority
             when (List.null roots) $ error $ "solveCstrs: no root constraints to proceed " ++ ppr l ++ " " ++ ppr gr ++ "\n\n" ++ show (sepBy comma $ map pp $ Graph.edges gr)
@@ -716,15 +718,15 @@ multipleSubstitutions l kid bv ss = do
     
 matchAll :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> [(Doc,SecrecError)] -> TcM m (Either d [(Doc,SecrecError)])
 matchAll l kid cs [] errs = return $ Right errs
-matchAll l kid cs (x:xs) errs = catchError
+matchAll l kid cs (x:xs) errs = --catchError
     -- match and solve all remaining constraints
     (liftM Left $ matchOne l kid cs x)
     -- backtrack and try another match
-    (\e -> do
-        debugTc $ liftIO $ putStrLn $ "failed " ++ show (snd (fst4 x)) ++ " " ++ ppr e
-        matchAll l kid cs xs $ errs++[(snd (fst4 x),e)]
-        --throwError e
-    )
+    --(\e -> do
+    --    debugTc $ liftIO $ putStrLn $ "failed " ++ show (snd (fst4 x)) ++ " " ++ ppr e
+    --    matchAll l kid cs xs $ errs++[(snd (fst4 x),e)]
+    --    --throwError e
+    --)
 
 matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
 matchOne l kid cs (match,deps,post,_) = do
@@ -740,7 +742,7 @@ matchOne l kid cs (match,deps,post,_) = do
     --liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
     mode <- defaultSolveMode
     solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True }) cs
-    --liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr match
+    debugTc $ liftIO $ putStrLn $ "matchOne solved " ++ show kid ++ " " ++ ppr (snd match)
     (fst post) c
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
