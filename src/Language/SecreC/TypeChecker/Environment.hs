@@ -734,8 +734,8 @@ dependentCstrs l kids = do
     gr <- getCstrs
     return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++opens) gr
     
-buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> TcM m IOCstrGraph
-buildCstrGraph l cstrs = do
+buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> Set Int -> TcM m IOCstrGraph
+buildCstrGraph l cstrs drops = do
     tops <- topCstrs l
     let tops' = mapSet (ioCstrId . unLoc) tops
     let cstrs' = Set.union tops' cstrs
@@ -745,12 +745,14 @@ buildCstrGraph l cstrs = do
     let tgr = Graph.trc gr 
     let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,h)) cstrs') tgr
     let ns = nodes gr'
+    -- filter out undesired constraints
+    let gr'' = Graph.nfilter (\n -> not $ Set.member n drops) gr'
     let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) }
-    State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr' } : map remHeadCstrs ds }
+    State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr'' } : map remHeadCstrs ds }
 --    mgr <- State.gets (foldr unionGr Graph.empty . map tCstrs . tail . tDict)
 --    doc <- ppConstraints mgr
 --    liftIO $ putStrLn $ "buildCstrGraphTail: " ++ show doc
-    return gr'
+    return gr''
     
 -- no free variable can be unbound
 noFrees :: ProverK Position m => EntryEnv -> TcM m ()

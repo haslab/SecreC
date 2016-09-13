@@ -139,7 +139,7 @@ solveMb l msg mode cs = do
     if Set.null cs
         then return Nothing
         else newErrorM $ tcNoDeps $ do
-            gr' <- buildCstrGraph l $ mapSet (ioCstrId . unLoc) cs
+            gr' <- buildCstrGraph l (mapSet (ioCstrId . unLoc) cs) Set.empty
             ss <- ppConstraints gr'
             --env <- State.get
             debugTc $ liftIO $ putStrLn $ "solveMb " ++ show msg ++ " " ++ ppr l ++ " [" ++ show ss ++ "\n]"
@@ -324,27 +324,26 @@ solveIOCstr_ l msg mode iok = do
         throwError err)
   where
     solve = newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
-        n <- State.gets (length . tDict)
         --olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppr iok) ctx
         --let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         --let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
         debugTc $ liftIO $ putStrLn $ "solveIOCstr " ++ show (sepBy space $ map (pp . snd) ins) ++" --> "++ ppr (ioCstrId iok) ++" --> "++ show (sepBy space $ map (pp . snd) outs)
         (res,rest) <- tcWith (locpos l) (msg ++ " solveIOCstr " ++ ppr iok) $ resolveTCstr l mode (ioCstrId iok) k
-        n' <- State.gets (length . tDict)
-        addHeadTDict l (msg++ " solveIOCstr_ " ++ ppr (ioCstrId iok) ++ " " ++ ppr n ++ " " ++ ppr n') $ rest { tCstrs = Graph.empty }
+        addHeadTDict l (msg++ " solveIOCstr_ " ++ ppr (ioCstrId iok)) $ rest { tCstrs = Graph.empty }
         debugTc $ do
             doc <- ppConstraints $ tCstrs rest
             liftIO $ putStrLn $ "solvedIOCstr " ++ ppr (ioCstrId iok) -- ++ " -->" ++ show doc
         unless (Graph.isEmpty $ tCstrs rest) $ do
-            top <- buildCstrGraph l $ Set.insert (ioCstrId iok) $ Set.fromList $ map snd $ ins ++ outs
+            top <- buildCstrGraph l (Set.insert (ioCstrId iok) (Set.fromList $ map snd $ ins ++ outs)) Set.empty
             let ins' = map (fromJustNote "ins" . Graph.lab top . snd) ins
             let outs' = map (fromJustNote "outs" . Graph.lab top . snd) outs
             let rest' = tCstrs rest
             --let rest' = Graph.nfilter (\n -> not $ Set.member n olds) $ tCstrs rest
             debugTc $ do
                 doc <- ppConstraints rest'
-                liftIO $ putStrLn $ "solvedIOCstr rest" ++ show doc
+                let doc1 = ppTSubsts $ tSubsts rest
+                liftIO $ putStrLn $ "solvedIOCstr rest" ++ show doc1 ++ "\n" ++ show doc
             replaceCstrWithGraph l False (ioCstrId iok) (Set.fromList ins') rest' (Set.fromList outs')
         dicts <- State.gets tDict
         debugTc $ forM_ dicts $ \d -> do
@@ -2241,7 +2240,8 @@ assignsExpr l v1@(VarName _ n1@(nonTok -> True)) e2 = do
     mb <- tryResolveEVar l n1 (loc v1)
     case mb of
         Nothing -> addValueM l True NoFailS v1 e2
-        Just e1' -> genTcError (locpos l) $ text "cannot assign expression" <+> pp e2 <+> text "to bound variable" <+> pp v1 <+> text "=" <+> pp e1'
+        Just e1' -> --equalsExpr l True (fmap typed e1') e2
+            genTcError (locpos l) $ text "cannot assign expression" <+> pp e2 <+> text "to bound variable" <+> pp v1 <+> text "=" <+> pp e1'
 
 unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
 unifiesExpr l doStatic e1@(RVariablePExpr t1 v1@(VarName _ n1@(nonTok -> True))) e2@(RVariablePExpr t2 v2@(VarName _ n2@(nonTok -> True))) = do

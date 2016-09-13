@@ -141,10 +141,7 @@ resolveTemplateEntries l kid n targs pargs ret es = do
 resolveTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> [(Type,IsVariadic)] -> TDict -> Set Int -> Set VarIdentifier -> TcM m DecType
 resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees = do
     -- delete promoted constraints
-    tops <- topCstrs p
-    let tops' = mapSet (ioCstrId . unLoc) tops
-    let rels' = Set.union tops' promoted
-    buildCstrGraph p rels'              
+    buildCstrGraph p promoted promoted
     -- remove frees
     forM_ frees addFree
     def <- ppTpltAppM p n targs pargs ret
@@ -426,7 +423,7 @@ coerceProcedureArgs doCoerce l lhs rhs = do
     return ()
 
 instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier))
-instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = newErrorM $ tcDictBlock $ withFrees $ do
+instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = newErrorM $ withFrees $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
             debugTc $ liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
@@ -459,7 +456,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 let tops' = mapSet (ioCstrId . unLoc) tops
                 rels <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
                 let rels' = mapSet (ioCstrId . unLoc) rels
-                buildCstrGraph l rels'
+                buildCstrGraph l rels' Set.empty
                 debugTc $ do
                     liftIO $ putStrLn $ "tpltVars " ++ ppr l ++ " " ++ ppr vs
                     liftIO $ putStrLn $ "relVars " ++ ppr l ++ " " ++ ppr rels'
