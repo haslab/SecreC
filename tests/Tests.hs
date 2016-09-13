@@ -56,7 +56,8 @@ testTypeChecker f = test $ do
 main :: IO ()
 main = do
     testSuite <- buildTestTree
-    hspec $ describe "SecreC tests" $ fromHUnitTest testSuite
+    let cfg = defaultConfig { configFastFail = True }
+    hspecWith cfg $ describe "SecreC tests" $ fromHUnitTest testSuite
 
 
 -- | Text-based test controller for running HUnit tests and reporting
