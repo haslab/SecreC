@@ -246,7 +246,7 @@ verifOutput isLeak isDafny output = do
         return (verified,errors)
     let e = Parsec.parse parser "output" w
     case e of
-        Left err -> return $ Status $ Right $ GenericError noloc (text "error parsing verification output: " <+> text (show err)) Nothing
+        Left err -> return $ Status $ Right $ GenericError noloc (text "error parsing verification output: " <+> text w) $ Just $ ParserError $ ParsecException (show err)
         Right (oks,kos) -> do
             let c = if isLeak then "leakage" else "functional"
             let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
