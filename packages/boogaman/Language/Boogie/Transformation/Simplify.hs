@@ -9,12 +9,14 @@ import Language.Boogie.Position
 import Language.Boogie.PrettyAST
 import Language.Boogie.Pretty
 import Language.Boogie.BasicBlocks
+import Language.Boogie.Analysis.Leakage
 
 import Control.Monad.Identity
 
 import Data.Maybe
 import Data.Monoid
 import Data.Generics
+import qualified Data.Set as Set
 
 runSimplify :: Simplify a => a -> a
 runSimplify x = runIdentity (simplifyId x)
@@ -196,25 +198,26 @@ instance Simplify BareStatement where
     simplify (Predicate atts spec) = liftM (fmap (Predicate atts)) $ simplify spec
     simplify s = return $ Just s
 
-cleanAttributes :: [AttrValue] -> [AttrValue]
-cleanAttributes = concatMap cleanAttribute
+cleanAttributes :: Maybe [Id] -> [AttrValue] -> [AttrValue]
+cleanAttributes vars = concatMap (cleanAttribute vars)
 
-cleanTriggers :: [Trigger] -> [Trigger]
-cleanTriggers = map cleanTrigger
+cleanTriggers :: Maybe [Id] -> [Trigger] -> [Trigger]
+cleanTriggers vars = map (cleanTrigger vars)
 
-cleanAttribute :: AttrValue -> [AttrValue]
-cleanAttribute (SAttr x) = [SAttr x]
-cleanAttribute (EAttr x) = map EAttr $ cleanExpression x
+cleanAttribute :: Maybe [Id] -> AttrValue -> [AttrValue]
+cleanAttribute vars (SAttr x) = [SAttr x]
+cleanAttribute vars (EAttr x) = map EAttr $ cleanExpression vars x
 
-cleanTrigger :: Trigger -> Trigger
-cleanTrigger = concatMap cleanExpression
+cleanTrigger :: Maybe [Id] -> Trigger -> Trigger
+cleanTrigger vars = concatMap (cleanExpression vars)
 
-cleanExpression :: Expression -> [Expression]
-cleanExpression (Pos p e) = cleanBareExpression p e
+cleanExpression :: Maybe [Id] -> Expression -> [Expression]
+cleanExpression vars (Pos p e) = cleanBareExpression p vars e
 
-cleanBareExpression :: SourcePos -> BareExpression -> [Expression]
-cleanBareExpression p (BinaryExpression _ e1 e2) = cleanExpression e1 ++ cleanExpression e2
-cleanBareExpression p e = [Pos p e]
+cleanBareExpression :: SourcePos -> Maybe [Id] -> BareExpression -> [Expression]
+cleanBareExpression p vars (BinaryExpression _ e1 e2) = cleanExpression vars e1 ++ cleanExpression vars e2
+cleanBareExpression p (Just ids) e = if fvs e == Set.fromList ids then [Pos p e] else []
+cleanBareExpression p Nothing e = [Pos p e]
 
 
 
