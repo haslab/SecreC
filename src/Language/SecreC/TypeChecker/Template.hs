@@ -168,8 +168,11 @@ resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees =
     case n of
         Right _ -> do
             let tycl@(DecClass isAnn isInline rs ws) = tyDecClass $ DecT decrec
-            isPure <- getPure
-            when isPure $ unless (Map.null rs && Map.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
+            exprC <- getExprC
+            case exprC of
+                PureE -> unless (Map.null rs && Map.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
+                ReadOnlyE -> unless (Map.null ws) $ genTcError (locpos p) $ text "procedure not read-only" <+> def
+                ReadWriteE -> return ()
             addDecClass tycl
         Left _ -> return ()
     return decrec
@@ -423,13 +426,13 @@ coerceProcedureArgs doCoerce l lhs rhs = do
     return ()
 
 instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Set VarIdentifier))
-instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = newErrorM $ withFrees $ do
+instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = limitExprC ReadOnlyE $ newErrorM $ withFrees $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
             debugTc $ liftIO $ putStrLn $ "instantiating " ++ ppr p ++ " " ++ ppr l ++ " " ++ ppr n ++ " " ++ ppr (fmap (map fst) targs) ++ " " ++ show (fmap (map (\(e,b) -> ppVariadicArg pp (e,b) <+> text "::" <+> pp (loc e))) pargs) ++ " " ++ ppr ret ++ " " ++ ppr rets ++ "\n" ++ ppr (entryType e)
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t
-            isPure <- getPure
-            (e',hdict,bdict,bgr) <- templateTDict isPure e
+            exprC <- getExprC
+            (e',hdict,bdict,bgr) <- templateTDict exprC e
             let addDicts = do
                 addHeadTDict l "instantiateTemplateEntry" hdict
                 addHeadTDict l "instantiateTemplateEntry" bdict
@@ -554,8 +557,8 @@ tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set VarIdentifier
 tpltTyVars Nothing = Set.empty
 tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName . unConstrained . fst) xs
 
-templateTDict :: (ProverK Position m) => Bool -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
-templateTDict isPure e = case entryType e of
+templateTDict :: (ProverK Position m) => ExprC -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
+templateTDict exprC e = case entryType e of
     DecT (DecType i isRec vars hd hfrees d bfrees specs ss) -> do
         hd' <- fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
         let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d)
@@ -565,7 +568,7 @@ templateTDict isPure e = case entryType e of
   where
     purify :: TCstrGraph -> TCstrGraph
     purify = Graph.nmap (fmap add)
-    add = updCstrState (\(x1,x2,x3,x4,l) -> (x1,isPure || x2,x3,x4,l))
+    add = updCstrState (\(x1,x2,x3,x4,l) -> (x1,min exprC x2,x3,x4,l))
 
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n

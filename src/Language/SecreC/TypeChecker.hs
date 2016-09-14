@@ -196,6 +196,7 @@ tcFunctionDecl addOp _ (OperatorFunDeclaration l isLeak ret op ps ann s) = withK
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         ret' <- tcTypeSpec ret False
         let tret = typed $ loc ret'
+        when isLeak $ tcCstrM_ l $ Unifies tret (BaseT bool)
         vret <- do
             let vr = (VarName (Typed l tret) (mkVarId "\\result"))
             newVariable LocalScope True True vr Nothing
@@ -216,6 +217,7 @@ tcFunctionDecl _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn) ps a
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         ret' <- tcTypeSpec ret False
         let tret = typed $ loc ret'
+        when isLeak $ tcCstrM_ l $ Unifies tret (BaseT bool)
         vret <- do
             let vr = (VarName (Typed l tret) (mkVarId "\\result"))
             newVariable LocalScope True True vr Nothing

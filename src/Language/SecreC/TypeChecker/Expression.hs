@@ -41,10 +41,10 @@ import Data.Generics
 import Text.PrettyPrint as PP
 
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
-tcGuard e = tcExprTy (BaseT bool) e
+tcGuard e = limitExprC ReadOnlyE $ tcExprTy (BaseT bool) e
 
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
-tcAnnGuard e = insideAnnotation $ do
+tcAnnGuard e = limitExprC ReadOnlyE $ insideAnnotation $ do
     e' <- tcExpr e
     let (Typed l ty) = loc e'
     k <- newKindVar "k" False Nothing
@@ -53,7 +53,7 @@ tcAnnGuard e = insideAnnotation $ do
     return e'
 
 tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
-tcAnnExpr e = insideAnnotation $ tcExpr e
+tcAnnExpr e = limitExprC ReadOnlyE $ insideAnnotation $ tcExpr e
 
 tcLValue :: (ProverK loc m) => Bool -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 tcLValue isWrite (PostIndexExpr l e s) = do
@@ -85,14 +85,14 @@ tcVariadicArg tcA (e,isVariadic) = do
     return (e',isVariadic)
 
 tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
-tcPureExpr e = withPure True $ tcExpr e
+tcPureExpr e = withExprC PureE $ tcExpr e
 
 tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 tcExpr (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
     tcExpr $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
 tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
-    isPure <- getPure
-    when isPure $ genTcError (locpos l) $ text "assign expression is not pure" <+> pp ae
+    exprC <- getExprC
+    when (exprC==PureE) $ genTcError (locpos l) $ text "assign expression is not pure" <+> pp ae
     pe' <- tcLValue True pe
     e' <- tcExpr e
     let tpe = typed $ loc pe'
@@ -111,10 +111,10 @@ tcExpr (CondExpr l c e1 e2) = do
     (c',cstrsc) <- tcWithCstrs l "condexpr" $ tcGuard c
     e1' <- withDeps LocalScope $ do
         tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed c'
-        tcExpr e1
+        limitExprC ReadOnlyE $ tcExpr e1
     e2' <- withDeps LocalScope $ do
         tryAddHypothesis l LocalScope cstrsc $ HypNotCondition $ fmap typed c'
-        tcExpr e2
+        limitExprC ReadOnlyE $ tcExpr e2
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     t3 <- newTyVar False Nothing
@@ -125,8 +125,8 @@ tcExpr (CondExpr l c e1 e2) = do
     let ex2 = fmap (Typed l) $ varExpr x2
     return $ CondExpr (Typed l t3) c' ex1 ex2
 tcExpr (BinaryExpr l e1 op e2) = do
-    e1' <- tcExpr e1
-    e2' <- tcExpr e2
+    e1' <- limitExprC ReadOnlyE $ tcExpr e1
+    e2' <- limitExprC ReadOnlyE $ tcExpr e2
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     top <- tcOp op
@@ -134,17 +134,17 @@ tcExpr (BinaryExpr l e1 op e2) = do
     (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr pe@(PreOp l op e) = do
-    isPure <- getPure
-    when isPure $ genTcError (locpos l) $ text "preop is not pure" <+> pp pe
+    exprC <- getExprC
+    when (exprC==PureE) $ genTcError (locpos l) $ text "preop is not pure" <+> pp pe
     e' <- tcLValue True e
-    tcBinaryOp l True op e'
+    limitExprC ReadOnlyE $ tcBinaryOp l True op e'
 tcExpr pe@(PostOp l op e) = do
-    isPure <- getPure
-    when isPure $ genTcError (locpos l) $ text "postop is not pure" <+> pp pe
+    exprC <- getExprC
+    when (exprC==PureE) $ genTcError (locpos l) $ text "postop is not pure" <+> pp pe
     e' <- tcLValue True e
-    tcBinaryOp l False op e'
+    limitExprC ReadOnlyE $ tcBinaryOp l False op e'
 tcExpr (UnaryExpr l op e) = do
-    e' <- tcExpr e
+    e' <- limitExprC ReadOnlyE $ tcExpr e
     let t = typed $ loc e'
     top <- tcOp op
     case (top,e) of
@@ -164,13 +164,13 @@ tcExpr (DomainIdExpr l s) = do
     let t = BaseT index
     return $ DomainIdExpr (Typed l t) s'
 tcExpr (StringFromBytesExpr l e) = do
-    e' <- tcExprTy (ComplexT bytes) e
+    e' <- limitExprC ReadOnlyE $ tcExprTy (ComplexT bytes) e
     return $ StringFromBytesExpr (Typed l $ BaseT string) e'
 tcExpr (BytesFromStringExpr l e) = do
-    e' <- tcExprTy (BaseT string) e
+    e' <- limitExprC ReadOnlyE $ tcExprTy (BaseT string) e
     return $ BytesFromStringExpr (Typed l $ ComplexT bytes) e'
 tcExpr (VArraySizeExpr l e) = do
-    e' <- tcExpr e
+    e' <- limitExprC ReadOnlyE $ tcExpr e
     let t = typed $ loc e'
     unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (pp e)
     return $ VArraySizeExpr (Typed l $ BaseT index) e'
@@ -189,24 +189,24 @@ tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (pp qe) $ tcLocal l "tcExpr quan
         newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
         return (t',v')
 tcExpr le@(LeakExpr l e) = onlyLeak l (pp le) $ onlyAnn l (pp le) $ do
-    e' <- tcExpr e
+    e' <- limitExprC ReadOnlyE $ tcExpr e
     topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
     return $ LeakExpr (Typed l $ BaseT bool) e'
 tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     let vn = bimap mkVarId id n
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
-    es' <- mapM (tcVariadicArg tcExpr) es
+    es' <- limitExprC ReadOnlyE $ mapM (tcVariadicArg tcExpr) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
     v <- newTyVar False Nothing
     (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
-tcExpr (PostIndexExpr l e s) = do
+tcExpr (PostIndexExpr l e s) = limitExprC ReadOnlyE $ do
     e' <- tcAddDeps l "postindex" $ tcExpr e
     let t = typed $ loc e'
     (s',t') <- tcSubscript e' s
     return $ PostIndexExpr (Typed l t') e' s'
-tcExpr (SelectionExpr l pe a) = do
+tcExpr (SelectionExpr l pe a) = limitExprC ReadOnlyE $ do
     let va = bimap mkVarId id a
     pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
@@ -214,13 +214,13 @@ tcExpr (SelectionExpr l pe a) = do
     tres <- newTyVar True Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
     return $ SelectionExpr (Typed l tres) pe' (fmap (flip Typed tres) va)
-tcExpr (ArrayConstructorPExpr l es) = do
+tcExpr (ArrayConstructorPExpr l es) = limitExprC ReadOnlyE $ do
     lit' <- tcArrayLiteral l es
     return lit'
-tcExpr e@(MultisetConstructorPExpr l es) = onlyAnn l (pp e) $ do
+tcExpr e@(MultisetConstructorPExpr l es) = limitExprC ReadOnlyE $ onlyAnn l (pp e) $ do
     lit' <- tcMultisetLiteral l es
     return lit'
-tcExpr (LitPExpr l lit) = do
+tcExpr (LitPExpr l lit) = limitExprC ReadOnlyE $ do
     lit' <- tcLiteral lit
     return lit'
 tcExpr (RVariablePExpr l v) = do
@@ -228,15 +228,15 @@ tcExpr (RVariablePExpr l v) = do
     let t = typed $ loc v'
     return $ RVariablePExpr (Typed l t) v'
 tcExpr (BuiltinExpr l n args) = do
-    args' <- mapM tcExpr args
+    args' <- limitExprC ReadOnlyE $ mapM tcExpr args
     ret <- isSupportedBuiltin l n $ map (typed . loc) args'
     return $ BuiltinExpr (Typed l ret) n args'
-tcExpr me@(ToMultisetExpr l e) = onlyAnn l (pp me) $ do
+tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyE $ onlyAnn l (pp me) $ do
     e' <- tcExpr e
     ComplexT mset <- newTyVar True Nothing
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
-tcExpr e@(ResultExpr l) = onlyAnn l (pp e) $ do
+tcExpr e@(ResultExpr l) = limitExprC ReadOnlyE $ onlyAnn l (pp e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     return $ ResultExpr tl
 tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <+> pp e
@@ -333,9 +333,9 @@ tcMultisetLiteral l es = do
 
 tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
 tcVarName isWrite v@(VarName l n) = do
-    isPure <- getPure
+    exprC <- getExprC
     isAnn <- getAnn
-    checkVariable isWrite isPure isAnn LocalScope (bimap mkVarId id v)
+    checkVariable isWrite (exprC==PureE) isAnn LocalScope (bimap mkVarId id v)
 
 -- | returns the operation performed by a binary assignment operation
 binAssignOpToOp :: BinaryAssignOp loc -> Maybe (Op iden loc)

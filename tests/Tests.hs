@@ -17,9 +17,9 @@ import Test.Hspec.Core.Runner (hspecWith, Config(..),defaultConfig)
 
 buildTestTree :: IO Test
 buildTestTree = do
---    tests1 <- buildTestDirectoryTree "imports/stdlib"
-    tests2 <- buildTestDirectoryTree "tests/regression/scalars"
-    return $ TestList [tests2]
+    tests1 <- buildTestDirectoryTree "tests/regression/scalars"
+--    tests2 <- buildTestDirectoryTree "imports/stdlib"
+    return $ TestList [tests1]
 
 buildTestDirectoryTree :: FilePath -> IO Test
 buildTestDirectoryTree path = fold (depth >=? 0) addTestFile (TestList []) path

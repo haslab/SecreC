@@ -219,11 +219,24 @@ data TcEnv = TcEnv {
     , moduleCount :: ((String,TyVarId),Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , decKind :: DecKind -- if typechecking inside a declaration
-    , isPure :: Bool -- if typechecking pure expressions
+    , exprC :: ExprC -- type of expression
     , isLeak :: Bool -- if typechecking leakage expressions
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
+
+data ExprC = ReadOnlyE | ReadWriteE | PureE
+  deriving (Eq,Show,Data,Typeable,Generic)
+instance Ord ExprC where
+    compare x y | x == y = EQ 
+    compare PureE _ = LT
+    compare _ PureE = GT
+    compare ReadOnlyE _ = LT
+    compare _ ReadOnlyE = GT
+instance Hashable ExprC
+instance Binary ExprC
+instance PP ExprC where
+    pp = text . show
 
 data DecKind
     = AKind -- axiom
@@ -309,13 +322,18 @@ unionMb Nothing y = y
 unionMb x Nothing = x
 unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
-withPure :: Monad m => Bool -> TcM m a -> TcM m a
-withPure b m = do
-    old <- liftM isPure State.get
-    State.modify $ \env -> env { isPure = b }
+withExprC :: Monad m => ExprC -> TcM m a -> TcM m a
+withExprC b m = do
+    old <- liftM exprC State.get
+    State.modify $ \env -> env { exprC = b }
     x <- m
-    State.modify $ \env -> env { isPure = old }
+    State.modify $ \env -> env { exprC = old }
     return x
+
+limitExprC :: Monad m => ExprC -> TcM m a -> TcM m a
+limitExprC c' m = do
+    c <- getExprC
+    withExprC (min c c') m
 
 withLeak :: Monad m => Bool -> TcM m a -> TcM m a
 withLeak b m = do
@@ -333,8 +351,8 @@ withKind k m = do
     State.modify $ \env -> env { decKind = old }
     return x
 
-getPure :: Monad m => TcM m Bool
-getPure = liftM isPure State.get
+getExprC :: Monad m => TcM m ExprC
+getExprC = liftM exprC State.get
     
 getLeak :: Monad m => TcM m Bool
 getLeak = liftM isLeak State.get
@@ -348,14 +366,14 @@ getKind = State.gets decKind
 getCstrState :: Monad m => TcM m CstrState
 getCstrState = do
     isAnn <- getAnn
-    isPure <- getPure
+    exprC <- getExprC
     lineage <- getLineage
     isLeak <- getLeak
     kind <- getKind
-    return (isAnn,isPure,isLeak,kind,lineage)
+    return (isAnn,exprC,isLeak,kind,lineage)
 
 withCstrState :: Monad m => CstrState -> TcM m a -> TcM m a
-withCstrState (isAnn,isPure,isLeak,kind,lineage) m = withAnn isAnn $ withPure isPure $ withLeak isLeak $ withKind kind $ withLineage lineage m
+withCstrState (isAnn,exprC,isLeak,kind,lineage) m = withAnn isAnn $ withExprC exprC $ withLeak isLeak $ withKind kind $ withLineage lineage m
 
 withLineage :: Monad m => Lineage -> TcM m a -> TcM m a
 withLineage new m = do
@@ -499,7 +517,7 @@ emptyTcEnv = TcEnv
     , moduleCount = (("main",TyVarId 0),1)
     , inTemplate = False
     , decKind = FKind
-    , isPure = False
+    , exprC = ReadOnlyE
     , isLeak = False
     , localConsts = Map.empty
     , decClass = mempty
@@ -835,8 +853,8 @@ updCstrState f (HypK c st) = HypK c (f st)
 newLineage :: Lineage -> TCstr -> TCstr
 newLineage l = updCstrState (\(x1,x2,x3,x4,_) -> (x1,x2,x3,x4,l))
 
--- (is annotation,is pure,is leak,decKind,lineage)
-type CstrState = (Bool,Bool,Bool,DecKind,Lineage)
+-- (is annotation,expression class,is leak,decKind,lineage)
+type CstrState = (Bool,ExprC,Bool,DecKind,Lineage)
 
 data TCstr
     = TcK
