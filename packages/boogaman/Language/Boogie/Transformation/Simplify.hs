@@ -18,6 +18,8 @@ import Data.Monoid
 import Data.Generics
 import qualified Data.Set as Set
 
+import Debug.Trace
+
 runSimplify :: Simplify a => a -> a
 runSimplify x = runIdentity (simplifyId x)
 
@@ -216,7 +218,7 @@ cleanExpression vars (Pos p e) = cleanBareExpression p vars e
 
 cleanBareExpression :: SourcePos -> Maybe [Id] -> BareExpression -> [Expression]
 cleanBareExpression p vars (BinaryExpression _ e1 e2) = cleanExpression vars e1 ++ cleanExpression vars e2
-cleanBareExpression p (Just ids) e = if Set.isSubsetOf (fvs e) (Set.fromList ids) then [Pos p e] else []
+cleanBareExpression p (Just ids) e = if Set.isSubsetOf (fvs e) (Set.fromList ids) then [Pos p e] else trace (show $ text "cleanBareExpression" <+> text (show p) <+> pretty (Set.toList $ fvs e) <+> text "-->" <+> pretty ids) []
 cleanBareExpression p Nothing e = [Pos p e]
 
 
