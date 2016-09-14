@@ -210,11 +210,11 @@ cleanTrigger :: Trigger -> Trigger
 cleanTrigger = concatMap cleanExpression
 
 cleanExpression :: Expression -> [Expression]
-cleanExpression e = everything (++) (mkQ [] aux) e
-    where
-    aux :: Expression -> [Expression]
-    aux e@(Pos p (Application {})) = [e]
-    aux e = []
+cleanExpression (Pos p e) = cleanBareExpression p e
+
+cleanBareExpression :: SourcePos -> BareExpression -> [Expression]
+cleanBareExpression p (BinaryExpression _ e1 e2) = cleanExpression e1 ++ cleanExpression e2
+cleanBareExpression p e = [Pos p e]
 
 
 
