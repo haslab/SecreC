@@ -163,6 +163,9 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         (dfyl,axsl) <- toDafny prelude True es
         liftIO $ writeFile dfylfile (show dfyl)
         
+        liftIO $ hSetBuffering stdout LineBuffering
+        liftIO $ hSetBuffering stderr LineBuffering
+        
         -- verify functional specification
         let func = do
             ok1 <- compileDafny False (debugVerification opts) dfyfile bplfile
