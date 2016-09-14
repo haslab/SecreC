@@ -220,7 +220,7 @@ boxE e = Nothing
 
 isAnn :: Options -> Id -> BareExpression -> Maybe BareExpression
 isAnn opts@(vcgen -> NoVCGen) name (Application ((==name) -> True) [unPos -> e]) = Just e
-isAnn opts@(vcgen -> Dafny) name (Application (isSuffixOf ("."++name) -> True) [tclass,unPos -> Var "$Heap",(boxE . unPos) -> Just e]) = Just e
+isAnn opts@(vcgen -> Dafny) name (Application (isSuffixOf ("."++name) -> True) [tclass,_,(boxE . unPos) -> Just e]) = Just e
 isAnn opts _ e = Nothing
 
 isPublicExpr :: Options -> BareExpression -> Maybe (BareExpression,PublicType)
