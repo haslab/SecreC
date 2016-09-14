@@ -14,6 +14,7 @@ import Control.Monad.Identity
 
 import Data.Maybe
 import Data.Monoid
+import Data.Generics
 
 runSimplify :: Simplify a => a -> a
 runSimplify x = runIdentity (simplifyId x)
@@ -195,6 +196,25 @@ instance Simplify BareStatement where
     simplify (Predicate atts spec) = liftM (fmap (Predicate atts)) $ simplify spec
     simplify s = return $ Just s
 
+cleanAttributes :: [AttrValue] -> [AttrValue]
+cleanAttributes = concatMap cleanAttribute
+
+cleanTriggers :: [Trigger] -> [Trigger]
+cleanTriggers = map cleanTrigger
+
+cleanAttribute :: AttrValue -> [AttrValue]
+cleanAttribute (SAttr x) = [SAttr x]
+cleanAttribute (EAttr x) = map EAttr $ cleanExpression x
+
+cleanTrigger :: Trigger -> Trigger
+cleanTrigger = concatMap cleanExpression
+
+cleanExpression :: Expression -> [Expression]
+cleanExpression e = everything (++) (mkQ [] aux) e
+    where
+    aux :: Expression -> [Expression]
+    aux e@(Pos p (Application {})) = [e]
+    aux e = []
 
 
 

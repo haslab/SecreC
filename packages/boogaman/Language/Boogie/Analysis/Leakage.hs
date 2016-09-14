@@ -390,5 +390,3 @@ globalVars = everything mappend (mkQ mempty aux)
 
 
 
-
-
