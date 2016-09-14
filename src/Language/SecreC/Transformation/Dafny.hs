@@ -518,17 +518,22 @@ procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
 
 procedureAnnToDafny :: DafnyK m => ProcedureAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
 procedureAnnToDafny (RequiresAnn l isFree isLeak e) = do
-    (anne,pe) <- expressionToDafny False False RequireK e
-    req <- annExpr isFree isLeak RequireK pe
-    return $ anne ++ req
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        (anne,pe) <- expressionToDafny False False RequireK e
+        req <- annExpr isFree isLeak leakMode RequireK pe
+        return $ anne ++ req
 procedureAnnToDafny (EnsuresAnn l isFree isLeak e) = do
-    (anne,pe) <- expressionToDafny False False EnsureK e
-    ens <- annExpr isFree isLeak EnsureK pe
-    return $ anne ++ ens
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        (anne,pe) <- expressionToDafny False False EnsureK e
+        ens <- annExpr isFree isLeak leakMode EnsureK pe
+        return $ anne ++ ens
 procedureAnnToDafny (InlineAnn l isInline) = return []
 procedureAnnToDafny (PDecreasesAnn l e) = do
+    leakMode <- getLeakMode
     (anne,pe) <- expressionToDafny False False EnsureK e
-    decr <- annExpr False False DecreaseK pe
+    decr <- annExpr False False leakMode DecreaseK pe
     return $ anne ++ decr
 
 statementsToDafny :: DafnyK m => [Statement VarIdentifier (Typed Position)] -> DafnyM m Doc
@@ -565,8 +570,9 @@ statementToDafny es@(ExpressionStatement (Typed l _) e) = do
             let edef = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl eres Nothing (Just e)
             statementToDafny edef
 statementToDafny (AssertStatement l e) = do
+    leakMode <- getLeakMode
     (anne,pe) <- expressionToDafny False False StmtK e
-    assert <- annExpr False False StmtK pe
+    assert <- annExpr False False leakMode StmtK pe
     return $ annLines anne $+$ annLines assert
 statementToDafny (AnnStatement l ss) = liftM (annLines . concat) $ mapM statementAnnToDafny ss
 statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) = do
@@ -582,9 +588,8 @@ statementToDafny s = genError (unTyped $ loc s) $ text "statementToDafny:" <+> p
 loopAnnsToDafny :: DafnyK m => [LoopAnnotation VarIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 loopAnnsToDafny xs = liftM concat $ mapM loopAnnToDafny xs
 
-annExpr :: DafnyK m => Bool -> Bool -> AnnKind -> Doc -> DafnyM m AnnsDoc
-annExpr isFree isLeak annK e = do
-    leakMode <- getLeakMode
+annExpr :: DafnyK m => Bool -> Bool -> Bool -> AnnKind -> Doc -> DafnyM m AnnsDoc
+annExpr isFree isLeak leakMode annK e = do
     case (leakMode,isLeak) of
         (True,True) -> return [(annK,isFree,e)]
         (True,False) -> return [(annK,True,e)]
@@ -593,27 +598,37 @@ annExpr isFree isLeak annK e = do
     
 loopAnnToDafny :: DafnyK m => LoopAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
 loopAnnToDafny (DecreasesAnn l isLeak e) = do
-    (anne,pe) <- expressionToDafny False False InvariantK e
-    decrease <- annExpr False isLeak DecreaseK pe
-    return $ anne ++ decrease
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        (anne,pe) <- expressionToDafny False False InvariantK e
+        decrease <- annExpr False isLeak leakMode DecreaseK pe
+        return $ anne ++ decrease
 loopAnnToDafny (InvariantAnn l isFree isLeak e) = do
-    (anne,pe) <- expressionToDafny False False InvariantK e
-    inv <- annExpr isFree isLeak InvariantK pe
-    return $ anne ++ inv
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        (anne,pe) <- expressionToDafny False False InvariantK e
+        inv <- annExpr isFree isLeak leakMode InvariantK pe
+        return $ anne ++ inv
 
 statementAnnToDafny :: DafnyK m => StatementAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
 statementAnnToDafny (AssumeAnn l isLeak e) = do
-    (anne,pe) <- expressionToDafny False False StmtK e
-    assume <- annExpr True isLeak StmtK pe
-    return $ anne ++ assume
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        (anne,pe) <- expressionToDafny False False StmtK e
+        assume <- annExpr True isLeak leakMode StmtK pe
+        return $ anne ++ assume
 statementAnnToDafny (AssertAnn l isLeak e) = do
-    (anne,pe) <- expressionToDafny False False StmtK e
-    assert <- annExpr False isLeak StmtK pe
-    return $ anne++assert
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        (anne,pe) <- expressionToDafny False False StmtK e
+        assert <- annExpr False isLeak leakMode StmtK pe
+        return $ anne++assert
 statementAnnToDafny (EmbedAnn l isLeak e) = do
-    ann <- statementToDafny e
-    call <- annExpr False isLeak NoK ann
-    return $ call
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        ann <- statementToDafny e
+        call <- annExpr False isLeak leakMode NoK ann
+        return $ call
 
 -- checks that a dafny expression has a given shape
 checkDafnyShape :: DafnyK m => Position -> Bool -> Sizes VarIdentifier (Typed Position) -> Doc -> DafnyM m AnnsDoc
