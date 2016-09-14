@@ -1394,7 +1394,7 @@ mkVarId s = VarIdentifier s Nothing Nothing False Nothing
 
 instance PP VarIdentifier where
     pp v = case varIdPretty v of
-        Just s -> ppVarId v <> char '#' <> s
+        Just s -> s --ppVarId v <> char '#' <> s
         Nothing -> ppVarId v
       where
         ppVarId (VarIdentifier n m Nothing _ _) = ppOpt m (\(x,blk) -> text x <> char '.' <> pp blk <> char '.') <> text n
@@ -2562,8 +2562,8 @@ isType k = k == TypeStarC || k == VArrayC TypeStarC
 isVariable k = k == TypeC || k == VArrayStarC TypeC
 
 debugTc :: MonadIO m => m () -> m ()
---debugTc m = return ()
-debugTc m = m
+debugTc m = return ()
+--debugTc m = m
 
 --instance (Vars iden (TcM m) a,MonadIO m) => Vars iden (TcM m) (IdRef ModuleTyVarId a) where
 --    traverseVars f ref = do
