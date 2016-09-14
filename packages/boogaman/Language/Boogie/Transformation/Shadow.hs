@@ -532,11 +532,11 @@ shadowQTriggerAttribute :: MonadIO m => Options -> Bool -> QTriggerAttribute -> 
 shadowQTriggerAttribute opts True t@(Left trggs) = do
     let sha e = if hasLeakageAnn opts e
                     then liftM (:[]) (shadowExpression opts DualE e)
-                    else liftM (\e' -> [e,e']) (shadowExpression opts ShadowE e)
+                    else liftM (\e' -> [e,e']) (shadowExpression opts ShadowE $ removeLeakageAnns opts e)
     t' <- liftM Left $ concatMapM sha trggs
     return [t']
 shadowQTriggerAttribute opts False t@(Left trggs) = do
-    let sha e = liftM (:[]) (shadowExpression opts ShadowE e)
+    let sha e = liftM (:[]) (shadowExpression opts ShadowE $ removeLeakageAnns opts e)
     t' <- liftM Left $ concatMapM sha trggs
     return [t']
 shadowQTriggerAttribute opts doDual t@(Right att) = do
@@ -648,14 +648,14 @@ shadowAttribute opts doDual (Attribute tag vals) = do
   where
     shadowAttrVal :: MonadIO m => Options -> Bool -> AttrValue -> ShadowM m [AttrValue]
     shadowAttrVal opts False v@(EAttr e) = do
-        v' <- liftM EAttr $ shadowExpression opts ShadowE e
+        v' <- liftM EAttr $ shadowExpression opts ShadowE $ removeLeakageAnns opts e
         return [v']
     shadowAttrVal opts True v@(EAttr e) = if hasLeakageAnn opts e
         then do
-            v' <- liftM EAttr $ shadowExpression opts DualE e
+            v' <- liftM EAttr $ shadowExpression opts DualE $ removeLeakageAnns opts e
             return [v']
         else do
-            v' <- liftM EAttr $ shadowExpression opts ShadowE e
+            v' <- liftM EAttr $ shadowExpression opts ShadowE $ removeLeakageAnns opts e
             if doDual then return [removeLeakageAnns opts v,v'] else return [v']
     shadowAttrVal opts _ (SAttr s) = return [SAttr s]
 

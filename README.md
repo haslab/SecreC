@@ -28,6 +28,27 @@ cabal install SecreC.cabal
 ```
 3. Add the installation directory to your path, e.g., `~/.cabal/bin` or `./dist/build/secrec/secrec`
 
+#### Installation with cabal sandbox
+
+Alternatively, cabal sandboxes can be used as follows.
+First we have to initialize and update the git submodules.
+```
+git submodule init
+git submodule update
+```
+
+Next use cabal to build the analysis tool.
+```
+cabal sandbox init
+cabal sandbox add-source packages/*
+cabal install --only-dependencies -j
+cabal configure
+cabal build -j
+cabal install
+```
+
+The `secrec` binary can be found under `.cabal-sandbox/bin`.
+
 #### Usage:
 For usage instructions, see
 ```
