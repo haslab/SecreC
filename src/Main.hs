@@ -251,7 +251,7 @@ verifOutput isLeak isDafny output = do
     case e of
         Left err -> do
             let exec = if isDafny then "Dafny" else "Boogie"
-            return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> "verification error: " <+> text output) Nothing
+            return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error: " <+> text output) Nothing
         Right (oks,kos) -> do
             let c = if isLeak then "leakage" else "functional"
             let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
