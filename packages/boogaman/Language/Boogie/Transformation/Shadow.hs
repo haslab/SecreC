@@ -531,7 +531,7 @@ shadowBareExpression opts m e = error $ show $ text "expression" <+> pretty e <+
 shadowQTriggerAttribute :: MonadIO m => Options -> Bool -> QTriggerAttribute -> ShadowM m [QTriggerAttribute]
 shadowQTriggerAttribute opts True t@(Left trggs) = do
     let sha e = if hasLeakageAnn opts e
-                    then liftM (:[]) (shadowExpression opts DualE e)
+                    then liftM (:[]) (shadowExpression opts DualE $ removeLeakageAnns opts e)
                     else liftM (\e' -> [e,e']) (shadowExpression opts ShadowE $ removeLeakageAnns opts e)
     t' <- liftM Left $ concatMapM sha trggs
     return [t']
