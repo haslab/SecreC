@@ -35,9 +35,10 @@ secrec --help
 ```
 
 #### Tests:
-Before testing make sure that you have packages 'hspec' and 'hspec-contrib' installed:
+Before testing make sure that you have packages 'hspec', 'hspec-core' and 'hspec-contrib' installed:
 ```
 cabal install hspec
+cabal install hspec-core
 cabal install hspec-contrib
 ```
 
@@ -51,13 +52,13 @@ runhaskell tests/Tests.hs
 By default, the tool will typecheck a given SecreC program:
 ```
 > secrec tests/regressions/arrays/00-trivia.sc
-Modules builtin, main are well-typed OK.
+Modules builtin, main are well-typed.
 ```
 
 To verify the security properties of a SecreC program, you can invoke the tool with the `verify` flag:
 ```
 > secrec examples/leakage/cut/cut.sc --verify
-Modules builtin, axioms, cut are well-typed OK.
+Modules builtin, axioms, cut are well-typed.
 ...
 Verified 30 functional properties with 0 errors.
 Verified 38 leakage properties with 0 errors.
