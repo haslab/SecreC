@@ -534,12 +534,10 @@ shadowQTriggerAttribute opts True vars t@(Left trggs) = do
     let sha e = if hasLeakageAnn opts e
                     then liftM (:[]) (shadowExpression opts DualE $ removeLeakageAnns opts e)
                     else liftM (\e' -> [e,e']) (shadowExpression opts ShadowE $ removeLeakageAnns opts e)
-    t' <- liftM (Left . cleanTrigger (Just vars)) $ concatMapM sha trggs
-    return [t']
+    liftM (maybe [] ((:[]) . Left) . cleanTrigger (Just vars)) $ concatMapM sha trggs
 shadowQTriggerAttribute opts False vars t@(Left trggs) = do
     let sha e = liftM (:[]) (shadowExpression opts ShadowE $ removeLeakageAnns opts e)
-    t' <- liftM (Left . cleanTrigger (Just vars)) $ concatMapM sha trggs
-    return [t']
+    liftM (maybe [] ((:[]) . Left) . cleanTrigger (Just vars)) $ concatMapM sha trggs
 shadowQTriggerAttribute opts doDual vars t@(Right att) = do
     atts <- (shadowAttribute opts doDual) att
     return $ map Right atts

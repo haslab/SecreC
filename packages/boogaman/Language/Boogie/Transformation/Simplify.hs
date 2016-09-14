@@ -202,22 +202,23 @@ cleanAttributes :: Maybe [Id] -> [AttrValue] -> [AttrValue]
 cleanAttributes vars = concatMap (cleanAttribute vars)
 
 cleanTriggers :: Maybe [Id] -> [Trigger] -> [Trigger]
-cleanTriggers vars = map (cleanTrigger vars)
+cleanTriggers vars = catMaybes . map (cleanTrigger vars)
 
 cleanAttribute :: Maybe [Id] -> AttrValue -> [AttrValue]
 cleanAttribute vars (SAttr x) = [SAttr x]
-cleanAttribute vars (EAttr x) = map EAttr $ cleanExpression vars x
+cleanAttribute vars (EAttr x) = map EAttr $ cleanExpression x
 
-cleanTrigger :: Maybe [Id] -> Trigger -> Trigger
-cleanTrigger vars = concatMap (cleanExpression vars)
+cleanTrigger :: Maybe [Id] -> Trigger -> Maybe Trigger
+cleanTrigger vars t = let t' = concatMap cleanExpression t in case vars of
+    Nothing -> Just t'
+    Just ids -> if Set.isSubsetOf (Set.fromList ids) (fvs t') then Just t' else Nothing
 
-cleanExpression :: Maybe [Id] -> Expression -> [Expression]
-cleanExpression vars (Pos p e) = cleanBareExpression p vars e
+cleanExpression :: Expression -> [Expression]
+cleanExpression (Pos p e) = cleanBareExpression p e
 
-cleanBareExpression :: SourcePos -> Maybe [Id] -> BareExpression -> [Expression]
-cleanBareExpression p vars (BinaryExpression _ e1 e2) = cleanExpression vars e1 ++ cleanExpression vars e2
-cleanBareExpression p (Just ids) e = if Set.isSubsetOf (Set.fromList ids) (fvs e) then [Pos p e] else []
-cleanBareExpression p Nothing e = [Pos p e]
+cleanBareExpression :: SourcePos -> BareExpression -> [Expression]
+cleanBareExpression p (BinaryExpression _ e1 e2) = cleanExpression e1 ++ cleanExpression e2
+cleanBareExpression p e = [Pos p e]
 
 
 
