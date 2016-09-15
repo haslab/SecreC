@@ -37,7 +37,9 @@ newtype int64 = x: int | true
 newtype float32 = x: real | true
 newtype float64 = x: real | true
     
-function Repeat<T> (x: T, sz: uint64) : seq<T>
+function method Repeat<T> (x: T, sz: uint64) : seq<T>
+ensures |Repeat(x,sz)| as uint64 == sz;
+ensures forall y:T :: y in Repeat(x,sz) ==> x == y;  
 decreases sz;
 {
   if sz == 0 then [] else [x] + Repeat(x,sz-1) 
