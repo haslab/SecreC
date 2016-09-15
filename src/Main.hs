@@ -167,22 +167,25 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         liftIO $ hSetBuffering stderr LineBuffering
         
         -- verify functional specification
-        let func = do
-            ok1 <- compileDafny False (debugVerification opts) dfyfile bplfile
-            axiomatizeBoogaman (debugVerification opts) axs bplfile bplfile2
-            ok2 <- runBoogie False (debugVerification opts) bplfile2
-            return (mappend ok1 ok2)
+        let func =        compileDafny False (debugVerification opts) dfyfile bplfile
+              `seqStatus` axiomatizeBoogaman (debugVerification opts) axs bplfile bplfile2
+              `seqStatus` runBoogie False (debugVerification opts) bplfile2
         
         -- verify leakage specification
-        let spec = do
-            ok1 <- compileDafny True (debugVerification opts) dfylfile bpllfile
-            shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
-            ok2 <- runBoogie True (debugVerification opts) bpllfile2
-            return (mappend ok1 ok2)
+        let spec =        compileDafny True (debugVerification opts) dfylfile bpllfile
+              `seqStatus` shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
+              `seqStatus` runBoogie True (debugVerification opts) bpllfile2
 
         (fres,sres) <- lift $ concurrently func spec
         let res = mappend fres sres
         printStatus res
+
+seqStatus :: Monad m => m Status -> m Status -> m Status
+seqStatus mx my = do
+    sx <- mx
+    case unStatus sx of
+        Left dx -> liftM (mappend sx) my
+        Right err -> return sx
 
 newtype Status = Status { unStatus :: Either Doc SecrecError }
 
@@ -207,7 +210,7 @@ command doDebug cmd = do
         ExitSuccess -> return statusOk
         ExitFailure err -> return $ Status $ Right $ GenericError noloc (int err) Nothing
 
-commandOutput :: (MonadIO m,MonadError SecrecError m) => Bool -> String -> m String
+commandOutput :: (MonadIO m) => Bool -> String -> m Status
 commandOutput doDebug str = do
     when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show str
     let process = (shell str) { std_out = CreatePipe }
@@ -215,14 +218,19 @@ commandOutput doDebug str = do
     exit <- liftIO $ waitForProcess ph
     result <- liftIO $ hGetContents hout
     case exit of
-        ExitSuccess -> return result
-        ExitFailure code -> genError noloc $ text "error:" <+> int code $+$ text result
+        ExitSuccess -> return $ Status $ Left $ text result
+        ExitFailure code -> return $ Status $ Right $ GenericError noloc (text "Error running command:" <+> int code $+$ text result) Nothing
 
-shellyOutput :: (MonadIO m) => Bool -> String -> [String] -> m String
+shellyOutput :: (MonadIO m) => Bool -> String -> [String] -> m Status
 shellyOutput doDebug name args = do
     when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show (name ++ " " ++ unwords args)
-    result <- liftIO $ Shelly.shelly $ Shelly.silently $ Shelly.run (Shelly.fromText $ Text.pack name) (map Text.pack args)
-    return $ Text.unpack result
+    liftIO $ Shelly.shelly $ do
+        result <- Shelly.errExit False $ Shelly.silently $ Shelly.run (Shelly.fromText $ Text.pack name) (map Text.pack args)
+        let uresult = Text.unpack result
+        exit <- Shelly.lastExitCode
+        case exit of
+            0 -> return $ Status $ Left $ text uresult
+            code -> return $ Status $ Right $ GenericError noloc (text "Error running command:" <+> int code $+$ text uresult) Nothing
 
 compileDafny :: (MonadIO m) => Bool -> Bool -> FilePath -> FilePath -> m Status
 compileDafny isLeak isDebug dfy bpl = do
@@ -230,9 +238,10 @@ compileDafny isLeak isDebug dfy bpl = do
     res <- shellyOutput isDebug "dafny" ["/compile:0",dfy,"/print:"++bpl,"/noVerify"]
     verifOutput isLeak True res
 
-verifOutput :: (MonadIO m) => Bool -> Bool -> String -> m Status
-verifOutput isLeak isDafny output = do
-    let w = last $ lines output
+verifOutput :: (MonadIO m) => Bool -> Bool -> Status -> m Status
+verifOutput isLeak isDafny st@(Status (Right err)) = verifErr isDafny st
+verifOutput isLeak isDafny st@(Status (Left output)) = do
+    let w = last $ lines $ show output
     let tool = if isDafny then "Dafny" else "Boogie"
     let parser = do
         Parsec.string tool >> Parsec.space
@@ -249,13 +258,18 @@ verifOutput isLeak isDafny output = do
         return (verified,errors)
     let e = Parsec.parse parser "output" w
     case e of
-        Left err -> do
-            let exec = if isDafny then "Dafny" else "Boogie"
-            return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error: " <+> text output) Nothing
+        Left err -> verifErr isDafny st
         Right (oks,kos) -> do
             let c = if isLeak then "leakage" else "functional"
             let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
             return $ Status $ Left res
+
+verifErr :: MonadIO m => Bool -> Status -> m Status
+verifErr isDafny (Status res) = do
+    let exec = if isDafny then "Dafny" else "Boogie"
+    case res of
+        Left output -> return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error: " <+> output) Nothing
+        Right err -> return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error:") (Just err)
 
 axiomatizeBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath -> m Status
 axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do

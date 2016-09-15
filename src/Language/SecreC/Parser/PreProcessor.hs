@@ -104,6 +104,7 @@ instance PP Options where
           <+> text "--paths=" <> PP.sepBy (PP.char ':') (map pp $ paths opts)
           <+> text "--verify=" <> pp (verify opts)
           <+> text "--simplify=" <> pp (simplify opts)
+          <+> text "--printoutput=" <> pp (printOutput opts)
           <+> text "--typecheck=" <> pp (typeCheck opts)
           <+> text "--debuglexer=" <> pp (debugLexer opts)
           <+> text "--debugparser=" <> pp (debugParser opts)
@@ -112,6 +113,7 @@ instance PP Options where
           <+> text "--debugverify=" <> pp (debugVerification opts)
           <+> text "--implicitcoercions=" <> pp (implicitCoercions opts)
           <+> text "--backtrack=" <> pp (backtrack opts)
+          <+> text "--writesci=" <> pp (writeSCI opts)
           <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
           <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
           <+> text "--evaltimeout=" <> pp (evalTimeOut opts)
@@ -130,6 +132,7 @@ optionsDecl  = Opts {
     
     -- Transformation
     , simplify        = simplify defaultOptions &= help "Simplify the SecreC program" &= groupname "Transformation"
+    , printOutput   = printOutput defaultOptions &= help "Print the output SecreC program to stdout" &= groupname "Transformation"
     
     -- Verification
     , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
@@ -144,13 +147,14 @@ optionsDecl  = Opts {
     
     -- Typechecker
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"
-    , backtrack   = backtrack defaultOptions &= help "Allows the typechecker to try multiple options" &= groupname "Verification:Typechecker"
+    , backtrack   = backtrack defaultOptions &= help "Tells the typechecker to allow ambiguities arising form implicit coercions, and to resolve them by attempting multiple options" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
     , failTypechecker = failTypechecker defaultOptions &= name "fail-tc" &= help "Typechecker should fail" &= groupname "Verification:Typechecker"
     , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
     , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"
+    , writeSCI = writeSCI defaultOptions &= help "Write typechecking result to SecreC interface files" &= groupname "Verification:Typechecker"
     
     -- Analysis
     , entryPoints = entryPoints defaultOptions &= help "starting procedures and structs for analysis" &= groupname "Verification:Analysis"

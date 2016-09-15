@@ -483,7 +483,7 @@ newOperator hdeps op = do
     
     solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict False Map.empty d'
+    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict True Map.empty d'
     let td = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) td
     noFrees e
@@ -546,7 +546,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     --liftIO $ putStrLn $ "newProc: " ++ show doc
     solveTop l "newProcedure"
     dict <- liftM (head . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict False Map.empty d'
+    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict True Map.empty d'
     let dt = DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     noFrees e
@@ -567,7 +567,7 @@ newAxiom l hdeps tvars d = do
     solveTop l "newAxiom"
     unresolvedQVars l "newAxiom" tvars
     dict <- liftM (head . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict False Map.empty d'
+    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict True Map.empty d'
     let dt = DecType i Nothing tvars emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     --noFrees e
@@ -835,7 +835,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             solveTop l "newStruct"
             dict <- liftM (head . tDict) State.get
             --i <- newModuleTyVarId
-            d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" (locpos l) dict False Map.empty d'
+            d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" (locpos l) dict True Map.empty d'
             let dt = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
             let e = EntryEnv (locpos l) dt
             --liftIO $ putStrLn $ "newStruct: " ++ ppr l ++ " " ++ ppr e

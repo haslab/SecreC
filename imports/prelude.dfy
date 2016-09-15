@@ -22,17 +22,23 @@ predicate Leak<T> (x: T)
 //newtype float32 = x: real | true
 //newtype float64 = x: real | true
     
-newtype uint8 = x: int | true
-newtype uint16 = x: int | true
-newtype uint32 = x: int | true
-newtype uint64 = x: int | true
-newtype xor_uint8 = x: int | true
-newtype xor_uint16 = x: int | true
-newtype xor_uint32 = x: int | true
-newtype xor_uint64 = x: int | true
+newtype uint8 = x: int | 0 <= x
+newtype uint16 = x: int | 0 <= x
+newtype uint32 = x: int | 0 <= x
+newtype uint64 = x: int | 0 <= x
+newtype xor_uint8 = x: int | 0 <= x
+newtype xor_uint16 = x: int | 0 <= x
+newtype xor_uint32 = x: int | 0 <= x
+newtype xor_uint64 = x: int | 0 <= x
 newtype int8 = x: int | true
 newtype int16 = x: int | true
 newtype int32 = x: int | true
 newtype int64 = x: int | true
 newtype float32 = x: real | true
 newtype float64 = x: real | true
+    
+function Repeat<T> (x: T, sz: uint64) : seq<T>
+decreases sz;
+{
+  if sz == 0 then [] else [x] + Repeat(x,sz-1) 
+}

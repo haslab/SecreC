@@ -138,9 +138,9 @@ function D T[[N]] repeat (D T x) {
     __builtin("core.repeat",x) :: D T [[N]]
 }
 
-template <domain D,type T,dim N>
-function D T[[N]] repeat (D T x, uint sz) {
-    __builtin("core.repeat",x,sz) :: D T [[N]]
+template <domain D,type T>
+function D T[[1]] repeat (D T x, uint szs) {
+    __builtin("core.repeat",x,szs) :: D T [[1]]
 }
 
 // size

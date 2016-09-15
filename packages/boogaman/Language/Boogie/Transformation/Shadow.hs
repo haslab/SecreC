@@ -527,6 +527,11 @@ shadowBareExpression opts DualE (Quantified o alphas args trggs e) = withExempti
     trggs' <- concatMapM (shadowQTriggerAttribute opts True (map fst args)) trggs
     e' <- shadowExpression opts DualE e
     return $ Quantified o alphas args' trggs' e'
+shadowBareExpression opts m (IfExpr c e1 e2) = do
+    c' <- shadowExpression opts m c
+    e1' <- shadowExpression opts m e1
+    e2' <- shadowExpression opts m e2
+    return $ IfExpr c' e1' e2'
 shadowBareExpression opts m e = error $ show $ text "expression" <+> pretty e <+> text "not supported in mode" <+> text (show m)
 
 shadowQTriggerAttribute :: MonadIO m => Options -> Bool -> [Id] -> QTriggerAttribute -> ShadowM m [QTriggerAttribute]

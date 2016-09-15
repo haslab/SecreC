@@ -27,10 +27,35 @@ domain pd_a3p shared3p;
 //                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
 //    return db;
 //}
+    
 
+
+//Property: all subsets of a frequent itemset are frequent
+//
+//Problem:
+//Assume that
+//t1 = 1,2,3,6
+//t2 = 1,2,3,4
+//t3 = 1,2,5
+
+//db =
+//1,1,1,0,0,1
+//1,1,1,1,0,0
+//1,1,0,0,1,0
+
+//
+//Frequent itemsets of size 2 with threshold 2 = {{1,2},{1,3},{2,3}}
+//
+//Frequent itemsets of size 3 with threshold 3 = {}
+//However, the apriori code is declassifying the comparison of the frequencies of all subsets, e.g. {1,2}, but from the result we don't know that {1,2} is frequent.
+
+// database rows = transaction no, database column = item no
+// result = one itemset per row
 template <domain D >
 uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
-//@ ensures shape(\result)[1] == setSize;
+//@ leakage requires public(frequents(db));
+//@ ensures \result == frequents(db);
+//@ ensures shape(\result)[1] == setSize; //
 {
   uint dbColumns = shape(db)[1];
   uint dbRows = shape(db)[0];
@@ -51,8 +76,8 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
   //x //@ invariant shape(F_cache)[0] == shape(F)[0];
   //x //@ invariant shape(F_cache)[1] == dbRows;
   {
-    D uint [[1]] z = db[:, i];
-    D uint frequence = sum (z); // sum of the column
+    D uint [[1]] z = db[:, i]; // all transactions where an item i occurs
+    D uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= threshold)) {
       F = cat (F, reshape((uint) i, 1, 1));
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
@@ -97,6 +122,7 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
 
 void main () {
     pd_a3p uint [[2]] db; // = load_db ();
+    //x //@ leakage infer frequents(db);
     uint [[2]] itemsets = apriori (db, 1 :: uint, 3 :: uint);
     //printArray (itemsets);
 }

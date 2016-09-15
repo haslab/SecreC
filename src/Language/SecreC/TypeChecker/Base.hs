@@ -2485,7 +2485,6 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifie
     traverseVars f n = do
         isLHS <- getLHS
         if isLHS then addBV n else addFV n
-        return n
     substL v | not (varIdTok v) = return $ Just v
     substL v = return Nothing
 

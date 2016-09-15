@@ -971,6 +971,10 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
                 Right 1 -> qExprToDafny isQExpr (annx) (brackets $ dafnySize px)
                 otherwise -> genError l $ text "builtinToDafny: unknown shape" <+> pp x <+> pp tx
         otherwise -> genError l $ text "builtinToDafny: unknown shape" <+> pp x <+> pp tx
+builtinToDafny isLVal isQExpr annK (Typed l ret) "core.repeat" [x,sz] = do
+    (annx,px) <- expressionToDafny isLVal False annK x
+    (annsz,psz) <- expressionToDafny isLVal False annK sz
+    qExprToDafny isQExpr (annx++annsz) (text "Repeat" <> parens (px <> comma <> psz))
 builtinToDafny isLVal isQExpr annK (Typed l ret) n es = genError l $ text "builtinToDafny: unexpected" <+> pp annK <+> pp ret <+> pp n <+> pp es
 
 literalToDafny :: DafnyK m => Literal (Typed Position) -> DafnyM m (AnnsDoc,Doc)

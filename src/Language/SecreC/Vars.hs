@@ -177,17 +177,20 @@ varsBlock m = do
     State.put (lhs',lval',ss,fvs',bvs) -- forget bound substitutions and bound variables
     return x
 
-addFV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m ()
-addFV x = State.modify $ \(lhs,lval,ss,fvs,bvs) -> if Set.member x bvs
-    then (lhs,lval,ss,fvs,bvs) -- don't add an already bound variable to the free variables
-    else (lhs,lval,ss,Map.insertWith (||) x lval fvs,bvs)
+addFV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m iden
+addFV x = do
+    State.modify $ \(lhs,lval,ss,fvs,bvs) -> if Set.member x bvs
+        then (lhs,lval,ss,fvs,bvs) -- don't add an already bound variable to the free variables
+        else (lhs,lval,ss,Map.insertWith (||) x lval fvs,bvs)
+    return x
  
-addBV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m ()
+addBV :: (GenVar iden m,IsScVar iden,MonadIO m) => iden -> VarsM iden m iden
 addBV x = do
     --liftIO $ putStrLn $ "addBV " ++ ppr x
     (lhs,lval,(substBounds,ss),fvs,bvs) <- State.get
-    ss' <- if substBounds then liftM (\x' -> Map.insert x x' ss) (State.lift $ genVar x) else return ss
+    (x',ss') <- if substBounds then liftM (\x' -> (x',Map.insert x x' ss)) (State.lift $ genVar x) else return (x,ss)
     State.put (lhs,lval,(substBounds,ss'),fvs,Set.insert x bvs)
+    return x'
 
 instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m Integer where
     traverseVars f i = return i
@@ -358,8 +361,6 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar iden) => Vars id
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (VarName iden loc) where
     traverseVars f v@(VarName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ VarName l' n'
     substL (VarName _ n) = substL n
@@ -367,8 +368,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (VarName
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ProcedureName iden loc) where
     traverseVars f v@(ProcedureName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ ProcedureName l' n'
     substL (ProcedureName _ n) = substL n
@@ -376,8 +375,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (Procedu
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (DomainName iden loc) where
     traverseVars f v@(DomainName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ DomainName l' n'
     substL (DomainName _ n) = substL n
@@ -385,8 +382,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (DomainN
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (KindName iden loc) where
     traverseVars f v@(KindName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ KindName l' n'
     substL (KindName _ n) = substL n
@@ -394,8 +389,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (KindNam
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ModuleName iden loc) where
     traverseVars f v@(ModuleName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ ModuleName l' n'
     substL (ModuleName _ n) = substL n
@@ -403,8 +396,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (ModuleN
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (TemplateArgName iden loc) where
     traverseVars f v@(TemplateArgName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ TemplateArgName l' n'
     substL (TemplateArgName _ n) = substL n
@@ -412,8 +403,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (Templat
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (AttributeName iden loc) where
     traverseVars f v@(AttributeName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ AttributeName l' n'
     substL (AttributeName _ n) = substL n
@@ -421,8 +410,6 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (Attribu
 instance (Vars iden m iden,Vars iden m loc,IsScVar iden) => Vars iden m (TypeName iden loc) where
     traverseVars f v@(TypeName l n) = do
         l' <- inRHS $ f l
-        isLHS <- getLHS
-        if isLHS then addBV n else addFV n
         n' <- f n
         return $ TypeName l' n'
     substL (TypeName _ n) = substL n

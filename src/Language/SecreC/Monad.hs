@@ -56,6 +56,8 @@ data Options
         , evalTimeOut           :: Int
         , implicitCoercions      :: Bool
         , backtrack              :: Bool
+        , printOutput           :: Bool
+        , writeSCI              :: Bool
         , failTypechecker       :: Bool
         , implicitBuiltin       :: Bool
         , externalSMT           :: Bool
@@ -85,6 +87,8 @@ instance Monoid Options where
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitCoercions = implicitCoercions x && implicitCoercions y
         , backtrack = backtrack x && backtrack y
+        , printOutput = printOutput x || printOutput y
+        , writeSCI = writeSCI x && writeSCI y
         , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
         , failTypechecker = failTypechecker x || failTypechecker y
         , externalSMT = externalSMT x && externalSMT y
@@ -111,6 +115,8 @@ defaultOptions = Opts
     , evalTimeOut = 5
     , implicitCoercions = True
     , backtrack = True
+    , printOutput = False
+    , writeSCI = True
     , implicitBuiltin = True
     , failTypechecker = False
     , externalSMT = True
