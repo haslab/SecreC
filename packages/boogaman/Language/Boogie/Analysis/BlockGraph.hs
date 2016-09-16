@@ -6,6 +6,7 @@ import Language.Boogie.Exts
 import Language.Boogie.Position
 import Language.Boogie.AST
 import Language.Boogie.PrettyAST
+import Language.Boogie.Options
 
 import Data.Graph.Inductive.PatriciaTree as Gr
 import Data.Graph.Inductive.Graph as Gr
@@ -28,12 +29,6 @@ import Control.Monad.State as State
 import Text.PrettyPrint.ANSI.Leijen
 
 import System.IO
-
-
-strace :: MonadIO m => String -> m a -> m a
-strace str m = do
---    liftIO $ hPutStrLn stderr str
-    m
 
 type BlockM m = StateT GraphSt m
 

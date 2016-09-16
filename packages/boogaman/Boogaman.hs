@@ -53,6 +53,7 @@ defaultOptions = Opts
     , filterLeakage = Nothing
     , vcgen = NoVCGen
     , axioms = []
+    , debug = False
     }
 
 opts  :: Options
@@ -64,6 +65,7 @@ opts  = Opts {
     , filterLeakage         = filterLeakage defaultOptions &= help "Consider or discard leakage annotations" &= groupname "Transformation"
     , vcgen           = vcgen defaultOptions &= help "Specializes the transformations for the given VCGen"
     , axioms          = axioms defaultOptions &= help "axiomatize contracts of given procedures"
+    , debug           = debug defaultOptions &= help "Print debugging information"
     }
     &= help "Boogie AST Manipulator analyser"
 

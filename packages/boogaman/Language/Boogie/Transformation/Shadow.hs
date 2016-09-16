@@ -55,7 +55,7 @@ ppProgram opts (Program decls) = do
 mergeProcs (bools,rbools,ids,leaks) (bools',rbools',ids',leaks') = (bools,rbools,mappend ids ids',mappend leaks' leaks')
 
 ppDecl :: MonadIO m => Options -> BareDecl -> ShadowM m BareDecl
-ppDecl opts (ProcedureDecl atts name targs args rets contracts body) = strace ("pp procedure " ++ show name) $ do
+ppDecl opts (ProcedureDecl atts name targs args rets contracts body) = strace opts ("pp procedure " ++ show name) $ do
 --    when (isLeakFunName name) $ addExemption name
     -- add procedure modifies list
     bools <- mapM (liftM not . isExemptType . itwType) args
@@ -65,7 +65,7 @@ ppDecl opts (ProcedureDecl atts name targs args rets contracts body) = strace ("
     State.modify $ \st -> st { procedures = Map.insertWith mergeProcs name (bools,rbools,ids,leak `mappend` leaks) (procedures st) }
     let contracts' = gReplaceCanCall opts contracts
     return $ ProcedureDecl atts name targs args rets contracts' body'
-ppDecl opts (ImplementationDecl atts name targs args rets body) = strace ("pp implementation " ++ show name) $ do
+ppDecl opts (ImplementationDecl atts name targs args rets body) = strace opts ("pp implementation " ++ show name) $ do
 --    when (isLeakFunName name) $ addExemption name
     bools <- mapM (liftM not . isExemptType . snd) args
     rbools <- mapM (liftM not . isExemptType . snd) rets
@@ -73,11 +73,11 @@ ppDecl opts (ImplementationDecl atts name targs args rets body) = strace ("pp im
     let (body',leaks) = ppBodies opts ids body
     State.modify $ \st -> st { procedures = Map.insertWith mergeProcs name (bools,rbools,ids,leaks) (procedures st) }
     return $ ImplementationDecl atts name targs args rets body'
-ppDecl opts d@(FunctionDecl atts name targs args ret body) = strace ("pp function " ++ show name) $ do
+ppDecl opts d@(FunctionDecl atts name targs args ret body) = strace opts ("pp function " ++ show name) $ do
 --    when (isLeakFunName name) $ addExemption name
     State.modify $ \st -> st { functions = Map.insert name (map (isPrivateFArg opts) args) (functions st) }
     return d
-ppDecl opts d@(AxiomDecl atts e) = strace ("pp axiom ") $ do
+ppDecl opts d@(AxiomDecl atts e) = strace opts ("pp axiom ") $ do
     let atts' = if hasLeakageFunAnn opts e then Attribute "leakage" [] : atts else atts
     return $ AxiomDecl atts' e
 ppDecl opts d = return d
@@ -116,14 +116,15 @@ ppBody opts modifies (vars,b) = ((vars,fromBasicBlocks bb'),leaks)
     leaks = computeLeakage opts modifies bb
     bb' = gReplaceCanCall opts bb
 
-isExempt :: MonadIO m => Id -> ShadowM m Bool
-isExempt i = do
+isExempt :: MonadIO m => Options -> Id -> ShadowM m Bool
+isExempt opts i = do
     m <- liftM exemptions State.get
-    return $ Set.member i m
+    let b = Set.member i m
+    strace opts (show $ text "isExempt" <+> pretty i <+> pretty b) $ return b
 
-unlessExempt :: MonadIO m => a -> Id -> ShadowM m [a] -> ShadowM m [a]
-unlessExempt x i m = do
-    is <- isExempt i
+unlessExempt :: MonadIO m => Options -> a -> Id -> ShadowM m [a] -> ShadowM m [a]
+unlessExempt opts x i m = do
+    is <- isExempt opts i
     if is then return [x] else m
 
 unlessExemptFVS :: (MonadIO m,FVS a) => a -> x -> ShadowM m x -> ShadowM m x
@@ -154,8 +155,8 @@ shadowBareDecl opts (VarDecl atts ids) = do -- duplicate global variables
     return [VarDecl atts' ids']
 shadowBareDecl opts d@(ConstantDecl atts unique ids t orderSpec complete) = do -- duplicate global constants
     atts' <- concatMapM (shadowAttribute opts True) atts
-    orderSpec' <- shadowParentInfo orderSpec
-    ids' <- concatMapM shadowConstId ids
+    orderSpec' <- shadowParentInfo opts orderSpec
+    ids' <- concatMapM (shadowConstId opts) ids
     return [ConstantDecl atts' unique ids' t orderSpec' complete]
 shadowBareDecl opts d@(AxiomDecl atts e) = if hasLeakageAtt atts
     then do
@@ -166,10 +167,10 @@ shadowBareDecl opts d@(AxiomDecl atts e) = if hasLeakageAtt atts
         atts' <- concatMapM (shadowAttribute opts False) $ atts
         e' <- shadowExpression opts ShadowE $ e
         return [removeLeakageAnns opts d,AxiomDecl atts' e']
-shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) = strace ("shadowing procedure " ++ show (pretty name)) $ shadowLocal $ unlessExempt d name $ if isLeakFunName opts name
+shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) = strace opts ("shadowing procedure " ++ show (pretty name)) $ shadowLocal $ unlessExempt opts d name $ if isLeakFunName opts name
     then do
         (bools,rbools,modifies,leaks) <- getProcedure name
-        name' <- shadowId DualE name
+        name' <- shadowId opts DualE name
         atts' <- concatMapM (shadowAttribute opts True) atts
         -- duplicate parameters, returns and contracts
         args' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip bools args
@@ -190,7 +191,7 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
         return [d']
     else do
         (bools,rbools,modifies,leaks) <- getProcedure name
-        name' <- shadowId ShadowE name
+        name' <- shadowId opts ShadowE name
         atts' <- concatMapM (shadowAttribute opts False) atts
         -- duplicate parameters, returns and contracts
         args' <- concatMapM (shadowIdTypeWhere opts False) args
@@ -201,10 +202,10 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
         
         let d' = ProcedureDecl atts' name' targs args' rets' contracts' (body')
         return [removeLeakageAnns opts d,d']
-shadowBareDecl opts d@(ImplementationDecl atts name targs args rets body) = strace ("shadowing implementation " ++ show (pretty name)) $ shadowLocal $ unlessExempt d name $ if isLeakFunName opts name
-    then do
+shadowBareDecl opts d@(ImplementationDecl atts name targs args rets body) = strace opts ("entering implementation " ++ show (pretty name)) $ shadowLocal $ unlessExempt opts d name $ if isLeakFunName opts name
+    then strace opts ("generating product implementation for " ++ show (pretty name)) $ do
         (bools,rbools,modifies,leaks) <- getProcedure name
-        name' <- shadowId DualE name
+        name' <- shadowId opts DualE name
         atts' <- concatMapM (shadowAttribute opts True) atts
         args' <- concatMapM (uncurry $ shadowIdType opts) $ zip bools args
         rets' <- concatMapM (uncurry $ shadowIdType opts) $ zip rbools rets
@@ -221,9 +222,9 @@ shadowBareDecl opts d@(ImplementationDecl atts name targs args rets body) = stra
             
         let d' = ImplementationDecl atts' name' targs args' rets' (addBodies defShadow initShadow body')
         return [d']
-    else do
+    else strace opts ("shadowing implementation of " ++ show (pretty name)) $ do
         (bools,rbools,modifies,leaks) <- getProcedure name
-        name' <- shadowId ShadowE name
+        name' <- shadowId opts ShadowE name
         atts' <- concatMapM (shadowAttribute opts False) atts
         args' <- concatMapM (shadowIdType opts False) args
         rets' <- concatMapM (shadowIdType opts False) rets
@@ -232,10 +233,10 @@ shadowBareDecl opts d@(ImplementationDecl atts name targs args rets body) = stra
             
         let d' = ImplementationDecl atts' name' targs args' rets' (body')
         return [removeLeakageAnns opts d,d']
-shadowBareDecl opts d@(FunctionDecl atts name targs args ret body) = strace ("shadowing function " ++ show (pretty name)) $ shadowLocal $ unlessExempt d name $ if isLeakFunName opts name
+shadowBareDecl opts d@(FunctionDecl atts name targs args ret body) = strace opts ("shadowing function " ++ show (pretty name)) $ shadowLocal $ unlessExempt opts d name $ if isLeakFunName opts name
     then do
         atts' <- concatMapM (shadowAttribute opts False) atts
-        name' <- shadowId DualE name
+        name' <- shadowId opts DualE name
         bools <- liftM ((Map.!name) . functions) State.get
         args' <- concatMapM (uncurry (shadowFArg opts)) (zip bools args)
         [ret'] <- shadowFArg opts False ret
@@ -244,7 +245,7 @@ shadowBareDecl opts d@(FunctionDecl atts name targs args ret body) = strace ("sh
         return [d']
     else do
         atts' <- concatMapM (shadowAttribute opts False) atts
-        name' <- shadowId ShadowE name
+        name' <- shadowId opts ShadowE name
         args' <- concatMapM (shadowFArg opts False) args
         [ret'] <- shadowFArg opts False ret
         body' <- mapM (shadowExpression opts ShadowE) body
@@ -303,7 +304,7 @@ shadowBlock opts modifies leaks isDual b = do
         else return (fromBasicBlocks bb')
 
 shadowBasicBlocks :: MonadIO m => Options -> Set Id -> Leakage -> Bool -> [BasicBlock] -> ShadowM m [BasicBlock]
-shadowBasicBlocks opts modifies leaks True bs = strace ("shadowBasicBlocks") $ do
+shadowBasicBlocks opts modifies leaks True bs = strace opts ("shadowBasicBlocks") $ do
     bbs <- lift $ flattenBasicBlocks bs (fst $ last bs)
     bbs' <- forM bbs $ \(bb,next) -> do
         let doFull = isBenign leaks bb && length bb > 1
@@ -342,17 +343,17 @@ shadowContract opts proc ShadowDualE c@(Ensures free e) = do
     e' <- shadowExpression opts ShadowDualE e
     return [removeLeakageAnns opts c,Ensures free e']
 shadowContract opts proc mode c@(Modifies free ids) = do
-    ids' <- mapM (shadowId mode) ids
+    ids' <- mapM (shadowId opts mode) ids
     return [Modifies free (List.nub $ (if isDualMode mode then ids else [])++ids')]
 shadowContract opts proc mode c = error $ show $ text "shadowContract:" <+> text (show mode) <+> pretty c
 
-shadowConstId :: MonadIO m => Id -> ShadowM m [Id]
-shadowConstId i = do
+shadowConstId :: MonadIO m => Options -> Id -> ShadowM m [Id]
+shadowConstId opts i = do
     addVariable i
-    unlessExempt i i $ liftM (\x -> [i,x]) (shadowId ShadowE i)
+    unlessExempt opts i i $ liftM (\x -> [i,x]) (shadowId opts ShadowE i)
 
-shadowParentInfo :: MonadIO m => ParentInfo -> ShadowM m ParentInfo
-shadowParentInfo = mapM (mapM (mapSndM (shadowId ShadowE)))
+shadowParentInfo :: MonadIO m => Options -> ParentInfo -> ShadowM m ParentInfo
+shadowParentInfo opts = mapM (mapM (mapSndM (shadowId opts ShadowE)))
 
 shadowFArg :: MonadIO m => Options -> Bool -> FArg -> ShadowM m [FArg]
 shadowFArg opts False a@(Nothing,t) = return [(Nothing,t)]
@@ -360,48 +361,48 @@ shadowFArg opts True a@(Nothing,t) = return [(Nothing,t),(Nothing,t)]
 shadowFArg opts False a@(Just i,t) = do
     --when (isLeakVarName opts i) $ error $ show $ text "shadowFArg: leakage variable not supported" <+> pretty a
     addVariable i
-    addExemption i
+    addExemption opts i
     return [(Just i,t)]
 shadowFArg opts True a@(Just i,t) = if isLeakVarName opts i
     then do
         addVariable i
-        i' <- shadowId ShadowE i
+        i' <- shadowId opts ShadowE i
         addVariable i'
         return [(Just i,t),(Just i',t)]
     else do
         addVariable i
-        addExemption i
+        addExemption opts i
         return [(Just i,t)]
 
 shadowIdType :: MonadIO m => Options -> Bool -> IdType -> ShadowM m [IdType]
 shadowIdType opts False it@(i,t) = do -- if the type is exempt, then the variable is exempt
     addVariable i
-    addExemption i
+    addExemption opts i
     return [removeLeakageAnns opts it]
 shadowIdType opts True it@(i,t) = do
     addVariable i
-    unlessExempt it i $ do
-        i' <- shadowId ShadowE i
+    unlessExempt opts it i $ do
+        i' <- shadowId opts ShadowE i
         return [removeLeakageAnns opts it,(i',t)]
 
 shadowIdTypeWhere :: MonadIO m => Options -> Bool -> IdTypeWhere -> ShadowM m [IdTypeWhere]
 shadowIdTypeWhere opts False itw@(IdTypeWhere i t w) = do
     addVariable i
-    addExemption i
+    addExemption opts i
     return [removeLeakageAnns opts itw]
 shadowIdTypeWhere opts True itw@(IdTypeWhere i t w) = do
     addVariable i
-    unlessExempt itw i $ do
-        i' <- shadowId ShadowE i
+    unlessExempt opts itw i $ do
+        i' <- shadowId opts ShadowE i
         w' <- shadowExpression opts ShadowE w
         return [removeLeakageAnns opts itw,IdTypeWhere i' t w']
 
-shadowId :: MonadIO m => ShadowEMode -> Id -> ShadowM m Id
-shadowId mode@(isDualE -> False) i = do
-    exempt <- isExempt i
+shadowId :: MonadIO m => Options -> ShadowEMode -> Id -> ShadowM m Id
+shadowId opts mode@(isDualE -> False) i = do
+    exempt <- isExempt opts i
     if exempt then return i else return (i++".shadow")
-shadowId DualE i = do
-    exempt <- isExempt i
+shadowId opts DualE i = do
+    exempt <- isExempt opts i
     if exempt then return i else return (i++".dual")
 
 shadowExpression :: MonadIO m => Options -> ShadowEMode -> Expression -> ShadowM m Expression
@@ -443,7 +444,7 @@ shadowBareExpression opts DualE e | not (hasLeakageFunAnn opts e) = do
     e' <- shadowBareExpression opts ShadowE e
     return $ BinaryExpression And (Pos noPos e) (Pos noPos e')
 shadowBareExpression opts (isDualMode -> True) e@(Application n@(isLeakFunName opts -> True) es) = do
-    n' <- shadowId DualE n
+    n' <- shadowId opts DualE n
     bools <- liftM ((Map.!n) . functions) State.get
     es' <- shadowDuals (shadowExpression opts ShadowE) bools es
     return $ Application n' es'
@@ -466,7 +467,7 @@ shadowBareExpression opts (isDualMode -> True) e@(isDeclassifiedExpr opts -> Jus
     return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
 shadowBareExpression opts (isDualE -> False) e@(Literal {}) = return e
 shadowBareExpression opts (isDualE -> False) (Var i) = do
-    i' <- shadowId ShadowE i
+    i' <- shadowId opts ShadowE i
     return $ Var i'
 shadowBareExpression opts (isDualE -> False) e@(Logical {}) = return e
 shadowBareExpression opts (isDualE -> False) (Old e) = do
@@ -483,16 +484,16 @@ shadowBareExpression opts m (BinaryExpression o e1 e2) = do
     e2' <- shadowExpression opts m e2
     return $ BinaryExpression o e1' e2'
 shadowBareExpression opts DualE e@(Application name@(isLeakFunName opts -> False) es) = do
-    name' <- shadowId ShadowE name
+    name' <- shadowId opts ShadowE name
     es' <- mapM (shadowExpression opts ShadowDualE) es
     let e' = Application name' es'
     return $ BinaryExpression Eq (Pos noPos $ removeLeakageAnns opts e) (Pos noPos e')
 shadowBareExpression opts ShadowDualE e@(Application name@(isLeakFunName opts -> False) es) = do
-    name' <- shadowId ShadowE name
+    name' <- shadowId opts ShadowE name
     es' <- mapM (shadowExpression opts ShadowDualE) es
     return $ Application name' es'
 shadowBareExpression opts ShadowE e@(Application name@(isLeakFunName opts -> False) es) = do
-    name' <- shadowId ShadowE name
+    name' <- shadowId opts ShadowE name
     es' <- mapM (shadowExpression opts ShadowE) es
     return $ Application name' es'
 shadowBareExpression opts mode (MapSelection m es) = do
@@ -507,7 +508,7 @@ shadowBareExpression opts mode (MapUpdate m es r) = do
 shadowBareExpression opts m@(isDualE -> False) (Quantified o alphas args trggs e) = withExemptions $ do
     let add (v,t) = do
         addVariable v
-        addExemption v
+        addExemption opts v
     mapM_ add args
     trggs' <- concatMapM (shadowQTriggerAttribute opts False (map fst args)) trggs
     e' <- shadowExpression opts m e
@@ -516,21 +517,21 @@ shadowBareExpression opts DualE (Quantified o alphas args trggs e) = withExempti
     let add (v,t) = if isLeakVarName opts v
         then do
             addVariable v
-            v' <- shadowId ShadowE v
+            v' <- shadowId opts ShadowE v
             addVariable v'
             return [(v,t),(v',t)]
         else do
             addVariable v
-            addExemption v
+            addExemption opts v
             return [(v,t)]
     args' <- concatMapM add args
     trggs' <- concatMapM (shadowQTriggerAttribute opts True (map fst args)) trggs
     e' <- shadowExpression opts DualE e
     return $ Quantified o alphas args' trggs' e'
-shadowBareExpression opts m (IfExpr c e1 e2) = do
-    c' <- shadowExpression opts m c
-    e1' <- shadowExpression opts m e1
-    e2' <- shadowExpression opts m e2
+shadowBareExpression opts ShadowE (IfExpr c e1 e2) = do
+    c' <- shadowExpression opts ShadowE c
+    e1' <- shadowExpression opts ShadowE e1
+    e2' <- shadowExpression opts ShadowE e2
     return $ IfExpr c' e1' e2'
 shadowBareExpression opts m e = error $ show $ text "expression" <+> pretty e <+> text "not supported in mode" <+> text (show m)
 
@@ -549,12 +550,12 @@ shadowQTriggerAttribute opts doDual vars t@(Right att) = do
 
 -- product
 prodBasicBlocks :: MonadIO m => Options -> ShadowEMode -> [BasicBlock] -> ShadowM m [BasicBlock]
-prodBasicBlocks opts mode bs = strace ("prodBasicBlocks") $ mapM (shadowBasicBlock opts mode) bs
+prodBasicBlocks opts mode bs = strace opts ("prodBasicBlocks") $ mapM (shadowBasicBlock opts mode) bs
 
 shadowBasicBlock :: MonadIO m => Options -> ShadowEMode -> BasicBlock -> ShadowM m BasicBlock
 shadowBasicBlock opts ShadowDualE (l,ss) = do
     ss' <- concatMapM (shadowStatement opts ShadowDualE) ss
-    l' <- shadowId ShadowE l
+    l' <- shadowId opts ShadowE l
     return (l',ss')
 shadowBasicBlock opts ShadowE (l,ss) = do
     ss' <- concatMapM (shadowStatement opts ShadowE) ss
@@ -569,21 +570,21 @@ shadowStatement opts mode (Pos p s) = do
 
 shadowBareStatement :: MonadIO m => Options -> ShadowEMode -> BareStatement -> ShadowM m [BareStatement]
 shadowBareStatement opts mode s@(Havoc ids) = do
-    ids' <- mapM (shadowId ShadowE) ids
+    ids' <- mapM (shadowId opts ShadowE) ids
     let s' = Havoc ids'
     if isDualE mode then return [removeLeakageAnns opts s,s'] else return [s']
 shadowBareStatement opts mode Skip = return [Skip]
 shadowBareStatement opts DualE s@(Goto ids) = return [s]
 shadowBareStatement opts ShadowE s@(Goto ids) = return [s]
 shadowBareStatement opts ShadowDualE s@(Goto ids) = do
-    ids' <- mapM (shadowId ShadowE) ids
+    ids' <- mapM (shadowId opts ShadowE) ids
     return [Goto ids']
 shadowBareStatement opts mode p@(Predicate atts spec) = do
-    ps' <- strace ("shadowPredicate " ++ show mode ++ " " ++ show (pretty p)) $ shadowPredicate opts mode p
+    ps' <- strace opts ("shadowPredicate " ++ show mode ++ " " ++ show (pretty p)) $ shadowPredicate opts mode p
     return ps'
 shadowBareStatement opts mode s@(Assign lhs rhs) = do
     let shadowLhs (i,ess) = do
-        i' <- shadowId ShadowE i
+        i' <- shadowId opts ShadowE i
         ess' <- mapM (mapM (shadowExpression opts ShadowE)) ess
         return (i',ess')
     lhs' <- mapM shadowLhs lhs
@@ -593,46 +594,46 @@ shadowBareStatement opts mode s@(Assign lhs rhs) = do
         then return [removeLeakageAnns opts s,s']
         else return [s']
 shadowBareStatement opts ShadowDualE s@(Call atts is name es) = do -- shadow arguments
-    name' <- shadowId ShadowE name
-    is' <- mapM (shadowId DualE) is
+    name' <- shadowId opts ShadowE name
+    is' <- mapM (shadowId opts DualE) is
     atts' <- concatMapM (shadowAttribute opts False) atts
     es' <- mapM (shadowExpression opts ShadowDualE) es
     let s' = Call atts' is' name' es'
     return [s']
 shadowBareStatement opts DualE s@(Call atts is name es) | isLeakFunName opts name = do -- duplicate call arguments
     (bools,rbools,_,_) <- getProcedure name
-    is' <- shadowDuals (shadowId ShadowE) rbools is
-    name' <- shadowId DualE name
+    is' <- shadowDuals (shadowId opts ShadowE) rbools is
+    name' <- shadowId opts DualE name
     atts' <- concatMapM (shadowAttribute opts True) atts
     es' <- shadowDuals (shadowExpression opts ShadowE) bools es
     let s' = Call atts' is' name' es'
     return [s']
 shadowBareStatement opts DualE s@(Call atts is name es) | not (isLeakFunName opts name) = do -- duplicate call
-    is' <- mapM (shadowId ShadowE) is
-    name' <- shadowId ShadowE name
+    is' <- mapM (shadowId opts ShadowE) is
+    name' <- shadowId opts ShadowE name
     atts' <- concatMapM (shadowAttribute opts False) atts
     es' <- mapM (shadowExpression opts ShadowE) es
     let s' = Call atts' is' name' es'
     return [s,s']
 shadowBareStatement opts ShadowE s@(Call atts is name es) | not (isLeakFunName opts name) = do -- shadow call arguments
-    is' <- mapM (shadowId ShadowE) is
-    name' <- shadowId ShadowE name
+    is' <- mapM (shadowId opts ShadowE) is
+    name' <- shadowId opts ShadowE name
     atts' <- concatMapM (shadowAttribute opts False) atts
     es' <- mapM (shadowExpression opts ShadowE) es
     let s' = Call atts' is' name' es'
     return [s']
 shadowBareStatement opts ShadowDualE s@(CallForall i es) = do
-    i' <- shadowId ShadowDualE i
+    i' <- shadowId opts ShadowDualE i
     es' <- mapM (shadowWildcardExpression opts ShadowDualE) es
     let s' = CallForall i' es'
     return [s']
 shadowBareStatement opts ShadowE s@(CallForall i es) = do
-    i' <- shadowId ShadowE i
+    i' <- shadowId opts ShadowE i
     es' <- mapM (shadowWildcardExpression opts ShadowE) es
     let s' = CallForall i' es'
     return [s']
 shadowBareStatement opts DualE s@(CallForall i es) = do
-    i' <- shadowId ShadowE i
+    i' <- shadowId opts ShadowE i
     es' <- mapM (shadowWildcardExpression opts ShadowDualE) es
     let s' = CallForall i' es'
     return [removeLeakageAnns opts s,s']
@@ -714,16 +715,16 @@ redirectBasicBlock opts next startShadow (l,ss) = (l,concatMap redirectStatement
 -- full product
 fprodBasicBlocks :: MonadIO m => Options -> Id -> Maybe Id -> [BasicBlock] -> ShadowM m [BasicBlock]
 fprodBasicBlocks opts start next bs = do
-    startShadow <- shadowId ShadowE start
+    startShadow <- shadowId opts ShadowE start
     let bsRedir = map (redirectBasicBlock opts next startShadow) bs
     -- duplicated program without shadowing the final goto
     withExemptions $ do
-        mapM_ addExemption next
+        mapM_ (addExemption opts) next
         bsShadow <- mapM (shadowBasicBlock opts ShadowDualE) bs
         return $ bsRedir ++ bsShadow
 
-addExemption :: MonadIO m => Id -> ShadowM m ()
-addExemption i = State.modify $ \st -> st { exemptions = Set.insert i (exemptions st) }
+addExemption :: MonadIO m => Options -> Id -> ShadowM m ()
+addExemption opts i = strace opts ("added exemption " ++ show (pretty i)) $ State.modify $ \st -> st { exemptions = Set.insert i (exemptions st) }
 
 addVariable :: MonadIO m => Id -> ShadowM m ()
 addVariable i = State.modify $ \st -> st { variables = Set.insert i (variables st) }

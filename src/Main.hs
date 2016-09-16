@@ -121,7 +121,7 @@ passes secrecIns secrecOuts modules = runTcM $ failTcM (noloc::Position) $ local
         Nothing -> return ()
         Just typedModules -> do
             opts <- askOpts
-            outputModules <- liftIO $ output secrecIns secrecOuts typedModules
+            outputModules <- liftIO $ output opts secrecIns secrecOuts typedModules
             verifyDafny outputModules
 
 typecheck :: [ModuleFile] -> TcM IO (Maybe [TypedModuleFile])
@@ -151,7 +151,7 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         let bplfile = "out.bpl"
         let bplfile2 = "out_axiom.bpl"
         let bpllfile = "out_leak.bpl"
-        let bpllfile2 = "out_leak_axiom.bpl"
+        let bpllfile2 = "out_leak_product.bpl"
         
         -- generate dafny files
         when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
@@ -307,8 +307,8 @@ getEntryPoints files = do
             liftM concat $ mapM entryPointsTypedModuleFile files'
         es -> liftM catMaybes $ mapM resolveEntryPoint es
 
-output :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)] 
-output secrecIns secrecOuts modules = do
+output :: Options -> [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)] 
+output opts secrecIns secrecOuts modules = do
     moduleso <- resolveOutput secrecIns secrecOuts modules
     forM_ moduleso $ \(mfile,o) -> case mfile of
         Left (time,ppargs,m) -> case o of
@@ -316,7 +316,7 @@ output secrecIns secrecOuts modules = do
                 hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
                 return ()
             OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
-            OutputStdout -> do
+            OutputStdout -> when (printOutput opts) $ do
                 putStrLn $ show (moduleFile m) ++ ":"
                 putStrLn $ show $ pp ppargs $+$ pp m
         Right sci -> do
