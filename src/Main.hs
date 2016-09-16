@@ -313,14 +313,14 @@ output opts secrecIns secrecOuts modules = do
     forM_ moduleso $ \(mfile,o) -> case mfile of
         Left (time,ppargs,m) -> case o of
             NoOutput -> do
-                hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
+                when (printOutput opts) $ hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
                 return ()
             OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
             OutputStdout -> when (printOutput opts) $ do
                 putStrLn $ show (moduleFile m) ++ ":"
                 putStrLn $ show $ pp ppargs $+$ pp m
         Right sci -> do
-            hPutStrLn stderr $ "No output for unchanged module " ++ show (sciFile sci)
+            when (printOutput opts) $ hPutStrLn stderr $ "No output for unchanged module " ++ show (sciFile sci)
             return ()
     return moduleso
 

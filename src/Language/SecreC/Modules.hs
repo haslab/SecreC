@@ -203,15 +203,17 @@ fileModificationTime fn = catchIOError
 
 writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> SecrecM m ()
 writeModuleSCI ppargs menv m = do
-    let fn = moduleFile m
-    t <- liftIO $ fileModificationTime fn
-    let scifn = replaceExtension fn "sci"
-    let header = SCIHeader fn t (moduleId m)
-    let body = SCIBody (map (fmap locpos) $ moduleImports m) ppargs menv
-    e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
-    case e of
-        Nothing -> return ()
-        Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
+    opts <- ask
+    when (writeSCI opts) $ do
+        let fn = moduleFile m
+        t <- liftIO $ fileModificationTime fn
+        let scifn = replaceExtension fn "sci"
+        let header = SCIHeader fn t (moduleId m)
+        let body = SCIBody (map (fmap locpos) $ moduleImports m) ppargs menv
+        e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
+        case e of
+            Nothing -> return ()
+            Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
