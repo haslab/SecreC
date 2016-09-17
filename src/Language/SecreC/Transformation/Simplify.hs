@@ -63,8 +63,9 @@ simplifyModule :: Options -> SimplifyG loc m Module
 simplifyModule opts m@(Module l n p) = do
     if (simplify opts)
         then do
-            when (debugTransformation opts) $
-                lift $ liftIO $ hPutStrLn stderr ("Simplifying module " ++ ppr (moduleVarId m) ++ "...")
+            when (debugTransformation opts) $ do
+                ppm <- ppr (moduleVarId m)
+                lift $ liftIO $ hPutStrLn stderr ("Simplifying module " ++ ppm ++ "...")
             p' <- simplifyProgram p
             return $ Module l n p'
         else return m
@@ -466,13 +467,15 @@ simplifyLoopAnn (DecreasesAnn l isLeak e) = do
     anns <- liftM (map stmtAnn2LoopAnn) (stmtsAnns ss)
     return $ anns ++ [DecreasesAnn l isLeak e']
 
-stmtsAnns :: (PP iden,SimplifyK loc m) => [Statement iden loc] -> TcM m [StatementAnnotation iden loc]
+stmtsAnns :: (PP (TcM m) iden,SimplifyK loc m) => [Statement iden loc] -> TcM m [StatementAnnotation iden loc]
 stmtsAnns = liftM concat . mapM stmtAnns
 
-stmtAnns :: (PP iden,SimplifyK loc m) => Statement iden loc -> TcM m [StatementAnnotation iden loc]
+stmtAnns :: (PP (TcM m) iden,SimplifyK loc m) => Statement iden loc -> TcM m [StatementAnnotation iden loc]
 stmtAnns (AnnStatement _ anns) = return anns
 stmtAnns (CompoundStatement _ ss) = stmtsAnns ss
-stmtAnns s = genError (locpos $ loc s) $ text "expected an annotation but found statement" <+> pp s
+stmtAnns s = do
+    pps <- pp s
+    genError (locpos $ loc s) $ text "expected an annotation but found statement" <+> pps
 
 stmtAnnExpr :: StatementAnnotation iden loc -> (Expression iden loc,Bool)
 stmtAnnExpr (AssumeAnn _ isLeak e) = (e,True)
@@ -490,7 +493,11 @@ loopAnn2StmtAnn (InvariantAnn l False isLeak e) = AssertAnn l isLeak e
 -- we assume that typechecking has already tied the procedure's type arguments
 inlineProcCall :: SimplifyK loc m => Bool -> loc -> PIdentifier -> Type -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> TcM m (Either ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc))) Type)
 inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
-    debugTc $ liftIO $ putStrLn $ "inlineProcFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    debugTc $ do
+        ppn <- ppr n
+        ppes <- ppr es
+        ppt <- ppr t
+        liftIO $ putStrLn $ "inlineProcFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs False l args es'
     ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
@@ -516,7 +523,11 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args r
             ens' <- simplifyStatementAnns True ens
             return $ Left (compoundStmts l (decls++reqs'++ss++ens'),Nothing)
 inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
-    debugTc $ liftIO $ putStrLn $ "inlineFunFalse " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    debugTc $ do
+        ppn <- ppr n
+        ppes <- ppr es
+        ppt <- ppr t
+        liftIO $ putStrLn $ "inlineFunFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs False l args es'
     res <- liftM (VarName (Typed l ret)) $ genVar (mkVarId "res")
@@ -534,7 +545,11 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ 
     ens' <- simplifyStatementAnns True ens
     return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++sbody++ens'),Just $ varExpr res)
 inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
-    debugTc $ liftIO $ putStrLn $ "inlineFunTrue " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr t
+    debugTc $ do
+        ppn <- ppr n
+        ppes <- ppr es
+        ppt <- ppr t
+        liftIO $ putStrLn $ "inlineFunTrue " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
     es' <- concatMapM unfoldVariadicExpr es
     (decls,substs) <- bindProcArgs True l args es'
     body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
@@ -550,7 +565,10 @@ inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ a
     return $ Left (decls++ss1++compoundStmts l (annStmts l reqs'++ss++annStmts l ens'),Just body'')
 inlineProcCall isExpr l n t@(DecT d) es = do
     d' <- simplifyDecType d
-    debugTc $ liftIO $ putStrLn $ "not inline " ++ ppr isExpr ++ " " ++ ppr n ++ " " ++ ppr es ++ " " ++ ppr d'
+    ppn <- ppr n
+    ppes <- ppr es
+    ppd' <- ppr d'
+    debugTc $ liftIO $ putStrLn $ "not inline " ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
     return $ Right $ DecT d'
 
 simplifyStmts :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> TcM m [Statement VarIdentifier (Typed loc)]

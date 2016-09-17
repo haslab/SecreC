@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds, DeriveGeneric, DeriveDataTypeable #-}
+{-# LANGUAGE UndecidableInstances, TypeFamilies, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds, DeriveGeneric, DeriveDataTypeable #-}
 
 module Language.SecreC.Prover.Base where
 
@@ -42,20 +42,22 @@ data ILit
     | ILitArr BaseType [[ILit]]
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable ILit
-instance PP ILit where
-    pp (IInt8 i) = text (show i)
-    pp (IInt16 i) = text (show i)
-    pp (IInt32 i) = text (show i)
-    pp (IInt64 i) = text (show i)
-    pp (IUint8 i) = text (show i)
-    pp (IUint16 i) = text (show i)
-    pp (IUint32 i) = text (show i)
-    pp (IUint64 i) = text (show i)
-    pp (IFloat32 i) = text (show i)
-    pp (IFloat64 i) = text (show i)
-    pp (IBool True) = text "true"
-    pp (IBool False) = text "false"
-    pp (ILitArr t xs) = braces (sepBy comma $ map (braces . sepBy comma . map pp) xs)
+instance Monad m => PP m ILit where
+    pp (IInt8 i) =      return $ text (show i)
+    pp (IInt16 i) =     return $ text (show i)
+    pp (IInt32 i) =     return $ text (show i)
+    pp (IInt64 i) =     return $ text (show i)
+    pp (IUint8 i) =     return $ text (show i)
+    pp (IUint16 i) =    return $ text (show i)
+    pp (IUint32 i) =    return $ text (show i)
+    pp (IUint64 i) =    return $ text (show i)
+    pp (IFloat32 i) =   return $ text (show i)
+    pp (IFloat64 i) =   return $ text (show i)
+    pp (IBool True) =   return $ text "true"
+    pp (IBool False) =  return $ text "false"
+    pp (ILitArr t xs) = do
+        pp1 <- mapM (liftM (braces . sepBy comma) . mapM pp) xs
+        return $ braces (sepBy comma pp1)
 
 data IExpr
     = ILit ILit -- index literal
@@ -68,15 +70,34 @@ data IExpr
     | IArr ComplexType [[IExpr]] -- multi-dimensional array value
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IExpr
-instance PP IExpr where
+instance PP m VarIdentifier => PP m IExpr where
     pp (ILit l) = pp l
     pp (IIdx v) = pp v
-    pp (IBinOp o e1 e2) = parens (pp e1 <+> pp o <+> pp e2)
-    pp (IUnOp o e1) = parens (pp o <+> pp e1)
-    pp (ICond c e1 e2) = pp c <> char '?' <> pp e1 <> char ':' <> pp e2
-    pp (ISize e) = text "size" <> parens (pp e)
-    pp (IShape e) = text "shape" <> parens (pp e)
-    pp (IArr t vvs) = braces (sepBy comma $ map (\vs -> sepBy comma $ map pp vs) vvs) <> text "::" <> pp t
+    pp (IBinOp o e1 e2) = do
+        pp1 <- pp e1
+        pp2 <- pp o
+        pp3 <- pp e2
+        return $ parens (pp1 <+> pp2 <+> pp3)
+    pp (IUnOp o e1) = do
+        pp1 <- pp o
+        pp2 <- pp e1
+        return $ parens (pp1 <+> pp2)
+    pp (ICond c e1 e2) = do
+        pp1 <- pp c
+        pp2 <- pp e1
+        pp3 <- pp e2
+        return $ pp1 <> char '?' <> pp2 <> char ':' <> pp3
+    pp (ISize e) = do
+        pp1 <- pp e
+        return $ text "size" <> parens pp1
+    pp (IShape e) = do
+        pp1 <- pp e
+        return $ text "shape" <> parens pp1
+    pp (IArr t vvs) = do
+        let f vs = liftM (sepBy comma) $ mapM pp vs
+        ppf <- mapM f vvs
+        ppt <- pp t
+        return $ braces (sepBy comma ppf) <> text "::" <> ppt
 
 data IBOp
     = IAnd -- boolean conjunction
@@ -97,31 +118,31 @@ data IBOp
     | IMod -- ^ Remainer of whole division
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IBOp
-instance PP IBOp where
-    pp IAnd = text "&&"
-    pp IOr = text "||"
-    pp IXor = text "^^"
-    pp IImplies = text "==>"
-    pp (ILeq) = text "<="
-    pp (IEq) = text "=="
-    pp (INeq) = text "!="
-    pp (IPlus) = text "+"
-    pp (IMinus) = text "-"
-    pp (IPower) = text "**"
-    pp (IDiv) = text "/"
-    pp (IMod) = text "%"
-    pp ILt = text "<"
-    pp IGeq = text ">="
-    pp IGt = text ">"
+instance Monad m => PP m IBOp where
+    pp IAnd =     return $ text "&&"
+    pp IOr =      return $ text "||"
+    pp IXor =     return $ text "^^"
+    pp IImplies = return $ text "==>"
+    pp (ILeq) =   return $ text "<="
+    pp (IEq) =    return $ text "=="
+    pp (INeq) =   return $ text "!="
+    pp (IPlus) =  return $ text "+"
+    pp (IMinus) = return $ text "-"
+    pp (IPower) = return $ text "**"
+    pp (IDiv) =   return $ text "/"
+    pp (IMod) =   return $ text "%"
+    pp ILt =      return $ text "<"
+    pp IGeq =     return $ text ">="
+    pp IGt =      return $ text ">"
 
 data IUOp
     = INot -- boolean negation
     | INeg -- integer negation
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IUOp
-instance PP IUOp where
-    pp INot = text "!"
-    pp INeg = text "-"
+instance Monad m => PP m IUOp where
+    pp INot = return $ text "!"
+    pp INeg = return $ text "-"
 
 iAnd :: [IExpr] -> IExpr
 iAnd [] = ILit (IBool True)
@@ -162,7 +183,7 @@ iLitTy (IFloat64 _) = BaseT $ TyPrim $ DatatypeFloat64 ()
 iLitTy (IBool _) = BaseT $ TyPrim $ DatatypeBool ()
 iLitTy (ILitArr b xs) = ComplexT $ CType Public b (indexExpr $ fromInteger $ toInteger $ length xs)
 
-instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m ILit where
+instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m ILit where
     traverseVars f (IInt8 i) = liftM IInt8 $ f i
     traverseVars f (IInt16 i) = liftM IInt16 $ f i
     traverseVars f (IInt32 i) = liftM IInt32 $ f i
@@ -177,7 +198,7 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m ILit where
     traverseVars f (ILitArr t xs) = do
         t' <- f t
         liftM (ILitArr t') $ mapM (mapM f) xs
-instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
+instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
     traverseVars f (ILit i) = liftM ILit $ f i
     traverseVars f (IIdx v) = do
         v' <- f v
@@ -203,9 +224,9 @@ instance (MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
         return $ IArr t' vvs'
     substL (IIdx (VarName _ n)) = return $ Just n
     substL _ = return Nothing
-instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IBOp where
+instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m IBOp where
     traverseVars f o = return o
-instance (GenVar iden m,IsScVar iden,MonadIO m) => Vars iden m IUOp where
+instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m IUOp where
     traverseVars f o = return o
 
 type ProverK loc m = (SMTK loc,Vars VarIdentifier (TcM m) loc,VarsIdTcM m,Location loc)

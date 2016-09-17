@@ -64,7 +64,7 @@ appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (
 
 appendComparisons :: (ProverK loc m) => loc -> [Comparison (TcM m)] -> TcM m (Comparison (TcM m))
 
-constraintError :: (ProverK loc m,VarsId (TcM m) a,VarsId (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> Doc) -> b -> (b -> Doc) -> Maybe SecrecError -> TcM m res
+constraintError :: (ProverK loc m,VarsId (TcM m) a,VarsId (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> TcM m Doc) -> b -> (b -> TcM m Doc) -> Maybe SecrecError -> TcM m res
 
 unifiesCondExpression :: (ProverK loc m) => loc -> CondExpression VarIdentifier Type -> CondExpression VarIdentifier Type -> TcM m ()
 

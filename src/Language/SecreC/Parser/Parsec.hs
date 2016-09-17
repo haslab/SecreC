@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes, ScopedTypeVariables, ViewPatterns, TupleSections, TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts, RankNTypes, ScopedTypeVariables, ViewPatterns, TupleSections, TypeFamilies #-}
 
 module Language.SecreC.Parser.Parsec where
 
@@ -91,10 +91,10 @@ scTokPred :: (Monad m,MonadCatch m) => (TokenInfo -> Bool) -> ScParserT m TokenI
 scTokPred p = scTokWith (\x -> if p x then Just x else Nothing)
 
 scTokWith :: (Monad m,MonadCatch m) => (TokenInfo -> Maybe a) -> ScParserT m a
-scTokWith f = tokenPrim ppr next f
+scTokWith f = tokenPrim pprid next f
     where
     next p t (s:ss) = positionToSourcePos $ tLoc s
-    next p t ts = updatePosString (positionToSourcePos $ tLoc t) (ppr t)
+    next p t ts = updatePosString (positionToSourcePos $ tLoc t) (pprid t)
 
 scChar :: (Monad m,MonadCatch m) => Char -> ScParserT m TokenInfo
 scChar c = scTokPred (p . tSymb)
@@ -885,13 +885,13 @@ scStatementAnnotation = do
     o3 isLeak = apA scBaseStatement (\x1 -> EmbedAnn (loc x1) isLeak x1)
 
 
-scAnnotations0 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
+scAnnotations0 :: (PP (SecrecM m) a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scAnnotations0 = scAnnotations' (many)
 
-scAnnotations1 :: (PP a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
+scAnnotations1 :: (PP (SecrecM m) a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scAnnotations1 = scAnnotations' (many1)
 
-scAnnotations' :: (PP a,Monoid a,MonadIO m,MonadCatch m) => (forall b . ScParserT m b -> ScParserT m [b]) -> ScParserT m a -> ScParserT m a
+scAnnotations' :: (PP (SecrecM m) a,Monoid a,MonadIO m,MonadCatch m) => (forall b . ScParserT m b -> ScParserT m [b]) -> ScParserT m a -> ScParserT m a
 scAnnotations' parseAnns parse = do
     insideAnn <- getState
     if insideAnn
@@ -930,13 +930,13 @@ parseFile fn = do
 parseSecreCIO :: Options -> String -> String -> IO (Module Identifier Position)
 parseSecreCIO opts fn str = runSecrecM opts $ parseSecreC fn str
 
-parseSecreCIOWith :: PP a => Options -> String -> String -> Bool -> Position -> ScParserT IO a -> IO a
+parseSecreCIOWith :: PP (SecrecM IO) a => Options -> String -> String -> Bool -> Position -> ScParserT IO a -> IO a
 parseSecreCIOWith opts fn str insideAnn pos parse = runSecrecM opts $ parseSecreCWith fn str insideAnn pos parse
 
 parseSecreC :: (MonadIO m,MonadCatch m) => String -> String -> SecrecM m (Module Identifier Position)
 parseSecreC fn str = parseSecreCWith fn str False (startPos fn) scModuleFile
 
-parseSecreCWith :: (MonadIO m,PP a) => String -> String -> Bool -> Position -> ScParserT m a -> SecrecM m a
+parseSecreCWith :: (MonadIO m,PP (SecrecM m) a) => String -> String -> Bool -> Position -> ScParserT m a -> SecrecM m a
 parseSecreCWith fn str insideAnn pos parser = do
     case runLexerWith insideAnn fn str (positionToAlexPos pos) return of
         Left err -> throwError $ parserError $ LexicalException err
@@ -947,7 +947,9 @@ parseSecreCWith fn str insideAnn pos parser = do
             case e of
                 Left err -> throwError $ parserError $ ParsecException $ show err
                 Right a -> do
-                    when (debugParser opts) $ liftIO $ hPutStrLn stderr ("Parsed " ++ fn ++ ":") >> hPutStrLn stderr (ppr a)
+                    when (debugParser opts) $ do
+                        ppa <- ppr a
+                        liftIO $ hPutStrLn stderr ("Parsed " ++ fn ++ ":") >> hPutStrLn stderr (ppa)
                     return a
 scPosition :: (Monad m,MonadCatch m) => ScParserT m Position
 scPosition = liftM sourcePosToPosition getPosition

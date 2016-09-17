@@ -315,10 +315,10 @@ output opts secrecIns secrecOuts modules = do
             NoOutput -> do
                 when (printOutput opts) $ hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
                 return ()
-            OutputFile f -> writeFile f $ show $ pp ppargs $+$ pp m
+            OutputFile f -> writeFile f $ show $ ppid ppargs $+$ ppid m
             OutputStdout -> when (printOutput opts) $ do
                 putStrLn $ show (moduleFile m) ++ ":"
-                putStrLn $ show $ pp ppargs $+$ pp m
+                putStrLn $ show $ ppid ppargs $+$ ppid m
         Right sci -> do
             when (printOutput opts) $ hPutStrLn stderr $ "No output for unchanged module " ++ show (sciFile sci)
             return ()

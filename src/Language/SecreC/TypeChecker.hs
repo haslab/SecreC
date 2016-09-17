@@ -71,8 +71,9 @@ tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
 tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module VarIdentifier (Typed loc))
 tcModule m@(Module l name prog) = failTcM l $ do
     opts' <- TcM $ State.lift Reader.ask
-    when (debugTypechecker opts') $
-        liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppr (moduleId $ fmap locpos m) ++ "...")
+    when (debugTypechecker opts') $ do
+        ppm <- ppr (moduleId $ fmap locpos m)
+        liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppm ++ "...")
     -- reset module typechecking environment and increment module count
     State.modify $ \env -> env
         { moduleCount = ((moduleId m,TyVarId 0),succ $ snd $ moduleCount env)
@@ -430,7 +431,7 @@ tcGlobal l m = do
     newDict l "tcGlobal"
     x <- m
     solveTop l "tcGlobal"
-    dict <- liftM (top . tDict) State.get
+    dict <- top . tDict =<< State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [], moduleCount = let ((m,TyVarId j),i) = moduleCount e in ((m,TyVarId $ succ j),i) }
@@ -438,5 +439,7 @@ tcGlobal l m = do
     liftIO resetTyVarId
     return x'
   where
-    top [x] = x
-    top xs = error $ "tcGlobal: " ++ show (vcat $ map pp xs)
+    top [x] = return x
+    top xs = do
+        ppxs <- mapM pp xs
+        error $ "tcGlobal: " ++ show (vcat ppxs)

@@ -57,6 +57,7 @@ data Options
         , implicitCoercions      :: Bool
         , backtrack              :: Bool
         , printOutput           :: Bool
+        , debug :: Bool
         , writeSCI              :: Bool
         , failTypechecker       :: Bool
         , implicitBuiltin       :: Bool
@@ -88,6 +89,7 @@ instance Monoid Options where
         , implicitCoercions = implicitCoercions x && implicitCoercions y
         , backtrack = backtrack x && backtrack y
         , printOutput = printOutput x || printOutput y
+        , debug = debug x || debug y
         , writeSCI = writeSCI x && writeSCI y
         , implicitBuiltin = implicitBuiltin x && implicitBuiltin y
         , failTypechecker = failTypechecker x || failTypechecker y
@@ -116,6 +118,7 @@ defaultOptions = Opts
     , implicitCoercions = True
     , backtrack = True
     , printOutput = False
+    , debug = False
     , writeSCI = True
     , implicitBuiltin = True
     , failTypechecker = False
@@ -156,7 +159,7 @@ printWarns :: SecrecWarnings -> IO ()
 printWarns (ScWarns warns) = do
     forM_ warns $ \ws ->
         forM_ (Map.elems ws) $ \w ->
-            forM_ w $ \x -> liftIO $ hPutStrLn stderr (ppr x)
+            forM_ w $ \x -> liftIO $ hPutStrLn stderr (pprid x)
             
 flushWarnings :: MonadIO m => SecrecM m a -> SecrecM m a
 flushWarnings (SecrecM m) = SecrecM $ do
@@ -172,7 +175,9 @@ runSecrecM :: MonadIO m => Options -> SecrecM m a -> m a
 runSecrecM opts m = flip runReaderT opts $ do
     e <- unSecrecM m
     case e of
-        Left err -> liftIO $ die $ ppr err
+        Left err -> do
+            ppe <- ppr err
+            liftIO $ die $ ppe
         Right (x,warns) -> do
             liftIO $ printWarns warns
             return x

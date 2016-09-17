@@ -17,7 +17,7 @@ import Control.Monad.Except
 
 import Data.List as List
 
-type ConversionK loc m = (PP loc,Location loc,MonadError SecrecError m)
+type ConversionK loc m = (PP m VarIdentifier,PP m loc,Location loc,MonadError SecrecError m)
 
 ftloc :: (Location loc,Functor f) => loc -> f (Typed Position) -> f (Typed loc)
 ftloc l x = fmap (fmap (updpos l)) x
@@ -33,7 +33,9 @@ dec2ProcDecl l dec@(DecType _ _ _ _ _ _ _ _ (ProcType p (Right on) pargs ret ann
     pargs' <- mapM (parg2ProcedureParameter l) pargs
     let on' = updLoc (fmap (Typed l) on) (Typed l $ DecT dec)
     return $ OperatorDeclaration (notTyped "decl" l) ret' on' pargs' (map (ftloc l) anns) (map (ftloc l) body)
-dec2ProcDecl l t = genError (locpos l) $ text "dec2ProcDecl:" <+> pp t
+dec2ProcDecl l t = do
+    ppt <- pp t
+    genError (locpos l) $ text "dec2ProcDecl:" <+> ppt
    
 dec2FunDecl :: ConversionK loc m => loc -> DecType -> m (FunctionDeclaration VarIdentifier (Typed loc)) 
 dec2FunDecl l dec@(DecType _ _ _ _ _ _ _ _ (FunType isLeak p (Left pn) pargs ret anns (Just body) _)) = do
@@ -46,7 +48,9 @@ dec2FunDecl l dec@(DecType _ _ _ _ _ _ _ _ (FunType isLeak p (Right on) pargs re
     pargs' <- mapM (parg2ProcedureParameter l) pargs
     let on' = updLoc (fmap (Typed l) on) (Typed l $ DecT dec)
     return $ OperatorFunDeclaration (notTyped "decl" l) isLeak ret' on' pargs' (map (ftloc l) anns) (ftloc l body)
-dec2FunDecl l t = genError (locpos l) $ text "dec2FunDecl:" <+> pp t
+dec2FunDecl l t = do
+    ppt <- pp t
+    genError (locpos l) $ text "dec2FunDecl:" <+> ppt
 
 dec2AxiomDecl :: ConversionK loc m => loc -> DecType -> m (AxiomDeclaration VarIdentifier (Typed loc)) 
 dec2AxiomDecl l dec@(DecType _ _ targs _ _ _ _ _ (AxiomType isLeak p pargs anns _)) = do
@@ -54,7 +58,9 @@ dec2AxiomDecl l dec@(DecType _ _ targs _ _ _ _ _ (AxiomType isLeak p pargs anns 
     targs' <- mapM (targ2TemplateQuantifier l vars) targs
     pargs' <- mapM (parg2ProcedureParameter l) pargs
     return $ AxiomDeclaration (Typed l $ DecT dec) isLeak targs' pargs' (map (ftloc l) anns)
-dec2AxiomDecl l t = genError (locpos l) $ text "dec2AxiomDecl:" <+> pp t
+dec2AxiomDecl l t = do
+    ppt <- pp t
+    genError (locpos l) $ text "dec2AxiomDecl:" <+> ppt
 
 dec2LemmaDecl :: ConversionK loc m => loc -> DecType -> m (LemmaDeclaration VarIdentifier (Typed loc)) 
 dec2LemmaDecl l dec@(DecType _ _ targs _ _ _ _ _ (LemmaType isLeak p pn pargs anns body _)) = do
@@ -63,14 +69,18 @@ dec2LemmaDecl l dec@(DecType _ _ targs _ _ _ _ _ (LemmaType isLeak p pn pargs an
     pargs' <- mapM (parg2ProcedureParameter l) pargs
     let pn' = (ProcedureName (Typed l $ DecT dec) pn)
     return $ LemmaDeclaration (Typed l $ DecT dec) isLeak pn' targs' pargs' (map (ftloc l) anns) (fmap (map (ftloc l)) body)
-dec2LemmaDecl l t = genError (locpos l) $ text "dec2LemmaDecl:" <+> pp t
+dec2LemmaDecl l t = do
+    ppt <- pp t
+    genError (locpos l) $ text "dec2LemmaDecl:" <+> ppt
 
 dec2StructDecl :: ConversionK loc m => loc -> DecType -> m (StructureDeclaration VarIdentifier (Typed loc)) 
 dec2StructDecl l dec@(DecType _ _ _ _ _ _ _ _ (StructType p sid (Just atts) _)) = do
     let atts' = map (fmap (Typed l)) atts
     let sid' = fmap (const $ Typed l $ DecT dec) sid
     return $ StructureDeclaration (notTyped "decl" l) sid' atts'
-dec2StructDecl l t = genError (locpos l) $ text "dec2StructDecl:" <+> pp t
+dec2StructDecl l t = do
+    ppt <- pp t
+    genError (locpos l) $ text "dec2StructDecl:" <+> ppt
 
 targ2TemplateQuantifier :: ConversionK loc m => loc -> [VarIdentifier] -> (Constrained Var,IsVariadic) -> m (TemplateQuantifier VarIdentifier (Typed loc))
 targ2TemplateQuantifier l vars cv@(Constrained v@(VarName vt vn) e,isVariadic) = case (typeClass "targ" vt,vt) of
@@ -81,7 +91,9 @@ targ2TemplateQuantifier l vars cv@(Constrained v@(VarName vt vn) e,isVariadic) =
             KVar kv False -> return $ Just $ KindName (Typed l $ KindT k) kv
             KVar kv True -> if List.elem kv vars
                 then return $ Just $ KindName (Typed l $ KindT k) kv
-                else genError (locpos l) $ text "targ2TemplateQuantifier: unsupported kind type" <+> pp k
+                else do
+                    ppk <- pp k
+                    genError (locpos l) $ text "targ2TemplateQuantifier: unsupported kind type" <+> ppk
         return $ DomainQuantifier (notTyped "targ" l) isVariadic (DomainName (Typed l vt) vn) mbk
     (isKind -> True,KType isPriv) -> do
         return $ KindQuantifier (notTyped "targ" l) isPriv isVariadic (KindName (Typed l vt) vn)
@@ -89,7 +101,9 @@ targ2TemplateQuantifier l vars cv@(Constrained v@(VarName vt vn) e,isVariadic) =
         return $ DataQuantifier (notTyped "targ" l) isVariadic $ TypeName (Typed l vt) vn
     (isVariable -> True,vt) -> do
         return $ DimensionQuantifier (notTyped "targ" l) isVariadic (VarName (Typed l vt) vn) $ fmap (fmap (Typed l)) e
-    otherwise -> genError (locpos l) $ text "targ2TemplateQuantifier:" <+> pp cv
+    otherwise -> do
+        ppcv <- pp cv
+        genError (locpos l) $ text "targ2TemplateQuantifier:" <+> ppcv
 
 parg2ProcedureParameter :: ConversionK loc m => loc -> (Bool,Var,IsVariadic) -> m (ProcedureParameter VarIdentifier (Typed loc))
 parg2ProcedureParameter l (isConst,v,isVariadic) = do
@@ -116,7 +130,10 @@ type2TypeSpecifier l (ComplexT t) = do
 type2TypeSpecifier l b@(BaseT t) = do
     b' <- baseType2DatatypeSpecifier l t
     return (Just (TypeSpecifier (Typed l b) Nothing b' Nothing))
-type2TypeSpecifier l t = error $ "type2TypeSpecifier: " ++ ppr l ++ " " ++ ppr t
+type2TypeSpecifier l t = do
+    ppl <- ppr l
+    ppt <- ppr t
+    error $ "type2TypeSpecifier: " ++ ppl ++ " " ++ ppt
 
 complexType2TypeSpecifier :: ConversionK loc m => loc -> ComplexType -> m (Maybe (TypeSpecifier VarIdentifier (Typed loc)))
 complexType2TypeSpecifier l ct@(CType s t d) = do
@@ -124,7 +141,9 @@ complexType2TypeSpecifier l ct@(CType s t d) = do
     t' <- baseType2DatatypeSpecifier l t
     return (Just (TypeSpecifier (Typed l $ ComplexT ct) (Just s') t' (Just $ DimSpecifier (Typed l $ BaseT index) $ fmap (Typed l) d)))
 complexType2TypeSpecifier l Void = return (Nothing)
-complexType2TypeSpecifier l c@(CVar v _) = genError (locpos l) $ text "complexType2TypeSpecifier" <+> pp c
+complexType2TypeSpecifier l c@(CVar v _) = do
+    ppc <- pp c
+    genError (locpos l) $ text "complexType2TypeSpecifier" <+> ppc
 
 sizes2Sizes :: ConversionK loc m => [(Expr,IsVariadic)] -> m (Sizes VarIdentifier (Typed loc))
 sizes2Sizes = undefined
@@ -174,7 +193,9 @@ type2TemplateTypeArgument l t@(BaseT (TApp n ts d)) = do
 type2TemplateTypeArgument l t@(BaseT (BVar v)) = do
     let tl = Typed l t
     return $ GenericTemplateTypeArgument tl $ (TemplateArgName tl v)
-type2TemplateTypeArgument l t = genError (locpos l) $ text "type2TemplateTypeArgument" <+> pp t
+type2TemplateTypeArgument l t = do
+    ppt <- pp t
+    genError (locpos l) $ text "type2TemplateTypeArgument" <+> ppt
 
 
 

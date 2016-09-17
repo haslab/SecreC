@@ -50,7 +50,10 @@ tcStmtsRet l ret ss = do
     return ss'
 
 isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> Type -> TcM m ()
-isReturnStmt l cs ret = addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (pp ret <+> pp cs)) $ aux cs
+isReturnStmt l cs ret = do
+    ppret <- pp ret
+    ppcs <- pp cs
+    addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (ppret <+> ppcs)) $ aux cs
   where
     aux (Set.toList -> [StmtFallthru]) = equals l ret (ComplexT Void) 
     aux (Set.toList -> [StmtReturn,StmtFallthru]) = equals l ret (ComplexT Void) 
@@ -67,19 +70,25 @@ tcStmts ret (s:ss) = do
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
-        ss -> unless (hasStmtFallthru c) $ tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat $ map pp ss)
+        ss -> unless (hasStmtFallthru c) $ do
+            ppss <- mapM pp ss
+            tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat ppss)
     sBvs <- bvs $ bimap mkVarId id s
     ssFvs <- liftM Map.keysSet $ fvs $ map (bimap mkVarId id) ss
     (ss',StmtType cs) <- tcStmts ret ss
     -- issue warning for unused variable declarations
-    forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> tcWarn (locpos $ loc s) $ UnusedVariable (pp v)
+    forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> do
+        ppv <- pp v
+        tcWarn (locpos $ loc s) $ UnusedVariable (ppv)
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
 -- | Typecheck a non-empty statement
 tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
-    when (Set.null cs) $ tcWarn (locpos $ loc s) $ EmptyBranch (pp s)
+    when (Set.null cs) $ do
+        pps <- pp s
+        tcWarn (locpos $ loc s) $ EmptyBranch (pps)
     return r
 
 -- | Typecheck a statement in the body of a loop
@@ -87,7 +96,9 @@ tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> 
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
-    when (Set.null $ Set.filter isIterationStmtClass cs) $ tcWarn (locpos l) $ SingleIterationLoop (pp s)
+    when (Set.null $ Set.filter isIterationStmtClass cs) $ do
+        pps <- pp s
+        tcWarn (locpos l) $ SingleIterationLoop (pps)
     -- return the @StmtClass@ for the whole loop
     let t' = StmtType $ Set.insert (StmtFallthru) (Set.filter (not . isLoopStmtClass) cs)
     return (s',t')
@@ -127,7 +138,8 @@ tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- withExprC ReadOnlyE $ mapM (tcVariadicArg (tcExpr)) argsE
     xs <- forM argsE' $ \argE' -> do
         tx <- newTyVar True Nothing
-        newTypedVar "print" tx $ Just $ ppVariadicArg pp argE'
+        pparg <- ppVariadicArg pp argE'
+        newTypedVar "print" tx $ Just pparg
     topTcCstrM_ l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
@@ -161,7 +173,8 @@ tcStmt ret (ReturnStatement l Nothing) = do
 tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- withExprC ReadWriteE $ tcExpr e
     let et' = typed $ loc e'
-    x <- newTypedVar "ret" ret $ Just $ pp e
+    ppe <- pp e
+    x <- newTypedVar "ret" ret $ Just ppe
     topTcCstrM_ l $ Coerces (fmap typed e') x
     let t = StmtType (Set.singleton $ StmtReturn)
     let ex = fmap (Typed l) $ RVariablePExpr ret x

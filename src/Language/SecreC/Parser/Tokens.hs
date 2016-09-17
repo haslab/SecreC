@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, DeriveDataTypeable, ScopedTypeVariables, MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances, TypeFamilies, DeriveDataTypeable, ScopedTypeVariables, MultiParamTypeClasses #-}
 
 module Language.SecreC.Parser.Tokens where
 
@@ -13,6 +13,8 @@ import Data.List as List
 import Language.SecreC.Pretty
 import Language.SecreC.Position
 import Language.SecreC.Location
+
+import Control.Monad
 
 data TokenInfo
     = TokenInfo 
@@ -32,7 +34,7 @@ instance Located TokenInfo where
     loc = tLoc
     updLoc t l = t { tLoc = l }
  
-instance PP TokenInfo where
+instance Monad m => PP m TokenInfo where
     pp = pp . tSymb
  
 data Token 
@@ -143,112 +145,112 @@ data Token
     | NOINLINE
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
-instance PP Token where
-    pp (STR_FRAGMENT s) = text s
-    pp (CONST) = text "const"
-    pp (STR_IDENTIFIER s) = text s
-    pp NONPUBLIC = text "nonpublic"
-    pp (CHAR c) = char c
-    pp ASSERT = text "assert"
-    pp BOOL = text "bool"
-    pp BREAK = text "break"
-    pp CONTINUE = text "continue"
-    pp DIMENSIONALITY = text " =dim"
-    pp DO = text "do"
-    pp DOMAIN = text "domain"
-    pp ELSE = text "else"
-    pp FALSE_B = text "false"
-    pp FLOAT = text "float"
-    pp FLOAT32 = text "float32"
-    pp FLOAT64 = text "float64"
-    pp FOR = text "for"
-    pp IF = text "if"
-    pp IMPORT = text "import"
-    pp INT = text "int"
-    pp INT16 = text "int16"
-    pp INT32 = text "int32"
-    pp INT64 = text "int64"
-    pp INT8 = text "int8"
-    pp KIND = text "kind"
-    pp MODULE = text "module"
-    pp OPERATOR = text "operator"
-    pp PRINT = text "print"
-    pp PUBLIC = text "public"
-    pp RETURN = text "return"
-    pp STRING = text "string"
-    pp STRUCT = text "struct"
-    pp TEMPLATE = text "template"
-    pp TRUE_B = text "true"
-    pp TYPE = text "type"
-    pp UINT = text "uint"
-    pp UINT16 = text "uint16"
-    pp UINT32 = text "uint32"
-    pp UINT64 = text "uint64"
-    pp UINT8 = text "uint8"
-    pp VOID = text "void"
-    pp WHILE = text "while"
-    pp XOR_UINT = text "xor_uint"
-    pp XOR_UINT16 = text "xor_uint16"
-    pp XOR_UINT32 = text "xor_uint32"
-    pp XOR_UINT64 = text "xor_uint64"
-    pp XOR_UINT8 = text "xor_uint8"
-    pp BYTESFROMSTRING = text "__bytes_from_string"
-    pp CREF = text "__cref"
-    pp DOMAINID = text "__domainid"
-    pp REF = text "__ref"
-    pp STRINGFROMBYTES = text "__string_from_bytes"
-    pp SYSCALL_RETURN = text "__return"
-    pp SYSCALL = text "__syscall"
-    pp BUILTIN = text "__builtin"
-    pp (IDENTIFIER s) = text s
-    pp (BIN_LITERAL i) = text (convert_from_base 2 i)
-    pp (OCT_LITERAL i) = text (convert_from_base 8 i)
-    pp (HEX_LITERAL i) = text (convert_from_base 1 i)
-    pp (FLOAT_LITERAL i) = text (show i)
-    pp (DEC_LITERAL i) = text (convert_from_base 10 i)
-    pp ADD_ASSIGN = text "+="
-    pp AND_ASSIGN = text "&="
-    pp DEC_OP = text "--"
-    pp DIV_ASSIGN = text "/="
-    pp EQ_OP = text "=="
-    pp GE_OP = text ">="
-    pp INC_OP = text "++"
-    pp LAND_OP = text "&&"
-    pp LE_OP = text "<="
-    pp LOR_OP = text "||"
-    pp SHR_OP = text ">>"
-    pp SHL_OP = text "<<"
-    pp IMPLIES_OP = text "==>"
-    pp EQUIV_OP = text "<==>"
-    pp MOD_ASSIGN = text "%="
-    pp MUL_ASSIGN = text "*="
-    pp NE_OP = text "!="
-    pp OR_ASSIGN = text "|="
-    pp SUB_ASSIGN = text "-="
-    pp TYPE_QUAL = text "::"
-    pp XOR_ASSIGN = text "^="
-    pp VARIADIC = text "..."
-    pp VSIZE = text "size..."
-    pp REQUIRES = text "requires"
-    pp ENSURES = text "ensures"
-    pp LEAKAGE = text "leakage"
-    pp DECREASES = text "decreases"
-    pp INVARIANT = text "invariant"
-    pp ASSUME = text "assume"
-    pp TokenEOF = text "<EOF>"
-    pp TokenError = text "error <unknown>"
-    pp RESULT = text "\\result"
-    pp FORALL = text "forall"
-    pp EXISTS = text "exists"
-    pp MULTISET = text "multiset"
-    pp FREE = text "free"
-    pp FUNCTION = text "function"
-    pp AXIOM = text "axiom"
-    pp HAVOC = text "HAVOC"
-    pp INLINE = text "inline"
-    pp NOINLINE = text "noinline"
-    pp LEMMA = text "lemma"
-    pp (ANNOTATION anns) = text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
+instance Monad m => PP m Token where
+    pp (STR_FRAGMENT s) =       return $ text s
+    pp (CONST) =                return $ text "const"
+    pp (STR_IDENTIFIER s) =     return $ text s
+    pp NONPUBLIC =              return $ text "nonpublic"
+    pp (CHAR c) =               return $ char c
+    pp ASSERT =                 return $ text "assert"
+    pp BOOL =                   return $ text "bool"
+    pp BREAK =                  return $ text "break"
+    pp CONTINUE =               return $ text "continue"
+    pp DIMENSIONALITY =         return $ text " =dim"
+    pp DO =                     return $ text "do"
+    pp DOMAIN =                 return $ text "domain"
+    pp ELSE =                   return $ text "else"
+    pp FALSE_B =                return $ text "false"
+    pp FLOAT =                  return $ text "float"
+    pp FLOAT32 =                return $ text "float32"
+    pp FLOAT64 =                return $ text "float64"
+    pp FOR =                    return $ text "for"
+    pp IF =                     return $ text "if"
+    pp IMPORT =                 return $ text "import"
+    pp INT =                    return $ text "int"
+    pp INT16 =                  return $ text "int16"
+    pp INT32 =                  return $ text "int32"
+    pp INT64 =                  return $ text "int64"
+    pp INT8 =                   return $ text "int8"
+    pp KIND =                   return $ text "kind"
+    pp MODULE =                 return $ text "module"
+    pp OPERATOR =               return $ text "operator"
+    pp PRINT =                  return $ text "print"
+    pp PUBLIC =                 return $ text "public"
+    pp RETURN =                 return $ text "return"
+    pp STRING =                 return $ text "string"
+    pp STRUCT =                 return $ text "struct"
+    pp TEMPLATE =               return $ text "template"
+    pp TRUE_B =                 return $ text "true"
+    pp TYPE =                   return $ text "type"
+    pp UINT =                   return $ text "uint"
+    pp UINT16 =                 return $ text "uint16"
+    pp UINT32 =                 return $ text "uint32"
+    pp UINT64 =                 return $ text "uint64"
+    pp UINT8 =                  return $ text "uint8"
+    pp VOID =                   return $ text "void"
+    pp WHILE =                  return $ text "while"
+    pp XOR_UINT =               return $ text "xor_uint"
+    pp XOR_UINT16 =             return $ text "xor_uint16"
+    pp XOR_UINT32 =             return $ text "xor_uint32"
+    pp XOR_UINT64 =             return $ text "xor_uint64"
+    pp XOR_UINT8 =              return $ text "xor_uint8"
+    pp BYTESFROMSTRING =        return $ text "__bytes_from_string"
+    pp CREF =                   return $ text "__cref"
+    pp DOMAINID =               return $ text "__domainid"
+    pp REF =                    return $ text "__ref"
+    pp STRINGFROMBYTES =        return $ text "__string_from_bytes"
+    pp SYSCALL_RETURN =         return $ text "__return"
+    pp SYSCALL =                return $ text "__syscall"
+    pp BUILTIN =                return $ text "__builtin"
+    pp (IDENTIFIER s) =         return $ text s
+    pp (BIN_LITERAL i) =        return $ text (convert_from_base 2 i)
+    pp (OCT_LITERAL i) =        return $ text (convert_from_base 8 i)
+    pp (HEX_LITERAL i) =        return $ text (convert_from_base 1 i)
+    pp (FLOAT_LITERAL i) =      return $ text (show i)
+    pp (DEC_LITERAL i) =        return $ text (convert_from_base 10 i)
+    pp ADD_ASSIGN =             return $ text "+="
+    pp AND_ASSIGN =             return $ text "&="
+    pp DEC_OP =                 return $ text "--"
+    pp DIV_ASSIGN =             return $ text "/="
+    pp EQ_OP =                  return $ text "=="
+    pp GE_OP =                  return $ text ">="
+    pp INC_OP =                 return $ text "++"
+    pp LAND_OP =                return $ text "&&"
+    pp LE_OP =                  return $ text "<="
+    pp LOR_OP =                 return $ text "||"
+    pp SHR_OP =                 return $ text ">>"
+    pp SHL_OP =                 return $ text "<<"
+    pp IMPLIES_OP =             return $ text "==>"
+    pp EQUIV_OP =               return $ text "<==>"
+    pp MOD_ASSIGN =             return $ text "%="
+    pp MUL_ASSIGN =             return $ text "*="
+    pp NE_OP =                  return $ text "!="
+    pp OR_ASSIGN =              return $ text "|="
+    pp SUB_ASSIGN =             return $ text "-="
+    pp TYPE_QUAL =              return $ text "::"
+    pp XOR_ASSIGN =             return $ text "^="
+    pp VARIADIC =               return $ text "..."
+    pp VSIZE =                  return $ text "size..."
+    pp REQUIRES =               return $ text "requires"
+    pp ENSURES =                return $ text "ensures"
+    pp LEAKAGE =                return $ text "leakage"
+    pp DECREASES =              return $ text "decreases"
+    pp INVARIANT =              return $ text "invariant"
+    pp ASSUME =                 return $ text "assume"
+    pp TokenEOF =               return $ text "<EOF>"
+    pp TokenError =             return $ text "error <unknown>"
+    pp RESULT =                 return $ text "\\result"
+    pp FORALL =                 return $ text "forall"
+    pp EXISTS =                 return $ text "exists"
+    pp MULTISET =               return $ text "multiset"
+    pp FREE =                   return $ text "free"
+    pp FUNCTION =               return $ text "function"
+    pp AXIOM =                  return $ text "axiom"
+    pp HAVOC =                  return $ text "HAVOC"
+    pp INLINE =                 return $ text "inline"
+    pp NOINLINE =               return $ text "noinline"
+    pp LEMMA =                  return $ text "lemma"
+    pp (ANNOTATION anns) =      return $ text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]
 isAnnotation s = if ok then Just (map (tail . dropWhile (/='@')) toks) else Nothing

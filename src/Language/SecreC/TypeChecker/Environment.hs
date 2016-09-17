@@ -111,7 +111,11 @@ getVarsPred isAnn GlobalScope f = do
     return $ Map.filter (\(_,(_,b2,e)) -> b2 <= isAnn && f (typeClass "getVarsG" (entryType e))) vs
 getVarsPred isAnn LocalScope f = do
     vs <- liftM (envVariables isAnn) State.get
-    return $ Map.filterWithKey (\k (_,(_,_,e)) -> f $ typeClass ("getVarsL " ++ ppr k ++ ppr (locpos $ entryLoc e)) (entryType e)) vs
+    let aux k (_,(_,_,e)) = do
+        ppk <- ppr k
+        ppe <- ppr (locpos $ entryLoc e)
+        return $ f $ typeClass ("getVarsL " ++ ppk ++ ppe) (entryType e)
+    filterMapWithKeyM aux vs
 
 addVar :: (ProverK loc m) => loc -> Scope -> VarIdentifier -> Maybe Expr -> Bool -> Bool -> EntryEnv -> TcM m ()
 addVar l GlobalScope n v isConst isAnn e = do
@@ -201,15 +205,23 @@ checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
     n <- checkConst n
     case Map.lookup n vs of
         Just (isGlobal,(isConst,bAnn,e)) -> do
-            when cConst $ unless isConst $ genTcError (locpos l) $ text "expected variable" <+> pp v <+> text "to be a constant"
+            when cConst $ unless isConst $ do
+                ppv <- pp v
+                genTcError (locpos l) $ text "expected variable" <+> ppv <+> text "to be a constant"
             when isGlobal $ do
                 decK <- State.gets decKind
-                when (decK == AKind || decK == LKind) $ genTcError (locpos l) $ text "cannot read/write global variable" <+> pp v <+> text "inside an axiom/lemma"
+                when (decK == AKind || decK == LKind) $ do
+                    ppv <- pp v
+                    genTcError (locpos l) $ text "cannot read/write global variable" <+> ppv <+> text "inside an axiom/lemma"
                 unless isConst $ registerVar isWrite n (entryType e) -- consts don't count as global variables for reads/writes
-            when (isWrite && isConst) $ tcError (locpos l) $ AssignConstVariable (pp n)
+            when (isWrite && isConst) $ do
+                ppn <- pp n
+                tcError (locpos l) $ AssignConstVariable (ppn)
             --liftIO $ putStrLn $ "checkVariable " ++ ppr v ++ " " ++ ppr n
             return $ VarName (Typed l $ entryType e) n
-        Nothing -> tcError (locpos l) $ VariableNotFound (pp n)
+        Nothing -> do
+            ppn <- pp n
+            tcError (locpos l) $ VariableNotFound (ppn)
 
 -- | Adds a new variable to the environment
 newVariable :: (ProverK loc m) => Scope -> Bool -> Bool -> VarName VarIdentifier (Typed loc) -> Maybe (Expression VarIdentifier (Typed loc)) -> TcM m ()
@@ -217,7 +229,9 @@ newVariable scope isConst isAnn v@(VarName (Typed l t) n) val = do
     removeFree n
     vars <- getVarsPred isAnn scope (\k -> k == TypeC || k == VArrayStarC TypeC)
     case Map.lookup n vars of
-        Just (_,(_,_,e)) -> tcWarn (locpos l) $ ShadowedVariable (pp n) (locpos $ entryLoc e)
+        Just (_,(_,_,e)) -> do
+            ppn <- pp n
+            tcWarn (locpos l) $ ShadowedVariable (ppn) (locpos $ entryLoc e)
         Nothing -> return ()
     addVar l scope n (fmap (fmap typed) val) isConst isAnn (EntryEnv (locpos l) t)
 
@@ -259,11 +273,15 @@ newKindVariable isAnn scope (KindName (Typed l t) n) = do
     removeFree n
     ds <- getKinds
     case Map.lookup n ds of
-        Just e -> tcError (locpos l) $ InvalidKindVariableName (pp n) (locpos $ entryLoc e)
+        Just e -> do
+            ppn <- pp n
+            tcError (locpos l) $ InvalidKindVariableName (ppn) (locpos $ entryLoc e)
         Nothing -> do
             vars <- getVarsPred isAnn scope (\k -> k == KindStarC || k == VArrayC KindStarC)
             case Map.lookup n vars of
-                Just (_,(_,_,e)) -> tcWarn (locpos l) $ ShadowedVariable (pp n) (locpos $ entryLoc e)
+                Just (_,(_,_,e)) -> do
+                    ppn <- pp n
+                    tcWarn (locpos l) $ ShadowedVariable (ppn) (locpos $ entryLoc e)
                 Nothing -> addVar l scope n Nothing False isAnn (EntryEnv (locpos l) t)
 
 -- | Adds a new domain variable to the environment
@@ -272,11 +290,15 @@ newDomainVariable isAnn scope (DomainName (Typed l t) n) = do
     removeFree n
     ds <- getDomains
     case Map.lookup n ds of
-        Just e -> tcError (locpos l) $ InvalidDomainVariableName (pp n) (locpos $ entryLoc e)
+        Just e -> do
+            ppn <- pp n
+            tcError (locpos l) $ InvalidDomainVariableName (ppn) (locpos $ entryLoc e)
         Nothing -> do
             vars <- getVarsPred isAnn scope (\k -> k == KindC || k == VArrayC KindC)
             case Map.lookup n vars of
-                Just (_,(_,_,e)) -> tcWarn (locpos l) $ ShadowedVariable (pp n) (locpos $ entryLoc e)
+                Just (_,(_,_,e)) -> do
+                    ppn <- pp n
+                    tcWarn (locpos l) $ ShadowedVariable (ppn) (locpos $ entryLoc e)
                 Nothing -> addVar l scope n Nothing False isAnn (EntryEnv (locpos l) t)
 
 -- | Adds a new type variable to the environment
@@ -285,11 +307,15 @@ newTypeVariable isAnn isLeak scope (TypeName (Typed l t) n) = do
     removeFree n
     ss <- getStructs False isAnn isLeak
     case Map.lookup n ss of
-        Just (es) -> tcError (locpos l) $ InvalidTypeVariableName (pp n) (map (locpos . entryLoc) (Map.elems es))
+        Just (es) -> do
+            ppn <- pp n
+            tcError (locpos l) $ InvalidTypeVariableName (ppn) (map (locpos . entryLoc) (Map.elems es))
         Nothing -> do
             vars <- getVarsPred isAnn scope (\k -> k == TypeStarC || k == VArrayC TypeStarC)
             case Map.lookup n vars of
-                Just (_,(_,_,e)) -> tcWarn (locpos l) $ ShadowedVariable (pp n) (locpos $ entryLoc e)
+                Just (_,(_,_,e)) -> do
+                    ppn <- pp n
+                    tcWarn (locpos l) $ ShadowedVariable (ppn) (locpos $ entryLoc e)
                 Nothing -> addVar l scope n Nothing False isAnn (EntryEnv (locpos l) t)
 
 -- | Adds a new kind to the environment
@@ -297,7 +323,9 @@ newKind :: (MonadIO m,Location loc) => KindName VarIdentifier (Typed loc) -> TcM
 newKind (KindName (Typed l t) n) = do
     ks <- getKinds
     case Map.lookup n ks of
-        Just e -> tcError (locpos l) $ MultipleDefinedKind (pp n) (locpos $ entryLoc e)
+        Just e -> do
+            ppn <- pp n
+            tcError (locpos l) $ MultipleDefinedKind (ppn) (locpos $ entryLoc e)
         Nothing -> do
             let e = EntryEnv (locpos l) t
             modifyModuleEnv $ \env -> env { kinds = Map.insert n e (kinds env) } 
@@ -307,7 +335,9 @@ newDomain :: (MonadIO m,Location loc) => DomainName VarIdentifier (Typed loc) ->
 newDomain (DomainName (Typed l t) n) = do
     ds <- getDomains
     case Map.lookup n ds of
-        Just e -> tcError (locpos l) $ MultipleDefinedDomain (pp n) (locpos $ entryLoc e)
+        Just e -> do
+            ppn <- pp n
+            tcError (locpos l) $ MultipleDefinedDomain (ppn) (locpos $ entryLoc e)
         Nothing -> do
             let e = EntryEnv (locpos l) t
             modifyModuleEnv $ \env -> env { domains = Map.insert n e (domains env) }
@@ -319,13 +349,17 @@ checkKind isAnn (KindName l n) = do
     (n,t) <- case Map.lookup n ks of
         Just e -> case entryType e of
             KType True -> return (n,KindT $ PrivateK $ KindName () n)
-            otherwise -> genTcError (locpos l) $ text "Unexpected domain" <+> quotes (pp n) <+> text "without kind."
+            otherwise -> do
+                ppn <- pp n
+                genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         Nothing -> do
             kvars <- getVarsPred isAnn LocalScope isKind
             n <- checkConst n
             case Map.lookup n kvars of
                 Just (_,(_,_,e)) -> return (n,varNameToType $ VarName (entryType e) n)
-                Nothing -> tcError (locpos l) $ NotDefinedKind (pp n)
+                Nothing -> do
+                    ppn <- pp n
+                    tcError (locpos l) $ NotDefinedKind (ppn)
     return $ KindName (Typed l t) n
 
 -- | Checks if a domain exists in scope, and returns its type
@@ -336,13 +370,17 @@ checkDomain isAnn (DomainName l n) = do
     (n,t) <- case Map.lookup n ds of
         Just e -> case entryType e of
             KindT (PrivateK k) -> return (n,SecT $ Private (DomainName () n) k)
-            otherwise -> genTcError (locpos l) $ text "Unexpected domain" <+> quotes (pp n) <+> text "without kind."
+            otherwise -> do
+                ppn <- pp n
+                genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         Nothing -> do
             dvars <- getVarsPred isAnn LocalScope isDomain
             n <- checkConst n
             case Map.lookup n dvars of
                 Just (_,(_,_,e)) -> return (n,varNameToType $ VarName (entryType e) n)
-                Nothing -> tcError (locpos l) $ NotDefinedDomain (pp n)
+                Nothing -> do
+                    ppn <- pp n
+                    tcError (locpos l) $ NotDefinedDomain (ppn)
     return $ DomainName (Typed l t) n
 
 checkStruct :: ProverK loc m => loc -> Bool -> Bool -> Bool -> SIdentifier -> ModuleTyVarId -> TcM m DecType
@@ -351,8 +389,14 @@ checkStruct l withBody isAnn isLeak sid@(TypeName _ sn) mid = do
     case Map.lookup sn ss of
         Just es -> case Map.lookup mid es of
             Just e -> typeToDecType l (entryType e)
-            Nothing -> tcError (locpos l) $ NotDefinedType (pp sn <+> pp mid)
-        Nothing -> tcError (locpos l) $ NotDefinedType (pp sn <+> pp mid)
+            Nothing -> do
+                pp1 <- pp sn
+                pp2 <- pp mid
+                tcError (locpos l) $ NotDefinedType (pp1 <+> pp2)
+        Nothing -> do
+            pp1 <- pp sn
+            pp2 <- pp mid
+            tcError (locpos l) $ NotDefinedType (pp1 <+> pp2)
         
 -- | Checks if a type exists in scope
 -- Searches for both user-defined types and type variables
@@ -361,7 +405,9 @@ checkType isAnn isLeak (TypeName l n) = do
     ss <- getStructs False isAnn isLeak
     case Map.lookup n ss of
         Just (es) -> return (Map.elems es)
-        Nothing -> tcError (locpos l) $ NotDefinedType (pp n)
+        Nothing -> do
+            ppn <- pp n
+            tcError (locpos l) $ NotDefinedType (ppn)
 
 checkTypeVariable :: (ProverK loc m) => Bool -> TypeName VarIdentifier loc -> TcM m (Maybe (TypeName VarIdentifier (Typed loc)))
 checkTypeVariable isAnn (TypeName l n) = do
@@ -393,16 +439,25 @@ checkNonTemplateType isAnn isLeak ty@(TypeName l n) = do
         [e] -> case entryType e of
             DecT d -> case d of
                 (DecType _ _ [] _ _ _ _ _ (StructType {})) -> return [e]
-                otherwise -> tcError (locpos l) $ NoNonTemplateType (pp n)
-            t -> tcError (locpos l) $ NoNonTemplateType (pp n)
-        es -> tcError (locpos l) $ NoNonTemplateType (pp n)
+                otherwise -> do
+                    ppn <- pp n
+                    tcError (locpos l) $ NoNonTemplateType (ppn)
+            t -> do
+                ppn <- pp n
+                tcError (locpos l) $ NoNonTemplateType (ppn)
+        es -> do
+            ppn <- pp n
+            tcError (locpos l) $ NoNonTemplateType (ppn)
 
 -- | Checks if a template type exists in scope
 -- Returns all template type declarations in scope, base template first
 checkTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
 checkTemplateType isAnn isLeak ty@(TypeName _ n) = do
     es <- checkType isAnn isLeak ty
-    let check e = unless (isStructTemplate $ entryType e) $ tcError (locpos $ loc ty) $ NoTemplateType (pp n) (locpos $ entryLoc e) (pp $ entryType e)
+    let check e = unless (isStructTemplate $ entryType e) $ do
+        ppn <- pp n
+        ppe <- pp (entryType e)
+        tcError (locpos $ loc ty) $ NoTemplateType (ppn) (locpos $ entryLoc e) ppe
     mapM_ check es
     return (es)
 
@@ -417,16 +472,24 @@ checkTemplateArg isAnn isLeak (TemplateArgName l n) = do
     case (Map.lookup n ss,Map.lookup n ds,Map.lookup vn vs) of
         (Just (es),Nothing,Nothing) -> case ( Map.elems es) of
             [e] -> if (isStructTemplate $ entryType e)
-                then tcError (locpos l) $ NoNonTemplateType (pp n)
+                then do
+                    ppn <- pp n
+                    tcError (locpos l) $ NoNonTemplateType (ppn)
                 else return $ TemplateArgName (Typed l $ entryType e) n
-            es -> tcError (locpos l) $ NoNonTemplateType (pp n)
+            es -> do
+                ppn <- pp n
+                tcError (locpos l) $ NoNonTemplateType (ppn)
         (Nothing,Just e,Nothing) -> case entryType e of
             KindT (PrivateK k) -> return $ TemplateArgName (Typed l $ SecT $ Private (DomainName () n) k) n
-            otherwise -> genTcError (locpos l) $ text "Unexpected domain" <+> quotes (pp n) <+> text "without kind."
+            otherwise -> do
+                ppn <- pp n
+                genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         (Nothing,Nothing,Just (isGlobal,(b,b2,e))) -> do
             when isGlobal $ registerVar False vn (entryType e)
             return $ TemplateArgName (Typed l $ varNameToType $ VarName (entryType e) vn) vn
-        (mb1,mb2,mb3) -> tcError (locpos l) $ AmbiguousName (pp n) $ map (locpos . entryLoc) $ maybe [] (\(es) -> Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap (thr3 . snd) mb3)
+        (mb1,mb2,mb3) -> do
+            ppn <- pp n
+            tcError (locpos l) $ AmbiguousName (ppn) $ map (locpos . entryLoc) $ maybe [] (\(es) -> Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap (thr3 . snd) mb3)
 
 unresolvedQVars :: ProverK loc m => loc -> String -> [(Constrained Var,IsVariadic)] -> TcM m ()
 --unresolvedQVars l qs = return ()
@@ -440,7 +503,10 @@ unresolvedQVar l msg s v = do
     mb <- substsFromMap (unTSubsts s) v
     case mb of
         Nothing -> return ()
-        Just (x::Type) -> genTcError (locpos l) $ text msg <> char ':' <+> text "quantified variable" <+> pp v <+> text "=" <+> pp x <+> text "should be unbound"
+        Just (x::Type) -> do
+            ppv <- pp v
+            ppx <- pp x
+            genTcError (locpos l) $ text msg <> char ':' <+> text "quantified variable" <+> ppv <+> text "=" <+> ppx <+> text "should be unbound"
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
@@ -459,7 +525,9 @@ addTemplateOperator vars hdeps op = do
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
-    debugTc $ liftIO $ putStrLn $ "addTemplateOp " ++ ppr (entryType e)
+    debugTc $ do
+        pp1 <- ppr (entryType e)
+        liftIO $ putStrLn $ "addTemplateOp " ++ pp1
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Right o) $ getLns selector env
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
@@ -505,7 +573,9 @@ checkOperator isAnn isLeak k op = do
     ps <- liftM rightsMap $ getEntries (loc op) isAnn isLeak k
     let cop = funit op
     case Map.lookup cop ps of
-        Nothing -> tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp cop
+        Nothing -> do
+            pp1 <- pp cop
+            tcError (locpos $ loc op) $ Halt $ NotDefinedOperator $ pp1
         Just es -> return $ Map.elems es
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
@@ -594,7 +664,12 @@ checkProcedureFunctionLemma isAnn isLeak k pn@(ProcedureName l n) = do
     addGDependencies $ PIden n  
     ps <- getEntries l isAnn isLeak k
     case Map.lookup (Left n) ps of
-        Nothing -> tcError (locpos l) $ Halt $ NotDefinedProcedure (pp isAnn <+> pp isLeak <+> pp k <+> pp n)
+        Nothing -> do
+            pp1 <- pp isAnn
+            pp2 <- pp isLeak
+            pp3 <- pp k
+            pp4 <- pp n
+            tcError (locpos l) $ Halt $ NotDefinedProcedure (pp1 <+> pp2 <+> pp3 <+> pp4)
         Just es -> return $ Map.elems es
 
 getEntries :: (ProverK loc m) => loc -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
@@ -760,7 +835,10 @@ noFrees e = do
     frees <- liftM localFrees State.get
     TSubsts ss <- getTSubsts (loc e)
     let vs = Set.difference frees $ Map.keysSet ss
-    unless (Set.null vs) $ genTcError (loc e) $ text "variables" <+> pp vs <+> text "should not be free in" $+$ pp e
+    unless (Set.null vs) $ do
+        ppvs <- pp vs
+        ppe <- pp e
+        genTcError (loc e) $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
     
 splitHead :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> a -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier,a)
 splitHead l deps dec = do
@@ -770,7 +848,11 @@ splitHead l deps dec = do
     dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec
     cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty $ toPureCstrs $ tCstrs d
     freevars <- fvs cstrs
-    forM_ frees $ \v -> unless (Map.member v freevars) $ genTcError (locpos l) $ text "free variable" <+> pp v <+> text "not dependent on a constraint from" <+> pp d $+$ text "in declaration" <+> pp dec'
+    forM_ frees $ \v -> unless (Map.member v freevars) $ do
+        ppv <- pp v
+        ppd <- pp d
+        ppdec' <- pp dec'
+        genTcError (locpos l) $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd $+$ text "in declaration" <+> ppdec'
     hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
     let hfrees = Set.intersection frees hvs
     let bfrees = Set.difference frees hfrees
@@ -794,7 +876,9 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     let e = EntryEnv (locpos l) dt'
     ss <- getStructs False (tyIsAnn dt') (isLeakType dt')
     case Map.lookup n ss of
-        Just es -> tcError (locpos l) $ MultipleDefinedStructTemplate (pp n) (locpos $ entryLoc $ head $ Map.elems es)
+        Just es -> do
+            ppn <- pp n
+            tcError (locpos l) $ MultipleDefinedStructTemplate (ppn) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
     return $ TypeName (Typed l dt') n
     
@@ -826,7 +910,9 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
-        Just es -> tcError (locpos l) $ MultipleDefinedStruct (pp n) (locpos $ entryLoc $ head $ Map.elems es)
+        Just es -> do
+            ppn <- pp n
+            tcError (locpos l) $ MultipleDefinedStruct (ppn) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> do
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i rece) (structs env) }
             dirtyGDependencies $ TIden n
@@ -846,25 +932,32 @@ data SubstMode = CheckS | NoFailS | NoCheckS
     deriving (Eq,Data,Typeable,Show)
 
 addSubstM :: (ProverK loc m) => loc -> Bool -> SubstMode -> Var -> Type -> TcM m ()
-addSubstM l dirty mode v@(VarName vt vn) t = addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> pp v) . Just) $ do
-    when dirty $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
-    t' <- case mode of
-        NoCheckS -> return t
-        otherwise -> do
-            substs <- getTSubsts l
-            substFromTSubsts "addSubst" l substs False Map.empty t
-    case mode of
-        NoCheckS -> add t'
-        otherwise -> do
-            vns <- fvs t'
-            if (varIdTok vn || Map.member vn vns)
-                then do -- add verification condition
-                    case mode of
-                        NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution" <+> pp v <+> text "=" <+> pp t'
-                        CheckS -> do
-                            let tv = (varNameToType v)
-                            addErrorM l (TypecheckerError (locpos l) . (EqualityException ("substitution with type")) (pp tv) (pp t') . Just) $ tcCstrM_ l $ Equals tv t'
-                else add t'
+addSubstM l dirty mode v@(VarName vt vn) t = do
+    ppv <- pp v
+    addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> ppv) . Just) $ do
+        when dirty $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
+        t' <- case mode of
+            NoCheckS -> return t
+            otherwise -> do
+                substs <- getTSubsts l
+                substFromTSubsts "addSubst" l substs False Map.empty t
+        case mode of
+            NoCheckS -> add t'
+            otherwise -> do
+                vns <- fvs t'
+                if (varIdTok vn || Map.member vn vns)
+                    then do -- add verification condition
+                        case mode of
+                            NoFailS -> do
+                                ppv <- pp v
+                                ppt' <- pp t'
+                                genTcError (locpos l) $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt'
+                            CheckS -> do
+                                let tv = (varNameToType v)
+                                pptv <- pp tv
+                                ppt' <- pp t'
+                                addErrorM l (TypecheckerError (locpos l) . (EqualityException ("substitution with type")) (pptv) (ppt') . Just) $ tcCstrM_ l $ Equals tv t'
+                    else add t'
   where
     add t' = do -- add substitution
 --      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
@@ -967,7 +1060,7 @@ openCstr l o = do
     opts <- TcM $ lift ask
     size <- liftM (length . openedCstrs) State.get
     if size >= constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "opened constraints"
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ ppid (constraintStackSize opts) <+> text "opened constraints"
         else State.modify $ \e -> e { openedCstrs = (o,Set.empty) : openedCstrs e }
 
 closeCstr :: (MonadIO m) => TcM m ()
@@ -1121,7 +1214,9 @@ updateHeadTDict l msg upd = do
         (y:ys) -> do
             (a,y') <- upd y
             return (a,y':ys)
-        [] -> error $ show $ pp (locpos l) <> char ':' <+> text msg <+> text ": unexpected empty dictionary"
+        [] -> do
+            pp1 <- pp (locpos l)
+            error $ show $ pp1 <> char ':' <+> text msg <+> text ": unexpected empty dictionary"
     let e' = e { tDict = d' }
     State.put e'
     return x
@@ -1155,7 +1250,8 @@ dirtyIOCstrDependencies opens iok = do
 -- we need global const variables to distinguish them during typechecking
 addConst :: MonadIO m => Scope -> Bool -> Identifier -> TcM m VarIdentifier
 addConst scope isTok vi = do
-    vi' <- freeVarId vi $ Just $ pp $ if isTok then vi++"Tok" else vi
+    doc <- pp $ if isTok then vi++"Tok" else vi
+    vi' <- freeVarId vi $ Just doc
     let vi'' = if isTok then tokVar vi' else vi'
     case scope of
         LocalScope -> State.modify $ \env -> env { localConsts = Map.insert vi vi'' $ localConsts env }
@@ -1208,25 +1304,28 @@ appendTDict l noFail (TDict u1 c1 ss1 rec1) (TDict u2 c2 ss2 rec2) = do
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
 appendTSubsts l NoCheckS (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
-appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst mode) (ss1,[]) (Map.toList ss2)
+appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
   where
-    addSubst :: (ProverK Position m) => SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
-    addSubst mode (ss,ks) (v,t) = do
+    addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
+    addSubst l mode (ss,ks) (v,t) = do
         t' <- substFromTSubsts "appendTSubsts" l ss False Map.empty t
         vs <- fvs t'
         if (varIdTok v || Map.member v vs)
             then do
                 case mode of
-                    NoFailS -> genTcError (locpos l) $ text "failed to add recursive substitution " <+> pp v <+> text "=" <+> pp t'
+                    NoFailS -> do
+                        ppv <- pp v
+                        ppt' <- pp t'
+                        genTcError (locpos l) $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
                     CheckS -> do
                         st <- getCstrState
                         return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') v) t') st : ks)
             else return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
 
-substFromTSubsts :: (PP loc,Typeable loc,VarsIdTcM m,Location loc,VarsId (TcM m) a) => String -> loc -> TSubsts -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM m a
+substFromTSubsts :: (PP (TcM m) loc,Typeable loc,VarsIdTcM m,Location loc,VarsId (TcM m) a) => String -> loc -> TSubsts -> Bool -> Map VarIdentifier VarIdentifier -> a -> TcM m a
 substFromTSubsts msg l tys doBounds ssBounds = substProxy msg (substsProxyFromTSubsts l tys) doBounds ssBounds 
     
-substsProxyFromTSubsts :: (PP loc,Location loc,Typeable loc,Monad m) => loc -> TSubsts -> SubstsProxy VarIdentifier (TcM m)
+substsProxyFromTSubsts :: (PP (TcM m) loc,Location loc,Typeable loc,Monad m) => loc -> TSubsts -> SubstsProxy VarIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
     case Map.lookup x tys of
         Nothing -> return Nothing
@@ -1348,8 +1447,8 @@ specializeM l a = do
     ss <- getTSubsts l
     substFromTSubsts "specialize" l ss False Map.empty a
 
-ppM :: (Vars VarIdentifier (TcM m) a,PP a,ProverK loc m) => loc -> a -> TcM m Doc
-ppM l a = liftM pp $ specializeM l a
+ppM :: (Vars VarIdentifier (TcM m) a,PP (TcM m) a,ProverK loc m) => loc -> a -> TcM m Doc
+ppM l a = pp =<< specializeM l a
 
 ppArrayRangesM :: (ProverK loc m) => loc -> [ArrayProj] -> TcM m Doc
 ppArrayRangesM l = liftM (sepBy comma) . mapM (ppM l)
@@ -1399,7 +1498,7 @@ newDict l msg = do
     opts <- TcM $ lift Reader.ask
     size <- liftM (length . tDict) State.get
     if size >= constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "dictionaries"
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ ppid (constraintStackSize opts) <+> text "dictionaries"
         else do
             State.modify $ \e -> e { tDict = emptyTDict : tDict e }
 --            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
@@ -1423,7 +1522,7 @@ addErrorM' l (j,err) (TcM m) = do
     size <- liftM fst Reader.ask
     opts <- askOpts
     if (size + j) > constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded $ pp (constraintStackSize opts) <+> text "nested errors"
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ ppid (constraintStackSize opts) <+> text "nested errors"
         else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
 
 addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
@@ -1452,7 +1551,7 @@ getDecClass (Just gid) = do
     opts <- askOpts
     cl@(DecClass isAnn isInline rs ws) <- State.gets decClass
     let es = entryPoints opts
-    let isEntry = any (\e -> e == gIdenBase gid) es
+    isEntry <- liftM or $ mapM (\e -> liftM (e ==) $ gIdenBase gid) es
     return $ DecClass isAnn (if isEntry then False else isInline) rs ws
 
 
@@ -1469,4 +1568,6 @@ checkLeak l True m = do
         else case k of
             PKind -> liftM (True,) $ withLeak True m
             LKind -> liftM (True,) $ withLeak True m
-            otherwise -> genTcError (locpos l) $ text "leakage annotation not supported in" <+> pp k
+            otherwise -> do
+                ppk <- pp k
+                genTcError (locpos l) $ text "leakage annotation not supported in" <+> ppk

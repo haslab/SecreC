@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, FlexibleInstances, TypeSynonymInstances, FlexibleContexts, DeriveDataTypeable, TupleSections, TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses, DeriveGeneric, FlexibleInstances, TypeSynonymInstances, FlexibleContexts, DeriveDataTypeable, TupleSections, TypeFamilies #-}
 
 module Language.SecreC.Parser.PreProcessor where
 
@@ -58,11 +58,11 @@ data PPArg
 instance Binary PPArg
 instance Hashable PPArg
 
-instance PP PPArgs where
-    pp args = PP.vcat $ map pp args
+instance Monad m => PP m PPArgs where
+    pp args = liftM PP.vcat $ mapM pp args
 
-instance PP PPArg where
-    pp (SecrecOpts opts) = text "#OPTIONS_SECREC" <+> pp opts
+instance Monad m => PP m PPArg where
+    pp (SecrecOpts opts) = liftM (text "#OPTIONS_SECREC" <+>) (pp opts)
 
 type PPParserT u m a = ParsecT [Char] u m a
     
@@ -98,30 +98,56 @@ cmdArgsRunPP m xs = do
             Right x -> return x
     liftIO $ cmdArgsApply args
 
-instance PP Options where
-    pp opts = PP.sepBy PP.space (map pp $ inputs opts)
-          <+> text "--outputs=" <> PP.sepBy (PP.char ':') (map pp $ outputs opts)
-          <+> text "--paths=" <> PP.sepBy (PP.char ':') (map pp $ paths opts)
-          <+> text "--verify=" <> pp (verify opts)
-          <+> text "--simplify=" <> pp (simplify opts)
-          <+> text "--printoutput=" <> pp (printOutput opts)
-          <+> text "--typecheck=" <> pp (typeCheck opts)
-          <+> text "--debuglexer=" <> pp (debugLexer opts)
-          <+> text "--debugparser=" <> pp (debugParser opts)
-          <+> text "--debugtypechecker=" <> pp (debugTypechecker opts)
-          <+> text "--debugtransformation=" <> pp (debugTransformation opts)
-          <+> text "--debugverify=" <> pp (debugVerification opts)
-          <+> text "--implicitcoercions=" <> pp (implicitCoercions opts)
-          <+> text "--backtrack=" <> pp (backtrack opts)
-          <+> text "--writesci=" <> pp (writeSCI opts)
-          <+> text "--implicitbuiltin=" <> pp (implicitBuiltin opts)
-          <+> text "--constraintstacksize=" <> pp (constraintStackSize opts)
-          <+> text "--evaltimeout=" <> pp (evalTimeOut opts)
-          <+> text "--failtypechecker=" <> pp (failTypechecker opts)
-          <+> text "--externalsmt=" <> pp (externalSMT opts)
-          <+> text "--checkassertions" <> pp (checkAssertions opts)
-          <+> text "--forcerecomp" <> pp (forceRecomp opts)
-          <+> text "--entrypoints" <> PP.sepBy (PP.char ':') (map pp $ entryPoints opts)
+instance Monad m => PP m Options where
+    pp opts = do
+        pp1 <- (mapM pp $ inputs opts)
+        pp2 <- (mapM pp $ outputs opts)
+        pp3 <- (mapM pp $ paths opts)
+        pp4 <- pp (verify opts)
+        pp5 <- pp (simplify opts)
+        pp6 <- pp (printOutput opts)
+        pp7 <- pp (debug opts)
+        pp8 <- pp (typeCheck opts)
+        pp9 <- pp (debugLexer opts)
+        pp10 <- pp (debugParser opts)
+        pp11 <- pp (debugTypechecker opts)
+        pp12 <- pp (debugTransformation opts)
+        pp13 <- pp (debugVerification opts)
+        pp14 <- pp (implicitCoercions opts)
+        pp15 <- pp (backtrack opts)
+        pp16 <- pp (writeSCI opts)
+        pp17 <- pp (implicitBuiltin opts)
+        pp18 <- pp (constraintStackSize opts)
+        pp19 <- pp (evalTimeOut opts)
+        pp20 <- pp (failTypechecker opts)
+        pp21 <- pp (externalSMT opts)
+        pp22 <- pp (checkAssertions opts)
+        pp23 <- pp (forceRecomp opts)
+        pp24 <- (mapM pp $ entryPoints opts)
+        return $ PP.sepBy PP.space pp1
+            <+> text "--outputs=" <> PP.sepBy (PP.char ':') pp2
+            <+> text "--paths=" <> PP.sepBy (PP.char ':') pp3
+            <+> text "--verify=" <> pp4
+            <+> text "--simplify=" <> pp5
+            <+> text "--printoutput=" <> pp6
+            <+> text "--debug=" <+> pp7
+            <+> text "--typecheck=" <> pp8
+            <+> text "--debuglexer=" <> pp9
+            <+> text "--debugparser=" <> pp10
+            <+> text "--debugtypechecker=" <> pp11
+            <+> text "--debugtransformation=" <> pp12
+            <+> text "--debugverify=" <> pp13
+            <+> text "--implicitcoercions=" <> pp14
+            <+> text "--backtrack=" <> pp15
+            <+> text "--writesci=" <> pp16
+            <+> text "--implicitbuiltin=" <> pp17
+            <+> text "--constraintstacksize=" <> pp18
+            <+> text "--evaltimeout=" <> pp19
+            <+> text "--failtypechecker=" <> pp20
+            <+> text "--externalsmt=" <> pp21
+            <+> text "--checkassertions" <> pp22
+            <+> text "--forcerecomp" <> pp23
+            <+> text "--entrypoints" <> PP.sepBy (PP.char ':') pp24
 
 optionsDecl  :: Options
 optionsDecl  = Opts { 
@@ -139,6 +165,7 @@ optionsDecl  = Opts {
     , verify    = verify defaultOptions &= help "Verify annotations" &= groupname "Verification"
 
     -- Debugging
+    , debug   = debug defaultOptions &= help "Prints developer's debugging information" &= groupname "Debugging"
     , debugLexer            = debugLexer defaultOptions &= help "Print lexer tokens to stderr" &= groupname "Debugging"
     , debugParser           = debugParser defaultOptions &= help "Print parser result to stderr" &= groupname "Debugging"
     , debugTypechecker      = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"

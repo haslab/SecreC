@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, TypeFamilies, FlexibleContexts, DeriveGeneric #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, DeriveDataTypeable, TypeFamilies, FlexibleContexts, DeriveGeneric #-}
 
 module Language.SecreC.Error where
 
@@ -33,11 +33,11 @@ data ParserException
 instance Binary ParserException
 instance Hashable ParserException
 
-instance PP ParserException where
-    pp (LexicalException s) = text "Lexical error:" <+> text s
-    pp (ParsecException err) = text "Parser error:" <+> text err
-    pp (DerpException msg) = text "Parser error:" <+> text msg
-    pp (PreProcessorException msg) = text "Preprocessor error:" <+> text msg
+instance Monad m => PP m ParserException where
+    pp (LexicalException s) = return $ text "Lexical error:" <+> text s
+    pp (ParsecException err) = return $ text "Parser error:" <+> text err
+    pp (DerpException msg) = return $ text "Parser error:" <+> text msg
+    pp (PreProcessorException msg) = return $ text "Preprocessor error:" <+> text msg
 
 parserError :: ParserException -> SecrecError
 parserError = ParserError
@@ -71,16 +71,29 @@ instance Located SecrecError where
      loc (ErrToken) = noloc
      updLoc = error "cannot update location in errors"
 
-instance PP SecrecError where
-    pp (TypecheckerError p err) = pp p <> char ':' $+$ nest 4 (pp err)
+instance Monad m => PP m SecrecError where
+    pp (TypecheckerError p err) = do
+        ppp <- pp p
+        ppe <- pp err
+        return $ ppp <> char ':' $+$ nest 4 ppe
     pp (ParserError err) = pp err
-    pp (ModuleError p err) = pp p <> char ':' $+$ nest 4 (pp err)
-    pp (GenericError p msg Nothing) = pp p <> char ':' $+$ nest 4 msg
-    pp (GenericError p msg (Just err)) = pp p <> char ':' $+$ nest 4 msg $+$ text "Because of:" <+> pp err
-    pp (MultipleErrors errs) = vcat $ map pp errs
-    pp (TimedOut i) = text "Computation timed out after" <+> pp i <+> text "seconds"
-    pp (OrWarn err) = text "Warning: " <+> pp err
-    pp (ErrToken) = text "<error>"
+    pp (ModuleError p err) = do
+        pp1 <- pp p
+        pp2 <- pp err
+        return $ pp1 <> char ':' $+$ nest 4 pp2
+    pp (GenericError p msg Nothing) = do
+        pp1 <- pp p
+        return $ pp1 <> char ':' $+$ nest 4 msg
+    pp (GenericError p msg (Just err)) = do
+        pp1 <- pp p
+        pp2 <- pp err
+        return $ pp1 <> char ':' $+$ nest 4 msg $+$ text "Because of:" <+> pp2
+    pp (MultipleErrors errs) = liftM vcat $ mapM pp errs
+    pp (TimedOut i) = do
+        ppi <- pp i
+        return $ text "Computation timed out after" <+> ppi <+> text "seconds"
+    pp (OrWarn err) = liftM (text "Warning: " <+>) (pp err)
+    pp (ErrToken) = return $ text "<error>"
 
 data TypecheckerErr
     = UnreachableDeadCode
@@ -242,111 +255,185 @@ data TypecheckerErr
 instance Binary TypecheckerErr
 instance Hashable TypecheckerErr
 
-instance PP TypecheckerErr where
-    pp (GenTcError doc Nothing) = doc
-    pp (GenTcError doc (Just err)) = doc $+$ nest 4 (text "Because of:" <+> pp err)
-    pp (Halt err) = text "Insufficient context to resolve constraint:" $+$ nest 4 (pp err)
-    pp (IndexConditionNotValid c err) = text "Failed to satisfy index condition:" $+$ nest 4
-        (text "Index condition:" <+> c
-        $+$ text "Because of:" <+> pp err)
-    pp (DependencyErr c) = text "Failed to solve constraint dependency:" $+$ nest 4 (pp c)
-    pp (AssignConstVariable n) = text "Cannot perform assignment on constant variable" <+> quotes (pp n)
-    pp (FailAddHypothesis hyp err) = text "Failed to add hypothesis" <+> quotes hyp $+$ nest 4
-        (text "Because of:" $+$ (nest 4 (pp err)))
-    pp (SMTException hyp prop err) = text "Failed to prove proposition via SMT solvers:" $+$ nest 4
-        (text "Hypothesis:" $+$ (nest 4 hyp)
-        $+$ text "Proposition:" $+$ (nest 4 prop)
-        $+$ text "Because of:" $+$ (nest 4 (pp err)))        
-    pp (NotSupportedIndexOp e Nothing) = text "Failed to convert expression" <+> quotes e <+> text "into an index operation"
-    pp (NotSupportedIndexOp e (Just err)) = text "Failed to convert expression" <+> quotes e <+> text "into an index operation" $+$ nest 4
-        (text "Because of:" $+$ nest 4 (pp err))
-    pp (StaticAssertionFailure e err) = text "Failed to statically check assertion" <+> quotes e $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
-    pp (NonPositiveIndexExpr e err) = text "Failed to prove that index expression" <+> quotes e <+> text ">= 0" $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
-    pp (TypeConversionError k t) = text "Expected a" <+> k <+> text "but found" <+> quotes t
-    pp e@(UnreachableDeadCode {}) = text (show e)
-    pp e@(NonStaticDimension t err) = text "Array dimension must be statically known for type" <+> quotes t $+$ nest 4
-        (text "Static evaluation error:" $+$ nest 4 (pp err))
-    pp e@(MismatchingArrayDimension t d Nothing) = text "Expecting dimension" <+> d <+> text "for type" <+> quotes t
-    pp e@(MismatchingArrayDimension t d (Just err)) = text "Expecting dimension" <+> d <+> text "for type" <+> quotes t <> char ':' $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
-    pp e@(MultipleDefinedVariable {}) = text (show e)
-    pp e@(NoReturnStatement dec) = text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
-    pp e@(NoTemplateType n p t) = text "Declaration" <+> quotes t <+> text "at" <+> pp p <+> text "is not a template type with name" <+> quotes n
-    pp e@(NoMatchingTemplateOrProcedure ex defs) = text "Could not find matching template or procedure:" $+$ nest 4
-           (text "Expected match:" <+> ex
-        $+$ text "Actual declarations: " $+$ nest 4 (vcat (map (\(p,d,err) -> pp p <> char ':' $+$ nest 4 ((text "Declaration:" $+$ nest 4 d) $+$ (text "Instantiation error:" $+$ nest 4 (pp err)))) defs))
-        )
-    pp e@(NotDefinedDomain {}) = text (show e)
-    pp e@(NotDefinedKind {}) = text (show e)
-    pp e@(InvalidDomainVariableName {}) = text (show e)
-    pp e@(InvalidKindVariableName {}) = text (show e)
-    pp e@(InvalidTypeVariableName {}) = text (show e)
-    pp e@(MultipleDefinedKind {}) = text (show e)
-    pp e@(NotDefinedType n) = text "Could not find definition for type" <+> quotes n
-    pp e@(NotDefinedProcedure n) = text "Could not find definition for procedure" <+> quotes n
-    pp e@(NotDefinedOperator o) = text "Could not find definition for operator" <+> quotes (o)
-    pp e@(NoNonTemplateType {}) = text (show e)
-    pp e@(MultipleDefinedDomain {}) = text (show e)
-    pp e@(MultipleDefinedField {}) = text (show e)
-    pp e@(AmbiguousName {}) = text (show e)
-    pp e@(MismatchingVariableType v err) = text "Type of variable" <+> quotes v <+> text "does not match expected type" $+$ nest 4 (text "Sub-error:" <+> pp err)
-    pp e@(MultipleDefinedStructTemplate i p) = text (show e)
---        text "Overloaded templates for struct" <+> quotes (text i) <+> text "not supported:"
---        $+$ nest 4 (error "TODO")
-    pp e@(EqualityException i t1 t2 env) = text "Failed to prove" <+> text i <+> text "equality:" $+$ nest 4
-           (text "Left:" <+> t1
-        $+$ text "Right:" <+> t2
-        $+$ ppConstraintEnv env)
-    pp e@(CoercionException i t1 t2 env) = text "Failed to apply implicit" <+> text i <+> text "coercion:" $+$ nest 4
-           (text "From:" <+> t1
-        $+$ text "To:" <+> t2
-        $+$ ppConstraintEnv env)
-    pp e@(NCoercionException i Nothing ts env) = text "Failed to apply multidirectional" <+> text i <+> text "coercion:" $+$ nest 4
-           (vcat (map (\(i,t) -> text "Direction" <+> pp i <> char ':' <+> pp t) $ zip [(1::Int)..] ts)
-        $+$ ppConstraintEnv env)
-    pp e@(NCoercionException i (Just t3) ts env) = text "Failed to apply multidirectional" <+> text i <+> text "coercion:" $+$ nest 4
-           (vcat (map (\(i,t) -> text "Direction" <+> pp i <> char ':' <+> pp t) $ zip [(1::Int)..] ts)
-        $+$ text "Result:" <+> t3
-        $+$ ppConstraintEnv env)
-    pp e@(UnificationException i t1 t2 env) = text "Failed to unify " <+> text i <+> text ":" $+$ nest 4
-           (text "Left:" <+> t1
-        $+$ text "Right:" <+> t2
-        $+$ ppConstraintEnv env)
-    pp e@(ComparisonException i t1 t2 env) = text "Failed to compare" <+> text i <+> text ":" $+$ nest 4
-           (text "Left:" <+> t1
-        $+$ text "Right:" <+> t2
-        $+$ ppConstraintEnv env)
-    pp e@(MultipleDefinedStruct {}) = text (show e)
-    pp e@(NonDeclassifiableExpression {}) = text (show e)
-    pp e@(FieldNotFound t a) = text "Type" <+> quotes t <+> text "does not possess a field" <+> quotes a
-    pp e@(ArrayAccessOutOfBounds t i rng) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension of type" <+> quotes t <+> text "out of bounds"
-    pp e@(VariableNotFound v) = text "Variable" <+> quotes v <+> text "not found"
-    pp e@(InvalidToStringArgument {}) = text (show e)
-    pp e@(InvalidSizeArgument {}) = text (show e)
-    pp e@(DuplicateTemplateInstances ex defs) = text "Duplicate matching instances for template or procedure application:" $+$ nest 4
-           (text "Expected match:" <+> ex
-        $+$ text "Duplicate declarations: " $+$ nest 4 (vcat (map (\(p,d) -> pp p <> char ':' $+$ nest 4 d) defs))
-        )
-    pp e@(ConflictingTemplateInstances ex defs err) = text "Conflicting matching instances for template or procedure application:" $+$ nest 4
-           (text "Expected match:" <+> ex
-        $+$ text "Conflicting declarations: " $+$ nest 4 (vcat (map (\(p,d) -> pp p <> char ':' $+$ nest 4 d) defs))
-        $+$ text "Conflict: " $+$ nest 4 (pp err))
-    pp (TemplateSolvingError app err) = text "Failed to solve template instantiation:" <+> app
-        $+$ nest 4 (text "Because of:" $+$ nest 4 (pp err))
-    pp (StaticEvalError e env) = text "Unable to statically evaluate" <+> quotes e <> char ':' $+$ nest 4 (ppConstraintEnv env)
-    pp (UnresolvedVariable v) = text "Unable to resolve variable: " <+> quotes v
-    pp (UnresolvedMatrixProjection t rngs err) = text "Unable to resolve matrix projection:" $+$ nest 4
-        ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 (pp err)))
-    pp (UnresolvedFieldProjection t att err) = text "Unable to resolve struct field:" $+$ nest 4
-        ((text "Type:" <+> t <> char '.' <> att) $+$ (text "Error:" $+$ nest 4 (pp err)))
-    pp (MultipleTypeSubstitutions opts) = text "Multiple type substitutions:" $+$ nest 4 (vcat $ map f $ zip [1..] opts)
-        where f (i,(bind,ss)) = text "Option" <+> integer i <> char ':' <+> bind $+$ nest 4 (pp ss)
-    pp (ConstraintStackSizeExceeded i) = text "Exceeded constraint stack size of" <+> quotes i
-    pp w@(UncheckedRangeSelection t i rng err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension can not be checked for type" <+> quotes t $+$ nest 4
-        (text "Because of:" <+> pp err)
+instance Monad m => PP m TypecheckerErr where
+    pp (GenTcError doc Nothing) = return doc
+    pp (GenTcError doc (Just err)) = do
+        ppe <- pp err
+        return $ doc $+$ nest 4 (text "Because of:" <+> ppe)
+    pp (Halt err) = do
+        ppe <- pp err
+        return $ text "Insufficient context to resolve constraint:" $+$ nest 4 ppe
+    pp (IndexConditionNotValid c err) = do
+        ppe <- pp err
+        return $ text "Failed to satisfy index condition:" $+$ nest 4
+            (text "Index condition:" <+> c
+            $+$ text "Because of:" <+> ppe)
+    pp (DependencyErr c) = do
+        ppc <- pp c
+        return $ text "Failed to solve constraint dependency:" $+$ nest 4 ppc
+    pp (AssignConstVariable n) = do
+        ppn <- pp n
+        return $ text "Cannot perform assignment on constant variable" <+> quotes ppn
+    pp (FailAddHypothesis hyp err) = do
+        ppe <- pp err
+        return $ text "Failed to add hypothesis" <+> quotes hyp $+$ nest 4
+            (text "Because of:" $+$ (nest 4 ppe))
+    pp (SMTException hyp prop err) = do
+        ppe <- pp err
+        return $ text "Failed to prove proposition via SMT solvers:" $+$ nest 4
+            (text "Hypothesis:" $+$ (nest 4 hyp)
+            $+$ text "Proposition:" $+$ (nest 4 prop)
+            $+$ text "Because of:" $+$ (nest 4 ppe))        
+    pp (NotSupportedIndexOp e Nothing) = return $ text "Failed to convert expression" <+> quotes e <+> text "into an index operation"
+    pp (NotSupportedIndexOp e (Just err)) = do
+        ppe <- pp err
+        return $ text "Failed to convert expression" <+> quotes e <+> text "into an index operation" $+$ nest 4
+            (text "Because of:" $+$ nest 4 ppe)
+    pp (StaticAssertionFailure e err) = do
+        ppe <- pp err
+        return $ text "Failed to statically check assertion" <+> quotes e $+$ nest 4 (text "Because of:" $+$ nest 4 ppe)
+    pp (NonPositiveIndexExpr e err) = do
+        ppe <- pp err
+        return $ text "Failed to prove that index expression" <+> quotes e <+> text ">= 0" $+$ nest 4 (text "Because of:" $+$ nest 4 ppe)
+    pp (TypeConversionError k t) = return $ text "Expected a" <+> k <+> text "but found" <+> quotes t
+    pp e@(UnreachableDeadCode {}) = return $ text (show e)
+    pp e@(NonStaticDimension t err) = do
+        ppe <- pp err
+        return $ text "Array dimension must be statically known for type" <+> quotes t $+$ nest 4
+            (text "Static evaluation error:" $+$ nest 4 ppe)
+    pp e@(MismatchingArrayDimension t d Nothing) = return $ text "Expecting dimension" <+> d <+> text "for type" <+> quotes t
+    pp e@(MismatchingArrayDimension t d (Just err)) = do
+        ppe <- pp err
+        return $ text "Expecting dimension" <+> d <+> text "for type" <+> quotes t <> char ':' $+$ nest 4 (text "Because of:" $+$ nest 4 ppe)
+    pp e@(MultipleDefinedVariable {}) = return $ text (show e)
+    pp e@(NoReturnStatement dec) = return $ text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
+    pp e@(NoTemplateType n p t) = do
+        ppp <- pp p
+        return $ text "Declaration" <+> quotes t <+> text "at" <+> ppp <+> text "is not a template type with name" <+> quotes n
+    pp e@(NoMatchingTemplateOrProcedure ex defs) = do
+        let f1 (p,d,err) = do
+            ppp <- pp p
+            ppe <- pp err
+            return $ ppp <> char ':' $+$ nest 4 ((text "Declaration:" $+$ nest 4 d) $+$ (text "Instantiation error:" $+$ nest 4 ppe))
+        pp1 <- mapM f1 defs
+        return $ text "Could not find matching template or procedure:" $+$ nest 4
+               (text "Expected match:" <+> ex
+            $+$ text "Actual declarations: " $+$ nest 4 (vcat pp1))
+    pp e@(NotDefinedDomain {}) = return $ text (show e)
+    pp e@(NotDefinedKind {}) = return $ text (show e)
+    pp e@(InvalidDomainVariableName {}) = return $ text (show e)
+    pp e@(InvalidKindVariableName {}) = return $ text (show e)
+    pp e@(InvalidTypeVariableName {}) = return $ text (show e)
+    pp e@(MultipleDefinedKind {}) = return $ text (show e)
+    pp e@(NotDefinedType n) = return $ text "Could not find definition for type" <+> quotes n
+    pp e@(NotDefinedProcedure n) = return $ text "Could not find definition for procedure" <+> quotes n
+    pp e@(NotDefinedOperator o) = return $ text "Could not find definition for operator" <+> quotes (o)
+    pp e@(NoNonTemplateType {}) = return $ text (show e)
+    pp e@(MultipleDefinedDomain {}) = return $ text (show e)
+    pp e@(MultipleDefinedField {}) = return $ text (show e)
+    pp e@(AmbiguousName {}) = return $ text (show e)
+    pp e@(MismatchingVariableType v err) = do
+        ppe <- pp err
+        return $ text "Type of variable" <+> quotes v <+> text "does not match expected type" $+$ nest 4 (text "Sub-error:" <+> ppe)
+    pp e@(MultipleDefinedStructTemplate i p) = return $ text (show e)
+    pp e@(EqualityException i t1 t2 env) = do
+        ppe <- ppConstraintEnv env
+        return $ text "Failed to prove" <+> text i <+> text "equality:" $+$ nest 4
+               (text "Left:" <+> t1
+            $+$ text "Right:" <+> t2
+            $+$ ppe)
+    pp e@(CoercionException i t1 t2 env) = do
+        ppe <- ppConstraintEnv env
+        return $ text "Failed to apply implicit" <+> text i <+> text "coercion:" $+$ nest 4
+               (text "From:" <+> t1
+            $+$ text "To:" <+> t2
+            $+$ ppe)
+    pp e@(NCoercionException i Nothing ts env) = do
+        let f1 (i,t) = do
+            ppi <- pp i
+            ppt <- pp t
+            return $ text "Direction" <+> ppi <> char ':' <+> ppt
+        pp1 <- mapM f1 $ zip [(1::Int)..] ts
+        ppe <- ppConstraintEnv env
+        return $ text "Failed to apply multidirectional" <+> text i <+> text "coercion:" $+$ nest 4
+               (vcat pp1 $+$ ppe)
+    pp e@(NCoercionException i (Just t3) ts env) = do
+        let f1 (i,t) = do
+            ppi <- pp i
+            ppt <- pp t
+            return $ text "Direction" <+> ppi <> char ':' <+> ppt
+        pp1 <- mapM f1 $ zip [(1::Int)..] ts
+        ppe <- ppConstraintEnv env
+        return $ text "Failed to apply multidirectional" <+> text i <+> text "coercion:" $+$ nest 4
+               (vcat pp1
+            $+$ text "Result:" <+> t3
+            $+$ ppe)
+    pp e@(UnificationException i t1 t2 env) = do
+        ppe <- ppConstraintEnv env
+        return $ text "Failed to unify " <+> text i <+> text ":" $+$ nest 4
+               (text "Left:" <+> t1
+            $+$ text "Right:" <+> t2
+            $+$ ppe)
+    pp e@(ComparisonException i t1 t2 env) = do
+        ppe <- ppConstraintEnv env
+        return $ text "Failed to compare" <+> text i <+> text ":" $+$ nest 4
+               (text "Left:" <+> t1
+            $+$ text "Right:" <+> t2
+            $+$ ppe)
+    pp e@(MultipleDefinedStruct {}) = return $ text (show e)
+    pp e@(NonDeclassifiableExpression {}) = return $ text (show e)
+    pp e@(FieldNotFound t a) = return $ text "Type" <+> quotes t <+> text "does not possess a field" <+> quotes a
+    pp e@(ArrayAccessOutOfBounds t i rng) = return $ text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension of type" <+> quotes t <+> text "out of bounds"
+    pp e@(VariableNotFound v) = return $ text "Variable" <+> quotes v <+> text "not found"
+    pp e@(InvalidToStringArgument {}) = return $ text (show e)
+    pp e@(InvalidSizeArgument {}) = return $ text (show e)
+    pp e@(DuplicateTemplateInstances ex defs) = do
+        let f1 (p,d) = do
+            ppp <- pp p
+            return $ ppp <> char ':' $+$ nest 4 d
+        pp1 <- mapM f1 defs
+        return $ text "Duplicate matching instances for template or procedure application:" $+$ nest 4
+               (text "Expected match:" <+> ex
+            $+$ text "Duplicate declarations: " $+$ nest 4 (vcat pp1))
+    pp e@(ConflictingTemplateInstances ex defs err) = do
+        let f1 (p,d) = do
+            ppp <- pp p
+            return $ ppp <> char ':' $+$ nest 4 d
+        pp1 <- mapM f1 defs
+        ppe <- pp err
+        return $ text "Conflicting matching instances for template or procedure application:" $+$ nest 4
+               (text "Expected match:" <+> ex
+            $+$ text "Conflicting declarations: " $+$ nest 4 (vcat pp1)
+            $+$ text "Conflict: " $+$ nest 4 ppe)
+    pp (TemplateSolvingError app err) = do
+        ppe <- pp err
+        return $ text "Failed to solve template instantiation:" <+> app $+$ nest 4 (text "Because of:" $+$ nest 4 ppe)
+    pp (StaticEvalError e env) = do
+        ppe <- ppConstraintEnv env
+        return $ text "Unable to statically evaluate" <+> quotes e <> char ':' $+$ nest 4 ppe
+    pp (UnresolvedVariable v) = return $ text "Unable to resolve variable: " <+> quotes v
+    pp (UnresolvedMatrixProjection t rngs err) = do
+        ppe <- pp err
+        return $ text "Unable to resolve matrix projection:" $+$ nest 4 ((text "Type:" <+> t <> rngs) $+$ (text "Error:" $+$ nest 4 ppe))
+    pp (UnresolvedFieldProjection t att err) = do
+        ppe <- pp err
+        return $ text "Unable to resolve struct field:" $+$ nest 4 ((text "Type:" <+> t <> char '.' <> att) $+$ (text "Error:" $+$ nest 4 ppe))
+    pp (MultipleTypeSubstitutions opts) = do
+        let f (i,(bind,ss)) = do
+            pps <- pp ss
+            return $ text "Option" <+> integer i <> char ':' <+> bind $+$ nest 4 pps
+        pp1 <- mapM f $ zip [1..] opts
+        return $ text "Multiple type substitutions:" $+$ nest 4 (vcat pp1)
+    pp (ConstraintStackSizeExceeded i) = return $ text "Exceeded constraint stack size of" <+> quotes i
+    pp w@(UncheckedRangeSelection t i rng err) = do
+        pperr <- pp err
+        return $ text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension can not be checked for type" <+> quotes t $+$ nest 4 (text "Because of:" <+> pperr)
     
 
-ppConstraintEnv Nothing = PP.empty
-ppConstraintEnv (Just suberr) = text "Because of:" $+$ nest 4 (pp suberr)
+ppConstraintEnv Nothing = return PP.empty
+ppConstraintEnv (Just suberr) = do
+    pp1 <- pp suberr
+    return $ text "Because of:" $+$ nest 4 pp1
 
 isHaltError :: SecrecError -> Bool
 isHaltError = everything (||) (mkQ False aux)
@@ -371,11 +458,16 @@ data ModuleErr
 instance Binary ModuleErr
 instance Hashable ModuleErr
 
-instance PP ModuleErr where
-    pp (DuplicateModuleName i f1 f2) = text "Duplicate module" <+> quotes (text i) <> char ':' $+$ nest 4 (text f1 $+$ text f2)
-    pp (ModuleNotFound i) = text "Module" <+> quotes (text i) <+> text "not found"
-    pp (CircularModuleDependency g) = text "Circular module dependency:" $+$ nest 4 (vcat $ map ppNode g)
-        where ppNode (from,to,l) = quotes (text from) <+> text "imports" <+> quotes (text to) <+> text "at" <+> pp l
+instance Monad m => PP m ModuleErr where
+    pp (DuplicateModuleName i f1 f2) = return $ text "Duplicate module" <+> quotes (text i) <> char ':' $+$ nest 4 (text f1 $+$ text f2)
+    pp (ModuleNotFound i) = return $ text "Module" <+> quotes (text i) <+> text "not found"
+    pp (CircularModuleDependency g) = do
+        pp1 <- mapM ppNode g
+        return $ text "Circular module dependency:" $+$ nest 4 (vcat pp1)
+      where
+        ppNode (from,to,l) = do
+            ppl <- pp l
+            return $ quotes (text from) <+> text "imports" <+> quotes (text to) <+> text "at" <+> ppl
 
 moduleError :: Position -> ModuleErr -> SecrecError
 moduleError = ModuleError
@@ -403,9 +495,12 @@ instance Located SecrecWarning where
     loc (ErrWarn e) = loc e
     updLoc = error "no updLoc for errors"
 
-instance PP SecrecWarning where
-    pp (TypecheckerWarning p w) = text "Warning:" <+> pp p $+$ nest 4 (pp w)
-    pp (ErrWarn err) = text "Warning:" <+> pp err
+instance Monad m => PP m SecrecWarning where
+    pp (TypecheckerWarning p w) = do
+        ppp <- pp p
+        ppw <- pp w
+        return $ text "Warning:" <+> ppp $+$ nest 4 ppw
+    pp (ErrWarn err) = liftM (text "Warning:" <+>) (pp err)
   
 data TypecheckerWarn
     = UnusedVariable
@@ -443,17 +538,11 @@ data TypecheckerWarn
 instance Binary TypecheckerWarn 
 instance Hashable TypecheckerWarn
 
-instance PP TypecheckerWarn where
-    pp w@(UnusedVariable v) = text "Unused variable" <+> quotes v
---    pp w@(DependentSizeSelection t i Nothing err) = text "Array size of the" <+> ppOrdinal i <+> text "dimension is not statically know for type" <+> quotes t $+$ nest 4
---        (text "Static evaluation error:" <+> pp err)
---    pp w@(DependentSizeSelection t i (Just rng) err) = text "Range selection" <+> rng <+> text "of the" <+> ppOrdinal i <+> text "dimension is not statically know for type" <+> quotes t $+$ nest 4
---        (text "Static evaluation error:" <+> pp err)
---    pp w@(DependentMatrixSize t d e mb err) = text "Dependent array size" <+> quotes e <+> text "in the" <+> ppOrdinal d <+> text "dimension of type" <+> t <+> maybe empty (\v -> text "in the variable declaration of" <+> quotes v) mb $+$ nest 4
---        (text "Static evaluation error:" <+> pp err)
---    pp w@(DependentMatrixDimension t e mb err) = text "Dependent array dimension" <+> quotes e <+> text "for type" <+> t <+> maybe empty (\v -> text "in the variable declaration of" <+> quotes v) mb $+$ nest 4
---        (text "Static evaluation error:" <+> pp err)
-    pp w@(EmptyBranch s) = text "Conditional branch statement is empty:" $+$ s
-    pp w@(SingleIterationLoop s) = text "Single iteration loop with body:" $+$ s
-    pp w@(ShadowedVariable n p) = text "Variable" <+> quotes n <+> text "shadows definition from" <+> pp p
-    pp w@(LiteralOutOfRange lit ty min max) = text "Literal" <+> quotes (text lit) <+> text "out of the range" <+> brackets (text min <> text ".." <> text max) <+> text "for type" <+> quotes ty
+instance Monad m => PP m TypecheckerWarn where
+    pp w@(UnusedVariable v) = return $ text "Unused variable" <+> quotes v
+    pp w@(EmptyBranch s) = return $ text "Conditional branch statement is empty:" $+$ s
+    pp w@(SingleIterationLoop s) = return $ text "Single iteration loop with body:" $+$ s
+    pp w@(ShadowedVariable n p) = do
+        ppp <- pp p
+        return $ text "Variable" <+> quotes n <+> text "shadows definition from" <+> ppp
+    pp w@(LiteralOutOfRange lit ty min max) = return $ text "Literal" <+> quotes (text lit) <+> text "out of the range" <+> brackets (text min <> text ".." <> text max) <+> text "for type" <+> quotes ty

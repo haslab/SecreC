@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE DeriveGeneric, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
     
@@ -132,13 +132,6 @@ differenceGr :: Gr a b -> Gr a b -> Gr a b
 differenceGr x y = Graph.nfilter (\x -> not $ elem x ys) x
     where ys = nodes y
 
-ppGr :: (a -> Doc) -> (b -> Doc) -> Gr a b -> Doc
-ppGr ppA ppB gr = vcat $ map ppNode $ grToList gr
-    where
-    ppNode (froms,k,v,tos) = pp k <+> text "=" <+> ppA v $+$ nest 4 (sepBy comma $ map ppFrom froms ++ map ppTo tos)
-    ppTo (tolbl,toid) = text "-" <> ppB tolbl <> text "->" <+> pp toid
-    ppFrom (fromlbl,fromid) = pp fromid <+> text "-" <> ppB fromlbl <> text "->"
-
 ppGrM :: Monad m => (a -> m Doc) -> (b -> m Doc) -> Gr a b -> m Doc
 ppGrM ppA ppB gr = liftM vcat $ mapM ppNode $ grToList gr
     where
@@ -151,15 +144,15 @@ ppGrM ppA ppB gr = liftM vcat $ mapM ppNode $ grToList gr
         return $ vDoc $+$ nest 4 tosDoc
     ppTo (tolbl,toid) = do
         tolblDoc <- ppB tolbl
-        let toDoc = pp toid
+        toDoc <- pp toid
         return $ text "-" <> tolblDoc <> text "->" <+> toDoc
     ppFrom (fromlbl,fromid) = do
         fromlblDoc <- ppB fromlbl
-        let fromDoc = pp fromid
+        fromDoc <- pp fromid
         return $ fromDoc <+> text "-" <> fromlblDoc <> text "->"
 
-instance (PP a,PP b) => PP (Gr a b) where
-    pp = ppGr pp pp
+instance (PP m a,PP m b) => PP m (Gr a b) where
+    pp = ppGrM pp pp
         
 instance (Ord a,Ord b) => Ord (Gr a b) where
     compare x y = compare (OrdGr x) (OrdGr y)
@@ -292,6 +285,9 @@ snocNe (ConsNe x xs) y = ConsNe x (snocNe xs y)
 lengthNe :: NeList a -> Int
 lengthNe (WrapNe x) = 1
 lengthNe (ConsNe x xs) = succ (lengthNe xs)
+
+filterMapWithKeyM :: (Ord k,Monad m) => (k -> b -> m Bool) -> Map k b -> m (Map k b)
+filterMapWithKeyM f xs = Map.foldlWithKey (\mc k b -> f k b >>= \ok -> if ok then liftM (Map.insert k b) mc else mc) (return Map.empty) xs
 
 forMapWithKeyM_ :: Monad m => Map k b -> (k -> b -> m c) -> m ()
 forMapWithKeyM_ xs f = Map.foldlWithKey (\mc k b -> mc >> f k b >> return ()) (return ()) xs
@@ -486,11 +482,11 @@ fromShowOrdDyn (ShowOrdDyn v) = case unsafeCoerce v of
     r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
 
-data PPDyn where
-    PPDyn :: (Data a,Typeable a,Show a,PP a) => a -> PPDyn
+data PPDyn m where
+    PPDyn :: (Data a,Typeable a,Show a,PP m a) => a -> PPDyn m
   deriving Typeable
   
-instance Data PPDyn where
+instance Typeable m => Data (PPDyn m) where
     gfoldl k z (PPDyn x) = z PPDyn `k` x
     gunfold = error "gunfold unsupported"
     toConstr (PPDyn _) = conPPDyn
@@ -499,19 +495,19 @@ instance Data PPDyn where
 conPPDyn = mkConstr tyPPDyn "PPDyn" [] Prefix
 tyPPDyn = mkDataType "Language.SecreC.Utils.PPDyn" [conPPDyn]
   
-instance Show PPDyn where
+instance Show (PPDyn m) where
     show (PPDyn d) = show d
 
-instance PP PPDyn where
+instance Monad m => PP m (PPDyn m) where
     pp (PPDyn d) = pp d
 
 instance Show (IORef a) where
     show _ = "<IORef>"
 
-toPPDyn :: (Data a,Typeable a,Show a,PP a) => a -> PPDyn
+toPPDyn :: (Data a,Typeable a,Show a,PP m a) => a -> PPDyn m
 toPPDyn v = PPDyn v
 
-fromPPDyn :: (Data a,Typeable a,Show a,PP a) => PPDyn -> Maybe a
+fromPPDyn :: (Data a,Typeable a,Show a,PP m a) => PPDyn m -> Maybe a
 fromPPDyn (PPDyn v) = case unsafeCoerce v of 
     r | Generics.typeOf v == Generics.typeOf r -> Just r
       | otherwise     -> Nothing
@@ -566,8 +562,8 @@ instance Ord id => Ord (IdRef id a) where
 instance Show (IdRef id a) where
     show r = "<IdRef id>"
     
-instance PP (IdRef id a) where
-    pp r = text (show r)
+instance Monad m => PP m (IdRef id a) where
+    pp r = return $ text (show r)
     
 newIdRef :: id -> a -> IO (IdRef id a)
 newIdRef i a = do

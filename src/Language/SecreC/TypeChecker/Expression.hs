@@ -73,15 +73,17 @@ tcLValue isWrite (RVariablePExpr l v) = do
     v' <- tcVarName isWrite v
     let t = typed $ loc v'
     return $ RVariablePExpr (Typed l t) v'
-tcLValue isWrite e = genTcError (locpos $ loc e) $ text "Not a l-value expression: " <+> quotes (pp e)
+tcLValue isWrite e = genTcError (locpos $ loc e) $ text "Not a l-value expression: " <+> quotes (ppid e)
 
-tcVariadicArg :: (PP (a VarIdentifier (Typed loc)),VarsIdTcM m,Located (a VarIdentifier (Typed loc)),Location loc,LocOf (a VarIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a VarIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a VarIdentifier (Typed loc),IsVariadic)
+tcVariadicArg :: (PP (TcM m) (a VarIdentifier (Typed loc)),VarsIdTcM m,Located (a VarIdentifier (Typed loc)),Location loc,LocOf (a VarIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a VarIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a VarIdentifier (Typed loc),IsVariadic)
 tcVariadicArg tcA (e,isVariadic) = do
     e' <- tcA e
     let (Typed l t) = loc e'
+    ppe' <- pp e'
+    ppt <- pp t
     if isVariadic
-        then unless (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (pp e' `ppOf` pp t) <+> text "should be variadic"
-        else when (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (pp e' `ppOf` pp t) <+> text "should not be variadic" 
+        then unless (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should be variadic"
+        else when (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should not be variadic" 
     return (e',isVariadic)
 
 tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
@@ -92,11 +94,12 @@ tcExpr (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
     tcExpr $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
 tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
     exprC <- getExprC
-    when (exprC==PureE) $ genTcError (locpos l) $ text "assign expression is not pure" <+> pp ae
+    when (exprC==PureE) $ genTcError (locpos l) $ text "assign expression is not pure" <+> ppid ae
     pe' <- tcLValue True pe
     e' <- tcExpr e
     let tpe = typed $ loc pe'
-    x1 <- newTypedVar "assign" tpe $ Just $ pp e'
+    ppe' <- pp e'
+    x1 <- newTypedVar "assign" tpe $ Just $ ppe'
     topTcCstrM_ l $ Coerces (fmap typed e') x1
     let ex1 = fmap (Typed l) $ RVariablePExpr tpe x1
     return $ BinaryAssign (Typed l tpe) pe' (fmap (notTyped "equal") op) ex1
@@ -118,8 +121,10 @@ tcExpr (CondExpr l c e1 e2) = do
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     t3 <- newTyVar False Nothing
-    x1 <- newTypedVar "then" t3 $ Just $ pp e1'
-    x2 <- newTypedVar "else" t3 $ Just $ pp e2'
+    ppe1' <- pp e1'
+    ppe2' <- pp e2'
+    x1 <- newTypedVar "then" t3 $ Just $ ppe1'
+    x2 <- newTypedVar "else" t3 $ Just $ ppe2'
     topTcCstrM_ l $ CoercesN [(fmap typed e1',x1),(fmap typed e2',x2)] 
     let ex1 = fmap (Typed l) $ varExpr x1
     let ex2 = fmap (Typed l) $ varExpr x2
@@ -135,12 +140,12 @@ tcExpr (BinaryExpr l e1 op e2) = do
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr pe@(PreOp l op e) = do
     exprC <- getExprC
-    when (exprC==PureE) $ genTcError (locpos l) $ text "preop is not pure" <+> pp pe
+    when (exprC==PureE) $ genTcError (locpos l) $ text "preop is not pure" <+> ppid pe
     e' <- tcLValue True e
     limitExprC ReadOnlyE $ tcBinaryOp l True op e'
 tcExpr pe@(PostOp l op e) = do
     exprC <- getExprC
-    when (exprC==PureE) $ genTcError (locpos l) $ text "postop is not pure" <+> pp pe
+    when (exprC==PureE) $ genTcError (locpos l) $ text "postop is not pure" <+> ppid pe
     e' <- tcLValue True e
     limitExprC ReadOnlyE $ tcBinaryOp l False op e'
 tcExpr (UnaryExpr l op e) = do
@@ -172,9 +177,9 @@ tcExpr (BytesFromStringExpr l e) = do
 tcExpr (VArraySizeExpr l e) = do
     e' <- limitExprC ReadOnlyE $ tcExpr e
     let t = typed $ loc e'
-    unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (pp e)
+    unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (ppid e)
     return $ VArraySizeExpr (Typed l $ BaseT index) e'
-tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (pp qe) $ tcLocal l "tcExpr quant" $ do
+tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
     vs' <- mapM tcQVar vs
     e' <- tcGuard e
@@ -188,7 +193,7 @@ tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (pp qe) $ tcLocal l "tcExpr quan
         isAnn <- getAnn
         newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
         return (t',v')
-tcExpr le@(LeakExpr l e) = onlyLeak l (pp le) $ onlyAnn l (pp le) $ do
+tcExpr le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
     e' <- limitExprC ReadOnlyE $ tcExpr e
     topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
     return $ LeakExpr (Typed l $ BaseT bool) e'
@@ -217,7 +222,7 @@ tcExpr (SelectionExpr l pe a) = limitExprC ReadOnlyE $ do
 tcExpr (ArrayConstructorPExpr l es) = limitExprC ReadOnlyE $ do
     lit' <- tcArrayLiteral l es
     return lit'
-tcExpr e@(MultisetConstructorPExpr l es) = limitExprC ReadOnlyE $ onlyAnn l (pp e) $ do
+tcExpr e@(MultisetConstructorPExpr l es) = limitExprC ReadOnlyE $ onlyAnn l (ppid e) $ do
     lit' <- tcMultisetLiteral l es
     return lit'
 tcExpr (LitPExpr l lit) = limitExprC ReadOnlyE $ do
@@ -231,15 +236,15 @@ tcExpr (BuiltinExpr l n args) = do
     args' <- limitExprC ReadOnlyE $ mapM tcExpr args
     ret <- isSupportedBuiltin l n $ map (typed . loc) args'
     return $ BuiltinExpr (Typed l ret) n args'
-tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyE $ onlyAnn l (pp me) $ do
+tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyE $ onlyAnn l (ppid me) $ do
     e' <- tcExpr e
     ComplexT mset <- newTyVar True Nothing
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
-tcExpr e@(ResultExpr l) = limitExprC ReadOnlyE $ onlyAnn l (pp e) $ do
+tcExpr e@(ResultExpr l) = limitExprC ReadOnlyE $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     return $ ResultExpr tl
-tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <+> pp e
+tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <+> ppid e
 
 isSupportedBuiltin :: (MonadIO m,Location loc) => loc -> Identifier -> [Type] -> TcM m Type
 isSupportedBuiltin l n args = do -- TODO: check specific builtins?
@@ -369,7 +374,8 @@ tcExprTy ty e = do
 tcExprTy' :: (ProverK loc m) => Type -> Expression VarIdentifier (Typed loc) -> TcM m (Expression VarIdentifier (Typed loc))
 tcExprTy' ty e' = do
     let Typed l ty' = loc e'
-    x2 <- newTypedVar "ety" ty $ Just $ pp e'
+    ppe' <- pp e'
+    x2 <- newTypedVar "ety" ty $ Just $ ppe'
     topTcCstrM_ l $ Coerces (fmap typed e') x2
     return $ fmap (Typed l) $ varExpr x2
 

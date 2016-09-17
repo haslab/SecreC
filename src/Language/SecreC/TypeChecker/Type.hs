@@ -59,28 +59,43 @@ castTypeToType (CastTy (TypeName t n)) = t
 
 typeToSecType :: (ProverK loc m) => loc -> Type -> TcM m SecType
 typeToSecType l (SecT s) = return s
-typeToSecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ KindT $ KVar (mkVarId "*") False)
+typeToSecType l t = do
+    ppi <- pp $ KindT $ KVar (mkVarId "*") False
+    ppt <- ppM l t
+    tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToKindType :: (ProverK loc m) => loc -> Type -> TcM m KindType
 typeToKindType l (KindT s) = return s
-typeToKindType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp $ KType False)
+typeToKindType l t = do
+    ppi <- pp $ KType False
+    ppt <- ppM l t 
+    tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToDecType :: (ProverK loc m) => loc -> Type -> TcM m DecType
 typeToDecType l (DecT s) = return s
-typeToDecType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp DType)
+typeToDecType l t = do
+    ppi <- pp DType
+    ppt <- ppM l t
+    tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToVArrayType :: (ProverK loc m) => loc -> Type -> Expr -> TcM m VArrayType
 typeToVArrayType l (VArrayT a) sz = do
     prove l "typeToVArrayType" $ unifiesExprTy l True sz (vArraySize a)
     return a
-typeToVArrayType l t sz = ppM l t >>= tcError (locpos l) . TypeConversionError (pp (NoType $ "array of size " ++ ppr sz))
+typeToVArrayType l t sz = do
+    ppsz <- ppr sz
+    ppi <- pp $ NoType $ "array of size " ++ ppsz
+    ppt <- ppM l t
+    tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToPrimType :: (ProverK loc m) => loc -> Type -> TcM m Prim
 typeToPrimType l t = do
     b <- typeToBaseType l t
     case b of
         TyPrim p -> return p
-        otherwise -> genTcError (locpos l) $ text "not a primitive type" <+> pp t
+        otherwise -> do
+            ppt <- pp t
+            genTcError (locpos l) $ text "not a primitive type" <+> ppt
 
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToBaseType l (BaseT s) = return s
@@ -95,15 +110,26 @@ typeToBaseType l t@(ComplexT ct) = case ct of
             Just ct' -> return ct'
             Nothing -> if isNotVoid
                 then expandCTypeVar l v
-                else throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to base type" <+> pp t) Nothing
+                else do
+                    ppt <- pp t
+                    throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to base type" <+> ppt) Nothing
         typeToBaseType l (ComplexT ct')     
-    otherwise -> ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
-typeToBaseType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp BType)
+    otherwise -> do
+        ppt <- ppM l t
+        ppi <- pp BType
+        tcError (locpos l) $ TypeConversionError ppi ppt
+typeToBaseType l t = do
+    ppt <- ppM l t
+    ppi <- pp BType
+    tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType
 typeToComplexType l (ComplexT s) = return s
 typeToComplexType l (BaseT s) = return $ defCType s
-typeToComplexType l t = ppM l t >>= tcError (locpos l) . TypeConversionError (pp (TType False))
+typeToComplexType l t = do
+    ppt <- ppM l t
+    ppi <- pp $ TType False
+    tcError (locpos l) $ TypeConversionError ppi ppt
 
 isComplex :: Type -> Bool
 isComplex (ComplexT s) = True
@@ -131,7 +157,10 @@ tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
     case tdta of
         BaseT (TApp {}) -> tcCstrM_ l $ IsPublic True tsec
         otherwise -> return ()
-    (dim',tdim) <- tcMbDimtypeSpec l (pp tsec <+> pp tdta) dim
+    (dim',tdim) <- do
+        pptsec <- pp tsec
+        pptdta <- pp tdta
+        tcMbDimtypeSpec l (pptsec <+> pptdta) dim
     t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic
     return (TypeSpecifier (Typed l t) sec' dta' dim')
     
@@ -257,7 +286,9 @@ typeDim :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeDim l (BaseT _) = return $ indexExpr 0
 typeDim l (ComplexT (CType _ _ e)) = return e
 typeDim l (VAType _ _) = return $ indexExpr 1
-typeDim l t = genTcError (locpos l) $ text "No dimension for type" <+> pp t
+typeDim l t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "No dimension for type" <+> ppt
 
 projectMatrixType :: (ProverK loc m) => loc -> Type -> [ArrayProj] -> TcM m Type
 projectMatrixType l (ComplexT ct) rngs = liftM ComplexT $ projectMatrixCType l ct rngs
@@ -276,7 +307,10 @@ projectMatrixType l (VAType t sz) [rng] = projectSizeTyArray l t sz rng
     projectSizeTyArray l t sz (ArraySlice i j) = do
         Just sz' <- projectSize l (VAType t sz) 1 (Just sz) i j
         return $ VAType t sz'
-projectMatrixType l t rngs = genTcError (locpos l) $ text "Cannot project type " <+> quotes (pp t <> brackets (sepBy comma $ map pp rngs))
+projectMatrixType l t rngs = do
+    ppt <- pp t
+    pp2 <- mapM pp rngs
+    genTcError (locpos l) $ text "Cannot project type " <+> quotes (ppt <> brackets (sepBy comma pp2))
 
 projectSizes :: (ProverK loc m) => loc -> ComplexType -> Word64 -> Expr -> [ArrayProj] -> TcM m Expr
 projectSizes p ct i dim ys = do
@@ -286,7 +320,9 @@ projectSizes p ct i dim ys = do
   where
     projectSizes' p ct i dim [] = return (dim)
     projectSizes' p ct i 0 ys = do
-        tcError (locpos p) $ MismatchingArrayDimension (pp ct) (pp $ pred i + toEnum (length ys)) Nothing
+        ppct <- pp ct
+        pp2 <- pp $ pred i + toEnum (length ys)
+        tcError (locpos p) $ MismatchingArrayDimension (ppct) pp2 Nothing
     projectSizes' p ct i dim (ArrayIdx y:ys) = do -- project the dimension
         projectSize p (ComplexT ct) i Nothing y y
         projectSizes' p ct (succ i) (pred dim) ys
@@ -311,7 +347,10 @@ projectSize p t i (Just x) y1 y2 = do
         (DynArrayIndex el,DynArrayIndex eu) -> do
             liftM Just $ subtractIndexExprs p False eupp elow
         otherwise -> do
-            errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (pp t) i (pp elow <> char ':' <> pp eupp) arrerr
+            ppt <- pp t
+            ppelow <- pp elow
+            ppeupp <- pp eupp
+            errWarn $ TypecheckerError (locpos p) $ UncheckedRangeSelection (ppt) i (ppelow <> char ':' <> ppeupp) arrerr
             liftM Just $ subtractIndexExprs p False eupp elow          
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
@@ -324,7 +363,10 @@ structBody l (DVar v@(nonTok -> True)) = resolveDVar l v >>= structBody l
 
 -- | checks that a given type is a struct type, resolving struct templates if necessary, and projects a particular field.
 projectStructField :: (ProverK loc m) => loc -> BaseType -> AttributeName VarIdentifier () -> TcM m ComplexType
-projectStructField l t@(TyPrim {}) a = tcError (locpos l) $ FieldNotFound (pp t) (pp a)
+projectStructField l t@(TyPrim {}) a = do
+    ppt <- pp t
+    ppa <- pp a
+    tcError (locpos l) $ FieldNotFound (ppt) (ppa)
 projectStructField l t@(BVar v@(nonTok -> True)) a = do
     b <- resolveBVar l v
     projectStructField l b a
@@ -335,10 +377,16 @@ projectStructField l (TApp _ _ d) a = do
 projectStructFieldDec :: (ProverK loc m) => loc -> InnerDecType -> AttributeName VarIdentifier () -> TcM m ComplexType
 projectStructFieldDec l t@(StructType _ _ (Just atts) cl) (AttributeName _ a) = do -- project the field
     case List.find (\(Attribute _ t f _) -> attributeNameId f == a) atts of
-        Nothing -> tcError (locpos l) $ FieldNotFound (pp t) (pp a)
+        Nothing -> do
+            ppt <- pp t
+            ppa <- pp a
+            tcError (locpos l) $ FieldNotFound (ppt) (ppa)
         Just (Attribute t _ f szs) -> do
             typeToComplexType l t
-projectStructFieldDec l t a = genTcError (locpos l) $ text "cannot project field" <+> pp a <+> text "on type" <+> pp t
+projectStructFieldDec l t a = do
+    ppa <- pp a
+    ppt <- pp t
+    genTcError (locpos l) $ text "cannot project field" <+> ppa <+> text "on type" <+> ppt
 
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM m (Type,Maybe (Sizes VarIdentifier (Typed loc)))
@@ -360,7 +408,9 @@ variadicExprsLength l isTop es = mapM (variadicExprLength l) es >>= foldr0M (ind
             VAType _ sz -> return sz
             VArrayT (VAVal ts _) -> return $ indexExpr $ toEnum $ length ts
             VArrayT (VAVar v _ sz) -> return sz
-            otherwise -> genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (pp t)
+            otherwise -> do
+                ppt <- pp t
+                genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
 
 --evalVarExprs :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> TcM m ()
 --evalVarExprs l = mapM_ (evalVarExpr l)
@@ -371,10 +421,13 @@ variadicExprsLength l isTop es = mapM (variadicExprLength l) es >>= foldr0M (ind
 --        mapM_ (evaluateIndexExpr . fmap (Typed l)) es
 
 matchTypeDimension :: (ProverK loc m) => loc -> Expr -> [(Expr,IsVariadic)] -> TcM m ()
-matchTypeDimension l td szs = addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pp td) (pp szs) . Just) $ do
-    d <- variadicExprsLength l False szs 
---    liftIO $ putStrLn $ "matchTypeDim " ++ ppr td ++ " " ++ ppr szs ++ " " ++ ppr d
-    unifiesExpr l True td d
+matchTypeDimension l td szs = do
+    pptd <- pp td
+    ppszs <- pp szs
+    addErrorM l (TypecheckerError (locpos l) . Halt . MismatchingArrayDimension (pptd) (ppszs) . Just) $ do
+        d <- variadicExprsLength l False szs 
+        --    liftIO $ putStrLn $ "matchTypeDim " ++ ppr td ++ " " ++ ppr szs ++ " " ++ ppr d
+        unifiesExpr l True td d
 
 -- | Update the size of a compound type
 -- for variadic arrays, we set the size of each base type and not of the array itself
@@ -393,11 +446,13 @@ refineTypeSizes l (VArrayT (VAVar v b sz)) szs = do
 refineTypeSizes l (VAType b sz) szs = do
     b' <- refineTypeSizes l b szs
     return $ VAType b' sz
-refineTypeSizes l ct _ = genTcError (locpos l) $ text "Failed to add type size" <+> pp ct
+refineTypeSizes l ct _ = do
+    ppct <- pp ct
+    genTcError (locpos l) $ text "Failed to add type size" <+> ppct
 
 variadicBase :: Type -> Type
 variadicBase (VAType b sz) = b
-variadicBase t = error $ "variadicBase: " ++ ppr t
+variadicBase t = error $ "variadicBase: " ++ show t
 
 typeBase :: (ProverK loc m) => loc -> Type -> TcM m Type
 typeBase l (BaseT b) = return $ BaseT b
@@ -407,7 +462,9 @@ typeBase l (ComplexT (CVar v@(nonTok -> True) _)) = do
     ct <- resolveCVar l v
     typeBase l (ComplexT ct)
 typeBase l (VAType b sz) = return b
-typeBase l t = genTcError (locpos l) $ text "No static base type for type" <+> quotes (pp t)
+typeBase l t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "No static base type for type" <+> quotes (ppt)
     
 isPublic :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
 isPublic l doUnify (BaseT b) = return ()
@@ -416,7 +473,9 @@ isPublic l doUnify (ComplexT (CVar v@(nonTok -> True) _)) = do
     isPublic l doUnify (ComplexT ct)
 isPublic l doUnify (ComplexT (CType s _ _)) = isPublicSec l doUnify s
 isPublic l doUnify (SecT s) = isPublicSec l doUnify s
-isPublic l doUnify t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
+isPublic l doUnify t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "type" <+> ppt <+> text "is not private"
     
 isPublicSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
 isPublicSec l True s = unifiesSec l s Public
@@ -428,7 +487,9 @@ isPrivate l doUnify (ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
     isPrivate l doUnify (ComplexT ct)
 isPrivate l doUnify (ComplexT (CType s _ _)) = isPrivateSec l doUnify s
 isPrivate l doUnify (SecT s) = isPrivateSec l doUnify s
-isPrivate l doUnify t = genTcError (locpos l) $ text "type" <+> pp t <+> text "is not private"
+isPrivate l doUnify t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "type" <+> ppt <+> text "is not private"
     
 isPrivateSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
 isPrivateSec l True s = do
@@ -436,7 +497,9 @@ isPrivateSec l True s = do
     s' <- newDomainTyVar "ps" k' Nothing
     unifiesSec l s s'
 isPrivateSec l False (Private {}) = return ()
-isPrivateSec l False s = genTcError (locpos l) $ text "security type" <+> pp s <+> text "is not private"
+isPrivateSec l False s = do
+    pps <- pp s
+    genTcError (locpos l) $ text "security type" <+> pps <+> text "is not private"
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeSize l (BaseT _) = return $ indexExpr 1
@@ -448,7 +511,9 @@ typeSize l (BaseT _) = return $ indexExpr 1
 --    t <- resolveCVar l v
 --    typeSize l (ComplexT t)
 typeSize l (VAType t sz) = return sz
-typeSize l t = genTcError (locpos l) $ text "No static size for type" <+> quotes (pp t)
+typeSize l t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "No static size for type" <+> quotes (ppt)
 
 toMultisetType :: ProverK loc m => loc -> Type -> TcM m ComplexType
 toMultisetType l (ComplexT (CVar v@(nonTok -> False) isNotVoid)) = return $ CVar v isNotVoid
@@ -458,12 +523,16 @@ toMultisetType l t@(ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
         Just ct' -> return ct'
         Nothing -> if isNotVoid
             then expandCTypeVar l v
-            else throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> pp t) Nothing
+            else do
+                ppt <- pp t
+                throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
     toMultisetType l $ ComplexT ct'
 toMultisetType l (ComplexT (CType s b d)) = do
     tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
     return $ CType s (MSet b) (indexExpr 0)
-toMultisetType l t = genTcError (locpos l) $ text "cannot convert type" <+> pp t <+> text "to multiset"
+toMultisetType l t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "cannot convert type" <+> ppt <+> text "to multiset"
 
 defaultExpr :: ProverK loc m => loc -> Type -> Maybe [(Expr,IsVariadic)] -> TcM m Expr
 defaultExpr l t@(BaseT b) szs = defaultBaseExpr l Public b
@@ -491,8 +560,12 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
                     case n of
                         1 -> return rep
                         otherwise -> reshapeExpr l False rep ns (ComplexT ct)
-        Left err -> throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> pp t) (Just err)
-defaultExpr l t szs = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "unsupported default value for type" <+> pp t) Nothing
+        Left err -> do
+            ppt <- pp t
+            throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> ppt) (Just err)
+defaultExpr l t szs = do
+    ppt <- pp t
+    throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "unsupported default value for type" <+> ppt) Nothing
 
 defaultBaseExpr :: ProverK loc m => loc -> SecType -> BaseType -> TcM m Expr
 defaultBaseExpr l s b@(BVar v) = do
@@ -513,7 +586,10 @@ defaultBaseExpr l Public b@(TApp (TypeName _ sn) targs sdec) = do
     targs' <- mapM (\(x,y) -> liftM ((,y) . fmap typed) $ type2TemplateTypeArgument l x) targs
     let targs'' = if null targs' then Nothing else Just targs'
     return $ ProcCallExpr ct (fmap (const $ DecT pdec) $ ProcedureName () sn) targs'' []
-defaultBaseExpr l s b = genError (locpos l) $ text "defaultBaseExpr:" <+> pp s <+> pp b
+defaultBaseExpr l s b = do
+    pps <- pp s
+    ppb <- pp b
+    genError (locpos l) $ text "defaultBaseExpr:" <+> pps <+> ppb
 
 defaultBaseClassify :: ProverK loc m => loc -> SecType -> Expr -> TcM m Expr
 defaultBaseClassify l Public e = return e
@@ -524,5 +600,11 @@ defaultBaseClassify l s@(SVar v k) e@(loc -> BaseT b) = do
         Just s' -> defaultBaseClassify l s' e
         Nothing -> if isPrivateKind k
             then classifyExpr l False e (CType s b $ indexExpr 0)
-            else throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pp s <+> ppExprTy e) Nothing
-defaultBaseClassify l s e = throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pp s <+> ppExprTy e) Nothing
+            else do
+                pps <- pp s
+                ppe <- ppExprTy e
+                throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing
+defaultBaseClassify l s e = do
+    pps <- pp s
+    ppe <- ppExprTy e
+    throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing

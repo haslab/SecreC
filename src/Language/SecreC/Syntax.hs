@@ -18,6 +18,8 @@ import Language.SecreC.Location
 import Language.SecreC.Position
 import Language.SecreC.Utils
 
+import Control.Monad
+
 -- Program and variable declarations:                                          
 
 data Module iden loc = Module loc (Maybe (ModuleName iden loc)) (Program iden loc)
@@ -47,8 +49,11 @@ instance Location loc => Located (Module iden loc) where
     loc (Module l _ _) = l
     updLoc (Module _ x y) l = Module l x y
 
-instance PP iden => PP (Module iden loc) where
-    pp (Module _ (Just modulename) prog) = text "module" <+> pp modulename <+> text "where" $$ pp prog
+instance PP m iden => PP m (Module iden loc) where
+    pp (Module _ (Just modulename) prog) = do
+        pp1 <- pp modulename
+        pp2 <- pp prog
+        return $ text "module" <+> pp1 <+> text "where" $$ pp2
     pp (Module _ Nothing prog) = pp prog
 
 data AttributeName iden loc = AttributeName loc iden
@@ -68,7 +73,7 @@ instance Location loc => Located (AttributeName iden loc) where
     loc (AttributeName l _) = l
     updLoc (AttributeName _ x) l = AttributeName l x
   
-instance PP iden => PP (AttributeName iden loc) where
+instance PP m iden => PP m (AttributeName iden loc) where
     pp (AttributeName _ iden) = pp iden
 
 data ModuleName iden loc = ModuleName loc iden
@@ -82,7 +87,7 @@ instance Location loc => Located (ModuleName iden loc) where
     loc (ModuleName l _) = l
     updLoc (ModuleName _ x) l = ModuleName l x
   
-instance PP iden => PP (ModuleName iden loc) where
+instance PP m iden => PP m (ModuleName iden loc) where
     pp (ModuleName _ iden) = pp iden
 
 data TemplateArgName iden loc = TemplateArgName loc iden
@@ -96,7 +101,7 @@ instance Location loc => Located (TemplateArgName iden loc) where
     loc (TemplateArgName l _) = l
     updLoc (TemplateArgName _ x) l = TemplateArgName l x
   
-instance PP iden => PP (TemplateArgName iden loc) where
+instance PP m iden => PP m (TemplateArgName iden loc) where
     pp (TemplateArgName _ iden) = pp iden
 
 data Program iden loc = Program loc [ImportDeclaration iden loc] [GlobalDeclaration iden loc]
@@ -116,14 +121,17 @@ instance Location loc => Located (Program iden loc) where
     loc (Program l _ _) = l
     updLoc (Program _ x y) l = Program l x y
   
-instance PP iden => PP (Program iden loc) where
-    pp (Program _ is gs) = pp is $$ pp gs
+instance PP m iden => PP m (Program iden loc) where
+    pp (Program _ is gs) = do
+        pp1 <- pp is
+        pp2 <- pp gs
+        return $ pp1 $$ pp2
 
-instance PP iden => PP [ImportDeclaration iden loc] where
-    pp is = vcat $ map pp is
+instance PP m iden => PP m [ImportDeclaration iden loc] where
+    pp is = liftM vcat $ mapM pp is
 
-instance PP iden => PP [GlobalDeclaration iden loc] where
-    pp gs = vcat $ map pp gs
+instance PP m iden => PP m [GlobalDeclaration iden loc] where
+    pp gs = liftM vcat $ mapM pp gs
 
 data ImportDeclaration iden loc = Import loc (ModuleName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -136,8 +144,8 @@ instance Location loc => Located (ImportDeclaration iden loc) where
     loc (Import l _) = l
     updLoc (Import _ x) l = Import l x
  
-instance PP iden => PP (ImportDeclaration iden loc) where
-    pp (Import _ modulename) = text "import" <+> pp modulename
+instance PP m iden => PP m (ImportDeclaration iden loc) where
+    pp (Import _ modulename) = liftM (text "import" <+>) (pp modulename)
 
 data GlobalDeclaration iden loc
     = GlobalVariable loc (VariableDeclaration iden loc)
@@ -172,7 +180,7 @@ instance Location loc => Located (GlobalDeclaration iden loc) where
     updLoc (GlobalTemplate _ td) l = GlobalTemplate l td
     updLoc (GlobalAnnotations _ ann) l = GlobalAnnotations l ann
 
-instance PP iden => PP (GlobalDeclaration iden loc) where
+instance PP m iden => PP m (GlobalDeclaration iden loc) where
     pp (GlobalVariable _ vd) = pp vd
     pp (GlobalDomain _ dd) = pp dd
     pp (GlobalKind _ kd) = pp kd
@@ -193,8 +201,10 @@ instance Location loc => Located (KindDeclaration iden loc) where
     loc (Kind l _) = l
     updLoc (Kind _ x) l = Kind l x
  
-instance PP iden => PP (KindDeclaration iden loc) where
-    pp (Kind _ kname) = text "kind" <+> pp kname
+instance PP m iden => PP m (KindDeclaration iden loc) where
+    pp (Kind _ kname) = do
+        ppk <- pp kname
+        return $ text "kind" <+> ppk
   
 data KindName iden loc = KindName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -210,7 +220,7 @@ instance Location loc => Located (KindName iden loc) where
     loc (KindName l _) = l
     updLoc (KindName _ x) l = KindName l x
 
-instance PP iden => PP (KindName iden loc) where
+instance PP m iden => PP m (KindName iden loc) where
     pp (KindName _ iden) = pp iden
 
 data DomainDeclaration iden loc = Domain loc (DomainName iden loc) (KindName iden loc)
@@ -224,8 +234,11 @@ instance Location loc => Located (DomainDeclaration iden loc) where
     loc (Domain l _ _) = l
     updLoc (Domain _ x y) l = Domain l x y
 
-instance PP iden => PP (DomainDeclaration iden loc) where
-    pp (Domain _ dom kind) = text "domain" <+> pp dom <+> pp kind
+instance PP m iden => PP m (DomainDeclaration iden loc) where
+    pp (Domain _ dom kind) = do
+        ppd <- pp dom
+        ppk <- pp kind
+        return $ text "domain" <+> ppd <+> ppk
  
 data DomainName iden loc = DomainName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -238,7 +251,7 @@ instance Location loc => Located (DomainName iden loc) where
     loc (DomainName l _) = l
     updLoc (DomainName _ x) l = DomainName l x
 
-instance PP iden => PP (DomainName iden loc) where
+instance PP m iden => PP m (DomainName iden loc) where
     pp (DomainName _ iden) = pp iden
 
 data ProcedureName iden loc = ProcedureName loc iden
@@ -252,7 +265,7 @@ instance Location loc => Located (ProcedureName iden loc) where
     loc (ProcedureName l _) = l
     updLoc (ProcedureName _ x) l = ProcedureName l x
  
-instance PP iden => PP (ProcedureName iden loc) where
+instance PP m iden => PP m (ProcedureName iden loc) where
     pp (ProcedureName _ iden) = pp iden
 
 data VarName iden loc = VarName loc iden
@@ -272,7 +285,7 @@ instance Location loc => Located (VarName iden loc) where
     loc (VarName l _) = l
     updLoc (VarName _ x) l = VarName l x
  
-instance PP iden => PP (VarName iden loc) where
+instance PP m iden => PP m (VarName iden loc) where
     pp (VarName _ iden) = pp iden
 
 data TypeName iden loc = TypeName loc iden
@@ -289,13 +302,13 @@ instance Location loc => Located (TypeName iden loc) where
     loc (TypeName l _) = l
     updLoc (TypeName _ x) l = TypeName l x
 
-instance PP iden => PP (TypeName iden loc) where
+instance PP m iden => PP m (TypeName iden loc) where
     pp (TypeName _ iden) = pp iden
 
 type Identifier = String
 
-instance PP String where
-    pp s = text s
+instance Monad m => PP m String where
+    pp s = return $ text s
 
 data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -308,13 +321,17 @@ instance Location loc => Located (VariableInitialization iden loc) where
     loc (VariableInitialization l _ _ _) = l
     updLoc (VariableInitialization _ x y z) l = VariableInitialization l x y z
  
-instance PP iden => PP (VariableInitialization iden loc) where
-    pp (VariableInitialization _ v dim ex) = pp v <+> ppSizes dim <+> ppExp ex
-        where
-        ppSizes Nothing = empty
+instance PP m iden => PP m (VariableInitialization iden loc) where
+    pp (VariableInitialization _ v dim ex) = do
+        ppv <- pp v
+        ppe <- ppExp ex
+        ppd <- ppSizes dim
+        return $ ppv <+> ppd <+> ppe
+      where
+        ppSizes Nothing = return $ empty
         ppSizes (Just szs) = pp szs
-        ppExp Nothing = empty
-        ppExp (Just e) = text "=" <+> pp e
+        ppExp Nothing = return $ empty
+        ppExp (Just e) = liftM (text "=" <+>) (pp e)
 
 newtype Sizes iden loc = Sizes (NeList (Expression iden loc,IsVariadic))
   deriving (Read,Show,Data,Typeable,Eq,Ord,Generic)
@@ -333,8 +350,10 @@ instance Location loc => Located (Sizes iden loc) where
     loc (Sizes xs) = loc (fst $ headNe xs)
     updLoc (Sizes xs) l = Sizes (updHeadNe (\(x,y) -> (updLoc x l,y)) xs)
 
-instance PP iden => PP (Sizes iden loc) where
-    pp (Sizes es) = parens (sepBy comma $ fmap (ppVariadicArg pp) es)
+instance PP m iden => PP m (Sizes iden loc) where
+    pp (Sizes es) = do
+        pps <- mapM (ppVariadicArg pp) es
+        return $ parens (sepBy comma pps)
 
 type IsConst = Bool
 type IsHavoc = Bool
@@ -350,8 +369,11 @@ instance Location loc => Located (VariableDeclaration iden loc) where
     loc (VariableDeclaration l _ _ _ _) = l
     updLoc (VariableDeclaration _ isConst isHavoc x y) l = VariableDeclaration l isConst isHavoc x y
 
-instance PP iden => PP (VariableDeclaration iden loc) where
-    pp (VariableDeclaration _ isConst isHavoc t is) = ppConst isConst (ppHavoc isHavoc (pp t <+> sepBy comma (fmap pp is)))
+instance PP m iden => PP m (VariableDeclaration iden loc) where
+    pp (VariableDeclaration _ isConst isHavoc t is) = do
+        ppt <- pp t
+        ppis <- mapM pp is
+        return $ ppConst isConst (ppHavoc isHavoc (ppt <+> sepBy comma ppis))
 
 type IsVariadic = Bool
 
@@ -367,8 +389,11 @@ instance Location loc => Located (ProcedureParameter iden loc) where
     loc (ProcedureParameter l _ _ _ _) = l
     updLoc (ProcedureParameter _ isConst isHavoc x y) l = ProcedureParameter l isConst isHavoc x y
 
-instance PP iden => PP (ProcedureParameter iden loc) where
-    pp (ProcedureParameter _ isConst t b v) = ppConst isConst (ppVariadic (pp t) b <+> pp v)
+instance PP m iden => PP m (ProcedureParameter iden loc) where
+    pp (ProcedureParameter _ isConst t b v) = do
+        ppt <- pp t
+        ppv <- pp v
+        return $ ppConst isConst (ppVariadic ppt b <+> ppv)
 
 ppConst True doc = text "const" <+> doc
 ppConst False doc = doc
@@ -391,8 +416,12 @@ instance Location loc => Located (TypeSpecifier iden loc) where
     loc (TypeSpecifier l _ _ _) = l
     updLoc (TypeSpecifier _ x y z) l = TypeSpecifier l x y z
   
-instance PP iden => PP (TypeSpecifier iden loc) where
-    pp (TypeSpecifier _ sec t dim) = ppMb sec <+> pp t <+> ppMb dim
+instance PP m iden => PP m (TypeSpecifier iden loc) where
+    pp (TypeSpecifier _ sec t dim) = do
+        pps <- ppMb sec
+        ppt <- pp t
+        ppd <- ppMb dim
+        return $ pps <+> ppt <+> ppd
 
 data SecTypeSpecifier iden loc
     = PublicSpecifier loc
@@ -409,8 +438,8 @@ instance Location loc => Located (SecTypeSpecifier iden loc) where
     updLoc (PublicSpecifier _) l = PublicSpecifier l
     updLoc (PrivateSpecifier _ x) l = PrivateSpecifier l x
 
-instance PP iden => PP (SecTypeSpecifier iden loc) where
-    pp (PublicSpecifier _) = text "public"
+instance PP m iden => PP m (SecTypeSpecifier iden loc) where
+    pp (PublicSpecifier _) = return $ text "public"
     pp (PrivateSpecifier _ n) = pp n
 
 data DatatypeSpecifier iden loc
@@ -434,11 +463,16 @@ instance Location loc => Located (DatatypeSpecifier iden loc) where
     updLoc (VariableSpecifier _ x) l = VariableSpecifier l x
     updLoc (MultisetSpecifier _ x) l = MultisetSpecifier l x
 
-instance PP iden => PP (DatatypeSpecifier iden loc) where
+instance PP m iden => PP m (DatatypeSpecifier iden loc) where
     pp (PrimitiveSpecifier _ prim) = pp prim
-    pp (TemplateSpecifier _ t args) = pp t <> abrackets (sepBy comma $ map (ppVariadicArg pp) args)
+    pp (TemplateSpecifier _ t args) = do
+        ppt <- pp t
+        ppas <- mapM (ppVariadicArg pp) args
+        return $ ppt <> abrackets (sepBy comma ppas)
     pp (VariableSpecifier _ tn) = pp tn
-    pp (MultisetSpecifier _ b) = text "multiset" <> abrackets (pp b)
+    pp (MultisetSpecifier _ b) = do
+        pp1 <- pp b
+        return $ text "multiset" <> abrackets pp1
 
 data PrimitiveDatatype loc
     = DatatypeBool       loc
@@ -523,23 +557,23 @@ instance Location loc => Located (PrimitiveDatatype loc) where
     updLoc (DatatypeFloat32    _) l = DatatypeFloat32   l
     updLoc (DatatypeFloat64    _) l = DatatypeFloat64   l
 
-instance PP (PrimitiveDatatype loc) where
-    pp (DatatypeBool       _) = text "bool"
-    pp (DatatypeInt8       _) = text "int8"
-    pp (DatatypeUint8      _) = text "uint8"
-    pp (DatatypeInt16      _) = text "int16"
-    pp (DatatypeUint16     _) = text "uint16"
-    pp (DatatypeInt32      _) = text "int32"
-    pp (DatatypeUint32     _) = text "uint32"
-    pp (DatatypeInt64      _) = text "int64"
-    pp (DatatypeUint64     _) = text "uint64"
-    pp (DatatypeString     _) = text "string"
-    pp (DatatypeXorUint8   _) = text "xor_uint8"
-    pp (DatatypeXorUint16  _) = text "xor_uint16"
-    pp (DatatypeXorUint32  _) = text "xor_uint32"
-    pp (DatatypeXorUint64  _) = text "xor_uint64"
-    pp (DatatypeFloat32    _) = text "float32"
-    pp (DatatypeFloat64    _) = text "float64"
+instance Monad m => PP m (PrimitiveDatatype loc) where
+    pp (DatatypeBool       _) = return $ text "bool"
+    pp (DatatypeInt8       _) = return $ text "int8"
+    pp (DatatypeUint8      _) = return $ text "uint8"
+    pp (DatatypeInt16      _) = return $ text "int16"
+    pp (DatatypeUint16     _) = return $ text "uint16"
+    pp (DatatypeInt32      _) = return $ text "int32"
+    pp (DatatypeUint32     _) = return $ text "uint32"
+    pp (DatatypeInt64      _) = return $ text "int64"
+    pp (DatatypeUint64     _) = return $ text "uint64"
+    pp (DatatypeString     _) = return $ text "string"
+    pp (DatatypeXorUint8   _) = return $ text "xor_uint8"
+    pp (DatatypeXorUint16  _) = return $ text "xor_uint16"
+    pp (DatatypeXorUint32  _) = return $ text "xor_uint32"
+    pp (DatatypeXorUint64  _) = return $ text "xor_uint64"
+    pp (DatatypeFloat32    _) = return $ text "float32"
+    pp (DatatypeFloat64    _) = return $ text "float64"
   
 data TemplateTypeArgument iden loc
     = GenericTemplateTypeArgument loc (TemplateArgName iden loc)
@@ -565,12 +599,15 @@ instance Location loc => Located (TemplateTypeArgument iden loc) where
     updLoc (ExprTemplateTypeArgument _ x) l = ExprTemplateTypeArgument l x
     updLoc (PublicTemplateTypeArgument _) l = PublicTemplateTypeArgument l
 
-instance PP iden => PP (TemplateTypeArgument iden loc) where
+instance PP m iden => PP m (TemplateTypeArgument iden loc) where
     pp (GenericTemplateTypeArgument _ targ) = pp targ
-    pp (TemplateTemplateTypeArgument _ t args) = pp t <> abrackets (sepBy comma $ map (ppVariadicArg pp) args)
+    pp (TemplateTemplateTypeArgument _ t args) = do
+        ppt <- pp t
+        ppas <- mapM (ppVariadicArg pp) args
+        return $ ppt <> abrackets (sepBy comma ppas)
     pp (PrimitiveTemplateTypeArgument _ prim) = pp prim
     pp (ExprTemplateTypeArgument _ e) = pp e
-    pp (PublicTemplateTypeArgument _) = text "public"
+    pp (PublicTemplateTypeArgument _) = return $ text "public"
   
 data DimtypeSpecifier iden loc
     = DimSpecifier loc (Expression iden loc)
@@ -584,8 +621,10 @@ instance Location loc => Located (DimtypeSpecifier iden loc) where
     loc (DimSpecifier l _) = l
     updLoc (DimSpecifier _ x) l = DimSpecifier l x
   
-instance PP iden => PP (DimtypeSpecifier iden loc) where
-    pp (DimSpecifier _ n) = brackets $ brackets $ pp n
+instance PP m iden => PP m (DimtypeSpecifier iden loc) where
+    pp (DimSpecifier _ n) = do
+        ppn <- pp n
+        return $ brackets $ brackets ppn
   
 -- Templates:                                                                  
 
@@ -610,11 +649,23 @@ instance Location loc => Located (TemplateDeclaration iden loc) where
     updLoc (TemplateProcedureDeclaration _ x y) l = TemplateProcedureDeclaration l x y
     updLoc (TemplateFunctionDeclaration _ x y) l = TemplateFunctionDeclaration l x y
   
-instance PP iden => PP (TemplateDeclaration iden loc) where
-    pp (TemplateStructureDeclaration _ qs struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct Nothing struct
-    pp (TemplateStructureSpecialization _ qs specials struct) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> ppStruct (Just specials) struct
-    pp (TemplateProcedureDeclaration _ qs proc) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> pp proc
-    pp (TemplateFunctionDeclaration _ qs proc) = text "template" <+> abrackets (sepBy comma (fmap pp qs)) <+> pp proc
+instance PP m iden => PP m (TemplateDeclaration iden loc) where
+    pp (TemplateStructureDeclaration _ qs struct) = do
+        pp1 <- mapM pp qs
+        pp2 <- ppStruct Nothing struct
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+    pp (TemplateStructureSpecialization _ qs specials struct) = do
+        pp1 <- mapM pp qs
+        pp2 <- ppStruct (Just specials) struct
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+    pp (TemplateProcedureDeclaration _ qs proc) = do
+        pp1 <- mapM pp qs
+        pp2 <- pp proc
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+    pp (TemplateFunctionDeclaration _ qs proc) = do
+        pp1 <- mapM pp qs
+        pp2 <- pp proc
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
   
 data TemplateQuantifier iden loc
     = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))
@@ -637,15 +688,27 @@ instance Location loc => Located (TemplateQuantifier iden loc) where
     updLoc (DimensionQuantifier _ b x y) l = DimensionQuantifier l b x y
     updLoc (DataQuantifier _ b x) l = DataQuantifier l b x
 
-instance PP iden => PP (TemplateQuantifier iden loc) where
-    pp (DomainQuantifier _ b d (Just k)) = ppVariadic (text "domain") b <+> pp d <+> char ':' <+> pp k
-    pp (DomainQuantifier _ b d Nothing) = ppVariadic (text "domain") b <+> pp d
-    pp (DimensionQuantifier _ b dim e) = ppVariadic (text "dim") b <+> pp dim <+> ppOpt e (braces . pp)
-    pp (DataQuantifier _ b t) = ppVariadic (text "type") b <+> pp t
-    pp (KindQuantifier _ isPrivate isVariadic k) = ppIsPrivate isPrivate (ppVariadic (text "kind") isVariadic <+> pp k)
+instance PP m iden => PP m (TemplateQuantifier iden loc) where
+    pp (DomainQuantifier _ b d (Just k)) = do
+        pp1 <- pp d
+        pp2 <- pp k
+        return $ ppVariadic (text "domain") b <+> pp1 <+> char ':' <+> pp2
+    pp (DomainQuantifier _ b d Nothing) = do
+        pp1 <- pp d
+        return $ ppVariadic (text "domain") b <+> pp1
+    pp (DimensionQuantifier _ b dim e) = do
+        ppd <- pp dim
+        pp2 <- ppOpt e (liftM braces . pp)
+        return $ ppVariadic (text "dim") b <+> ppd <+> pp2
+    pp (DataQuantifier _ b t) = do
+        ppt <- pp t
+        return $ ppVariadic (text "type") b <+> ppt
+    pp (KindQuantifier _ isPrivate isVariadic k) = do
+        ppk <- pp k
+        ppIsPrivate isPrivate (return $ ppVariadic (text "kind") isVariadic <+> ppk)
   
 ppIsPrivate False doc = doc
-ppIsPrivate True doc = text "nonpublic" <+> doc
+ppIsPrivate True doc = liftM (text "nonpublic" <+>) doc
   
  -- Structures:                                                                
 
@@ -663,12 +726,19 @@ instance Location loc => Located (StructureDeclaration iden loc) where
     loc (StructureDeclaration l _ _) = l
     updLoc (StructureDeclaration _ x y) l = StructureDeclaration l x y
   
-instance PP iden => PP (StructureDeclaration iden loc) where
+instance PP m iden => PP m (StructureDeclaration iden loc) where
     pp s = ppStruct Nothing s
   
-ppStruct :: PP iden => Maybe [(TemplateTypeArgument iden loc,IsVariadic)] -> StructureDeclaration iden loc -> Doc
-ppStruct Nothing (StructureDeclaration _ t as) = text "struct" <+> pp t <+> braces (vcat $ map pp as)
-ppStruct (Just specials) (StructureDeclaration _ t as) = text "struct" <+> pp t <+> abrackets (sepBy comma (fmap (ppVariadicArg pp) specials)) <+> braces (vcat $ map pp as)
+ppStruct :: PP m iden => Maybe [(TemplateTypeArgument iden loc,IsVariadic)] -> StructureDeclaration iden loc -> m Doc
+ppStruct Nothing (StructureDeclaration _ t as) = do
+    ppt <- pp t
+    ppas <- mapM pp as
+    return $ text "struct" <+> ppt <+> braces (vcat ppas)
+ppStruct (Just specials) (StructureDeclaration _ t as) = do
+    ppt <- pp t
+    pp2 <- mapM (ppVariadicArg pp) specials
+    ppas <- mapM pp as
+    return $ text "struct" <+> ppt <+> abrackets (sepBy comma pp2) <+> braces (vcat ppas)
   
 data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc) (Maybe (Sizes iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -684,10 +754,14 @@ instance Location loc => Located (Attribute iden loc) where
     loc (Attribute l _ _ _) = l
     updLoc (Attribute _ x y z) l = Attribute l x y z
   
-instance PP iden => PP (Attribute iden loc) where
-    pp (Attribute _ t v szs) = pp t <+> pp v <> ppSizes szs <> char ';'
-        where
-        ppSizes Nothing = PP.empty
+instance PP m iden => PP m (Attribute iden loc) where
+    pp (Attribute _ t v szs) = do
+        ppt <- pp t
+        ppv <- pp v
+        ppszs <- ppSizes szs
+        return $ ppt <+> ppv <> ppszs <> char ';'
+      where
+        ppSizes Nothing = return PP.empty
         ppSizes (Just szs) = pp szs
 
 -- Procedures:
@@ -703,8 +777,8 @@ instance Location loc => Located (ReturnTypeSpecifier iden loc) where
     loc (ReturnType l _) = l
     updLoc (ReturnType _ x) l = ReturnType l x
  
-instance PP iden => PP (ReturnTypeSpecifier iden loc) where
-    pp (ReturnType loc Nothing) = text "void"
+instance PP m iden => PP m (ReturnTypeSpecifier iden loc) where
+    pp (ReturnType loc Nothing) = return $ text "void"
     pp (ReturnType loc (Just t)) = pp t
   
 data ProcedureDeclaration iden loc
@@ -732,9 +806,21 @@ instance Location loc => Located (ProcedureDeclaration iden loc) where
     updLoc (OperatorDeclaration _ x y z w s) l = OperatorDeclaration l x y z w s
     updLoc (ProcedureDeclaration _ x y z w s) l = ProcedureDeclaration l x y z w s
   
-instance PP iden => PP (ProcedureDeclaration iden loc) where
-    pp (OperatorDeclaration _ ret op params anns stmts) = pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
-    pp (ProcedureDeclaration _ ret proc params anns stmts) = pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace
+instance PP m iden => PP m (ProcedureDeclaration iden loc) where
+    pp (OperatorDeclaration _ ret op params anns stmts) = do
+        pp0 <- pp ret
+        pp1 <- pp op
+        pp2 <- mapM pp params
+        pp3 <- pp anns
+        pp4 <- pp stmts
+        return $ pp0 <+> text "operator" <+> pp1 <+> parens (sepBy comma pp2) $+$ pp3 $+$ lbrace $+$ nest 4 pp4 $+$ rbrace
+    pp (ProcedureDeclaration _ ret proc params anns stmts) = do
+        pp1 <- pp ret
+        pp2 <- pp proc
+        pp3 <- mapM pp params
+        pp4 <- pp anns
+        pp5 <- pp stmts
+        return $ pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace
     
 data AxiomDeclaration iden loc
     = AxiomDeclaration loc
@@ -752,8 +838,12 @@ instance Location loc => Located (AxiomDeclaration iden loc) where
     loc (AxiomDeclaration l _ _ _ _) = l
     updLoc (AxiomDeclaration _ isLeak x y z) l = AxiomDeclaration l isLeak x y z
   
-instance PP iden => PP (AxiomDeclaration iden loc) where
-    pp (AxiomDeclaration _ isLeak qs params anns) = ppLeak isLeak (text "axiom" <+> abrackets (sepBy comma (fmap pp qs)) <+> parens (sepBy comma $ map pp params) $+$ pp anns )
+instance PP m iden => PP m (AxiomDeclaration iden loc) where
+    pp (AxiomDeclaration _ isLeak qs params anns) = do
+        pp1 <- mapM pp qs
+        pp2 <- mapM pp params
+        pp3 <- pp anns
+        return $ ppLeak isLeak (text "axiom" <+> abrackets (sepBy comma pp1) <+> parens (sepBy comma pp2) $+$ pp3 )
 
 data LemmaDeclaration iden loc
     = LemmaDeclaration loc
@@ -773,8 +863,14 @@ instance Location loc => Located (LemmaDeclaration iden loc) where
     loc (LemmaDeclaration l _ _ _ _ _ _) = l
     updLoc (LemmaDeclaration _ isLeak n x y z ss) l = LemmaDeclaration l isLeak n x y z ss
   
-instance PP iden => PP (LemmaDeclaration iden loc) where
-    pp (LemmaDeclaration _ isLeak n qs params anns body) = ppLeak isLeak (text "lemma" <+> pp n <+> abrackets (sepBy comma (fmap pp qs)) <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ ppOpt body (\stmts -> lbrace $+$ nest 4 (pp stmts) $+$ rbrace))
+instance PP m iden => PP m (LemmaDeclaration iden loc) where
+    pp (LemmaDeclaration _ isLeak n qs params anns body) = do
+        pp1 <- pp n
+        pp2 <- mapM pp qs
+        pp3 <- mapM pp params
+        pp4 <- pp anns
+        pp5 <- ppOpt body (\stmts -> do { x <- pp stmts; return $ lbrace $+$ nest 4 x $+$ rbrace })
+        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> abrackets (sepBy comma pp2) <+> parens (sepBy comma pp3) $+$ pp4 $+$ pp5)
 
 data FunctionDeclaration iden loc
     = OperatorFunDeclaration loc
@@ -803,9 +899,21 @@ instance Location loc => Located (FunctionDeclaration iden loc) where
     updLoc (OperatorFunDeclaration _ isLeak x y z w s) l = OperatorFunDeclaration l isLeak x y z w s
     updLoc (FunDeclaration _ isLeak x y z w s) l = FunDeclaration l isLeak x y z w s
   
-instance PP iden => PP (FunctionDeclaration iden loc) where
-    pp (OperatorFunDeclaration _ isLeak ret op params anns stmts) = ppLeak isLeak (text "function" <+> pp ret <+> text "operator" <+> pp op <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace)
-    pp (FunDeclaration _ isLeak ret proc params anns stmts) = ppLeak isLeak (text "function" <+> pp ret <+> pp proc <+> parens (sepBy comma $ map pp params) $+$ pp anns $+$ lbrace $+$ nest 4 (pp stmts) $+$ rbrace)
+instance PP m iden => PP m (FunctionDeclaration iden loc) where
+    pp (OperatorFunDeclaration _ isLeak ret op params anns stmts) = do
+        pp1 <- pp ret
+        pp2 <- pp op
+        pp3 <- mapM pp params
+        pp4 <- pp anns
+        pp5 <- pp stmts
+        return $ ppLeak isLeak (text "function" <+> pp1 <+> text "operator" <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace)
+    pp (FunDeclaration _ isLeak ret proc params anns stmts) = do
+        ppr <- pp ret
+        ppp <- pp proc
+        pas <- mapM pp params
+        p1 <- pp anns
+        p2 <- pp stmts
+        return $ ppLeak isLeak (text "function" <+> ppr <+> ppp <+> parens (sepBy comma pas) $+$ p1 $+$ lbrace $+$ nest 4 p2 $+$ rbrace)
   
 data Op iden loc
     = OpAdd      loc
@@ -859,30 +967,30 @@ isOpCast :: Op iden loc -> Maybe (CastType iden loc)
 isOpCast (OpCast _ t) = Just t
 isOpCast _ = Nothing
 
-instance PP iden => PP (Op iden loc) where
-    pp (OpAdd  l) = text "+"
-    pp (OpBand l) = text "&" 
-    pp (OpBor  l) = text "|" 
-    pp (OpDiv  l) = text "/" 
-    pp (OpGt   l) = text ">" 
-    pp (OpLt   l) = text "<" 
-    pp (OpMod  l) = text "%" 
-    pp (OpMul  l) = text "*" 
-    pp (OpSub  l) = text "-" 
-    pp (OpXor  l) = text "^" 
-    pp (OpEq   l) = text "==" 
-    pp (OpGe   l) = text ">=" 
-    pp (OpLand l) = text "&&" 
-    pp (OpLe   l) = text "<=" 
-    pp (OpLor  l) = text "||" 
-    pp (OpNe   l) = text "!=" 
-    pp (OpShl  l) = text "<<" 
-    pp (OpShr  l) = text ">>" 
-    pp (OpNot l) = text "!"
-    pp (OpCast l t) = parens (pp t)
-    pp (OpInv l) = text "~"
-    pp (OpImplies l) = text "==>"
-    pp (OpEquiv l) = text "<==>"
+instance PP m iden => PP m (Op iden loc) where
+    pp (OpAdd  l) =     return $ text "+"
+    pp (OpBand l) =     return $ text "&" 
+    pp (OpBor  l) =     return $ text "|" 
+    pp (OpDiv  l) =     return $ text "/" 
+    pp (OpGt   l) =     return $ text ">" 
+    pp (OpLt   l) =     return $ text "<" 
+    pp (OpMod  l) =     return $ text "%" 
+    pp (OpMul  l) =     return $ text "*" 
+    pp (OpSub  l) =     return $ text "-" 
+    pp (OpXor  l) =     return $ text "^" 
+    pp (OpEq   l) =     return $ text "==" 
+    pp (OpGe   l) =     return $ text ">=" 
+    pp (OpLand l) =     return $ text "&&" 
+    pp (OpLe   l) =     return $ text "<=" 
+    pp (OpLor  l) =     return $ text "||" 
+    pp (OpNe   l) =     return $ text "!=" 
+    pp (OpShl  l) =     return $ text "<<" 
+    pp (OpShr  l) =     return $ text ">>" 
+    pp (OpNot l) =      return $ text "!"
+    pp (OpCast l t) =   liftM parens (pp t)
+    pp (OpInv l) =      return $ text "~"
+    pp (OpImplies l) =  return $ text "==>"
+    pp (OpEquiv l) =    return $ text "<==>"
   
 instance Location loc => Located (Op iden loc) where
     type LocOf (Op iden loc) = loc
@@ -943,7 +1051,7 @@ data ForInitializer iden loc
 instance (Binary iden,Binary loc) => Binary (ForInitializer iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (ForInitializer iden loc)
  
-instance PP iden => PP (ForInitializer iden loc) where
+instance PP m iden => PP m (ForInitializer iden loc) where
     pp (InitializerExpression e) = ppMb e
     pp (InitializerVariable v) = pp v
 
@@ -998,31 +1106,68 @@ instance Location loc => Located (Statement iden loc) where
     updLoc (ExpressionStatement _ x) l = ExpressionStatement l x
     updLoc (AnnStatement _ x) l = AnnStatement l x
  
-instance PP iden => PP [Statement iden loc] where
-    pp [] = semi
-    pp ss = (vcat $ map pp ss)
+instance PP m iden => PP m [Statement iden loc] where
+    pp [] = return empty
+    pp ss = liftM vcat $ mapM pp ss
  
-instance PP iden => PP (Statement iden loc) where
-    pp (CompoundStatement _ ss) = lbrace $+$ nest 4 (pp ss) $+$ rbrace
-    pp (IfStatement _ e thenS elseS) = text "if" <+> parens (pp e) <+> pp thenS <+> ppElse elseS
-        where
-        ppElse Nothing = empty
-        ppElse (Just s) = text "else" <+> pp s
-    pp (ForStatement _ i e1 e2 ann s) = text "for" <> parens (pp i <> semi <> ppMb e1 <> semi <> ppMb e2) $+$ pp ann $+$ pp s
-    pp (WhileStatement _ e ann s) = text "while" <> parens (pp e) $+$ pp ann $+$ pp s
-    pp (PrintStatement _ es) = text "print" <> parens (pp es) <> semi
-    pp (DowhileStatement _ ann s e) = text "do" $+$ pp ann $+$ pp s <+> text "while" <+> parens (pp e) <> semi
-    pp (AssertStatement _ e) = text "assert" <> parens (pp e) <> semi
-    pp (SyscallStatement _ n []) = text "__syscall" <> parens (text (show n)) <> semi
-    pp (SyscallStatement _ n ps) = text "__syscall" <> parens (text (show n) <> comma <+> ppSyscallParameters ps) <> semi
-    pp (VarStatement _ vd) = pp vd <> semi
-    pp (ReturnStatement _ e) = text "return" <+> ppMb e <> semi
-    pp (ContinueStatement _) = text "continue" <> semi
-    pp (BreakStatement _) = text "break" <> semi
-    pp (ExpressionStatement _ e) =  pp e <> semi
+instance PP m iden => PP m (Statement iden loc) where
+    pp (CompoundStatement _ ss) = do
+        ppss <- pp ss
+        return $ lbrace $+$ nest 4 ppss $+$ rbrace
+    pp (IfStatement _ e thenS elseS) = do
+        ppe <- pp e
+        ppthenS <- pp thenS
+        ppElseelseS <- ppElse elseS
+        return $ text "if" <+> parens ppe <+> ppthenS <+> ppElseelseS
+      where
+        ppElse Nothing = return empty
+        ppElse (Just s) = liftM (text "else" <+>) (pp s)
+    pp (ForStatement _ i e1 e2 ann s) = do
+        ppi <- pp i
+        pp1 <- ppMb e1
+        pp2 <- ppMb e2
+        ppa <- pp ann
+        pps <- pp s
+        return $ text "for" <> parens (ppi <> semi <> pp1 <> semi <> pp2) $+$ ppa $+$ pps
+    pp (WhileStatement _ e ann s) = do
+        ppe <- pp e
+        pps <- pp s
+        ppa <- pp ann
+        return $ text "while" <> parens ppe $+$ ppa $+$ pps
+    pp (PrintStatement _ es) = do
+        ppes <- pp es
+        return $ text "print" <> parens ppes <> semi
+    pp (DowhileStatement _ ann s e) = do
+        ppe <- pp e
+        pp1 <- pp ann
+        pp2 <- pp s
+        return $ text "do" $+$ pp1 $+$ pp2 <+> text "while" <+> parens ppe <> semi
+    pp (AssertStatement _ e) = do
+        ppe <- pp e
+        return $ text "assert" <> parens ppe <> semi
+    pp (SyscallStatement _ n []) = do
+        return $ text "__syscall" <> parens (text (show n)) <> semi
+    pp (SyscallStatement _ n ps) = do
+        pps <- ppSyscallParameters ps
+        return $ text "__syscall" <> parens (text (show n) <> comma <+> pps) <> semi
+    pp (VarStatement _ vd) = do
+        ppvd <- pp vd
+        return $ ppvd <> semi
+    pp (ReturnStatement _ e) = do
+        ppe <- ppMb e
+        return $ text "return" <+> ppe <> semi
+    pp (ContinueStatement _) = do
+        return $ text "continue" <> semi
+    pp (BreakStatement _) = do
+        return $ text "break" <> semi
+    pp (ExpressionStatement _ e) = do
+        ppe <- pp e
+        return $ ppe <> semi
     pp (AnnStatement _ ann) = pp ann
     
-ppSyscallParameters ps = sepBy comma $ map pp ps
+ppSyscallParameters ps = do
+    pp1 <- mapM pp ps
+    return $ sepBy comma pp1
  
 data SyscallParameter iden loc
     = SyscallPush loc (Expression iden loc)
@@ -1045,18 +1190,20 @@ instance Location loc => Located (SyscallParameter iden loc) where
     updLoc (SyscallPushRef _ x)  l = (SyscallPushRef l x) 
     updLoc (SyscallPushCRef _ x) l = (SyscallPushCRef l x)
   
-instance PP iden => PP (SyscallParameter iden loc) where
+instance PP m iden => PP m (SyscallParameter iden loc) where
     pp (SyscallPush _ e) = pp e
-    pp (SyscallReturn _ v) = text "__return" <+> pp v
-    pp (SyscallPushRef _ v) = text "__ref" <+> pp v
-    pp (SyscallPushCRef _ e) = text "__cref" <+> pp e
+    pp (SyscallReturn _ v) = liftM (text "__return" <+>) $ pp v
+    pp (SyscallPushRef _ v) = liftM (text "__ref" <+>) $ pp v
+    pp (SyscallPushCRef _ e) = liftM (text "__cref" <+>) $ pp e
   
 -- Indices: not strictly expressions as they only appear in specific context
 
 type Subscript iden loc = NeList (Index iden loc)
 
-instance PP iden => PP (Subscript iden loc) where
-    pp is = brackets (sepBy comma $ fmap pp is)
+instance PP m iden => PP m (Subscript iden loc) where
+    pp is = do
+        ps <- mapM pp is
+        return $ brackets (sepBy comma ps)
 
 data Index iden loc
     = IndexSlice loc (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
@@ -1073,8 +1220,11 @@ instance Location loc => Located (Index iden loc) where
     updLoc (IndexSlice _ x y) l = IndexSlice l x y
     updLoc (IndexInt _ x) l = IndexInt l x
   
-instance PP iden => PP (Index iden loc) where
-    pp (IndexSlice _ e1 e2) = ppMb e1 <+> char ':' <+> ppMb e2
+instance PP m iden => PP m (Index iden loc) where
+    pp (IndexSlice _ e1 e2) = do
+        p1 <- ppMb e1
+        p2 <- ppMb e2
+        return $ p1 <+> char ':' <+> p2
     pp (IndexInt _ e) = pp e
   
 -- Expressions:  
@@ -1086,9 +1236,9 @@ data Quantifier loc
 
 instance (Binary loc) => Binary (Quantifier loc)  
 instance Hashable loc => Hashable (Quantifier loc)
-instance PP (Quantifier loc) where
-    pp (ForallQ _) = text "forall"
-    pp (ExistsQ _) = text "exists"
+instance Monad m => PP m (Quantifier loc) where
+    pp (ForallQ _) = return $ text "forall"
+    pp (ExistsQ _) = return $ text "exists"
 
 instance Location loc => Located (Quantifier loc) where
     type LocOf (Quantifier loc) = loc
@@ -1180,35 +1330,97 @@ ppVariadic :: Doc -> IsVariadic -> Doc
 ppVariadic x False = x
 ppVariadic x True = if PP.isEmpty x then x else x <> text "..."
 
-ppVariadicArg :: (a -> Doc) -> (a,IsVariadic) -> Doc
-ppVariadicArg ppA (e,isVariadic) = ppVariadic (ppA e) isVariadic
+ppVariadicArg :: Monad m => (a -> m Doc) -> (a,IsVariadic) -> m Doc
+ppVariadicArg ppA (e,isVariadic) = do
+    pp1 <- ppA e
+    return $ ppVariadic pp1 isVariadic
  
-instance PP iden => PP (Expression iden loc) where
-    pp (BuiltinExpr l n e) = text "__builtin" <> parens (text (show n) <>  char ',' <> pp e)
-    pp (ToMultisetExpr l e) = text "multiset" <> parens (pp e)
-    pp (MultisetConstructorPExpr l es) = text "multiset" <> braces (sepBy comma $ map pp es)
-    pp (BinaryAssign _ post op e) = pp post <+> pp op <+> pp e
-    pp (QualExpr _ e t) = parens (pp e <+> text "::" <+> pp t)
-    pp (CondExpr _ lor thenE elseE) = pp lor <+> char '?' <+> pp thenE <+> char ':' <+> pp elseE
-    pp (BinaryExpr _ e1 o e2) = parens (pp e1 <+> pp o <+> pp e2)
-    pp (PreOp _ (OpAdd _) e) = text "++" <> pp e
-    pp (PreOp _ (OpSub _) e) = text "--" <> pp e
-    pp (PostOp _ (OpAdd _) e) = pp e <> text "++"
-    pp (PostOp _ (OpSub _) e) = pp e <> text "--"
-    pp (UnaryExpr _ o e) = pp o <> pp e
-    pp (DomainIdExpr _ t) = text "__domainid" <> parens (pp t)
-    pp (BytesFromStringExpr _ t) = text "__bytes_from_string" <> parens (pp t)
-    pp (StringFromBytesExpr _ t) = text "__string_from_bytes" <> parens (pp t)
-    pp (VArraySizeExpr _ e) = text "size..." <> parens (pp e)
-    pp (ProcCallExpr _ n ts es) = pp n <> ppOpt ts (\ts -> abrackets (sepBy comma $ map (ppVariadicArg pp) ts)) <> parens (sepBy comma $ map (ppVariadicArg pp) es)
-    pp (PostIndexExpr _ e s) = pp e <> pp s
-    pp (SelectionExpr _ e v) = pp e <> char '.' <> pp v
-    pp (ArrayConstructorPExpr _ es) = braces (sepBy comma $ fmap pp es)
+instance PP m iden => PP m (Expression iden loc) where
+    pp (BuiltinExpr l n e) = do
+        ppe <- pp e
+        return $ text "__builtin" <> parens (text (show n) <>  char ',' <> ppe)
+    pp (ToMultisetExpr l e) = do
+        ppe <- pp e
+        return $ text "multiset" <> parens ppe
+    pp (MultisetConstructorPExpr l es) = do
+        ppes <- mapM pp es
+        return $ text "multiset" <> braces (sepBy comma ppes)
+    pp (BinaryAssign _ post op e) = do
+        pp1 <- pp post
+        pp2 <- pp op
+        pp3 <- pp e
+        return $ pp1 <+> pp2 <+> pp3
+    pp (QualExpr _ e t) = do
+        ppe <- pp e
+        ppt <- pp t
+        return $ parens (ppe <+> text "::" <+> ppt)
+    pp (CondExpr _ lor thenE elseE) = do
+        pp1 <- pp lor
+        pp2 <- pp thenE
+        pp3 <- pp elseE
+        return $ pp1 <+> char '?' <+> pp2 <+> char ':' <+> pp3
+    pp (BinaryExpr _ e1 o e2) = do
+        pp1 <- pp e1
+        pp2 <- pp o
+        pp3 <- pp e2
+        return $ parens (pp1 <+> pp2 <+> pp3)
+    pp (PreOp _ (OpAdd _) e) = do
+        ppe <- pp e
+        return $ text "++" <> ppe
+    pp (PreOp _ (OpSub _) e) = do
+        ppe <- pp e
+        return $ text "--" <> ppe
+    pp (PostOp _ (OpAdd _) e) = do
+        ppe <- pp e
+        return $ ppe <> text "++"
+    pp (PostOp _ (OpSub _) e) = do
+        ppe <- pp e
+        return $ ppe <> text "--"
+    pp (UnaryExpr _ o e) = do
+        ppo <- pp o
+        ppe <- pp e
+        return $ ppo <> ppe
+    pp (DomainIdExpr _ t) = do
+        ppt <- pp t
+        return $ text "__domainid" <> parens ppt
+    pp (BytesFromStringExpr _ t) = do
+        ppt <- pp t
+        return $ text "__bytes_from_string" <> parens ppt
+    pp (StringFromBytesExpr _ t) = do
+        ppt <- pp t
+        return $ text "__string_from_bytes" <> parens ppt
+    pp (VArraySizeExpr _ e) = do
+        ppe <- pp e
+        return $ text "size..." <> parens ppe
+    pp (ProcCallExpr _ n ts es) = do
+        ppn <- pp n
+        let f1 ts = do
+            pp2 <- mapM (ppVariadicArg pp) ts
+            return $ abrackets (sepBy comma pp2)
+        pp3 <- mapM (ppVariadicArg pp) es
+        pp1 <- ppOpt ts f1
+        return $ ppn <> pp1 <> parens (sepBy comma pp3)
+    pp (PostIndexExpr _ e s) = do
+        ppe <- pp e
+        pps <- pp s
+        return $ ppe <> pps
+    pp (SelectionExpr _ e v) = do
+        ppe <- pp e
+        ppv <- pp v
+        return $ ppe <> char '.' <> ppv
+    pp (ArrayConstructorPExpr _ es) = do
+        ppes <- mapM pp es
+        return $ braces (sepBy comma ppes)
     pp (RVariablePExpr _ v) = pp v
     pp (LitPExpr _ l) = pp l
-    pp (ResultExpr l) = text "\\result"
-    pp (LeakExpr l e) = text "leak" <> parens (pp e)
-    pp (QuantifiedExpr l q vs e) = text "forall" <+> sepBy comma (map (\(t,v) -> pp t <+> pp v) vs) <+> char ';' <+> pp e
+    pp (ResultExpr l) = return $ text "\\result"
+    pp (LeakExpr l e) = do
+        ppe <- pp e
+        return $ text "leak" <> parens ppe
+    pp (QuantifiedExpr l q vs e) = do
+        pp1 <- mapM (\(t,v) -> do { p1 <- pp t; p2 <- pp v; return $ p1 <+> p2 }) vs
+        pp2 <- pp e
+        return $ text "forall" <+> sepBy comma pp1 <+> char ';' <+> pp2
   
 data CastType iden loc
     = CastPrim (PrimitiveDatatype loc)
@@ -1225,7 +1437,7 @@ instance Location loc => Located (CastType iden loc) where
     updLoc (CastPrim x) l = CastPrim $ updLoc x l
     updLoc (CastTy x) l = CastTy $ updLoc x l
 
-instance PP iden => PP (CastType iden loc) where
+instance PP m iden => PP m (CastType iden loc) where
     pp (CastPrim p) = pp p
     pp (CastTy v) = pp v
   
@@ -1265,16 +1477,16 @@ instance Location loc => Located (BinaryAssignOp loc) where
     updLoc (BinaryAssignOr    _) l = BinaryAssignOr    l
     updLoc (BinaryAssignXor   _) l = BinaryAssignXor   l
   
-instance PP (BinaryAssignOp loc) where
-    pp (BinaryAssignEqual _) = text "="
-    pp (BinaryAssignMul   _) = text "*="
-    pp (BinaryAssignDiv   _) = text "/="
-    pp (BinaryAssignMod   _) = text "%="
-    pp (BinaryAssignAdd   _) = text "+="
-    pp (BinaryAssignSub   _) = text "-="
-    pp (BinaryAssignAnd   _) = text "&="
-    pp (BinaryAssignOr    _) = text "|="
-    pp (BinaryAssignXor   _) = text "^="
+instance Monad m => PP m (BinaryAssignOp loc) where
+    pp (BinaryAssignEqual _) = return $ text "="
+    pp (BinaryAssignMul   _) = return $ text "*="
+    pp (BinaryAssignDiv   _) = return $ text "/="
+    pp (BinaryAssignMod   _) = return $ text "%="
+    pp (BinaryAssignAdd   _) = return $ text "+="
+    pp (BinaryAssignSub   _) = return $ text "-="
+    pp (BinaryAssignAnd   _) = return $ text "&="
+    pp (BinaryAssignOr    _) = return $ text "|="
+    pp (BinaryAssignXor   _) = return $ text "^="
   
 data Literal loc
     = IntLit loc Integer
@@ -1297,23 +1509,27 @@ instance Location loc => Located (Literal loc) where
     updLoc (BoolLit _ x)   l = (BoolLit l x)  
     updLoc (FloatLit _ x)  l = (FloatLit l x) 
   
-instance PP (Literal loc) where
-    pp (IntLit _ i) = integer i
-    pp (StringLit _ s) = text (show s)
-    pp (BoolLit _ True) = text "true"
-    pp (BoolLit _ False) = text "false"
-    pp (FloatLit _ f) = text (show f)
+instance Monad m => PP m (Literal loc) where
+    pp (IntLit _ i) = return $ integer i
+    pp (StringLit _ s) = return $ text (show s)
+    pp (BoolLit _ True) = return $ text "true"
+    pp (BoolLit _ False) = return $ text "false"
+    pp (FloatLit _ f) = return $ text (show f)
 
 unaryLitExpr :: Expression iden loc -> Expression iden loc
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (IntLit l1 i))) = LitPExpr l $ IntLit l1 (-i)
 unaryLitExpr (UnaryExpr l (OpSub _) (LitPExpr _ (FloatLit l1 f))) = LitPExpr l $ FloatLit l1 (-f)
 unaryLitExpr e = e
     
-instance PP iden => PP [Expression iden loc] where
-    pp xs = parens $ sepBy comma $ map pp xs
+instance PP m iden => PP m [Expression iden loc] where
+    pp xs = do
+        pp1 <- mapM pp xs
+        return $ parens $ sepBy comma pp1
     
-instance PP iden => PP [(Expression iden loc, IsVariadic)] where
-    pp xs = parens $ sepBy comma $ map (ppVariadicArg pp) xs
+instance PP m iden => PP m [(Expression iden loc, IsVariadic)] where
+    pp xs = do
+        pp1 <- mapM (ppVariadicArg pp) xs
+        return $ parens $ sepBy comma pp1
     
 varExpr :: Location loc => VarName iden loc -> Expression iden loc
 varExpr v = RVariablePExpr (loc v) v
@@ -1347,16 +1563,16 @@ instance Location loc => Located (GlobalAnnotation iden loc) where
     updLoc (GlobalAxiomAnn _ x)   l = (GlobalAxiomAnn l x)
     updLoc (GlobalLemmaAnn _ x)   l = (GlobalLemmaAnn l x)
 
-instance PP iden => PP (GlobalAnnotation iden loc) where
-    pp (GlobalFunctionAnn _ f) = ppAnns $ pp f
-    pp (GlobalStructureAnn _ s) = ppAnns $ pp s
-    pp (GlobalProcedureAnn _ p) = ppAnns $ pp p
-    pp (GlobalTemplateAnn _ t) = ppAnns $ pp t
-    pp (GlobalAxiomAnn _ a) = ppAnns $ pp a
-    pp (GlobalLemmaAnn _ a) = ppAnns $ pp a
+instance PP m iden => PP m (GlobalAnnotation iden loc) where
+    pp (GlobalFunctionAnn _ f) = liftM ppAnns $ pp f
+    pp (GlobalStructureAnn _ s) = liftM ppAnns $ pp s
+    pp (GlobalProcedureAnn _ p) = liftM ppAnns $ pp p
+    pp (GlobalTemplateAnn _ t) = liftM ppAnns $ pp t
+    pp (GlobalAxiomAnn _ a) = liftM ppAnns $ pp a
+    pp (GlobalLemmaAnn _ a) = liftM ppAnns $ pp a
 
-instance PP iden => PP [GlobalAnnotation iden loc] where
-    pp xs = vcat $ map pp xs
+instance PP m iden => PP m [GlobalAnnotation iden loc] where
+    pp xs = liftM vcat $ mapM pp xs
 
 data ProcedureAnnotation iden loc
     = RequiresAnn loc Bool Bool (Expression iden loc)
@@ -1379,18 +1595,24 @@ instance Location loc => Located (ProcedureAnnotation iden loc) where
     updLoc (InlineAnn _ b) l = InlineAnn l b
     updLoc (PDecreasesAnn _ e) l = PDecreasesAnn l e
 
-instance PP iden => PP (ProcedureAnnotation iden loc) where
-    pp (RequiresAnn _ isFree isLeak e) = ppAnn $ ppFree isFree $ ppLeak isLeak $ text "requires" <+> pp e <> semicolon
-    pp (PDecreasesAnn l e) = ppAnn $ text "decreases" <+> pp e <> semicolon
-    pp (EnsuresAnn _ isFree isLeak e) = ppAnn $ ppFree isFree $ ppLeak isLeak $ text "ensures" <+> pp e <> semicolon
-    pp (InlineAnn _ True) = ppAnn $ text "inline" <> semicolon
-    pp (InlineAnn _ False) = ppAnn $ text "noinline" <> semicolon
+instance PP m iden => PP m (ProcedureAnnotation iden loc) where
+    pp (RequiresAnn _ isFree isLeak e) = do
+        ppe <- pp e
+        return $ ppAnn $ ppFree isFree $ ppLeak isLeak $ text "requires" <+> ppe <> semicolon
+    pp (PDecreasesAnn l e) = do
+        ppe <- pp e
+        return $ ppAnn $ text "decreases" <+> ppe <> semicolon
+    pp (EnsuresAnn _ isFree isLeak e) = do
+        ppe <- pp e
+        return $ ppAnn $ ppFree isFree $ ppLeak isLeak $ text "ensures" <+> ppe <> semicolon
+    pp (InlineAnn _ True) = return $ ppAnn $ text "inline" <> semicolon
+    pp (InlineAnn _ False) = return $ ppAnn $ text "noinline" <> semicolon
 
 ppFree isFree doc = if isFree then text "free" <+> doc else doc
 ppLeak isLeak doc = if isLeak then text "leakage" <+> doc else doc
 
-instance PP iden => PP [ProcedureAnnotation iden loc] where
-    pp xs = vcat $ map pp xs
+instance PP m iden => PP m [ProcedureAnnotation iden loc] where
+    pp xs = liftM vcat $ mapM pp xs
 
 data LoopAnnotation iden loc
     = DecreasesAnn loc Bool (Expression iden loc)
@@ -1407,12 +1629,16 @@ instance Location loc => Located (LoopAnnotation iden loc) where
     updLoc (DecreasesAnn _ isFree x)    l = (DecreasesAnn l isFree x)   
     updLoc (InvariantAnn _ isFree isLeak x)    l = (InvariantAnn l isFree isLeak x)   
 
-instance PP iden => PP (LoopAnnotation iden loc) where
-    pp (DecreasesAnn _ free e) = ppAnn $ ppFree free $ text "decreases" <+> pp e <> semicolon
-    pp (InvariantAnn _ free isLeak e) = ppAnn $ ppFree free $ ppLeak isLeak $ text "invariant" <+> pp e <> semicolon
+instance PP m iden => PP m (LoopAnnotation iden loc) where
+    pp (DecreasesAnn _ free e) = do
+        ppe <- pp e
+        return $ ppAnn $ ppFree free $ text "decreases" <+> ppe <> semicolon
+    pp (InvariantAnn _ free isLeak e) = do
+        ppe <- pp e
+        return $ ppAnn $ ppFree free $ ppLeak isLeak $ text "invariant" <+> ppe <> semicolon
     
-instance PP iden => PP [LoopAnnotation iden loc] where
-    pp xs = vcat $ map pp xs
+instance PP m iden => PP m [LoopAnnotation iden loc] where
+    pp xs = liftM vcat $ mapM pp xs
 
 data StatementAnnotation iden loc
     = AssumeAnn loc Bool (Expression iden loc)
@@ -1432,13 +1658,19 @@ instance Location loc => Located (StatementAnnotation iden loc) where
     updLoc (AssumeAnn _ isLeak x)    l = (AssumeAnn l isLeak x)   
     updLoc (AssertAnn _ isLeak x)    l = (AssertAnn l isLeak x)   
 
-instance PP iden => PP (StatementAnnotation iden loc) where
-    pp (AssumeAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assume" <+> pp e <> semicolon
-    pp (AssertAnn _ isLeak e) = ppAnn $ ppLeak isLeak $ text "assert" <+> pp e <> semicolon
-    pp (EmbedAnn l isLeak s) = ppAnns $ ppLeak isLeak $ pp s
+instance PP m iden => PP m (StatementAnnotation iden loc) where
+    pp (AssumeAnn _ isLeak e) = do
+        ppe <- pp e
+        return $ ppAnn $ ppLeak isLeak $ text "assume" <+> ppe <> semicolon
+    pp (AssertAnn _ isLeak e) = do
+        ppe <- pp e
+        return $ ppAnn $ ppLeak isLeak $ text "assert" <+> ppe <> semicolon
+    pp (EmbedAnn l isLeak s) = do
+        pps <- pp s
+        return $ ppAnns $ ppLeak isLeak pps
 
-instance PP iden => PP [StatementAnnotation iden loc] where
-    pp xs = vcat $ map pp xs
+instance PP m iden => PP m [StatementAnnotation iden loc] where
+    pp xs = liftM vcat $ mapM pp xs
 
 ppAnns doc = vcat $ map (\x -> text "//@" <+> text x) $ lines $ show doc
 ppAnn doc = text "//@" <+> doc

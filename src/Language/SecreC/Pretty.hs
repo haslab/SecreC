@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts, FlexibleInstances, MultiParamTypeClasses #-}
+
 module Language.SecreC.Pretty where
 
 import Text.PrettyPrint
@@ -11,6 +13,9 @@ import Data.Hashable
 import Data.Generics hiding (empty,GT)
 import Data.ByteString.Lazy.Char8 hiding (empty)
 
+import Control.Monad
+import Control.Monad.Identity
+
 instance Binary Doc where
     put d = do
         put ((pack $ show d) :: ByteString)
@@ -18,22 +23,28 @@ instance Binary Doc where
         s <- get :: Get ByteString
         return $ text $ show $ unpack s
         
-class PP a where
-    pp :: a -> Doc
+class Monad m => PP m a where
+    pp :: a -> m Doc
 
 semicolon = char ';'
 
 nonemptyParens :: Doc -> Doc
 nonemptyParens x = if isEmpty x then empty else parens x
 
-ppr :: PP a => a -> String
-ppr = show . pp
+ppid :: PP Identity a => a -> Doc
+ppid x = runIdentity (pp x)
 
-ppOpt :: Maybe a -> (a -> Doc) -> Doc
-ppOpt Nothing f = empty
+pprid :: PP Identity a => a -> String
+pprid x = runIdentity (ppr x)
+
+ppr :: PP m a => a -> m String
+ppr = liftM show . pp
+
+ppOpt :: Monad m => Maybe a -> (a -> m Doc) -> m Doc
+ppOpt Nothing f = return empty
 ppOpt (Just x) f = f x
 
-ppMb :: PP a => Maybe a -> Doc
+ppMb :: PP m a => Maybe a -> m Doc
 ppMb = flip ppOpt pp
 
 abrackets p = char '<' <> p <> char '>'
@@ -46,48 +57,48 @@ vbraces x = char '{' $+$ nest 1 x $+$ char '}'
 ppOrdinal :: (Show a,Integral a) => a -> Doc
 ppOrdinal = text . show . showOrdinal
 
-instance PP Doc where
-    pp = id
+instance Monad m => PP m Doc where
+    pp = return
     
-instance PP Ordering where
-    pp EQ = text "="
-    pp LT = text "<"
-    pp GT = text ">"
+instance Monad m => PP m Ordering where
+    pp EQ = return $ text "="
+    pp LT = return $ text "<"
+    pp GT = return $ text ">"
 
-instance PP a => PP (Maybe a) where
-    pp Nothing = empty
+instance PP m a => PP m (Maybe a) where
+    pp Nothing = return empty
     pp (Just x) = pp x
 
-instance PP Integer where
-    pp = integer
+instance Monad m => PP m Integer where
+    pp = return . integer
 
-instance PP Int where
-    pp = int
+instance Monad m => PP m Int where
+    pp = return . int
 
-instance PP Int8 where
-    pp = text . show
-instance PP Int16 where
-    pp = text . show
-instance PP Int32 where
-    pp = text . show
-instance PP Int64 where
-    pp = text . show
+instance Monad m => PP m Int8 where
+    pp = return . text . show
+instance Monad m => PP m Int16 where
+    pp = return . text . show
+instance Monad m => PP m Int32 where
+    pp = return . text . show
+instance Monad m => PP m Int64 where
+    pp = return . text . show
 
-instance PP Word8 where
-    pp = text . show
-instance PP Word16 where
-    pp = text . show
-instance PP Word32 where
-    pp = text . show
-instance PP Word64 where
-    pp = text . show
-instance PP Float where
-    pp = text . show
-instance PP Double where
-    pp = text . show
+instance Monad m => PP m Word8 where
+    pp = return . text . show
+instance Monad m => PP m Word16 where
+    pp = return . text . show
+instance Monad m => PP m Word32 where
+    pp = return . text . show
+instance Monad m => PP m Word64 where
+    pp = return . text . show
+instance Monad m => PP m Float where
+    pp = return . text . show
+instance Monad m => PP m Double where
+    pp = return . text . show
 
-instance PP () where
-    pp () = empty
+instance Monad m => PP m () where
+    pp () = return empty
 
 instance Data Doc where
     gunfold = error "gunfold Doc"
@@ -97,8 +108,8 @@ instance Data Doc where
 instance Ord Doc where
     compare x y = compare (show x) (show y)
 
-instance PP Bool where
-    pp b = text (show b)
+instance Monad m => PP m Bool where
+    pp = return . text . show
 
 instance Hashable Doc where
     hashWithSalt i x = hashWithSalt i (show x)

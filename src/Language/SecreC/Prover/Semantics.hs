@@ -70,7 +70,9 @@ evalIExpr l (ILit lit) = return lit
 evalIExpr l (IIdx v@(VarName t n@(nonTok -> True))) = do
     mb <- tryResolveEVar l n t
     case mb of
-        Nothing -> tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) (text "variable binding for" <+> pp v <+> text "not found") Nothing
+        Nothing -> do
+            ppv <- pp v
+            tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) (text "variable binding for" <+> ppv <+> text "not found") Nothing
         Just e -> expr2IExpr e >>= evalIExpr l
 evalIExpr l (IBinOp o e1 e2) = do
     e1' <- evalIExpr l e1
@@ -90,7 +92,9 @@ evalIExpr l (ISize (IArr _ xs)) = do
 evalIExpr l (IShape (IArr _ xs)) = do
     let szs = List.map (fromInteger . toInteger . length) xs
     return $ ILitArr index [List.map (IUint64) szs]
-evalIExpr l e = genTcError (locpos l) $ text "evalIExpr: unsupported" <+> pp e
+evalIExpr l e = do
+    ppe <- pp e
+    genTcError (locpos l) $ text "evalIExpr: unsupported" <+> ppe
 
 evalIBinOp :: ProverK loc m => loc -> IBOp -> ILit -> ILit -> TcM m ILit
 evalIBinOp l IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2
@@ -108,12 +112,19 @@ evalIBinOp l (ITimes) e1 e2 = return $ numILit (*) e1 e2
 evalIBinOp l (IPower) e1 e2 = return $ integralILit (^) e1 e2
 evalIBinOp l (IDiv) e1 e2 = return $ integralILit div e1 e2
 evalIBinOp l (IMod) e1 e2 = return $ integralILit mod e1 e2
-evalIBinOp l op e1 e2 = genTcError (locpos l) $ text "evalIBinOp: unsupported" <+> pp op <+> pp e1 <+> pp e2
+evalIBinOp l op e1 e2 = do
+    pp1 <- pp op
+    pp2 <- pp e1
+    pp3 <- pp e2
+    genTcError (locpos l) $ text "evalIBinOp: unsupported" <+> pp1 <+> pp2 <+> pp3
 
 evalIUnOp :: ProverK loc m => loc -> IUOp -> ILit -> TcM m ILit
 evalIUnOp l INot (IBool b) = return $ IBool $ not b
 evalIUnOp l INeg i = return $ numILit (\x y -> -x) i (error "evalIUnOp INed")
-evalIUnOp l op e1 = genTcError (locpos l) $ text "evalIUnOp: unsupported" <+> pp op <+> pp e1
+evalIUnOp l op e1 = do
+    pp1 <- pp op
+    pp2 <- pp e1
+    genTcError (locpos l) $ text "evalIUnOp: unsupported" <+> pp1 <+> pp2
 
 numILit :: (forall a . Num a => a -> a -> a) -> ILit -> ILit -> ILit
 numILit f (IInt8 i1)    (IInt8 i2)    = IInt8 $ f i1 i2

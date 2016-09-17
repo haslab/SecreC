@@ -53,9 +53,9 @@ domain pd_a3p shared3p;
 // result = one itemset per row
 template <domain D >
 uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
-//@ leakage requires public(frequents(db));
-//@ ensures \result == frequents(db);
-//@ ensures shape(\result)[1] == setSize; //
+//x //@ leakage requires public(frequents(db));
+//x //@ ensures \result == frequents(db);
+//x //@ ensures shape(\result)[1] == setSize; //
 {
   uint dbColumns = shape(db)[1];
   uint dbRows = shape(db)[0];
@@ -91,10 +91,14 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
     F_new = reshape (0, 0, k + 1); // empty?
     F_newcache = reshape (0, 0, dbRows); // empty?
     uint F_size = shape(F)[0];
-    for (uint i = 0; i < F_size; i=i+1) {
-      for (uint j = i + 1; j < F_size; j=j+1) {
+    for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
+    {
+      for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
+      {
+        // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
-        for (uint n = 0; n < k - 1; n=n+1) {
+        for (uint n = 0; n < k - 1; n=n+1)
+        {
           if (F[i, n] != F[j, n]) {
             prefixEqual = false;
           }
@@ -105,6 +109,7 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
           D uint frequence = sum (C_dot);
           if (declassify (frequence >= threshold)) {
             F_newcache = cat (F_newcache, reshape(C_dot, 1, size(C_dot)));
+            // create the new itemset by appending the last element of the second itemset to the fist
             C = cat (F[i, :], F[j, k-1:k]);
             F_new = cat (F_new, reshape(C, 1, k+1));
           }

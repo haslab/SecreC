@@ -1,5 +1,5 @@
 
-{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFoldable, FlexibleInstances, MultiParamTypeClasses #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveDataTypeable, DeriveGeneric #-}
 
@@ -36,9 +36,9 @@ data Position
 instance Binary Position
 instance Hashable Position
 
-instance PP Position where
-    pp (Pos file line col off) = text file <> char ':' <> int line <> char ':' <> int col
-    pp (UnhelpfulPos msg) = text msg
+instance Monad m => PP m Position where
+    pp (Pos file line col off) = return $ text file <> char ':' <> int line <> char ':' <> int col
+    pp (UnhelpfulPos msg) = return $ text msg
 
 instance Show Position where
     show (Pos file line col off) = "file " ++ show file ++ " line " ++ show line ++ " column " ++ show col ++ " offset " ++ show off

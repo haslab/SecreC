@@ -59,7 +59,9 @@ import System.IO
 isValid :: (ProverK loc m) => loc -> IExpr -> TcM m ()
 isValid l c = do
     hyp <- solveHypotheses l
-    addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ iAnd hyp) (pp c)) $ do
+    pph <- pp $ iAnd hyp
+    ppc <- pp c
+    addErrorM l (TypecheckerError (locpos l) . SMTException (pph) (ppc)) $ do
         checkEvalOrSMT l (IBinOp IImplies (iAnd hyp) c) (\cfg -> checkValiditySBV l cfg (iAnd hyp) c)
 
 -- * SBV interface
@@ -118,7 +120,9 @@ validitySBV l cfg str sprop = do
     opts <- askOpts
 --  smt <- compileToSMTLib True False sprop
 --  liftIO $ putStrLn smt
-    when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr (ppr (locpos l) ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
+    when (debugTypechecker opts) $ do
+        ppl <- ppr (locpos l)
+        liftIO $ hPutStrLn stderr (ppl ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
     r <- proveWithTcSBV cfg sprop
     case r of
         ThmResult (Unsatisfiable _) -> do
@@ -157,5 +161,7 @@ checkEvalOrSMT l ie check = do
         Left err -> checkAny check
         Right (IBool True) -> return ()
         Right (IBool False) -> genTcError (UnhelpfulPos "evalIExpr") $ text "false"
-        Right ilit -> genTcError (UnhelpfulPos "evalIExpr") $ text "not a boolean prover expression" <+> pp ilit
+        Right ilit -> do
+            ppilit <- pp ilit
+            genTcError (UnhelpfulPos "evalIExpr") $ text "not a boolean prover expression" <+> ppilit
 

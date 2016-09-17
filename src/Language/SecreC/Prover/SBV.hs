@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, RankNTypes, ConstraintKinds, DeriveDataTypeable, GADTs, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, DoAndIfThenElse, FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances, ViewPatterns, RankNTypes, ConstraintKinds, DeriveDataTypeable, GADTs, ScopedTypeVariables, TypeFamilies, MultiParamTypeClasses, DoAndIfThenElse, FlexibleContexts #-}
 
 module Language.SecreC.Prover.SBV where
 
@@ -89,8 +89,8 @@ data SBVal where
     SFloat64 :: SDouble -> SBVal
   deriving (Show)
 
-instance PP SBVal where
-    pp = text . show
+instance Monad m => PP m SBVal where
+    pp = return . text . show
 
 iLit2SBV :: ILit -> TcSBV SBVal
 iLit2SBV (IInt8 i) = return $ SInt8 $ fromIntegral i
@@ -138,7 +138,9 @@ iBinOp2SBV l IMinus e1 e2 = return $ numSBVal (-) e1 e2
 iBinOp2SBV l ITimes e1 e2 = return $ numSBVal (*) e1 e2
 iBinOp2SBV l IDiv e1 e2 = return $ divisibleSBVal sDiv e1 e2
 iBinOp2SBV l IMod e1 e2 = return $ divisibleSBVal sMod e1 e2
-iBinOp2SBV l op e1 e2 = lift $ genTcError (locpos l) $ text "iBinOp2SBV: unsupported op" <+> pp op
+iBinOp2SBV l op e1 e2 = lift $ do
+    ppop <- pp op
+    genTcError (locpos l) $ text "iBinOp2SBV: unsupported op" <+> ppop
 
 iUnOp2SBV :: SMTK loc => loc -> IUOp -> SBVal -> TcSBV SBVal
 iUnOp2SBV l INot (SBool b) = return $ SBool $ bnot b
@@ -219,7 +221,11 @@ tryResolveIExprVar l v@(VarName t n@(nonTok -> True)) = do
             case Map.lookup n sbvs of
                 Just i -> return i
                 Nothing -> do
-                    unless inHyp $ lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (pp n)
-                    i <- lift $ lift $ sbVal (ppr v) t
+                    unless inHyp $ do
+                        ppn <- lift $ pp n
+                        lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (ppn)
+                    i <- do
+                        ppv <- lift $ ppr v
+                        lift $ lift $ sbVal (ppv) t
                     State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n i sbvs)
                     return i

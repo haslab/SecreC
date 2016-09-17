@@ -55,7 +55,7 @@ mapLoc f (Loc l1 x) = Loc (f l1) x
 unLoc :: Loc loc a -> a
 unLoc (Loc _ a) = a
  
-instance PP a => PP (Loc loc a) where
+instance PP m a => PP m (Loc loc a) where
     pp (Loc _ a) = pp a
 
 instance Location loc => Located (Loc loc a) where
