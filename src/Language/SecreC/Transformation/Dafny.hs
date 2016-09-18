@@ -16,6 +16,7 @@ import Language.SecreC.TypeChecker.Conversion
 import Language.SecreC.Modules
 import Language.SecreC.Prover.Semantics
 import Language.SecreC.Vars
+import Language.SecreC.Transformation.Simplify
 
 import Text.PrettyPrint as PP
 
@@ -848,7 +849,9 @@ expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     let pme = text "multiset" <> parens pe
     annp <- genDafnyPublics (unTyped l) (hasLeakExpr me) annK pme (typed l)
     qExprToDafny isQExpr (anne++annp) pme
-expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = builtinToDafny isLVal isQExpr annK l n es
+expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = do
+    es' <- lift $ concatMapM unfoldVariadicExpr es
+    builtinToDafny isLVal isQExpr annK l n es'
 expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ (DecT dec)) n) targs args) = do
     Just did <- loadDafnyDec (unTyped l) dec
     (annargs,pargs) <- procCallArgsToDafny isLVal annK args

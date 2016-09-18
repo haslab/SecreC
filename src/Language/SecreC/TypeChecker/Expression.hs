@@ -233,8 +233,8 @@ tcExpr (RVariablePExpr l v) = do
     let t = typed $ loc v'
     return $ RVariablePExpr (Typed l t) v'
 tcExpr (BuiltinExpr l n args) = do
-    args' <- limitExprC ReadOnlyE $ mapM tcExpr args
-    ret <- isSupportedBuiltin l n $ map (typed . loc) args'
+    args' <- limitExprC ReadOnlyE $ mapM (tcVariadicArg tcExpr) args
+    ret <- isSupportedBuiltin l n $ map (typed . loc . fst) args'
     return $ BuiltinExpr (Typed l ret) n args'
 tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyE $ onlyAnn l (ppid me) $ do
     e' <- tcExpr e
@@ -444,7 +444,7 @@ multiplyIndexExprs l isTop e1 e2 = do
 
 multiplyIndexVariadicExprs :: (ProverK loc m) => loc -> Bool -> [(Expr,IsVariadic)] -> TcM m Expr
 multiplyIndexVariadicExprs l isTop es = do
-    es' <- liftM concat $ mapM (expandVariadicExpr l) es
+    es' <- concatMapM (expandVariadicExpr l) es
     multiplyIndexVariadicExprs' l es'
   where
     multiplyIndexVariadicExprs' :: (ProverK loc m) => loc -> [Expr] -> TcM m Expr
@@ -474,13 +474,13 @@ geExprs l isTop e1 e2 = do
     return (BinaryExpr (BaseT bool) x1 (OpGe $ DecT dec) x2)
     
 negBoolExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc)
-negBoolExprLoc e = BuiltinExpr (Typed noloc $ BaseT bool) "core.eq" [e,fmap (Typed noloc) $ falseExpr]
+negBoolExprLoc e = BuiltinExpr (Typed noloc $ BaseT bool) "core.eq" [(e,False),(fmap (Typed noloc) $ falseExpr,False)]
 
 impliesExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc) -> Expression iden (Typed loc)
-impliesExprLoc e1 e2 = BuiltinExpr (Typed noloc $ BaseT bool) "core.implies" [e1,e2]
+impliesExprLoc e1 e2 = BuiltinExpr (Typed noloc $ BaseT bool) "core.implies" [(e1,False),(e2,False)]
 
 andExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc) -> Expression iden (Typed loc)
-andExprLoc e1 e2 = BuiltinExpr (Typed noloc $ BaseT bool) "core.band" [e1,e2]
+andExprLoc e1 e2 = BuiltinExpr (Typed noloc $ BaseT bool) "core.band" [(e1,False),(e2,False)]
 
 andExprsLoc :: Location loc => [Expression iden (Typed loc)] -> Expression iden (Typed loc)
 andExprsLoc [] = fmap (Typed noloc) trueExpr

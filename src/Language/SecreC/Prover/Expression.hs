@@ -15,6 +15,7 @@ import Language.SecreC.TypeChecker.Environment hiding (addVar)
 import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
 import {-# SOURCE #-} Language.SecreC.Prover.Semantics
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 
 import Data.Map(Map(..))
 import qualified Data.Map as Map
@@ -87,16 +88,16 @@ syscall2Prover l n@(isPrefixOf "core." -> True) args = do
     ie <- corecall2Prover l (drop 5 n) args'
     addVar r (Just ie,Nothing)
   where
-    unpush (SyscallPush _ e) = expr2Prover e
+    unpush (SyscallPush _ e) = variadicExpr2Prover e
     unret (SyscallReturn _ v) = return v
 syscall2Prover l n args = lift $ do
     ppn <- pp n
     ppargs <- mapM pp args
     genTcError (locpos l) $ text "unsupported syscall" <+> ppn <+> sepBy space ppargs
     
-builtin2Prover :: ProverK loc m => loc -> String -> [Expression VarIdentifier (Typed loc)] -> ExprM m (Maybe IExpr)
+builtin2Prover :: ProverK loc m => loc -> String -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> ExprM m (Maybe IExpr)
 builtin2Prover l n@(isPrefixOf "core." -> True) args = do
-    args' <- mapM expr2Prover args
+    args' <- mapM variadicExpr2Prover args
     liftM Just $ corecall2Prover l (drop 5 n) args'
 builtin2Prover l n args = lift $ do
     ppn <- pp n
@@ -177,6 +178,12 @@ proverProcError str t e = do
         ppe <- ppExprTy (fmap typed e)
         ppt <- pp t
         genTcError (locpos $ unTyped $ loc e) $ text "failed to convert" <+> text str <+> text "expression" <+> ppe <+> text "to prover expression: unknown declaration type" <+> ppt
+
+variadicExpr2Prover :: (ProverK loc m) => (Expression VarIdentifier (Typed loc),IsVariadic) -> ExprM m IExpr
+variadicExpr2Prover (e,False) = expr2Prover e
+variadicExpr2Prover (e,True) = lift $ do
+    ppe <- pp e
+    genTcError (locpos $ unTyped $ loc e) $ text "failed to convert variadic expression" <+> ppe <+> text "to prover expression"
     
 expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m IExpr
 expr2Prover e = do

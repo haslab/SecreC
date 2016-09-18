@@ -1170,7 +1170,7 @@ ppSyscallParameters ps = do
     return $ sepBy comma pp1
  
 data SyscallParameter iden loc
-    = SyscallPush loc (Expression iden loc)
+    = SyscallPush loc (Expression iden loc,IsVariadic)
     | SyscallReturn loc (VarName iden loc)
     | SyscallPushRef loc (VarName iden loc)
     | SyscallPushCRef loc (Expression iden loc)
@@ -1191,7 +1191,7 @@ instance Location loc => Located (SyscallParameter iden loc) where
     updLoc (SyscallPushCRef _ x) l = (SyscallPushCRef l x)
   
 instance PP m iden => PP m (SyscallParameter iden loc) where
-    pp (SyscallPush _ e) = pp e
+    pp (SyscallPush _ (e,isVariadic)) = ppVariadicArg pp (e,isVariadic)
     pp (SyscallReturn _ v) = liftM (text "__return" <+>) $ pp v
     pp (SyscallPushRef _ v) = liftM (text "__ref" <+>) $ pp v
     pp (SyscallPushCRef _ e) = liftM (text "__cref" <+>) $ pp e
@@ -1269,7 +1269,7 @@ data Expression iden loc
     | MultisetConstructorPExpr loc [Expression iden loc]
     | ResultExpr loc
     | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
-    | BuiltinExpr loc String [Expression iden loc]
+    | BuiltinExpr loc String [(Expression iden loc,IsVariadic)]
     | ToMultisetExpr loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 

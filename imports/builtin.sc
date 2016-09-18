@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=false
     
 module builtin;
 
@@ -129,7 +130,7 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 
 template <domain D, type T, dim N>
 function D T[[size...(ns)]] reshape (D T[[N]] arr, const uint... ns) {
-    __builtin("core.reshape",arr,ns) :: D T[[size...(ns)]]
+    __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
 }
 
 //this repeat is a STUB 
@@ -139,8 +140,8 @@ function D T[[N]] repeat (D T x) {
 }
 
 template <domain D,type T>
-function D T[[1]] repeat (D T x, uint szs) {
-    __builtin("core.repeat",x,szs) :: D T [[1]]
+function D T[[size...(szs)]] repeat (D T x, const uint... szs) {
+    __builtin("core.repeat",x,szs...) :: D T [[size...(szs)]]
 }
 
 // size

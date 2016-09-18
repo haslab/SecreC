@@ -569,13 +569,13 @@ scBuiltinExpression = apA2 (scTok BUILTIN) (scParens builtinparams) (\x1 (x2,x3)
   <?> "builtin expression"
     where
     builtinparams = liftM unLoc scStringLiteral
-            >*< many (scChar ',' *> scExpression)
+            >*< many (scChar ',' *> scVariadicExpression)
 
 scSyscallParameter :: (Monad m,MonadCatch m) => ScParserT m (SyscallParameter Identifier Position)
 scSyscallParameter = (apA2 (scTok SYSCALL_RETURN) scVarId (\x1 x2 -> SyscallReturn (loc x1) x2)
                  <|> apA2 (scTok REF) scVarId (\x1 x2 -> SyscallPushRef (loc x1) x2)
                  <|> apA2 (scTok CREF) scExpression (\x1 x2 -> SyscallPushCRef (loc x1) x2)
-                 <|> apA scExpression (\x1 -> SyscallPush (loc x1) x1)) <?> "syscall parameter"
+                 <|> apA scVariadicExpression (\x1 -> SyscallPush (loc $ fst x1) x1)) <?> "syscall parameter"
 
 -- ** Indices: not strictly expressions as they only appear in specific context  
 

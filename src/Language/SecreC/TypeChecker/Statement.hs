@@ -220,8 +220,8 @@ isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 
 tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM m (SyscallParameter VarIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
-    e' <- withExprC ReadWriteE $ tcExpr e
-    let t = SysT $ SysPush $ typed $ loc e'
+    e' <- withExprC ReadWriteE $ tcVariadicArg tcExpr e
+    let t = SysT $ SysPush $ typed $ loc $ fst e'
     return $ SyscallPush (Typed l t) e'
 tcSyscallParam (SyscallReturn l v) = do
     v' <- tcVarName False v

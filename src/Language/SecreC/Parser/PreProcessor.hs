@@ -165,7 +165,7 @@ optionsDecl  = Opts {
     , verify    = verify defaultOptions &= help "Verify annotations" &= groupname "Verification"
 
     -- Debugging
-    , debug   = debug defaultOptions &= help "Prints developer's debugging information" &= groupname "Debugging"
+    , debug   = debug defaultOptions &= help "Prints developer debugging information" &= groupname "Debugging"
     , debugLexer            = debugLexer defaultOptions &= help "Print lexer tokens to stderr" &= groupname "Debugging"
     , debugParser           = debugParser defaultOptions &= help "Print parser result to stderr" &= groupname "Debugging"
     , debugTypechecker      = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"
@@ -174,7 +174,7 @@ optionsDecl  = Opts {
     
     -- Typechecker
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"
-    , backtrack   = backtrack defaultOptions &= help "Tells the typechecker to allow ambiguities arising form implicit coercions, and to resolve them by attempting multiple options" &= groupname "Verification:Typechecker"
+    , backtrack   = backtrack defaultOptions &= help "Allows ambiguities arising from implicit coercions, and solves them by trying multiple options" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
@@ -199,6 +199,7 @@ processOpts opts = opts
     , typeCheck = typeCheck opts || verify opts
     , checkAssertions = if verify opts then False else checkAssertions opts
     , simplify = if verify opts then True else simplify opts
+    , backtrack = if implicitCoercions opts then backtrack opts else False
     }
 
 parsePaths :: [FilePath] -> [FilePath]

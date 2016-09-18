@@ -141,10 +141,9 @@ solveMb l msg mode cs = do
         then return Nothing
         else newErrorM $ tcNoDeps $ do
             gr' <- buildCstrGraph l (mapSet (ioCstrId . unLoc) cs) Set.empty
-            ss <- ppConstraints gr'
-            --env <- State.get
             debugTc $ do
                 ppl <- ppr l
+                ss <- ppConstraints gr'
                 liftIO $ putStrLn $ "solveMb " ++ show msg ++ " " ++ ppl ++ " [" ++ show ss ++ "\n]"
             mb <- solveCstrs l msg mode
             --liftIO $ putStrLn $ "solved " ++ show msg ++ " " ++ ppr l

@@ -306,7 +306,7 @@ simplifyExpression isExpr (ToMultisetExpr l e) = do
     (ss,e') <- simplifyNonVoidExpression isExpr e
     return (ss,Just $ ToMultisetExpr l e')
 simplifyExpression isExpr (BuiltinExpr l n es) = do
-    (ss,es') <- simplifyExpressions isExpr es
+    (ss,es') <- simplifyVariadicExpressions isExpr es
     return (ss,Just $ BuiltinExpr l n es')
 simplifyExpression isExpr (LeakExpr l e) = do
     (ss,e') <- simplifyNonVoidExpression isExpr e

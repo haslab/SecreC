@@ -174,7 +174,7 @@ buildTypeSpec l tsec tdta tdim True = do
     case ts of
         [t] -> do
             sz@(RVariablePExpr _ n) <- newSizeVar Nothing
-            --removeFree $ varNameId n
+            removeFree $ varNameId n
             return $ VAType t sz
         otherwise -> return $ VArrayT $ VAVal ts (TType True)
 buildTypeSpec l tsec tdta dim False = do
