@@ -79,7 +79,7 @@ iDecPos d@(LemmaType isLeak pl n pargs panns body cl) = pl
 withFrees :: Monad m => TcM m a -> TcM m a
 withFrees m = do
     old <- State.gets localFrees
-    State.modify $ \env -> env { localFrees = Set.empty }
+    State.modify $ \env -> env { localFrees = Map.empty }
     x <- m
     State.modify $ \env -> env { localFrees = old }
     return x
@@ -136,20 +136,23 @@ addVar l LocalScope n v isConst isAnn e = do
 dropLocalVar :: ProverK Position m => VarName VarIdentifier loc -> TcM m ()
 dropLocalVar v = modify $ \env -> env { localVars = Map.delete (varNameId v) $ localVars env }
 
-getFrees :: (ProverK loc m) => loc -> TcM m (Set VarIdentifier)
+--getVariadicFrees :: (ProverK loc m) => loc -> TcM m Frees
+--getVariadicFrees l = liftM (Map.filter (\b -> b)) . getFrees l
+
+getFrees :: (ProverK loc m) => loc -> TcM m Frees
 getFrees l = do
     frees <- liftM localFrees State.get
     TSubsts ss <- getTSubsts l
-    return $ Set.difference frees $ Map.keysSet ss
+    return $ Map.difference frees (Map.fromSet (const False) $ Map.keysSet ss)
 
 chooseVar :: ProverK loc m => loc -> VarIdentifier -> VarIdentifier -> TcM m Ordering
 chooseVar l v1 v2 | varIdTok v1 && not (varIdTok v2) = return GT
 chooseVar l v1 v2 | not (varIdTok v1) && varIdTok v2 = return LT
 chooseVar l v1 v2 = do
     vs <- getFrees l
-    case (Set.member v1 vs,Set.member v2 vs) of
-        (True,False) -> return LT
-        (False,True) -> return GT
+    case (Map.lookup v1 vs,Map.lookup v2 vs) of
+        (Just _,Nothing) -> return LT
+        (Nothing,Just _) -> return GT
         otherwise -> return EQ
 
 -- replaces a constraint in the constraint graph by a constraint graph
@@ -427,7 +430,7 @@ checkTypeName isAnn tn@(TypeName l n) = do
     case mb of
         Just tn' -> return tn'
         Nothing -> do
-            dec <- newDecVar Nothing
+            dec <- newDecVar False Nothing
             topTcCstrM_ l $ TDec False (TypeName () n) [] dec
             let ret = BaseT $ TApp (TypeName () n) [] dec
             return $ TypeName (Typed l ret) n
@@ -542,19 +545,20 @@ newOperator hdeps op = do
     (_,recdict) <- tcProve l "newOp head" $ addHeadTFlatCstrs l "newOp head" hdeps
     addHeadTDict l "newOp" recdict
     i <- newModuleTyVarId
-    frees <- getFrees l
+    (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict frees emptyPureTDict Set.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Right o) $ getLns selector env
     dirtyGDependencies $ OIden o
     
     solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
+    frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict True Map.empty d'
-    let td = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+    let td = DecT $ DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
     let e = EntryEnv (locpos l) td
-    noFrees e
+    noNormalFrees e
     --liftIO $ putStrLn $ "addOp " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Right o) $ getLns selector env
     return $ updLoc op (Typed (unTyped $ loc op) td)
@@ -606,9 +610,9 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l "newProc head" hdeps
     addHeadTDict l "newProcedureFunction" recdict
     i <- newModuleTyVarId
-    frees <- getFrees l
+    (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Left n) $ getLns selector env
     dirtyGDependencies $ PIden n
@@ -616,10 +620,11 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     --liftIO $ putStrLn $ "newProc: " ++ show doc
     solveTop l "newProcedure"
     dict <- liftM (head . tDict) State.get
+    frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict True Map.empty d'
-    let dt = DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+    let dt = DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
     let e = EntryEnv (locpos l) (DecT dt)
-    noFrees e
+    noNormalFrees e
     --liftIO $ putStrLn $ "addProc " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e) ++ "\n" ++ ppr dict
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (Left n) $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
@@ -637,10 +642,11 @@ newAxiom l hdeps tvars d = do
     solveTop l "newAxiom"
     unresolvedQVars l "newAxiom" tvars
     dict <- liftM (head . tDict) State.get
+    frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict True Map.empty d'
-    let dt = DecType i Nothing tvars emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+    let dt = DecType i Nothing tvars emptyPureTDict Map.empty emptyPureTDict frees [] d''
     let e = EntryEnv (locpos l) (DecT dt)
-    --noFrees e
+    noNormalFrees e
     --liftIO $ putStrLn $ "addAxiom " ++ ppr (decTypeTyVarId dt) ++ " " ++ ppr (entryType e)
     modifyModuleEnv $ \env -> env { axioms = Map.insert i e (axioms env) }
     return dt
@@ -829,18 +835,26 @@ buildCstrGraph l cstrs drops = do
 --    liftIO $ putStrLn $ "buildCstrGraphTail: " ++ show doc
     return gr''
     
--- no free variable can be unbound
-noFrees :: ProverK Position m => EntryEnv -> TcM m ()
-noFrees e = do
-    frees <- liftM localFrees State.get
+-- no non-variadic free variable can be unbound
+noNormalFrees :: ProverK Position m => EntryEnv -> TcM m ()
+noNormalFrees e = do
+    frees <- liftM (Map.keysSet . Map.filter (\b -> not b) . localFrees) State.get
     TSubsts ss <- getTSubsts (loc e)
-    let vs = Set.difference frees $ Map.keysSet ss
+    let vs = Set.difference frees (Map.keysSet ss)
     unless (Set.null vs) $ do
         ppvs <- pp vs
         ppe <- pp e
         genTcError (loc e) $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
+
+splitHeadFrees :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m (Frees,Frees)
+splitHeadFrees l deps = do
+    frees <- getFrees l
+    hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
+    let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
+    let bfrees = Map.difference frees hfrees
+    return (hfrees,bfrees)
     
-splitHead :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> a -> TcM m (PureTDict,Set VarIdentifier,PureTDict,Set VarIdentifier,a)
+splitHead :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> a -> TcM m (PureTDict,Frees,PureTDict,Frees,a)
 splitHead l deps dec = do
     d <- liftM (head . tDict) State.get
     let hbsubsts = tSubsts d
@@ -848,14 +862,14 @@ splitHead l deps dec = do
     dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec
     cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty $ toPureCstrs $ tCstrs d
     freevars <- fvs cstrs
-    forM_ frees $ \v -> unless (Map.member v freevars) $ do
+    forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Map.member v freevars) $ do
         ppv <- pp v
         ppd <- pp d
         ppdec' <- pp dec'
         genTcError (locpos l) $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd $+$ text "in declaration" <+> ppdec'
     hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
-    let hfrees = Set.intersection frees hvs
-    let bfrees = Set.difference frees hfrees
+    let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
+    let bfrees = Map.difference frees hfrees
     opens <- liftM openedCstrs State.get
     let cs = Set.difference (mapSet unLoc deps) (Set.fromList $ map fst opens)
     let gr = Graph.trc cstrs
@@ -904,9 +918,9 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     addHeadTDict l "newStruct" recdict
     i <- newModuleTyVarId
     -- add a temporary declaration for recursive invocations
-    frees <- getFrees l
+    (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
@@ -920,11 +934,13 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             -- solve the body
             solveTop l "newStruct"
             dict <- liftM (head . tDict) State.get
+            frees <- getFrees l
             --i <- newModuleTyVarId
             d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" (locpos l) dict True Map.empty d'
-            let dt = DecT $ DecType i Nothing [] emptyPureTDict Set.empty emptyPureTDict Set.empty [] d''
+            let dt = DecT $ DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
             let e = EntryEnv (locpos l) dt
             --liftIO $ putStrLn $ "newStruct: " ++ ppr l ++ " " ++ ppr e
+            noNormalFrees e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
             return $ TypeName (Typed l dt) n
 
@@ -967,75 +983,75 @@ addSubstM l dirty mode v@(VarName vt vn) t = do
         -- register variable assignment in the top-most open constraint
         State.modify $ \env -> env { openedCstrs = mapHead (mapSnd $ Set.insert vn) (openedCstrs env) }
     
-newDomainTyVar :: (MonadIO m) => String -> KindType -> Maybe Doc -> TcM m SecType
-newDomainTyVar str k doc = do
-    n <- freeVarId str doc
+newDomainTyVar :: (MonadIO m) => String -> KindType -> IsVariadic -> Maybe Doc -> TcM m SecType
+newDomainTyVar str k isVariadic doc = do
+    n <- freeVarId str isVariadic doc
     return $ SVar n k
 
-newKindVar :: (MonadIO m) => String -> Bool -> Maybe Doc -> TcM m KindType
-newKindVar str isPrivate doc = do
-    n <- freeVarId str doc
+newKindVar :: (MonadIO m) => String -> Bool -> IsVariadic -> Maybe Doc -> TcM m KindType
+newKindVar str isPrivate isVariadic doc = do
+    n <- freeVarId str isVariadic doc
     return $ KVar n isPrivate
 
-newDimVar :: (MonadIO m) => Maybe Doc -> TcM m Expr
-newDimVar doc = do
-    n <- freeVarId "dim" doc
+newDimVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m Expr
+newDimVar isVariadic doc = do
+    n <- freeVarId "dim" isVariadic doc
     let v = VarName (BaseT index) n
     return (RVariablePExpr (BaseT index) v)
 
-newTypedVar :: (MonadIO m) => String -> a -> Maybe Doc -> TcM m (VarName VarIdentifier a)
-newTypedVar s t doc = liftM (VarName t) $ freeVarId s doc
+newTypedVar :: (MonadIO m) => String -> a -> IsVariadic -> Maybe Doc -> TcM m (VarName VarIdentifier a)
+newTypedVar s t isVariadic doc = liftM (VarName t) $ freeVarId s isVariadic doc
 
-newVarOf :: (MonadIO m) => String -> Type -> Maybe Doc -> TcM m Type
-newVarOf str (TType b) doc = newTyVar b doc
-newVarOf str BType doc = liftM BaseT $ newBaseTyVar doc
-newVarOf str (KindT k) doc = liftM SecT $ newDomainTyVar str k doc
-newVarOf str t doc | typeClass "newVarOf" t == TypeC = liftM (IdxT . varExpr) $ newTypedVar str t doc
-newVarOf str (VAType b sz) doc = liftM VArrayT $ newArrayVar b sz doc
+newVarOf :: (MonadIO m) => String -> Type -> IsVariadic -> Maybe Doc -> TcM m Type
+newVarOf str (TType b) isVariadic doc = newTyVar b isVariadic doc
+newVarOf str BType isVariadic doc = liftM BaseT $ newBaseTyVar isVariadic doc
+newVarOf str (KindT k) isVariadic doc = liftM SecT $ newDomainTyVar str k isVariadic doc
+newVarOf str t isVariadic doc | typeClass "newVarOf" t == TypeC = liftM (IdxT . varExpr) $ newTypedVar str t isVariadic doc
+newVarOf str (VAType b sz) isVariadic doc = liftM VArrayT $ newArrayVar b sz isVariadic doc
 
-newArrayVar :: (MonadIO m) => Type -> Expr -> Maybe Doc -> TcM m VArrayType
-newArrayVar b sz doc = do
-    n <- freeVarId "varr" doc
+newArrayVar :: (MonadIO m) => Type -> Expr -> IsVariadic -> Maybe Doc -> TcM m VArrayType
+newArrayVar b sz isVariadic doc = do
+    n <- freeVarId "varr" isVariadic doc
     return $ VAVar n b sz
 
-newTyVar :: (MonadIO m) => Bool -> Maybe Doc -> TcM m Type
-newTyVar isNotVoid doc = do
-    n <- freeVarId "t" doc
+newTyVar :: (MonadIO m) => Bool -> IsVariadic -> Maybe Doc -> TcM m Type
+newTyVar isNotVoid isVariadic doc = do
+    n <- freeVarId "t" isVariadic doc
     return $ ComplexT $ CVar n isNotVoid
 
-newDecVar :: (MonadIO m) => Maybe Doc -> TcM m DecType
-newDecVar doc = do
-    n <- freeVarId "dec" doc
+newDecVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m DecType
+newDecVar isVariadic doc = do
+    n <- freeVarId "dec" isVariadic doc
     return $ DVar n
     
-newBaseTyVar :: (MonadIO m) => Maybe Doc -> TcM m BaseType
-newBaseTyVar doc = do
-    n <- freeVarId "b" doc
+newBaseTyVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m BaseType
+newBaseTyVar isVariadic doc = do
+    n <- freeVarId "b" isVariadic doc
     return $ BVar n
 
-newIdxVar :: (MonadIO m) => Maybe Doc -> TcM m Var
-newIdxVar doc = do
-    n <- freeVarId "idx" doc
+newIdxVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m Var
+newIdxVar isVariadic doc = do
+    n <- freeVarId "idx" isVariadic doc
     let v = VarName (BaseT index) n
     return v
     
-newSizeVar :: (MonadIO m) => Maybe Doc -> TcM m Expr
-newSizeVar doc = do
-    n <- freeVarId "sz" doc
+newSizeVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m Expr
+newSizeVar isVariadic doc = do
+    n <- freeVarId "sz" isVariadic doc
     let v = VarName (BaseT index) n
     return (RVariablePExpr (BaseT index) v)
 
-newSizesVar :: (MonadIO m) => Expr -> Maybe Doc -> TcM m [(Expr,IsVariadic)]
-newSizesVar dim doc = do
-    n <- freeVarId "szs" doc
-    let t = VAType (BaseT index) dim
-    let v = VarName t n
-    return [(RVariablePExpr t v,True)]
+--newSizesVar :: (MonadIO m) => Expr -> Maybe Doc -> TcM m [(Expr,IsVariadic)]
+--newSizesVar dim doc = do
+--    n <- freeVarId "szs" doc
+--    let t = VAType (BaseT index) dim
+--    let v = VarName t n
+--    return [(RVariablePExpr t v,True)]
     
 mkVariadicTyArray :: (MonadIO m) => IsVariadic -> Type -> TcM m Type
 mkVariadicTyArray False t = return t
 mkVariadicTyArray True t = do
-    sz <- newSizeVar Nothing
+    sz <- newSizeVar True Nothing
     return $ VAType t sz
 
 addValueM :: ProverK loc m => loc -> Bool -> SubstMode -> Var -> Expr -> TcM m ()
@@ -1248,10 +1264,10 @@ dirtyIOCstrDependencies opens iok = do
         Just m -> WeakMap.forM_ m $ \(u,x) -> dirtyIOCstrDependencies opens x
 
 -- we need global const variables to distinguish them during typechecking
-addConst :: MonadIO m => Scope -> Bool -> Identifier -> TcM m VarIdentifier
-addConst scope isTok vi = do
+addConst :: MonadIO m => Scope -> Bool -> IsVariadic -> Identifier -> TcM m VarIdentifier
+addConst scope isTok isVariadic vi = do
     doc <- pp $ if isTok then vi++"Tok" else vi
-    vi' <- freeVarId vi $ Just doc
+    vi' <- freeVarId vi isVariadic $ Just doc
     let vi'' = if isTok then tokVar vi' else vi'
     case scope of
         LocalScope -> State.modify $ \env -> env { localConsts = Map.insert vi vi'' $ localConsts env }

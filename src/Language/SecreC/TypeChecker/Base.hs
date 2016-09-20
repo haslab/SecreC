@@ -213,7 +213,7 @@ getModuleCount = liftM (snd . moduleCount) State.get
 -- global typechecking environment
 data TcEnv = TcEnv {
       localVars  :: Map VarIdentifier (Bool,Bool,EntryEnv) -- ^ local variables: name |-> (isConst,isAnn,type of the variable)
-    , localFrees :: Set VarIdentifier -- ^ free internal const variables generated during typechecking
+    , localFrees :: Frees -- ^ free internal const variables generated during typechecking
     , localConsts :: Map Identifier VarIdentifier
     , globalDeps :: Deps -- ^ global dependencies
     , localDeps :: Deps -- ^ local dependencies
@@ -512,7 +512,7 @@ emptyTcEnv :: TcEnv
 emptyTcEnv = TcEnv
     { 
     localVars = Map.empty
-    , localFrees = Set.empty
+    , localFrees = Map.empty
     , globalDeps = Set.empty
     , localDeps = Set.empty
     , tDict = []
@@ -1405,19 +1405,6 @@ emptyPureTDict = PureTDict Graph.empty emptyTSubsts mempty
 emptyTSubsts :: TSubsts
 emptyTSubsts = TSubsts Map.empty
 
---addCstrDeps :: (MonadIO m,VarsId m TCstr) => IOCstr -> m ()
---addCstrDeps iok = do
---    vs <- fvs (kCstr iok)
---    addDeps vs iok
---  where
---    addDeps :: (MonadIO m,VarsId m TCstr) => Set VarIdentifier -> IOCstr -> m ()
---    addDeps vs iok = do
---        g <- liftM tDeps $ liftIO $ readIORef globalEnv
---        liftIO $ forM_ vs $ \v -> do
---            mb <- WeakHash.lookup g v
---            m <- maybe (WeakMap.new >>= \m -> WeakHash.insertWithMkWeak g v m (MkWeak $ mkWeakKey m) >> return m) return mb
---            WeakMap.insertWithMkWeak m (uniqId $ kStatus iok) iok (MkWeak $ mkWeakKey $ kStatus iok)
-
 ioCstrId :: IOCstr -> Int
 ioCstrId = hashModuleTyVarId . uniqId . kStatus
 
@@ -1443,14 +1430,19 @@ freshVarId n doc = do
     let v' = VarIdentifier n (Just mn) (Just i) False doc
     return v'
 
-freeVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
-freeVarId n doc = do
+freeVarId :: MonadIO m => Identifier -> Bool -> Maybe Doc -> TcM m VarIdentifier
+freeVarId n isVariadic doc = do
     v <- freshVarId n doc
-    addFree v
+    addFree v isVariadic
     return v
-    
-addFree n = State.modify $ \env -> env { localFrees = Set.insert n (localFrees env) }
-removeFree n = State.modify $ \env -> env { localFrees = Set.delete n (localFrees env) }
+
+type Frees = Map VarIdentifier IsVariadic
+
+addFree :: Monad m => VarIdentifier -> Bool -> TcM m ()
+addFree n isVariadic = State.modify $ \env -> env { localFrees = Map.insert n isVariadic (localFrees env) }
+
+removeFree :: Monad m => VarIdentifier -> TcM m ()
+removeFree n = State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
 
 instance PP m VarIdentifier => PP m TDict where
     pp dict = do
@@ -1600,8 +1592,8 @@ tyDecClass t = error $ "tyDecClass: " ++ show t
 tyIsAnn t = let (DecClass b _ _ _) = tyDecClass t in b
 tyIsInline t = let (DecClass _ b _ _) = tyDecClass t in b
 
-decTypeFrees :: DecType -> Set VarIdentifier
-decTypeFrees (DecType _ _ _ _ hfs _ bfs _ _) = Set.union hfs bfs
+decTypeFrees :: DecType -> Frees
+decTypeFrees (DecType _ _ _ hvs hfs _ bfs _ _) = Map.unionWith (||) hfs bfs
 
 decTypeId :: DecType -> Maybe (GIdentifier,ModuleTyVarId)
 decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
@@ -1649,9 +1641,9 @@ data DecType
         (Maybe (ModuleTyVarId,[Type])) -- is a recursive invocation = Just (original,expanded template type arguments)
         [(Constrained Var,IsVariadic)] -- ^ template variables
         PureTDict -- ^ constraints for the header
-        (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
+        Frees -- set of free internal constant variables generated when typechecking the header
         PureTDict -- ^ constraints for the template
-        (Set VarIdentifier) -- set of free internal constant variables generated when typechecking the template
+        Frees -- set of free internal constant variables generated when typechecking the template
         [(Type,IsVariadic)] -- ^ template specializations
         InnerDecType -- ^ template's type
     | DVar -- declaration variable
@@ -1800,10 +1792,10 @@ instance Hashable SysType
 
 data Type
     = NoType String -- ^ For locations with no associated type information
-    | TType Bool -- ^ Type of complex types
+    | TType Bool -- ^ Type of complex types (isNotVoid)
     | DType -- ^ Type of declarations
     | BType -- ^ Type of base types
-    | KType Bool -- ^ Type of kinds
+    | KType Bool -- ^ Type of kinds (isPrivateKind)
     | VAType Type Expr -- ^ Type of array types
     | StmtType (Set StmtClass) -- ^ Type of a @Statement@
     | ComplexT ComplexType
@@ -2138,11 +2130,11 @@ instance PP m VarIdentifier => PP m Type where
         ppt <- pp t
         ppsz <- pp sz
         return $ parens $ ppt <> text "..." <> nonemptyParens ppsz
-    pp t@(TType b) = return $ text "complex type"
+    pp t@(TType b) = return $ text "complex type" <+> ppid b
     pp t@BType = return $ text "base type"
     pp t@DType = return $ text "declaration type"
     pp t@(KindT k) = pp k
-    pp t@(KType _) = return $ text "kind type"
+    pp t@(KType b) = return $ text "kind type" <+> ppid b
     pp t@(StmtType {}) = return $ text (show t)
     pp (BaseT b) = pp b
     pp (ComplexT c) = pp c
@@ -2355,8 +2347,8 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
         isRec' <- mapM f isRec
         varsBlock $ do
             vs' <- inLHS $ mapM f vs
-            hfrees' <- liftM Set.fromList $ mapM f $ Set.toList hfrees
-            frees' <- liftM Set.fromList $ mapM f $ Set.toList frees
+            hfrees' <- liftM Map.fromList $ mapM f $ Map.toList hfrees
+            frees' <- liftM Map.fromList $ mapM f $ Map.toList frees
             hd' <- f hd
             d' <- f d
             spes' <- mapM f spes
@@ -2813,15 +2805,6 @@ varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
         if Set.null (vs `Set.intersection` xvs)
             then return False
             else return True
-
--- gets the terminal nodes in the constraint graph for all the variables in a given value
---getVarOutSet :: (VarsIdTcM m,VarsId (TcM m) a,Location loc) => a -> TcM m (Set LocIOCstr)
---getVarOutSet x = do
---    -- get the free variables
---    vs <- liftM Map.keysSet $ fvs x
---    gr <- liftM (tCstrs . head . tDict) State.get
---    gr' <- varsCstrGraph vs gr
---    return $ Set.fromList $ map snd $ endsGr gr'
 
 compoundStmts :: Location loc => loc -> [Statement iden (Typed loc)] -> [Statement iden (Typed loc)]
 compoundStmts l = maybeToList . compoundStmtMb l

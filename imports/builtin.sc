@@ -126,13 +126,6 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 //@     __builtin("core.cat",x,y,n) :: D T[[N]]
 //@ }
 
-// reshape
-
-template <domain D, type T, dim N>
-function D T[[size...(ns)]] reshape (D T[[N]] arr, const uint... ns) {
-    __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
-}
-
 //this repeat is a STUB 
 template <domain D,type T,dim N>
 function D T[[N]] repeat (D T x) {
@@ -140,7 +133,8 @@ function D T[[N]] repeat (D T x) {
 }
 
 template <domain D,type T>
-function D T[[size...(szs)]] repeat (D T x, const uint... szs) {
+function D T[[size...(szs)]] repeat (D T x, const uint... szs)
+{
     __builtin("core.repeat",x,szs...) :: D T [[size...(szs)]]
 }
 
@@ -1534,4 +1528,21 @@ D Y[[N]] operator (Y) (D X[[N]] x) {
         ret[i] = (Y) x[i];
     }
     return ret;
+}
+
+// variadic index sum
+//@ function uint sum() { 0 }
+
+//@ template <>
+//@ function uint sum (uint n, uint... ns) {
+//@     n + sum(ns...)
+//@ }
+
+// reshape
+
+template <domain D, type T, dim N>
+function D T[[size...(ns)]] reshape (D T[[N]] arr, const uint... ns)
+//@ requires sum(ns...) == size(arr);
+{
+    __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
 }

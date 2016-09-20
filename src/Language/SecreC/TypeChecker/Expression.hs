@@ -47,8 +47,8 @@ tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 tcAnnGuard e = limitExprC ReadOnlyE $ insideAnnotation $ do
     e' <- tcExpr e
     let (Typed l ty) = loc e'
-    k <- newKindVar "k" False Nothing
-    s <- newDomainTyVar "s" k Nothing
+    k <- newKindVar "k" False False Nothing
+    s <- newDomainTyVar "s" k False Nothing
     topTcCstrM_ l $ Unifies ty (ComplexT $ CType s bool $ indexExpr 0)
     return e'
 
@@ -66,7 +66,7 @@ tcLValue isWrite (SelectionExpr l pe a) = do
     pe' <- tcLValue isWrite pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    res <- newTyVar True Nothing
+    res <- newTyVar True False Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
     return $ SelectionExpr (Typed l res) pe' (fmap (flip Typed res) va)
 tcLValue isWrite (RVariablePExpr l v) = do
@@ -99,7 +99,7 @@ tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
     e' <- tcExpr e
     let tpe = typed $ loc pe'
     ppe' <- pp e'
-    x1 <- newTypedVar "assign" tpe $ Just $ ppe'
+    x1 <- newTypedVar "assign" tpe False $ Just $ ppe'
     topTcCstrM_ l $ Coerces (fmap typed e') x1
     let ex1 = fmap (Typed l) $ RVariablePExpr tpe x1
     return $ BinaryAssign (Typed l tpe) pe' (fmap (notTyped "equal") op) ex1
@@ -120,11 +120,11 @@ tcExpr (CondExpr l c e1 e2) = do
         limitExprC ReadOnlyE $ tcExpr e2
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
-    t3 <- newTyVar False Nothing
+    t3 <- newTyVar False False Nothing
     ppe1' <- pp e1'
     ppe2' <- pp e2'
-    x1 <- newTypedVar "then" t3 $ Just $ ppe1'
-    x2 <- newTypedVar "else" t3 $ Just $ ppe2'
+    x1 <- newTypedVar "then" t3 False $ Just $ ppe1'
+    x2 <- newTypedVar "else" t3 False $ Just $ ppe2'
     topTcCstrM_ l $ CoercesN [(fmap typed e1',x1),(fmap typed e2',x2)] 
     let ex1 = fmap (Typed l) $ varExpr x1
     let ex2 = fmap (Typed l) $ varExpr x2
@@ -135,7 +135,7 @@ tcExpr (BinaryExpr l e1 op e2) = do
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     top <- tcOp op
-    v <- newTyVar False Nothing
+    v <- newTyVar False False Nothing
     (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr pe@(PreOp l op e) = do
@@ -160,7 +160,7 @@ tcExpr (UnaryExpr l op e) = do
             topTcCstrM_ l $ Unifies b (BaseT castty)
         otherwise -> return ()
     
-    v <- newTyVar False Nothing
+    v <- newTyVar False False Nothing
     (dec,[(x,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
     let ex = fmap (Typed l) x
     return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
@@ -202,7 +202,7 @@ tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
     es' <- limitExprC ReadOnlyE $ mapM (tcVariadicArg tcExpr) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
-    v <- newTyVar False Nothing
+    v <- newTyVar False False Nothing
     (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
     return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
@@ -216,7 +216,7 @@ tcExpr (SelectionExpr l pe a) = limitExprC ReadOnlyE $ do
     pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    tres <- newTyVar True Nothing
+    tres <- newTyVar True False Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
     return $ SelectionExpr (Typed l tres) pe' (fmap (flip Typed tres) va)
 tcExpr (ArrayConstructorPExpr l es) = limitExprC ReadOnlyE $ do
@@ -238,7 +238,7 @@ tcExpr (BuiltinExpr l n args) = do
     return $ BuiltinExpr (Typed l ret) n args'
 tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyE $ onlyAnn l (ppid me) $ do
     e' <- tcExpr e
-    ComplexT mset <- newTyVar True Nothing
+    ComplexT mset <- newTyVar True False Nothing
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
 tcExpr e@(ResultExpr l) = limitExprC ReadOnlyE $ onlyAnn l (ppid e) $ do
@@ -248,7 +248,7 @@ tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <
 
 isSupportedBuiltin :: (MonadIO m,Location loc) => loc -> Identifier -> [Type] -> TcM m Type
 isSupportedBuiltin l n args = do -- TODO: check specific builtins?
-    ret <- newTyVar True Nothing
+    ret <- newTyVar True False Nothing
     return ret
 
 stmtsReturnExprs :: (Data iden,Data loc) => [Statement iden loc] -> [Expression iden loc]
@@ -285,9 +285,18 @@ tcSubscript e s = do
     let t = typed $ loc e
     let l = loc s
     ((s',rngs),ks) <- tcWithCstrs l "subscript" $ mapAndUnzipM tcIndex s
-    ret <- newTyVar False Nothing
+    ret <- case t of
+        VAType t _ -> case indexProjs (Foldable.toList s) of
+            0 -> mkVariadicTyArray True t
+            otherwise -> newTyVar True False Nothing
+        otherwise -> newTyVar True False Nothing
     withDependencies ks $ topTcCstrM_ l $ ProjectMatrix t (Foldable.toList rngs) ret
     return (s',ret)
+
+indexProjs :: [Index iden loc] -> Word64
+indexProjs [] = 0
+indexProjs (IndexInt {}:xs) = 1 + indexProjs xs
+indexProjs (IndexSlice {}:xs) = indexProjs xs
 
 tcIndex :: (ProverK loc m) => Index Identifier loc -> TcM m (Index VarIdentifier (Typed loc),ArrayProj)
 tcIndex (IndexInt l e) = do
@@ -306,7 +315,7 @@ tcIndex (IndexSlice l e1 e2) = do
 tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression VarIdentifier (Typed loc))
 tcLiteral li = do
     let l = loc li
-    b <- newBaseTyVar Nothing
+    b <- newBaseTyVar False Nothing
     let t = BaseT b
     let elit = LitPExpr t $ fmap (const t) li
     topTcCstrM_ l $ CoercesLit elit
@@ -316,9 +325,9 @@ tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" False Nothing
-    s <- newDomainTyVar "s" k Nothing
-    b <- newBaseTyVar Nothing
+    k <- newKindVar "k" False False Nothing
+    s <- newDomainTyVar "s" k False Nothing
+    b <- newBaseTyVar False Nothing
     let t = ComplexT $ CType s b (indexExpr 1)
     let elit = ArrayConstructorPExpr t es''
     topTcCstrM_ l $ CoercesLit elit
@@ -328,9 +337,9 @@ tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> Tc
 tcMultisetLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" False Nothing
-    s <- newDomainTyVar "s" k Nothing
-    b <- newBaseTyVar Nothing
+    k <- newKindVar "k" False False Nothing
+    s <- newDomainTyVar "s" k False Nothing
+    b <- newBaseTyVar False Nothing
     let t = ComplexT $ CType s (MSet b) (indexExpr 0)
     let elit = MultisetConstructorPExpr t es''
     topTcCstrM_ l $ CoercesLit elit
@@ -362,7 +371,7 @@ tcIndexCond e = tcExprTy (BaseT bool) e
 tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
 tcIndexExpr isVariadic e = do
     t <- if isVariadic
-        then liftM (VAType (BaseT index)) $ newSizeVar Nothing
+        then mkVariadicTyArray True (BaseT index)
         else return (BaseT index)
     tcExprTy t e
     
@@ -375,7 +384,7 @@ tcExprTy' :: (ProverK loc m) => Type -> Expression VarIdentifier (Typed loc) -> 
 tcExprTy' ty e' = do
     let Typed l ty' = loc e'
     ppe' <- pp e'
-    x2 <- newTypedVar "ety" ty $ Just $ ppe'
+    x2 <- newTypedVar "ety" ty False $ Just $ ppe'
     topTcCstrM_ l $ Coerces (fmap typed e') x2
     return $ fmap (Typed l) $ varExpr x2
 
@@ -444,7 +453,7 @@ multiplyIndexExprs l isTop e1 e2 = do
 
 multiplyIndexVariadicExprs :: (ProverK loc m) => loc -> Bool -> [(Expr,IsVariadic)] -> TcM m Expr
 multiplyIndexVariadicExprs l isTop es = do
-    es' <- concatMapM (expandVariadicExpr l) es
+    es' <- concatMapM (expandVariadicExpr l False) es
     multiplyIndexVariadicExprs' l es'
   where
     multiplyIndexVariadicExprs' :: (ProverK loc m) => loc -> [Expr] -> TcM m Expr

@@ -301,7 +301,7 @@ tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM 
 tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    vi' <- addConst LocalScope False vi
+    vi' <- addConst LocalScope False False vi
     let v' = VarName (Typed vl ty) vi'
     isAnn <- getAnn
     newVariable LocalScope False isAnn v' Nothing
@@ -309,7 +309,7 @@ tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
 tcProcedureParam (ProcedureParameter l True s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    vi' <- addConst LocalScope False vi
+    vi' <- addConst LocalScope False False vi
     let v' = VarName (Typed vl ty) vi'
     isAnn <- getAnn
     newVariable LocalScope True isAnn v' Nothing
@@ -364,7 +364,7 @@ tcTemplateQuantifier (KindQuantifier l isPrivate isVariadic (KindName dl dn)) = 
     inTplt <- State.gets inTemplate
     let t = KType isPrivate
     t' <- mkVariadicTyArray isVariadic t
-    vdn <- addConst LocalScope (not inTplt) dn
+    vdn <- addConst LocalScope (not inTplt) False dn
     let v' = KindName (Typed dl t') vdn
     isAnn <- getAnn
     newKindVariable isAnn LocalScope v'
@@ -380,14 +380,14 @@ tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
         Nothing -> do -- domain variable of any kind
             if inTplt
                 then do
-                    k@(KVar kv _) <- newKindVar "k" False Nothing
+                    k@(KVar kv _) <- newKindVar "k" False True Nothing
                     topTcCstrM_ l $ Resolve $ KindT k
                     return (Nothing,KindT k)
                 else do
                     k <- kindToken
                     return (Nothing,KindT k)
     t' <- mkVariadicTyArray isVariadic t
-    vdn <- addConst LocalScope (not inTplt) dn
+    vdn <- addConst LocalScope (not inTplt) False dn
     let v' = DomainName (Typed dl t') vdn
     newDomainVariable isAnn LocalScope v'
     return (DomainQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' mbk',(Constrained (VarName t' vdn) Nothing,isVariadic))
@@ -395,7 +395,7 @@ tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
     inTplt <- State.gets inTemplate
     let t = BaseT index -- variable is a dimension
     t' <- mkVariadicTyArray isVariadic t
-    vdn <- addConst LocalScope (not inTplt) dn
+    vdn <- addConst LocalScope (not inTplt) False dn
     let tl = Typed dl t'
     let v' = VarName tl vdn
     isAnn <- getAnn
@@ -409,7 +409,7 @@ tcTemplateQuantifier (DataQuantifier l isVariadic (TypeName tl tn)) = do
     inTplt <- State.gets inTemplate
     let t = BType -- variable of any base type
     t' <- mkVariadicTyArray isVariadic t
-    vtn <- addConst LocalScope (not inTplt) tn
+    vtn <- addConst LocalScope (not inTplt) False tn
     let v' = TypeName (Typed tl t') vtn
     isAnn <- getAnn
     isLeak <- getLeak
@@ -434,7 +434,7 @@ tcGlobal l m = do
     dict <- top . tDict =<< State.get
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Set.empty, localDeps = Set.empty, tDict = [], moduleCount = let ((m,TyVarId j),i) = moduleCount e in ((m,TyVarId $ succ j),i) }
+    State.modify $ \e -> e { decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = [], moduleCount = let ((m,TyVarId j),i) = moduleCount e in ((m,TyVarId $ succ j),i) }
     liftIO resetGlobalEnv
     liftIO resetTyVarId
     return x'

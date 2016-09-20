@@ -106,7 +106,7 @@ unifiesTIdentifier :: (ProverK loc m) => loc -> TIdentifier -> TIdentifier -> Tc
 
 pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
 
-expandVariadicExpr :: (ProverK loc m) => loc -> (Expression VarIdentifier Type,IsVariadic) -> TcM m [Expression VarIdentifier Type]
+expandVariadicExpr :: (ProverK loc m) => loc -> Bool -> (Expression VarIdentifier Type,IsVariadic) -> TcM m [Expression VarIdentifier Type]
 
 expandVariadicType :: (ProverK loc m) => loc -> (Type,IsVariadic) -> TcM m [Type]
 
@@ -122,3 +122,7 @@ unifiesExprTy :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
+
+projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index VarIdentifier Type] -> TcM m Expr
+
+

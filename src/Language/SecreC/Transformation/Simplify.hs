@@ -12,6 +12,7 @@ import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Environment
 import Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import {-# SOURCE #-} Language.SecreC.Prover.Semantics
 import Language.SecreC.Parser.PreProcessor
 import Language.SecreC.Error
@@ -294,7 +295,18 @@ simplifyExpression isExpr (BinaryAssign l e1 bop e2) = do
 simplifyExpression isExpr (PostIndexExpr l e s) = do
     (ss1,e') <- simplifyNonVoidExpression isExpr e
     (ss2,s') <- simplifySubscript isExpr s
-    return (ss1++ss2,Just $ PostIndexExpr l e' s')
+    let stay = do
+        let pe' = PostIndexExpr l e' s'
+        return (ss1++ss2,Just pe')
+    case e' of
+        ArrayConstructorPExpr {} -> do
+            let go = do
+                let tl = unTyped l
+                e'' <- liftM (fmap (Typed tl)) $ projectArrayExpr tl (fmap typed e') (map (fmap typed) $ Foldable.toList s)
+                return (ss1++ss2,Just e'')
+            catchError go (\err -> stay)
+        otherwise -> stay
+            
 simplifyExpression isExpr (QualExpr l e t) = do
     (sse,e') <- simplifyNonVoidExpression isExpr e
     (sst,t') <- simplifyTypeSpecifier isExpr t

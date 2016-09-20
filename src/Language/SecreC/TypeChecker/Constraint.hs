@@ -875,7 +875,7 @@ equals l (ComplexT c1) (BaseT b2) = do
     equalsComplex l c1 (defCType b2)
 equals l (BaseT b1) (ComplexT c2) = do
     equalsComplex l (defCType b1) c2
-equals l (TType b1) (TType b2) | b1 == b2 = return ()
+equals l (TType isNotVoid1) (TType isNotVoid2) = return ()
 equals l DType DType = return ()
 equals l BType BType = return ()
 equals l (KType _) (KType _) = return ()
@@ -995,10 +995,10 @@ equalsPrim l t1 t2 = constraintError (EqualityException "primitive type") l t1 p
 
 expandCTypeVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
 expandCTypeVar l v = do
-    k <- newKindVar "k" False Nothing
-    d <- newDomainTyVar "d" k Nothing
-    t <- newBaseTyVar Nothing
-    dim <- newDimVar Nothing
+    k <- newKindVar "k" False False Nothing
+    d <- newDomainTyVar "d" k False Nothing
+    t <- newBaseTyVar False Nothing
+    dim <- newDimVar False Nothing
     let ct = CType d t dim 
     addSubstM l True NoFailS (VarName (TType True) v) $ ComplexT ct
     return ct
@@ -1068,7 +1068,7 @@ maxSec l ss = do
     maxs <- maximumsSec l ss []
     case maxs of
         [s] -> return s
-        (SVar v k:_) -> newDomainTyVar "smax" k Nothing
+        (SVar v k:_) -> newDomainTyVar "smax" k False Nothing
         (s:_) -> return s
 
 maximumsSec :: ProverK loc m => loc -> [SecType] -> [SecType] -> TcM m [SecType]
@@ -1086,7 +1086,7 @@ maxDim l ds = do
     maxs <- maximumsDim l ds []
     case maxs of
         [d] -> return d
-        otherwise -> newDimVar Nothing 
+        otherwise -> newDimVar False Nothing 
 
 maximumsDim :: ProverK loc m => loc -> [Expr] -> [Expr] -> TcM m [Expr]
 maximumsDim l [] maxs = return maxs
@@ -1101,7 +1101,7 @@ maximumsDim l (s:ss) maxs@(max:_) = do
 coercesE :: (ProverK loc m) => loc -> Expr -> Type -> TcM m Expr
 coercesE l e1 t2 = do
     pp1 <- pp e1
-    x2 <- newTypedVar "coerces" t2 $ Just $ pp1
+    x2 <- newTypedVar "coerces" t2 False $ Just $ pp1
     tcCstrM_ l $ Coerces e1 x2
     return $ varExpr x2
 
@@ -1126,7 +1126,7 @@ coerces l e1 x2 = do
 coercesComplexE :: (ProverK loc m) => loc -> Expr -> ComplexType -> TcM m Expr
 coercesComplexE l e1 ct2 = do
     pp1 <- pp e1
-    x2 <- newTypedVar "coerces_complex" (ComplexT ct2) $ Just $ pp1
+    x2 <- newTypedVar "coerces_complex" (ComplexT ct2) False $ Just $ pp1
     coercesComplex l e1 x2
     return $ varExpr x2
 
@@ -1192,7 +1192,7 @@ coercesSecDimSizes l e1 x2@(loc -> ComplexT (CVar v2@(nonTok -> True) _)) = do
 coercesSecDimSizes l e1@(loc -> ComplexT (CType s1 b1 d1)) x2@(loc -> ComplexT (CType s2 b2 d2)) = do
     let t3 = ComplexT $ CType s1 b2 d2 -- intermediate type
     pp1 <- pp e1
-    x3 <- newTypedVar "e" t3 $ Just $ pp1
+    x3 <- newTypedVar "e" t3 False $ Just $ pp1
 --    liftIO $ putStrLn $ "coercesSecDimSizes: " ++ ppr l ++ " " ++ ppr e1 ++ " " ++ ppr x2 ++ " " ++ ppr x3
     coercesDimSizes l e1 x3
     coercesSec l (varExpr x3) x2
@@ -1400,10 +1400,10 @@ classifiesCstrs l e1 ct1 x2 s2 = do
     arr <- askErrorM''
     st <- getCstrState
     let ct2 = setCSec ct1 s2
-    dec@(DVar dv) <- newDecVar Nothing
+    dec@(DVar dv) <- newDecVar False Nothing
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
     ppe1 <- pp e1
-    v1 <- newTypedVar "cl" (loc e1) $ Just $ ppe1
+    v1 <- newTypedVar "cl" (loc e1) False $ Just $ ppe1
     let k1 = DelayedK (TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st) arr
     let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) st) arr
     let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) st) arr
@@ -1414,10 +1414,10 @@ repeatsCstrs l e1 ct1 x2 d2 = do
     arr <- askErrorM''
     st <- getCstrState
     let ct2 = setCBase ct1 d2
-    dec@(DVar dv) <- newDecVar Nothing
+    dec@(DVar dv) <- newDecVar False Nothing
     let repeat' = ProcedureName (DecT dec) $ mkVarId "repeat"
     ppe1 <- pp e1
-    v1 <- newTypedVar "rp" (loc e1) $ Just $ ppe1
+    v1 <- newTypedVar "rp" (loc e1) False $ Just $ ppe1
     let k1 = DelayedK (TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st) arr
     let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) st) arr
     let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) st) arr
@@ -1430,14 +1430,14 @@ coercesLit l e@(LitPExpr t lit) = do
 coercesLit l (ArrayConstructorPExpr (ComplexT ct@(CType s t d)) es) = do
     -- coerce each element
     let et = ComplexT $ CType s t $ indexExpr 0
-    xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("ael"++show i) et $ Just $ ppe
+    xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("ael"++show i) et False $ Just $ ppe
     tcCstrM_ l $ CoercesN (zip es xs)
     -- match the array's dimension
     tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1) -- dimension 1
 coercesLit l (MultisetConstructorPExpr (ComplexT ct@(CType s (MSet b) d)) es) = do
     -- coerce each element
     let et = ComplexT $ CType s b $ indexExpr 0
-    xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("mel"++show i) et $ Just $ ppe
+    xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("mel"++show i) et False $ Just $ ppe
     tcCstrM_ l $ CoercesN (zip es xs)
     -- match the array's dimension
     tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 0) -- dimension 0
@@ -1498,7 +1498,7 @@ secToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "stok" (Just mn) (Just i) True Nothing
-    k <- newKindVar "k" False Nothing
+    k <- newKindVar "k" False False Nothing
     return $ SVar v k
     
 baseToken :: MonadIO m => TcM m BaseType
@@ -2239,14 +2239,14 @@ matchSizes l ex match szs1 szs2 = do
     matchSizes' (Just [(e1,True)]) (Just [(e2,True)]) = do
         match e1 e2
     matchSizes' (Just szs1) (Just szs2) = do
-        szs1' <- concatMapM (expandVariadicExpr l) szs1
-        szs2' <- concatMapM (expandVariadicExpr l) szs2
+        szs1' <- concatMapM (expandVariadicExpr l False) szs1
+        szs2' <- concatMapM (expandVariadicExpr l False) szs2
         constraintList (ex "sizes") match l szs1' szs2'
         return ()
     matchSizes' sz1 sz2 = return () -- ignore if both sizes are not known
 
-expandVariadicExpr :: (ProverK loc m) => loc -> (Expr,IsVariadic) -> TcM m [Expr]
-expandVariadicExpr l (e,False) = case loc e of
+expandVariadicExpr :: (ProverK loc m) => loc -> IsConst -> (Expr,IsVariadic) -> TcM m [Expr]
+expandVariadicExpr l isConst (e,False) = case loc e of
     VAType {} -> do
         ppe <- pp e
         genTcError (locpos l) $ text "Non-expanded variadic parameter pack" <+> quotes (ppe)
@@ -2254,35 +2254,35 @@ expandVariadicExpr l (e,False) = case loc e of
         ppe <- pp e
         genTcError (locpos l) $ text "Non-expanded variadic parameter pack" <+> quotes (ppe)
     otherwise -> return [e]
-expandVariadicExpr l (ArrayConstructorPExpr t es,True) = case t of
+expandVariadicExpr l isConst (ArrayConstructorPExpr t es,True) = case t of
     VAType {} -> return es
     VArrayT {} -> return es
     otherwise -> do
         ppt <- pp t
         genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
-expandVariadicExpr l (e,True) = do
+expandVariadicExpr l isConst (e,True) = do
     let t = loc e
     case t of
-        VAType {} -> do
-            d <- evaluateIndexExpr l =<< typeDim l t
-            case d of
-                0 -> return [e]
-                1 -> do
-                    sz <- evaluateIndexExpr l =<< typeSize l t
-                    b <- typeBase l t
-                    vs <- forM [0..pred (fromEnum sz)] $ \i -> newTypedVar ("vex"++show i) b Nothing
-                    let es = map varExpr vs
-                    tcCstrM_ l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t es)
-                    return es
-                otherwise -> do
-                    ppt <- pp t
-                    genTcError (locpos l) $ text "Variadic matrix" <+> quotes (ppt) <+> text "not supported"
-        VArrayT a -> do
-            ts <- expandVariadicType l (VArrayT a,True)
-            vs <- forM ts $ \t -> newTypedVar "vex" t Nothing
-            let es = map varExpr vs
-            tcCstrM_ l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t es)
-            return es
+        VAType b sz -> if isConst
+            then do
+                sz' <- evaluateIndexExpr l sz
+                vs <- forM [0..pred (fromEnum sz')] $ \i -> newTypedVar ("vex"++show i) b False Nothing
+                let evs = map varExpr vs
+                tcCstrM_ l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t evs)
+                return evs
+            else do
+                ArrayConstructorPExpr t' es' <- expandArrayExpr l e
+                return es'
+        VArrayT a -> if isConst
+            then do
+                ts <- expandVariadicType l (VArrayT a,True)
+                vs <- forM ts $ \t -> newTypedVar "vext" t False Nothing
+                let es = map varExpr vs
+                tcCstrM_ l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t es)
+                return es
+            else do
+                ArrayConstructorPExpr t' es' <- expandArrayExpr l e
+                return es'
         otherwise -> do
             ppt <- pp t
             genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
@@ -2298,7 +2298,7 @@ expandVariadicType l (t@(VArrayT a),True) = do
     let tt = tyOf t
     sz <- evaluateIndexExpr l =<< typeSize l tt
     b <- typeBase l tt
-    vs <- forM [0..pred (fromEnum sz)] $ \i -> newVarOf ("varr"++show i) b Nothing
+    vs <- forM [0..pred (fromEnum sz)] $ \i -> newVarOf ("varr"++show i) b False Nothing
     tcCstrM_ l $ Unifies t (VArrayT $ VAVal vs b)
     return vs
 expandVariadicType l (t,True) = do
@@ -2449,13 +2449,61 @@ unifiesExpr l doStatic e1 e2@(RVariablePExpr t2 v2@(VarName _ n2@(nonTok -> True
     case mb of
         Nothing -> addValueM l True CheckS v2 e1
         Just e2' -> unifiesExpr l doStatic e1 (fmap typed e2')
+unifiesExpr l doStatic e1@(PostIndexExpr {}) e2 = do
+    e1' <- projectExpr l e1
+    unifiesExpr l doStatic e1' e2
+unifiesExpr l doStatic e1 e2@(PostIndexExpr {}) = do
+    e2' <- projectExpr l e2
+    unifiesExpr l doStatic e1 e2'
 unifiesExpr l doStatic (ArrayConstructorPExpr t1 es1) (ArrayConstructorPExpr t2 es2) = do
     constraintList (UnificationException "expression") (unifiesExprTy l doStatic) l es1 es2
     return ()
+unifiesExpr l doStatic e1@(ArrayConstructorPExpr {}) e2 = do
+    e2' <- expandArrayExpr l e2
+    unifiesExpr l doStatic e1 e2'
+unifiesExpr l doStatic e1 e2@(ArrayConstructorPExpr {}) = do
+    e1' <- expandArrayExpr l e1
+    unifiesExpr l doStatic e1' e2
 unifiesExpr l doStatic e1 e2 = do
     pp1 <- pp e1
     pp2 <- pp e2
-    addErrorM l (TypecheckerError (locpos l) . (EqualityException "expression") (pp1) (pp2) . Just) $ equalsExpr l doStatic e1 e2
+    addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ equalsExpr l doStatic e1 e2
+
+projectExpr :: ProverK loc m => loc -> Expr -> TcM m Expr
+projectExpr l (PostIndexExpr t e s) = do
+    arr' <- expandArrayExpr l e
+    projectArrayExpr l arr' (Foldable.toList s)
+
+projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index VarIdentifier Type] -> TcM m Expr
+projectArrayExpr l e [] = return e
+projectArrayExpr l (ArrayConstructorPExpr t es) (IndexInt _ ie:s) = do
+    i <- liftM fromEnum $ evaluateIndexExpr l ie
+    checkIdx l i es
+    projectArrayExpr l (es !! i) s
+projectArrayExpr l (ArrayConstructorPExpr t es) (IndexSlice _ il iu:s) = do
+    il' <- liftM fromEnum $ evaluateIndexExpr l $ maybe (indexExpr $ toEnum 0) id il
+    iu' <- liftM fromEnum $ evaluateIndexExpr l $ maybe (indexExpr $ toEnum $ length es) id iu
+    checkIdx l il' es
+    checkIdx l iu' es
+    projectArrayExpr l (ArrayConstructorPExpr (chgArraySize (length es) t) $ drop il' $ take iu' es) s
+
+checkIdx :: ProverK loc m => loc -> Int -> [a] -> TcM m ()
+checkIdx l i xs = unless (i >= 0 && i <= length xs) $ do
+    genTcError (locpos l) $ text "failed to evaluate projection"
+
+chgArraySize :: Int -> Type -> Type
+chgArraySize sz (VAType b _) = VAType b (indexExpr $ toEnum sz)
+chgArraySize sz t = t
+
+expandArrayExpr :: ProverK loc m => loc -> Expr -> TcM m Expr
+expandArrayExpr l e = do
+    let t = loc e
+    b <- typeBase l t
+    sz <- evaluateIndexExpr l =<< typeSize l t
+    es <- forM [0..pred (fromEnum sz)] $ \i -> do
+        let w = indexExpr $ toEnum i
+        return $ PostIndexExpr b e $ WrapNe $ IndexInt (loc w) w
+    return $ ArrayConstructorPExpr t es
 
 equalsTIdentifier :: (ProverK loc m) => loc -> TIdentifier -> TIdentifier -> TcM m ()
 equalsTIdentifier l (Right (Right (OpCast _ t1))) (Right (Right (OpCast _ t2))) = do
@@ -2616,15 +2664,15 @@ checkIndex l e = do
 
 pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
 pDecCstrM l isTop doCoerce pid targs es tret = do
-    dec <- newDecVar Nothing
+    dec <- newDecVar False Nothing
     opts <- askOpts
     let tck = if isTop then topTcCstrM_ else tcCstrM_
     if (doCoerce && implicitCoercions opts)
         then do
             xs <- forM es $ \e -> do
-                tx <- newTyVar True Nothing
+                tx <- newTyVar True False Nothing
                 ppe <- ppVariadicArg pp e
-                x <- newTypedVar "parg" tx $ Just ppe
+                x <- newTypedVar "parg" tx False $ Just ppe
                 return x
             tck l $ PDec pid targs es tret dec True xs
             let es' = zip (map varExpr xs) (map snd es)
@@ -2633,7 +2681,7 @@ pDecCstrM l isTop doCoerce pid targs es tret = do
             xs <- forM es $ \e -> do
                 let tx = loc $ fst e
                 ppe <- ppVariadicArg pp e
-                x <- newTypedVar "parg" tx $ Just $ ppe
+                x <- newTypedVar "parg" tx False $ Just $ ppe
                 return x
             tck l $ PDec pid targs es tret dec False xs
             return (dec,es)

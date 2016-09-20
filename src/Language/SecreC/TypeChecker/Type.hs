@@ -168,13 +168,13 @@ buildTypeSpec :: (ProverK loc m) => loc -> Type -> Type -> Expr -> IsVariadic ->
 buildTypeSpec l tsec tdta tdim True = do
     tsecs <- if isVATy (tyOf tsec) then expandVariadicType l (tsec,True) else return [tsec]
     tdtas <- if isVATy (tyOf tdta) then expandVariadicType l (tdta,True) else return [tdta]
-    tdims <- if isVATy (loc tdim) then expandVariadicExpr l (tdim,True) else return [tdim]
+    tdims <- if isVATy (loc tdim) then expandVariadicExpr l False (tdim,True) else return [tdim]
     tzips <- zipCTypeArgs l tsecs tdtas tdims
     ts <- forM tzips $ \(s,b,dim) -> buildTypeSpec l s b dim False
     case ts of
         [t] -> do
-            sz@(RVariablePExpr _ n) <- newSizeVar Nothing
-            removeFree $ varNameId n
+            sz@(RVariablePExpr _ n) <- newSizeVar True Nothing
+--            removeFree $ varNameId n
             return $ VAType t sz
         otherwise -> return $ VArrayT $ VAVal ts (TType True)
 buildTypeSpec l tsec tdta dim False = do
@@ -219,7 +219,7 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM (tcVariadicArg tcTemplateTypeArgument) args
     let ts = map (mapFst (typed . loc)) args'
     let vn = bimap mkVarId id n
-    dec <- newDecVar Nothing
+    dec <- newDecVar False Nothing
     topTcCstrM_ l $ TDec True (funit vn) ts dec
     let ret = TApp (funit vn) ts dec
     let n' = fmap (flip Typed (DecT dec)) vn
@@ -281,6 +281,14 @@ tcRetTypeSpec (ReturnType l (Just t)) = do
     let ty = typed $ loc t'
     return (ReturnType (Typed l ty) (Just t'))
 
+typeSizes :: (ProverK loc m) => loc -> Type -> TcM m (Maybe [Expr])
+typeSizes l (BaseT _) = return $ Just []
+typeSizes l (ComplexT {}) = return Nothing
+typeSizes l (VAType _ sz) = return $ Just [sz]
+typeSizes l t = do
+    ppt <- pp t
+    genTcError (locpos l) $ text "No sizes for type" <+> ppt
+
 -- | Retrieves a constant dimension from a type
 typeDim :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeDim l (BaseT _) = return $ indexExpr 0
@@ -294,42 +302,50 @@ projectMatrixType :: (ProverK loc m) => loc -> Type -> [ArrayProj] -> TcM m Type
 projectMatrixType l (ComplexT ct) rngs = liftM ComplexT $ projectMatrixCType l ct rngs
     where
     projectMatrixCType l ct@(CType sec t dim) rngs = do
-        (dim'') <- projectSizes l ct 1 dim rngs  
-        return $ CType sec t dim''
+        (dim'',Nothing) <- projectSizes l (ComplexT ct) 1 rngs  
+        return $ CType sec t $ indexExpr dim''
     projectMatrixCType l (CVar v@(nonTok -> True) isNotVoid) rngs = do
         t <- resolveCVar l v
         projectMatrixCType l t rngs
-projectMatrixType l (VAType t sz) [rng] = projectSizeTyArray l t sz rng
+projectMatrixType l vt@(VAType t sz) rngs = projectSizesTyArray l vt rngs
     where
-    projectSizeTyArray l t sz (ArrayIdx i) = do
-        projectSize l (VAType t sz) 1 (Just sz) i i
-        return t
-    projectSizeTyArray l t sz (ArraySlice i j) = do
-        Just sz' <- projectSize l (VAType t sz) 1 (Just sz) i j
-        return $ VAType t sz'
+    projectSizesTyArray l vt@(VAType t sz) rngs = do
+        (dim',Just szs') <- projectSizes l vt 1 rngs
+        case (dim',szs') of
+            (0,[]) -> return t
+            (1,[sz']) -> return $ VAType t sz'
+            otherwise -> do
+                ppvt <- pp vt
+                pp2 <- mapM pp rngs
+                ppszs <- pp szs'
+                genTcError (locpos l) $ text "Cannot project type " <+> quotes (ppvt <> brackets (sepBy comma pp2) $+$ text "Unexpected projected dimension" <+> ppid dim' <+> ppszs)
 projectMatrixType l t rngs = do
     ppt <- pp t
     pp2 <- mapM pp rngs
     genTcError (locpos l) $ text "Cannot project type " <+> quotes (ppt <> brackets (sepBy comma pp2))
 
-projectSizes :: (ProverK loc m) => loc -> ComplexType -> Word64 -> Expr -> [ArrayProj] -> TcM m Expr
-projectSizes p ct i dim ys = do
-    n <- evaluateIndexExpr p =<< typeDim p (ComplexT ct)
-    (r) <- projectSizes' p ct i n ys
-    return (indexExpr r)
+projectSizes :: (ProverK loc m) => loc -> Type -> Word64 -> [ArrayProj] -> TcM m (Word64,Maybe [Expr])
+projectSizes p t i ys = do
+    n <- evaluateIndexExpr p =<< typeDim p t
+    szs <- typeSizes p t
+    projectSizes' p t i n szs ys
   where
-    projectSizes' p ct i dim [] = return (dim)
-    projectSizes' p ct i 0 ys = do
-        ppct <- pp ct
+    projectSizes' p t i dim Nothing [] = return (dim,Nothing)
+    projectSizes' p t i dim (Just szs) [] = return (dim,Just [])
+    projectSizes' p t i 0 szs ys = do
+        ppt <- pp t
         pp2 <- pp $ pred i + toEnum (length ys)
-        tcError (locpos p) $ MismatchingArrayDimension (ppct) pp2 Nothing
-    projectSizes' p ct i dim (ArrayIdx y:ys) = do -- project the dimension
-        projectSize p (ComplexT ct) i Nothing y y
-        projectSizes' p ct (succ i) (pred dim) ys
-    projectSizes' p ct i dim (ArraySlice y1 y2:ys) = do -- narrow the dimension
-        projectSize p (ComplexT ct) i Nothing y1 y2
-        (dim') <- projectSizes' p ct (succ i) dim ys
-        return (dim')
+        tcError (locpos p) $ MismatchingArrayDimension (ppt) pp2 Nothing
+    projectSizes' p t i dim Nothing (ArrayIdx y:ys) = do -- project the dimension
+        Nothing <- projectSize p t i Nothing y y
+        projectSizes' p t (succ i) (pred dim) Nothing ys
+    projectSizes' p t i dim (Just (sz:szs)) (ArrayIdx y:ys) = do -- project the dimension
+        Nothing <- projectSize p t i Nothing y y
+        projectSizes' p t (succ i) (pred dim) (Just szs) ys
+    projectSizes' p t i dim (Just (sz:szs)) (ArraySlice y1 y2:ys) = do -- narrow the dimension
+        Just sz' <- projectSize p t i (Just sz) y1 y2
+        (dim',Just szs') <- projectSizes' p t (succ i) dim (Just szs) ys
+        return (dim',Just (sz:szs'))
 
 projectSize :: (ProverK loc m) => loc -> Type -> Word64 -> Maybe Expr -> ArrayIndex -> ArrayIndex -> TcM m (Maybe Expr)
 projectSize p t i Nothing y1 y2 = return Nothing
@@ -493,8 +509,8 @@ isPrivate l doUnify t = do
     
 isPrivateSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
 isPrivateSec l True s = do
-    k' <- newKindVar "pk" True Nothing
-    s' <- newDomainTyVar "ps" k' Nothing
+    k' <- newKindVar "pk" True False Nothing
+    s' <- newDomainTyVar "ps" k' False Nothing
     unifiesSec l s s'
 isPrivateSec l False (Private {}) = return ()
 isPrivateSec l False s = do

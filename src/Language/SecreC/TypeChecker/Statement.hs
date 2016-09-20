@@ -137,9 +137,9 @@ tcStmt ret (WhileStatement l condE ann bodyS) = do
 tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- withExprC ReadOnlyE $ mapM (tcVariadicArg (tcExpr)) argsE
     xs <- forM argsE' $ \argE' -> do
-        tx <- newTyVar True Nothing
+        tx <- newTyVar True False Nothing
         pparg <- ppVariadicArg pp argE'
-        newTypedVar "print" tx $ Just pparg
+        newTypedVar "print" tx False $ Just pparg
     topTcCstrM_ l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
@@ -174,7 +174,7 @@ tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- withExprC ReadWriteE $ tcExpr e
     let et' = typed $ loc e'
     ppe <- pp e
-    x <- newTypedVar "ret" ret $ Just ppe
+    x <- newTypedVar "ret" ret False $ Just ppe
     topTcCstrM_ l $ Coerces (fmap typed e') x
     let t = StmtType (Set.singleton $ StmtReturn)
     let ex = fmap (Typed l) $ RVariablePExpr ret x
@@ -267,7 +267,7 @@ tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e
     (ty',szs') <- tcTypeSizes l ty szs
     e' <- withExprC PureE $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
-    vn <- addConst scope False n
+    vn <- addConst scope False False n
     let v' = VarName (Typed vl ty') vn
     -- add variable to the environment
     isAnn <- getAnn
@@ -279,7 +279,7 @@ tcDefaultInitExpr l isHavoc ty szs (Just e) = do
     liftM Just $ tcExprTy ty e
 tcDefaultInitExpr l True ty szs Nothing = return Nothing
 tcDefaultInitExpr l False ty szs Nothing = liftM Just $ do
-    x <- liftM varExpr $ newTypedVar "def" ty Nothing
+    x <- liftM varExpr $ newTypedVar "def" ty False Nothing
     let szsl = case szs of
                 Nothing -> Nothing
                 Just (Sizes xs) -> Just $ map (mapFst $ fmap typed) $ Foldable.toList xs
