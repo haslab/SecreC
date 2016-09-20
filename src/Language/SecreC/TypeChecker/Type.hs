@@ -342,6 +342,9 @@ projectSizes p t i ys = do
     projectSizes' p t i dim (Just (sz:szs)) (ArrayIdx y:ys) = do -- project the dimension
         Nothing <- projectSize p t i Nothing y y
         projectSizes' p t (succ i) (pred dim) (Just szs) ys
+    projectSizes' p t i dim Nothing (ArraySlice y1 y2:ys) = do -- narrow the dimension
+        Nothing <- projectSize p t i Nothing y1 y2
+        projectSizes' p t (succ i) dim Nothing ys
     projectSizes' p t i dim (Just (sz:szs)) (ArraySlice y1 y2:ys) = do -- narrow the dimension
         Just sz' <- projectSize p t i (Just sz) y1 y2
         (dim',Just szs') <- projectSizes' p t (succ i) dim (Just szs) ys
