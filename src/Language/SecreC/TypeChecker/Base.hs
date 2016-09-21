@@ -1438,11 +1438,19 @@ freeVarId n isVariadic doc = do
 
 type Frees = Map VarIdentifier IsVariadic
 
-addFree :: Monad m => VarIdentifier -> Bool -> TcM m ()
-addFree n isVariadic = State.modify $ \env -> env { localFrees = Map.insert n isVariadic (localFrees env) }
+addFree :: MonadIO m => VarIdentifier -> Bool -> TcM m ()
+addFree n isVariadic = do
+    debugTc $ do
+        ppn <- ppr n
+        liftIO $ putStrLn $ "addFree " ++ ppn ++ " " ++ pprid isVariadic
+    State.modify $ \env -> env { localFrees = Map.insert n isVariadic (localFrees env) }
 
-removeFree :: Monad m => VarIdentifier -> TcM m ()
-removeFree n = State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
+removeFree :: MonadIO m => VarIdentifier -> TcM m ()
+removeFree n = do
+    debugTc $ do
+        ppn <- ppr n
+        liftIO $ putStrLn $ "removeFree " ++ ppn
+    State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
 
 instance PP m VarIdentifier => PP m TDict where
     pp dict = do

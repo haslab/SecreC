@@ -76,13 +76,14 @@ iDecPos d@(StructType sl sid@(TypeName _ sn) atts cl) = sl
 iDecPos d@(AxiomType isLeak p qs pargs cl) = p
 iDecPos d@(LemmaType isLeak pl n pargs panns body cl) = pl
 
-withFrees :: Monad m => TcM m a -> TcM m a
-withFrees m = do
+withFrees :: ProverK loc m => loc -> TcM m a -> TcM m (a,Frees,Frees)
+withFrees l m = do
     old <- State.gets localFrees
     State.modify $ \env -> env { localFrees = Map.empty }
     x <- m
+    new <- getFrees l
     State.modify $ \env -> env { localFrees = old }
-    return x
+    return (x,new,old `Map.difference` new)
 
 getDoSolve :: Monad m => TcM m Bool
 getDoSolve = State.gets (\e -> length (tDict e) <= 1)
