@@ -34,9 +34,9 @@ void main () {
   assert ( declassify ((t ? one : two) == one) );
   assert ( declassify ((f ? one : two) == two) );
 
-  val := t ? load_one() : load_two();
+  val = t ? load_one() : load_two();
   assert (val == 1);
   
-  val := f ? load_one() : load_two();
+  val = f ? load_one() : load_two();
   assert (val == 2);
 }
