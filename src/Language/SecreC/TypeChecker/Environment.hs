@@ -1094,7 +1094,10 @@ resolveIOCstr l iok resolve = do
         Evaluated rest x -> do
             remove
             addHeadTDict l "resolveIOCstr" rest
-            --liftIO $ putStrLn $ "restored constraint " ++ ppr (ioCstrId iok) ++ "\n" ++ ppr rest
+            debugTc $ do
+                ppiok <- ppr (ioCstrId iok)
+                pprest <- ppr rest
+                liftIO $ putStrLn $ "restored constraint " ++ ppiok ++ "\n" ++ pprest
             return x
         Erroneous err -> throwError err
         Unevaluated -> trySolve

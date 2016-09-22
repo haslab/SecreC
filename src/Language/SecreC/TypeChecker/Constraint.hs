@@ -250,7 +250,11 @@ trySolveCstr mode (Loc l iok) = do
                 (do
                     opens <- State.gets (map fst . openedCstrs)
                     if List.elem iok opens
-                        then return (Left False)
+                        then do
+                            debugTc $ do
+                                ppx <- ppr (ioCstrId iok)
+                                liftIO $ putStrLn $ "found opened constraint " ++ ppx
+                            return (Left False)
                         else solveIOCstr_ l "trySolveCstr" mode iok >> return (Left True)
                 )
                 (\e -> return $ Right [(Loc l iok,e)])

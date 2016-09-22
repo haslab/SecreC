@@ -1319,6 +1319,7 @@ data TDict = TDict
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     , tRec :: ModuleTcEnv -- recursive environment
+    , tPromoted :: Set Int -- promoted constraints
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1329,6 +1330,7 @@ data PureTDict = PureTDict
     { pureCstrs :: TCstrGraph
     , pureSubsts :: TSubsts
     , pureRec :: ModuleTcEnv
+    , purePromoted :: Set Int -- promoted constraints
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable PureTDict

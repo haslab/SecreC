@@ -159,6 +159,11 @@ resolveTemplateEntries l kid n targs pargs ret es = do
 
 resolveTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryEnv -> EntryEnv -> [(Type,IsVariadic)] -> TDict -> Set Int -> Frees -> Frees -> TcM m DecType
 resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees delfrees = do
+    debugTc $ do
+        ppn <- ppr n
+        pptargs <- ppr targs
+        pppargs <- ppr pargs
+        liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppn ++ " " ++ pptargs ++ " " ++ pppargs ++ " promoted " ++ pprid promoted
     -- delete promoted constraints
     buildCstrGraph p promoted promoted
     -- remove frees
