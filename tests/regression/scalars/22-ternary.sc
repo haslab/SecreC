@@ -18,9 +18,9 @@ sharemind_test_pd bool operator == (sharemind_test_pd int x,sharemind_test_pd in
 
 int val = 0;
 
-void load_one () { val = 1; }
+int load_one () { return 1; }
 
-void load_two () { val = 2; }
+int load_two () { return 2; }
 
 void main () {
   bool t = true;
@@ -34,9 +34,9 @@ void main () {
   assert ( declassify ((t ? one : two) == one) );
   assert ( declassify ((f ? one : two) == two) );
 
-  t ? load_one() : load_two();
+  val := t ? load_one() : load_two();
   assert (val == 1);
   
-  f ? load_one() : load_two();
+  val := f ? load_one() : load_two();
   assert (val == 2);
 }
