@@ -108,30 +108,30 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
                 (e,e',targs',dict,promotes,frees,delfrees,solved):es <- sortByM (\x y -> compareTemplateDecls def l False n x y >>= \(o1,o2) -> return (mappend o1 o2)) oks
                 mapM_ discardMatchingEntry es
                 resolveTemplateEntry l kid n targs pargs ret e e' targs' dict promotes frees delfrees solved
-            
 
--- sort the templates, filtering out greater templates that do not template on coercions
+-- sort the templates, filtering out greater templates that do not rely on coercions
 compMins :: Monad m => (a -> a -> m (Ordering,Ordering)) -> [a] -> [a] -> m [a]
 compMins cmp [] (a:b:xs) = do
     (o,is) <- cmp a b
-    case mappend o is of
-        EQ -> compMins cmp [a,b] xs
-        LT -> if is /= EQ then compMins cmp [a,b] xs else compMins cmp [a] xs
-        GT -> if is /= EQ then compMins cmp [b,a] xs else compMins cmp [b] xs 
+    case (o,is) of
+        (EQ,EQ) -> compMins cmp [a,b] xs -- keep both
+        (EQ,LT) -> compMins cmp [a,b] xs -- keep both
+        (EQ,GT) -> compMins cmp [b,a] xs -- keep both
+        (LT,EQ) -> compMins cmp [a] xs -- keep first
+        (LT,LT) -> compMins cmp [a] xs -- keep first
+        (GT,EQ) -> compMins cmp [b] xs -- keep both
+        (GT,GT) -> compMins cmp [b] xs -- keep both
 compMins cmp (min:mins) (x:xs) = do
-    (o,is) <- cmp min x
-    case mappend o is of
-        EQ -> compMins cmp [min,x] xs
-        LT -> if is /= EQ
-            then do
-                mins' <- sortByM (\x y -> liftM fst $ cmp x y) (x:min:mins)
-                compMins cmp mins' xs
-            else compMins cmp (min:mins) xs
-        GT -> if is /= EQ
-            then do
-                mins' <- sortByM (\x y -> liftM fst $ cmp x y) (x:min:mins)
-                compMins cmp mins' xs
-            else compMins cmp [x] xs
+    (o,is) <- cmp x min
+    case (o,is) of
+        (EQ,EQ) -> compMins cmp (x:min:mins) xs
+        (EQ,LT) -> compMins cmp (x:min:mins) xs
+        (EQ,GT) -> insertByM compMin x mins >>= \mins' -> compMins cmp (min:mins') xs
+        (LT,EQ) -> compMins cmp [x] xs
+        (LT,LT) -> compMins cmp [x] xs
+        (GT,EQ) -> compMins cmp (min:mins) xs
+        (GT,GT) -> compMins cmp (min:mins) xs
+  where compMin x y = liftM (uncurry mappend) (cmp x y)
 compMins cmp mins [] = return mins
 
 discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,Solved) -> TcM m ()
@@ -150,7 +150,8 @@ resolveTemplateEntries l kid n targs pargs ret [(e,e',targs',dict,dicts,frees,de
 resolveTemplateEntries l kid n targs pargs ret es = do
     debugTc $ do
         ppkid <- ppr kid
-        liftIO $ putStrLn $ "resolveTemplateEntries " ++ ppkid
+        let ppes = show $ map (\(e,_,_,_,_,_,_,_) -> pprid $ decTypeTyVarId $ unDecT $ entryType e) es
+        liftIO $ putStrLn $ "resolveTemplateEntries " ++ ppkid ++ " " ++ ppes
     let choice (e,e',targs',dict,dicts,frees,delfrees,solved) = do
         ppkid <- pp kid
         return $ ((resolveTemplateEntry l kid n targs pargs ret e e' targs' dict dicts frees delfrees solved,text "resolveTemplateEntry" <+> ppkid),(return,PP.empty),(return,PP.empty),Map.keysSet frees)
@@ -163,7 +164,8 @@ resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees d
         ppn <- ppr n
         pptargs <- ppr targs
         pppargs <- ppr pargs
-        liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppn ++ " " ++ pptargs ++ " " ++ pppargs ++ " promoted " ++ pprid promoted
+        ppe <- ppr e
+        liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppn ++ " " ++ pptargs ++ " " ++ pppargs ++ " promoted " ++ ppe
     -- add solved constraints
     addSolvedCstrs p solved
     -- delete promoted constraints
@@ -325,7 +327,10 @@ compareProcedureArgs l isLattice xs xs' ys ys' = constraintError (ComparisonExce
 -- compare original declarations, not instantiated ones
 compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,Solved) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,Solved) -> TcM m (Ordering,Ordering)
 compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_,_,_) (e2,e2',_,d2,_,_,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
-    --liftIO $ putStrLn $ "compareTemplateDecls " ++ ppr e1 ++ "\n" ++ ppr e2
+    debugTc $ do
+        pp1 <- ppr e1
+        pp2 <- ppr e2
+        liftIO $ putStrLn $ "compareTemplateDecls " ++ pp1 ++ "\n" ++ pp2
     State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
     --e1' <- localTemplate e1
     --e2' <- localTemplate e2
@@ -336,7 +341,7 @@ compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_,_,_) (e2,e2',_,d2,_,_,_,
     unless (isJust ret1 == isJust ret2) $ do
         ppe1 <- ppr e1
         ppe2 <- ppr e2
-        error $ "declarations should have the same type " ++ ppe1 ++ "\n" ++ ppe2
+        error $ "declarations should have the same return type " ++ ppe1 ++ "\n" ++ ppe2
     --removeTSubsts $ tpltTyVars targs1
     --removeTSubsts $ tpltTyVars targs2
     let f (e,d) = do
@@ -359,7 +364,7 @@ compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_,_,_) (e2,e2',_,d2,_,_,_,
         appendComparisons l [ord2,ord3,ord4]
     let (o,isLat) = compOrdering ord
     when (mappend o isLat == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
-    --liftIO $ putStrLn $ "finished comparing " ++ ppr e1 ++ "\n" ++ ppr e2
+    debugTc $ liftIO $ putStrLn $ "finished comparing decls " ++ pprid (o,isLat)
     return (o,isLat)
 
 -- favor specializations over the base template

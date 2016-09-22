@@ -363,6 +363,16 @@ funzip xs = (fmap fst xs,fmap snd xs)
 mapAndUnzipM :: (Monad m,Traversable t) => (c -> m (a,b)) -> t c -> m (t a,t b)
 mapAndUnzipM f = liftM funzip . Traversable.mapM f
 
+-- monadic insert an element into a sorted list
+insertByM :: Monad m => (a -> a -> m Ordering) -> a -> [a] -> m [a]
+insertByM cmp x [] = return [x]
+insertByM cmp x (y:ys) = do
+    o <- cmp x y
+    case o of
+        EQ -> return (x:y:ys)
+        LT -> return (x:y:ys)
+        GT -> liftM (y:) (insertByM cmp x ys)
+
 sortByM :: Monad m => (a -> a -> m Ordering) -> [a] -> m [a]
 sortByM cmp = mergeAll <=< sequences
   where
