@@ -73,7 +73,7 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
             Just v -> do
                 b <- isBound v
                 isLHS <- getLHS
-                if (b || isLHS)
+                if (maybe False not b || maybe False not isLHS)
                     then do
                         --liftIO $ putStrLn $ "isBound " ++ ppr v
                         (_,_,(_,ss),_,_) <- State.get
@@ -93,7 +93,7 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
     subst :: Vars iden m iden => String -> Substs iden m -> Bool -> Map iden iden -> a -> m a
     subst msg f substBounds ss x = do
         --liftIO $ putStrLn $ "subst " ++ show msg
-        x <- State.evalStateT (substVarsM f x) (False,False,(substBounds,ss),Map.empty,Set.empty)
+        x <- State.evalStateT (substVarsM f x) (Nothing,False,(substBounds,ss),Map.empty,Map.empty)
         --liftIO $ putStrLn $ "unSubsts " ++ show msg
         return x
     
@@ -102,11 +102,11 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
         
     fvs :: a -> m (Map iden Bool)
     fvs a = do
-        (x,lval,s,y,z) <- State.execStateT (varsM a) (False,False,(False,Map.empty),Map.empty,Set.empty)
+        (x,lval,s,y,z) <- State.execStateT (varsM a) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
         return y
-    bvs :: a -> m (Set iden)
+    bvs :: a -> m (Map iden Bool)
     bvs a = do
-        (x,lval,s,y,z) <- State.execStateT (varsM a) (False,False,(False,Map.empty),Map.empty,Set.empty)
+        (x,lval,s,y,z) <- State.execStateT (varsM a) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
         return z
     
     varsM :: a -> VarsM iden m a
@@ -130,29 +130,29 @@ substsProxyFromList ((x,y):xs) = SubstsProxy (\proxy iden -> case (eqTypeOf (typ
     EqT -> if x==iden then return (Just y) else (unSubstsProxy $ substsProxyFromList xs) proxy iden
     otherwise -> return Nothing)
 
-isBound :: (GenVar iden m,IsScVar m iden,Monad m) => iden -> VarsM iden m Bool
+isBound :: (GenVar iden m,IsScVar m iden,Monad m) => iden -> VarsM iden m (Maybe Bool)
 isBound v = do
     (_,lval,ss,fvs,bvs) <- State.get
-    return $ v `Set.member` bvs
+    return $ Map.lookup v bvs
 
 type VarsM iden m = StateT
-    (Bool -- is left-hand side
+    (Maybe Bool -- is left-hand side
     ,Bool -- is l-value
     ,(Bool,Map iden iden) -- bound substitutions
     ,Map iden Bool -- free vars (read=False or written=True)
-    ,Set iden -- bound vars
+    ,Map iden Bool-- bound vars (variable=false or name=True)
     )
     m
 
 type IsScVar m a = (Data a,Show a,PP m a,Eq a,Ord a,Typeable a)
 
-getLHS :: Monad m => VarsM iden m Bool
+getLHS :: Monad m => VarsM iden m (Maybe Bool)
 getLHS = liftM (\(x,lval,ss,y,z) -> x) State.get
 
-inLHS :: Monad m => VarsM iden m a -> VarsM iden m a
-inLHS m = do
+inLHS :: Monad m => Bool -> VarsM iden m a -> VarsM iden m a
+inLHS isName m = do
     (lhs,lval,ss,fvs,bvs) <- State.get
-    (x,(_,lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (True,lval,ss,fvs,bvs)
+    (x,(_,lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (Just isName,lval,ss,fvs,bvs)
     State.put (lhs,lval',ss',fvs',bvs')
     return x
 
@@ -166,7 +166,7 @@ inLVal m = do
 inRHS :: Monad m => VarsM iden m a -> VarsM iden m a
 inRHS m = do
     (lhs,lval,ss,fvs,bvs) <- State.get
-    (x,(_,lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (False,lval,ss,fvs,bvs)
+    (x,(_,lval',ss',fvs',bvs')) <- State.lift $ State.runStateT m (Nothing,lval,ss,fvs,bvs)
     State.put (lhs,lval',ss',fvs',bvs')
     return x
 
@@ -179,7 +179,7 @@ varsBlock m = do
 
 addFV :: (GenVar iden m,IsScVar m iden,MonadIO m) => iden -> VarsM iden m iden
 addFV x = do
-    State.modify $ \(lhs,lval,ss,fvs,bvs) -> if Set.member x bvs
+    State.modify $ \(lhs,lval,ss,fvs,bvs) -> if isJust (Map.lookup x bvs)
         then (lhs,lval,ss,fvs,bvs) -- don't add an already bound variable to the free variables
         else (lhs,lval,ss,Map.insertWith (||) x lval fvs,bvs)
     return x
@@ -188,8 +188,9 @@ addBV :: (GenVar iden m,IsScVar m iden,MonadIO m) => iden -> VarsM iden m iden
 addBV x = do
     --liftIO $ putStrLn $ "addBV " ++ ppr x
     (lhs,lval,(substBounds,ss),fvs,bvs) <- State.get
-    (x',ss') <- if substBounds then liftM (\x' -> (x',Map.insert x x' ss)) (State.lift $ genVar x) else return (x,ss)
-    State.put (lhs,lval,(substBounds,ss'),fvs,Set.insert x bvs)
+    let isName = maybe False id lhs
+    (x',ss') <- if not isName && substBounds then liftM (\x' -> (x',Map.insert x x' ss)) (State.lift $ genVar x) else return (x,ss)
+    State.put (lhs,lval,(substBounds,ss'),fvs,Map.insert x isName bvs)
     return x'
 
 instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m Integer where
@@ -319,7 +320,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
     traverseVars f (ProcedureDeclaration l t n args anns s) = do
         l' <- f l
         t' <- f t
-        n' <- inLHS $ f n
+        n' <- inLHS True $ f n
         varsBlock $ do
             args' <- mapM f args
             anns' <- mapM f anns
@@ -339,7 +340,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
     traverseVars f (FunDeclaration isLeak l t n args anns e) = do
         l' <- f l
         t' <- f t
-        n' <- inLHS $ f n
+        n' <- inLHS True $ f n
         varsBlock $ do
             args' <- mapM f args
             anns' <- mapM f anns
@@ -349,7 +350,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
 instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (AxiomDeclaration iden loc) where
     traverseVars f (AxiomDeclaration isLeak l qs args anns) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
+        qs' <- inLHS False $ mapM f qs
         varsBlock $ do
             args' <- mapM f args
             anns' <- mapM f anns
@@ -358,7 +359,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
 instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (LemmaDeclaration iden loc) where
     traverseVars f (LemmaDeclaration isLeak n l qs args anns body) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
+        qs' <- inLHS False $ mapM f qs
         varsBlock $ do
             args' <- mapM f args
             anns' <- mapM f anns
@@ -369,7 +370,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
     traverseVars f (ProcedureParameter l isConst t isVariadic v) = do
         l' <- f l
         t' <- f t
-        v' <- inLHS $ f v
+        v' <- inLHS False $ f v
         return $ ProcedureParameter l' isConst t' isVariadic v'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
@@ -649,7 +650,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         l' <- f l
         q' <- f q
         varsBlock $ do
-            vs' <- inLHS $ mapM f vs
+            vs' <- inLHS False $ mapM f vs
             e' <- f e
             return $ QuantifiedExpr l' q' vs' e'
     
@@ -751,7 +752,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (VariableInitialization iden loc) where
     traverseVars f (VariableInitialization l v sz e) = do
         l' <- f l
-        v' <- inLHS $ f v
+        v' <- inLHS False $ f v
         sz' <- mapM f sz
         e' <- mapM f e
         return $ VariableInitialization l' v' sz' e'
@@ -849,19 +850,19 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         return $ TemplateStructureSpecialization l' qs' specs' s'
     traverseVars f (TemplateProcedureDeclaration l qs p) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
+        qs' <- inLHS False $ mapM f qs
         p' <- f p
         return $ TemplateProcedureDeclaration l' qs' p'
     traverseVars f (TemplateFunctionDeclaration l qs p) = do
         l' <- f l
-        qs' <- inLHS $ mapM f qs
+        qs' <- inLHS False $ mapM f qs
         p' <- f p
         return $ TemplateFunctionDeclaration l' qs' p'
 
 instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (StructureDeclaration iden loc) where
     traverseVars f (StructureDeclaration l n as) = do
         l' <- f l
-        n' <- inLHS $ f n
+        n' <- inLHS True $ f n
         as' <- mapM f as
         return $ StructureDeclaration l' n' as'
 
@@ -869,7 +870,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
     traverseVars f (Attribute l t a szs) = do
         l' <- inRHS $ f l
         t' <- inRHS $ f t
-        a' <- inLHS $ f a
+        a' <- inLHS True $ f a
         szs' <- inRHS $ f szs
         return $ Attribute l' t' a' szs'
 
@@ -889,37 +890,37 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
     traverseVars f (DomainQuantifier l b d k) = do
         l' <- f l
         b' <- f b
-        d' <- inLHS $ f d
+        d' <- inLHS False $ f d
         k' <- mapM f k
         return $ DomainQuantifier l' b' d' k'
     traverseVars f (KindQuantifier l b0 b k) = do
         l' <- f l
         b0' <- f b0
         b' <- f b
-        k' <- inLHS $ f k
+        k' <- inLHS False $ f k
         return $ KindQuantifier l' b0' b' k'
     traverseVars f (DimensionQuantifier l b d e) = do
         l' <- f l
         b' <- f b
-        d' <- inLHS $ f d
+        d' <- inLHS False $ f d
         e' <- f e
         return $ DimensionQuantifier l' b' d' e'
     traverseVars f (DataQuantifier l b t) = do
         l' <- f l
         b' <- f b
-        t' <- inLHS $ f t
+        t' <- inLHS False $ f t
         return $ DataQuantifier l' b' t'
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (KindDeclaration iden loc) where
     traverseVars f (Kind l n) = do
         l' <- f l
-        n' <- inLHS $ f n
+        n' <- inLHS True $ f n
         return $ Kind l' n'
 
 instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (DomainDeclaration iden loc) where
     traverseVars f (Domain l d k) = do
         l' <- f l
-        d' <- inLHS $ f d
+        d' <- inLHS True $ f d
         k' <- f k
         return $ Domain l' d' k'
 

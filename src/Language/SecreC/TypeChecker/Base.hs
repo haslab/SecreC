@@ -1398,7 +1398,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
         where
         aux [] = return []
         aux ((k,v):xs) = do
-            k' <- inLHS $ f k
+            k' <- inLHS False $ f k
             v' <- f v
             xs' <- aux xs
             return ((k',v'):xs')
@@ -2361,7 +2361,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
     traverseVars f (DecType tid isRec vs hd hfrees d frees spes t) = do
         isRec' <- mapM f isRec
         varsBlock $ do
-            vs' <- inLHS $ mapM f vs
+            vs' <- inLHS False $ mapM f vs
             hfrees' <- liftM Map.fromList $ mapM f $ Map.toList hfrees
             frees' <- liftM Map.fromList $ mapM f $ Map.toList frees
             hd' <- f hd
@@ -2378,7 +2378,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m InnerDecType where
     traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
         n' <- f n
-        vs' <- inLHS $ mapM f vs
+        vs' <- inLHS False $ mapM f vs
         t' <- f t
         ann' <- mapM f ann
         stmts' <- f stmts
@@ -2386,27 +2386,27 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
         return $ ProcType p n' vs' t' ann' stmts' c'
     traverseVars f (LemmaType isLeak p n vs ann stmts c) = varsBlock $ do
         n' <- f n
-        vs' <- inLHS $ mapM f vs
+        vs' <- inLHS False $ mapM f vs
         ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
         return $ LemmaType isLeak p n' vs' ann' stmts' c'
     traverseVars f (FunType isLeak p n vs t ann stmts c) = varsBlock $ do
         n' <- f n
-        vs' <- inLHS $ mapM f vs
+        vs' <- inLHS False $ mapM f vs
         t' <- f t
         ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
         return $ FunType isLeak p n' vs' t' ann' stmts' c'
     traverseVars f (AxiomType isLeak p ps ann c) = varsBlock $ do
-        ps' <- inLHS $ mapM f ps
+        ps' <- inLHS False $ mapM f ps
         ann' <- mapM f ann
         c' <- f c
         return $ AxiomType isLeak p ps' ann' c'
     traverseVars f (StructType p n as cl) = varsBlock $ do
         n' <- f n
-        as' <- inLHS $ mapM f as
+        as' <- inLHS True $ mapM f as
         cl' <- f cl
         return $ StructType p n' as' cl'
     
@@ -2807,7 +2807,7 @@ instance MonadIO m => GenVar VarIdentifier (TcM m) where
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do
         isLHS <- getLHS
-        if isLHS then addBV n else addFV n
+        if isJust isLHS then addBV n else addFV n
     substL v | not (varIdTok v) = return $ Just v
     substL v = return Nothing
 

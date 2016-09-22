@@ -77,7 +77,7 @@ tcStmts ret (s:ss) = do
     ssFvs <- liftM Map.keysSet $ fvs $ map (bimap mkVarId id) ss
     (ss',StmtType cs) <- tcStmts ret ss
     -- issue warning for unused variable declarations
-    forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> do
+    forSetM_ (Map.keysSet sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> do
         ppv <- pp v
         tcWarn (locpos $ loc s) $ UnusedVariable (ppv)
     return (s':ss',StmtType $ extendStmtClasses c cs)
