@@ -121,9 +121,9 @@ defaultSolveMode = do
     doAll <- getDoAll
     doSolve <- getDoSolve
     case (doAll,doSolve) of
-        (True,True) -> return $ SolveMode (AllFail True) SolveAll
-        (True,False) -> return $ SolveMode (AllFail False) SolveGlobal
-        otherwise -> return $ SolveMode (AllFail False) SolveLocal
+        (True,True) -> return $ SolveMode (AllFail True) SolveAll False
+        (True,False) -> return $ SolveMode (AllFail False) SolveGlobal False
+        otherwise -> return $ SolveMode (AllFail False) SolveLocal False
     
 -- | solves all constraints in the top environment
 solveWith :: (ProverK loc m) => loc -> String -> SolveMode -> TcM m ()
@@ -248,12 +248,12 @@ trySolveCstr mode (Loc l iok) = do
             then return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved global constraint") Nothing)]
             else catchError
                 (do
-                    opens <- State.gets (map fst . openedCstrs)
-                    if List.elem iok opens
+                    opens <- getOpensSolved
+                    if Set.member (ioCstrId iok) opens
                         then do
                             debugTc $ do
                                 ppx <- ppr (ioCstrId iok)
-                                liftIO $ putStrLn $ "found opened constraint " ++ ppx
+                                liftIO $ putStrLn $ "found opened or promoted constraint " ++ ppx
                             return (Left False)
                         else solveIOCstr_ l "trySolveCstr" mode iok >> return (Left True)
                 )
@@ -324,8 +324,8 @@ solveErrors l mode errs = do
 
 guessCstr :: ProverK Position m => [(LocIOCstr,SecrecError)] -> TcM m (Maybe (LocIOCstr,[LocIOCstr]))
 guessCstr errs = do
-    opens <- State.gets (map fst . openedCstrs)
-    search $ filter (\(Loc l iok,err) -> not $ List.elem iok opens) errs
+    opens <- getOpensSolved
+    search $ filter (\(Loc l iok,err) -> not $ Set.member (ioCstrId iok) opens) errs
   where
     search [] = return Nothing
     search (x:xs) = do
@@ -346,7 +346,7 @@ solveIOCstr_ l msg mode iok = do
             liftIO $ putStrLn $ "nonsolvedIOCstr " ++ ppiok ++ " " ++ pperr
         throwError err)
   where
-    solve = newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
+    solve = newErrorM $ resolveIOCstr_ l (solveDelay mode) iok $ \k gr ctx -> do
         --olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
         ppiok <- ppr iok
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppiok) ctx
@@ -382,7 +382,7 @@ solveIOCstr_ l msg mode iok = do
         return res
 
 solveNewCstr_ :: ProverK loc m => loc -> SolveMode -> IOCstr -> TcM m ()
-solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolveTCstr l mode (ioCstrId iok) k)
+solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l (solveDelay mode) iok (\k gr ctx -> resolveTCstr l mode (ioCstrId iok) k)
 
 -- * Throwing Constraints
 

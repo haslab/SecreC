@@ -85,6 +85,15 @@ withFrees l m = do
     State.modify $ \env -> env { localFrees = old }
     return (x,new,old `Map.difference` new)
 
+withSolved :: ProverK loc m => loc -> TcM m a -> TcM m (a,Solved)
+withSolved l m = do
+    old <- State.gets solvedCstrs
+    State.modify $ \env -> env { solvedCstrs = Map.empty }
+    x <- m
+    solved <- State.gets solvedCstrs
+    State.modify $ \env -> env { solvedCstrs = old }
+    return (x,solved)
+
 getDoSolve :: Monad m => TcM m Bool
 getDoSolve = State.gets (\e -> length (tDict e) <= 1)
 
@@ -812,9 +821,9 @@ topCstrs l = do
     
 dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocIOCstr)
 dependentCstrs l kids = do
-    opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
+    opens <- getOpensSolved
     gr <- getCstrs
-    return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++opens) gr
+    return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++Set.toList opens) gr
     
 buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> Set Int -> TcM m IOCstrGraph
 buildCstrGraph l cstrs drops = do
@@ -871,10 +880,10 @@ splitHead l deps dec = do
     hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
     let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
     let bfrees = Map.difference frees hfrees
-    opens <- liftM openedCstrs State.get
-    let cs = Set.difference (mapSet unLoc deps) (Set.fromList $ map fst opens)
+    opens <- getOpensSolved
+    let cs = Set.difference (mapSet (ioCstrId . unLoc) deps) opens
     let gr = Graph.trc cstrs
-    let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,ioCstrId h)) cs) gr
+    let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,h)) cs) gr
     let bgr = differenceGr gr hgr
 --    liftIO $ putStrLn $ "splitHead " ++ ppr hgr ++ "\n|\n" ++ ppr bgr
     return (PureTDict hgr emptyTSubsts (tRec d),hfrees,PureTDict bgr emptyTSubsts mempty,bfrees,dec')
@@ -1084,11 +1093,22 @@ closeCstr :: (MonadIO m) => TcM m ()
 closeCstr = do
     State.modify $ \e -> e { openedCstrs = tail (openedCstrs e) }
 
-resolveIOCstr_ :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
-resolveIOCstr_ l iok resolve = resolveIOCstr l iok resolve >> return ()
+solvesCstr :: (ProverK loc m) => loc -> Bool -> IOCstr -> TCstrStatus -> TcM m ()
+solvesCstr l True iok st = State.modify $ \e -> e { solvedCstrs = Map.insert (Loc (locpos l) iok) st (solvedCstrs e) }
+solvesCstr l False iok st = liftIO $ writeIdRef (kStatus iok) st
+    
+addSolvedCstrs :: (ProverK loc m) => loc -> Solved -> TcM m ()
+addSolvedCstrs l is = do
+    tops <- topCstrs l
+    let (solves,delays) = Map.partitionWithKey (\k v -> Set.member k tops) is
+    forM_ (Map.toList solves) $ \(Loc _ iok,st) -> liftIO $ writeIdRef (kStatus iok) st
+    State.modify $ \e -> e { solvedCstrs = Map.union (solvedCstrs e) delays }
 
-resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
-resolveIOCstr l iok resolve = do
+resolveIOCstr_ :: ProverK loc m => loc -> Bool -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
+resolveIOCstr_ l delaySolve iok resolve = resolveIOCstr l delaySolve iok resolve >> return ()
+
+resolveIOCstr :: ProverK loc m => loc -> Bool -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
+resolveIOCstr l delaySolve iok resolve = do
     st <- liftIO $ readIdRef (kStatus iok)
     case st of
         Evaluated rest x -> do
@@ -1108,8 +1128,8 @@ resolveIOCstr l iok resolve = do
         let ctx = contextGr gr (ioCstrId iok)
         (x,rest) <- tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
         remove
-        liftIO $ writeIdRef (kStatus iok) $ Evaluated rest x
         closeCstr
+        solvesCstr l delaySolve iok $ Evaluated rest x
         addHeadTDict l "resolveIOCstr" rest
         -- register constraints dependencies from the dictionary into the global state
         registerIOCstrDependencies iok gr ctx
@@ -1128,7 +1148,7 @@ registerIOCstrDependencies iok gr ctx = do
 -- | adds a dependency on the given variable for all the opened constraints
 addGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 addGDependencies v = do
-    cstrs <- liftM (map fst . openedCstrs) State.get
+    cstrs <- getOpens
     --liftIO $ putStrLn $ "addGDependencies: " ++ ppr v ++ " " ++ show (sepBy space (map (pp . ioCstrId) cstrs))
     addGDependency v cstrs
     
@@ -1245,7 +1265,7 @@ updateHeadTDict l msg upd = do
 dirtyGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
 dirtyGDependencies v = do
     --debugTc $ liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
-    opens <- liftM openedCstrs State.get
+    opens <- getOpens
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
     case mb of
@@ -1253,7 +1273,7 @@ dirtyGDependencies v = do
         Just m -> do
             liftIO $ WeakMap.forM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
-                dirtyIOCstrDependencies (map fst opens) x
+                dirtyIOCstrDependencies opens x
     --debugTc $ liftIO $ putStrLn "\n"
 
 dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
@@ -1591,3 +1611,12 @@ checkLeak l True m = do
             otherwise -> do
                 ppk <- pp k
                 genTcError (locpos l) $ text "leakage annotation not supported in" <+> ppk
+
+getOpens :: MonadIO m => TcM m [IOCstr]
+getOpens = State.gets (map fst . openedCstrs)
+
+getOpensSolved :: MonadIO m => TcM m (Set Int)
+getOpensSolved = do
+    opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
+    proms <- State.gets (mapSet (ioCstrId . unLoc) . Map.keysSet . solvedCstrs)
+    return (Set.fromList opens `Set.union` proms)

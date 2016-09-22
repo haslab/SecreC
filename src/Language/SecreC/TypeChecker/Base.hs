@@ -73,9 +73,11 @@ import System.Posix.Files
 import System.FilePath.Posix
 import System.IO.Error
 
-import Debug.Trace
-
-data SolveMode = SolveMode { solveFail :: SolveFail, solveScope :: SolveScope }
+data SolveMode = SolveMode
+    { solveFail :: SolveFail -- when to fail solving constraints
+    , solveScope :: SolveScope -- which constraints to solve
+    , solveDelay :: Bool -- delay solved constraints
+    }
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 data SolveFail
@@ -210,6 +212,9 @@ type Deps = Set LocIOCstr
 getModuleCount :: (Monad m) => TcM m Int
 getModuleCount = liftM (snd . moduleCount) State.get
 
+-- solved constraints whose solutions have been delayed
+type Solved = Map LocIOCstr TCstrStatus
+
 -- global typechecking environment
 data TcEnv = TcEnv {
       localVars  :: Map VarIdentifier (Bool,Bool,EntryEnv) -- ^ local variables: name |-> (isConst,isAnn,type of the variable)
@@ -219,6 +224,7 @@ data TcEnv = TcEnv {
     , localDeps :: Deps -- ^ local dependencies
     , tDict :: [TDict] -- ^ A stack of dictionaries
     , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
+    , solvedCstrs :: Solved -- constraints that have been solved
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: ((String,TyVarId),Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
@@ -517,6 +523,7 @@ emptyTcEnv = TcEnv
     , localDeps = Set.empty
     , tDict = []
     , openedCstrs = []
+    , solvedCstrs = Map.empty
     , lineage = []
     , moduleCount = (("main",TyVarId 0),1)
     , inTemplate = False
@@ -1319,7 +1326,6 @@ data TDict = TDict
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     , tRec :: ModuleTcEnv -- recursive environment
-    , tPromoted :: Set Int -- promoted constraints
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1330,7 +1336,6 @@ data PureTDict = PureTDict
     { pureCstrs :: TCstrGraph
     , pureSubsts :: TSubsts
     , pureRec :: ModuleTcEnv
-    , purePromoted :: Set Int -- promoted constraints
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable PureTDict
