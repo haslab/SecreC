@@ -131,7 +131,9 @@ typecheck modules = flushTcWarnings $ do
     if (typeCheck opts)
         then do
             modules' <- mapM defaultModuleFile modules
-            --liftIO $ putStrLn $ show $ text "defaults" <+> vcat (map (\(Left (x,y,z)) -> pp z) $ filter (either (const True) (const False)) modules')
+            debugTc $ do
+                x <- mapM (\(Left (x,y,z)) -> pp z) $ filter (either (const True) (const False)) modules'
+                liftIO $ putStrLn $ show $ text "defaults" <+> vcat x
             typedModules <- mapM (tcModuleFile) modules'
             printMsg "are well-typed"
             return $ Just typedModules

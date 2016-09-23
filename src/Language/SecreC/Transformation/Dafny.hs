@@ -139,7 +139,7 @@ duplicateUnderscores (x:xs) = x : duplicateUnderscores xs
 
 loadAxioms :: DafnyK m => DafnyM m ()
 loadAxioms = do
-    env <- lift $ getModuleField True id
+    env <- lift $ getModuleField True False id
     let as = map (\(mid,e) -> unDecT $ entryType e) $ Map.toList $ axioms env
     mapM_ (\d -> loadDafnyDec (decPos d) d) as
 
@@ -216,7 +216,7 @@ printDafnyModule mn xs imports = do
 resolveEntryPoint :: ProverK Position m => Identifier -> TcM m (Maybe DafnyId)
 resolveEntryPoint n = do
     let n' = mkVarId n
-    env <- getModuleField True id
+    env <- getModuleField True False id
     case Map.lookup (Left n') (procedures env) of
         Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
         Nothing -> case Map.lookup n' (structs env) of
@@ -294,7 +294,7 @@ newEntry l dec (bid,did,ts) = do
 
 lookupDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m EntryEnv
 lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
-    ss <- lift $ getModuleField True structs
+    ss <- lift $ getModuleField True False structs
     case Map.lookup sn ss of
         Nothing -> do
             ppdid <- lift $ pp did
@@ -305,14 +305,14 @@ lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find struct" <+> ppdid
 lookupDafnyId l did@(AId tid@(ModuleTyVarId m _) isLeak) = do
-    as <- lift $ getModuleField True axioms
+    as <- lift $ getModuleField True False axioms
     case Map.lookup tid as of
         Just e -> return e
         Nothing -> do
             ppdid <- lift $ pp did
             genError l $ text "lookupDafnyId: can't find axiom" <+> ppdid
 lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
-    ss <- lift $ getModuleField True procedures
+    ss <- lift $ getModuleField True False procedures
     case Map.lookup pn ss of
         Nothing -> do
             ppdid <- lift $ pp did
@@ -323,7 +323,7 @@ lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find procedure" <+> ppdid
 lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getModuleField True lemmas
+    ss <- lift $ getModuleField True False lemmas
     case Map.lookup pn ss of
         Nothing -> do
             ppdid <- lift $ pp did
@@ -334,7 +334,7 @@ lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find lemma" <+> ppdid
 lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getModuleField True functions
+    ss <- lift $ getModuleField True False functions
     case Map.lookup pn ss of
         Nothing -> do
             ppdid <- lift $ pp did

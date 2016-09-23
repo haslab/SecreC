@@ -405,19 +405,22 @@ modifyModuleEnvM f = do
     y' <- f y
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
 
-getModuleField :: (MonadIO m) => Bool -> (ModuleTcEnv -> x) -> TcM m x
-getModuleField withBody f = do
+getModuleField :: (MonadIO m) => Bool -> Bool -> (ModuleTcEnv -> x) -> TcM m x
+getModuleField withBody onlyRecs f = do
     (x,y) <- State.gets moduleEnv
-    z <- getRecs withBody
+    z <- getRecs withBody onlyRecs
     let xyz = mappend x (mappend y z)
     return $ f xyz
 
 -- get only the recursive declarations for the lineage
-getRecs :: MonadIO m => Bool -> TcM m ModuleTcEnv
-getRecs withBody = do
+getRecs :: MonadIO m => Bool -> Bool -> TcM m ModuleTcEnv
+getRecs withBody onlyRecs = do
     lineage <- getLineage
---    debugTc $ liftIO $ putStrLn $ "getRecs: " ++ show (sepBy comma $ map pp lineage)
-    State.gets (filterRecModuleTcEnv (Just lineage) withBody . mconcat . map tRec . tDict)
+    let filterRec = if onlyRecs then Just lineage else Nothing
+    debugTc $ do
+        ppline <- liftM (sepBy comma) $ mapM pp lineage
+        liftIO $ putStrLn $ "getRecs: " ++ show ppline
+    State.gets (filterRecModuleTcEnv filterRec withBody . mconcat . map tRec . tDict)
 
 filterRecModuleTcEnv :: Maybe Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = env
@@ -450,28 +453,28 @@ remIDecBody d@(StructType sl sid@(TypeName _ sn) atts cl) = StructType sl sid No
 remIDecBody d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs cl
 remIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
 
-getStructs :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs withBody isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody structs
+getStructs :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs structs
 getKinds :: MonadIO m => TcM m (Map VarIdentifier EntryEnv)
-getKinds = getModuleField True kinds
+getKinds = getModuleField True False kinds
 getGlobalVars :: MonadIO m => TcM m (Map VarIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
-getGlobalVars = getModuleField True globalVars
+getGlobalVars = getModuleField True False globalVars
 getGlobalConsts :: MonadIO m => TcM m (Map Identifier VarIdentifier)
-getGlobalConsts = getModuleField True globalConsts
+getGlobalConsts = getModuleField True False globalConsts
 getDomains :: MonadIO m => TcM m (Map VarIdentifier EntryEnv)
-getDomains = getModuleField True domains
-getProcedures :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getProcedures withBody isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody procedures
-getFunctions :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getFunctions withBody isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody functions
-getLemmas :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
-getLemmas withBody isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody lemmas
-getAxioms :: MonadIO m => Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
-getAxioms isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True axioms
+getDomains = getModuleField True False domains
+getProcedures :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getProcedures withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs procedures
+getFunctions :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getFunctions withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs functions
+getLemmas :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map VarIdentifier (Map ModuleTyVarId EntryEnv))
+getLemmas withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs lemmas
+getAxioms :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms onlyRecs isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True onlyRecs axioms
 
 filterAnns :: Bool -> Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
 filterAnns isAnn isLeak = Map.map (filterAnns1 isAnn isLeak)

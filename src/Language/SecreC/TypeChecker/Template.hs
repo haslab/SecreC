@@ -165,7 +165,8 @@ resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees d
         pptargs <- ppr targs
         pppargs <- ppr pargs
         ppe <- ppr e
-        liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppn ++ " " ++ pptargs ++ " " ++ pppargs ++ " promoted " ++ ppe
+        ppd <- ppr dict
+        liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppn ++ " " ++ pptargs ++ " " ++ pppargs ++ " promoted " ++ ppe ++ "\n" ++ ppd
     -- add solved constraints
     addSolvedCstrs p solved
     -- delete promoted constraints
