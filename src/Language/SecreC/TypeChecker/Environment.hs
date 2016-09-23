@@ -833,8 +833,9 @@ dependentCstrs l kids = do
     gr <- getCstrs
     return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++Set.toList opens) gr
     
-buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> Set Int -> TcM m IOCstrGraph
-buildCstrGraph l cstrs drops = do
+buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> TcM m IOCstrGraph
+buildCstrGraph l cstrs = do
+    dropFromTail <- State.gets (not . solveToCache)
     tops <- topCstrs l
     let tops' = mapSet (ioCstrId . unLoc) tops
     let cstrs' = Set.union tops' cstrs
@@ -845,13 +846,12 @@ buildCstrGraph l cstrs drops = do
     let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,h)) cstrs') tgr
     let ns = nodes gr'
     -- filter out undesired constraints
-    let gr'' = Graph.nfilter (\n -> not $ Set.member n drops) gr'
-    let remHeadCstrs d = d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) }
-    State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr'' } : map remHeadCstrs ds }
+    let remHeadCstrs d = if dropFromTail then d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) } else d
+    State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr' } : map remHeadCstrs ds }
 --    mgr <- State.gets (foldr unionGr Graph.empty . map tCstrs . tail . tDict)
 --    doc <- ppConstraints mgr
 --    liftIO $ putStrLn $ "buildCstrGraphTail: " ++ show doc
-    return gr''
+    return gr'
     
 -- no non-variadic free variable can be unbound
 noNormalFrees :: ProverK Position m => EntryEnv -> TcM m ()

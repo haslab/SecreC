@@ -562,7 +562,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 let tops' = mapSet (ioCstrId . unLoc) tops
                 rels <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
                 let rels' = mapSet (ioCstrId . unLoc) rels
-                buildCstrGraph l rels' Set.empty
+                buildCstrGraph l rels'
                 debugTc $ do
                     ppl <- ppr l
                     ppvs <- ppr vs

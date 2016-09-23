@@ -140,7 +140,7 @@ solveMb l msg mode cs = do
     if Set.null cs
         then return Nothing
         else newErrorM $ tcNoDeps $ do
-            gr' <- buildCstrGraph l (mapSet (ioCstrId . unLoc) cs) Set.empty
+            gr' <- buildCstrGraph l (mapSet (ioCstrId . unLoc) cs)
             debugTc $ do
                 ppl <- ppr l
                 ss <- ppConstraints gr'
@@ -365,7 +365,7 @@ solveIOCstr_ l msg mode iok = do
             ion <- ppr (ioCstrId iok)
             liftIO $ putStrLn $ "solvedIOCstr " ++ ion -- ++ " -->" ++ show doc
         unless (Graph.isEmpty $ tCstrs rest) $ do
-            top <- buildCstrGraph l (Set.insert (ioCstrId iok) (Set.fromList $ map snd $ ins ++ outs)) Set.empty
+            top <- buildCstrGraph l (Set.insert (ioCstrId iok) (Set.fromList $ map snd $ ins ++ outs))
             let ins' = map (fromJustNote "ins" . Graph.lab top . snd) ins
             let outs' = map (fromJustNote "outs" . Graph.lab top . snd) outs
             let rest' = tCstrs rest
