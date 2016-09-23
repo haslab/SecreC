@@ -85,15 +85,6 @@ withFrees l m = do
     State.modify $ \env -> env { localFrees = old }
     return (x,new,old `Map.difference` new)
 
-withSolved :: ProverK loc m => loc -> TcM m a -> TcM m (a,Solved)
-withSolved l m = do
-    old <- State.gets solvedCstrs
-    State.modify $ \env -> env { solvedCstrs = Map.empty }
-    x <- m
-    solved <- State.gets solvedCstrs
-    State.modify $ \env -> env { solvedCstrs = old }
-    return (x,solved)
-
 getDoSolve :: Monad m => TcM m Bool
 getDoSolve = State.gets (\e -> length (tDict e) <= 1)
 
@@ -562,7 +553,7 @@ newOperator hdeps op = do
     let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Right o) $ getLns selector env
-    dirtyGDependencies $ OIden o
+    dirtyGDependencies (locpos l) $ OIden o
     
     solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
@@ -631,7 +622,11 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Left n) $ getLns selector env
-    dirtyGDependencies $ PIden n
+    dirtyGDependencies (locpos l) $ PIden n
+    debugTc $ do
+        ppe <- ppr (entryType rece)
+        ppd <- ppr recdict
+        liftIO $ putStrLn $ "addProc rec" ++ pprid (decTypeTyVarId $ unDecT $ recdt) ++ " " ++ ppe ++ "\n" ++ ppd
     --doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     --liftIO $ putStrLn $ "newProc: " ++ show doc
     solveTop l "newProcedure"
@@ -834,7 +829,7 @@ topCstrs l = do
     
 dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocIOCstr)
 dependentCstrs l kids = do
-    opens <- getOpensSolved
+    opens <- getOpensSet
     gr <- getCstrs
     return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++Set.toList opens) gr
     
@@ -893,7 +888,7 @@ splitHead l deps dec = do
     hvs <- liftM Map.keysSet $ fvs $ Set.map (kCstr . unLoc) deps
     let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
     let bfrees = Map.difference frees hfrees
-    opens <- getOpensSolved
+    opens <- getOpensSet
     let cs = Set.difference (mapSet (ioCstrId . unLoc) deps) opens
     let gr = Graph.trc cstrs
     let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,h)) cs) gr
@@ -955,7 +950,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             tcError (locpos l) $ MultipleDefinedStruct (ppn) (locpos $ entryLoc $ head $ Map.elems es)
         otherwise -> do
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i rece) (structs env) }
-            dirtyGDependencies $ TIden n
+            dirtyGDependencies (locpos l) $ TIden n
     
             -- solve the body
             solveTop l "newStruct"
@@ -1008,7 +1003,7 @@ addSubstM l dirty mode v@(VarName vt vn) t = do
 --      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
         updateHeadTDict l "addSubstM" $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
         removeFree vn
-        when dirty $ dirtyGDependencies $ VIden vn
+        when dirty $ dirtyGDependencies (locpos l) $ VIden vn
         -- register variable assignment in the top-most open constraint
         State.modify $ \env -> env { openedCstrs = mapHead (mapSnd $ Set.insert vn) (openedCstrs env) }
     
@@ -1111,24 +1106,17 @@ openCstr l o = do
 closeCstr :: (MonadIO m) => TcM m ()
 closeCstr = do
     State.modify $ \e -> e { openedCstrs = tail (openedCstrs e) }
-
-solvesCstr :: (ProverK loc m) => loc -> Bool -> IOCstr -> TCstrStatus -> TcM m ()
-solvesCstr l True iok st = State.modify $ \e -> e { solvedCstrs = Map.insert (Loc (locpos l) iok) st (solvedCstrs e) }
-solvesCstr l False iok st = liftIO $ writeIdRef (kStatus iok) st
     
-addSolvedCstrs :: (ProverK loc m) => loc -> Solved -> TcM m ()
-addSolvedCstrs l is = do
-    tops <- topCstrs l
-    let (solves,delays) = Map.partitionWithKey (\k v -> Set.member k tops) is
-    forM_ (Map.toList solves) $ \(Loc _ iok,st) -> liftIO $ writeIdRef (kStatus iok) st
-    State.modify $ \e -> e { solvedCstrs = Map.union (solvedCstrs e) delays }
+addCstrCache :: (ProverK loc m) => loc -> CstrCache -> TcM m ()
+addCstrCache l delays = do
+    State.modify $ \e -> e { cstrCache = Map.union (cstrCache e) delays }
 
-resolveIOCstr_ :: ProverK loc m => loc -> Bool -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
-resolveIOCstr_ l delaySolve iok resolve = resolveIOCstr l delaySolve iok resolve >> return ()
+resolveIOCstr_ :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
+resolveIOCstr_ l iok resolve = resolveIOCstr l iok resolve >> return ()
 
-resolveIOCstr :: ProverK loc m => loc -> Bool -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
-resolveIOCstr l delaySolve iok resolve = do
-    st <- liftIO $ readIdRef (kStatus iok)
+resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
+resolveIOCstr l iok resolve = do
+    st <- readCstrStatus (locpos l) iok
     case st of
         Evaluated rest x -> do
             remove
@@ -1148,15 +1136,15 @@ resolveIOCstr l delaySolve iok resolve = do
         (x,rest) <- tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
         remove
         closeCstr
-        solvesCstr l delaySolve iok $ Evaluated rest x
-        addHeadTDict l "resolveIOCstr" rest
-        -- register constraints dependencies from the dictionary into the global state
-        registerIOCstrDependencies iok gr ctx
+        writeCstrStatus (locpos l) iok $ Evaluated rest x
+        addHeadTDict l "writeTCstrStatus" rest
+        liftIO $ registerIOCstrDependencies iok gr ctx
         --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
         return x
     remove = updateHeadTDict l "remove resolveIOCstr" $ \d -> return ((),d { tCstrs = delNode (ioCstrId iok) (tCstrs d) })
 
-registerIOCstrDependencies :: (MonadIO m) => IOCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ()
+-- register constraints dependencies from the dictionary into the global state
+registerIOCstrDependencies :: IOCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> IO ()
 registerIOCstrDependencies iok gr ctx = do
     case ctx of
         Nothing -> return ()
@@ -1180,14 +1168,14 @@ addGDependency v cstrs = do
         Just m -> return m
     liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 
-addIODependency :: (MonadIO m) => IOCstr -> Set IOCstr -> TcM m ()
+addIODependency :: IOCstr -> Set IOCstr -> IO ()
 addIODependency v cstrs = do
-    deps <- liftM ioDeps $ liftIO $ readIORef globalEnv
-    mb <- liftIO $ WeakHash.lookup deps (modTyId $ uniqId $ kStatus v)
+    deps <- liftM ioDeps $ readIORef globalEnv
+    mb <- WeakHash.lookup deps (modTyId $ uniqId $ kStatus v)
     m <- case mb of
-        Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (modTyId $ uniqId $ kStatus v) m (MkWeak $ mkWeakKey m) >> return m
+        Nothing -> WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (modTyId $ uniqId $ kStatus v) m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
-    liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
+    forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
 
 -- adds a dependency to the constraint graph
 addIOCstrDependencies :: TDict -> Set LocIOCstr -> LocIOCstr -> Set LocIOCstr -> TDict
@@ -1281,8 +1269,8 @@ updateHeadTDict l msg upd = do
     return x
 
 -- | forget the result for a constraint when the value of a variable it depends on changes
-dirtyGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
-dirtyGDependencies v = do
+dirtyGDependencies :: (MonadIO m) => Position -> GIdentifier -> TcM m ()
+dirtyGDependencies p v = do
     --debugTc $ liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
     opens <- getOpens
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
@@ -1290,21 +1278,21 @@ dirtyGDependencies v = do
     case mb of
         Nothing -> return ()
         Just m -> do
-            liftIO $ WeakMap.forM_ m $ \(u,x) -> do
+            WeakMap.forGenericM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
-                dirtyIOCstrDependencies opens x
+                dirtyIOCstrDependencies p opens x
     --debugTc $ liftIO $ putStrLn "\n"
 
-dirtyIOCstrDependencies :: [IOCstr] -> IOCstr -> IO ()
-dirtyIOCstrDependencies opens iok = do
+dirtyIOCstrDependencies :: MonadIO m => Position -> [IOCstr] -> IOCstr -> TcM m ()
+dirtyIOCstrDependencies p opens iok = do
     unless (elem iok opens) $ do
         --debugTc $ putStr $ " " ++ ppr (ioCstrId iok)
-        writeIdRef (kStatus iok) Unevaluated
-    deps <- liftM ioDeps $ readIORef globalEnv
-    mb <- WeakHash.lookup deps (modTyId $ uniqId $ kStatus iok)
+        writeCstrStatus p iok Unevaluated
+    deps <- liftIO $ liftM ioDeps $ readIORef globalEnv
+    mb <- liftIO $ WeakHash.lookup deps (modTyId $ uniqId $ kStatus iok)
     case mb of
         Nothing -> return ()
-        Just m -> WeakMap.forM_ m $ \(u,x) -> dirtyIOCstrDependencies opens x
+        Just m -> WeakMap.forGenericM_ m $ \(u,x) -> dirtyIOCstrDependencies p opens x
 
 -- we need global const variables to distinguish them during typechecking
 addConst :: MonadIO m => Scope -> Bool -> IsVariadic -> Identifier -> TcM m VarIdentifier
@@ -1512,14 +1500,6 @@ ppM l a = pp =<< specializeM l a
 ppArrayRangesM :: (ProverK loc m) => loc -> [ArrayProj] -> TcM m Doc
 ppArrayRangesM l = liftM (sepBy comma) . mapM (ppM l)
 
---removeTSubsts :: Monad m => Set VarIdentifier -> TcM m ()
---removeTSubsts vs = do
---    env <- State.get
---    let ds = tDict env
---    let remSub d = d { tSubsts = TSubsts $ Map.difference (unTSubsts $ tSubsts d) (Map.fromSet (const $ NoType "rem") vs) }
---    let ds' = map remSub ds
---    State.put $ env { tDict = ds' }
-
 tcLocal :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
 tcLocal l msg m = do
     env <- State.get
@@ -1527,28 +1507,22 @@ tcLocal l msg m = do
     State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
     return x
 
---addRecs :: Monad m => ModuleTcEnv -> TcM m ()
---addRecs rec = undefined --State.modify $ \env -> env { recEnv = recEnv env `mappend` rec }
-
---askRecs :: Monad m => TcM m ModuleTcEnv
---askRecs = undefined --liftM recEnv State.get
-
 tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
-tcError pos msg = throwTcError $ TypecheckerError pos msg  
+tcError pos msg = throwTcError pos $ TypecheckerError pos msg  
 
 genTcError :: (MonadIO m) => Position -> Doc -> TcM m a
-genTcError pos msg = throwTcError $ TypecheckerError pos $ GenTcError msg Nothing
+genTcError pos msg = throwTcError pos $ TypecheckerError pos $ GenTcError msg Nothing
 
-throwTcError :: (MonadIO m) => SecrecError -> TcM m a
-throwTcError err = do
+throwTcError :: (Location loc,MonadIO m) => loc -> SecrecError -> TcM m a
+throwTcError l err = do
     (i,SecrecErrArr f) <- Reader.ask
     let err2 = f err
     ios <- liftM openedCstrs State.get
     let add (io,vs) = do
         -- write error to the constraint's result
-        liftIO $ writeIdRef (kStatus io) (Erroneous err2)
+        writeCstrStatus (locpos l) io (Erroneous err2)
         -- dirty variables assigned by this constraint
-        forM_ vs (dirtyGDependencies . VIden)
+        forM_ vs (dirtyGDependencies (locpos l) . VIden)
     mapM_ add ios
     throwError err2     
 
@@ -1634,8 +1608,7 @@ checkLeak l True m = do
 getOpens :: MonadIO m => TcM m [IOCstr]
 getOpens = State.gets (map fst . openedCstrs)
 
-getOpensSolved :: MonadIO m => TcM m (Set Int)
-getOpensSolved = do
+getOpensSet :: MonadIO m => TcM m (Set Int)
+getOpensSet = do
     opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
-    proms <- State.gets (mapSet (ioCstrId . unLoc) . Map.keysSet . solvedCstrs)
-    return (Set.fromList opens `Set.union` proms)
+    return (Set.fromList opens)

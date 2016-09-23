@@ -121,9 +121,9 @@ defaultSolveMode = do
     doAll <- getDoAll
     doSolve <- getDoSolve
     case (doAll,doSolve) of
-        (True,True) -> return $ SolveMode (AllFail True) SolveAll False
-        (True,False) -> return $ SolveMode (AllFail False) SolveGlobal False
-        otherwise -> return $ SolveMode (AllFail False) SolveLocal False
+        (True,True) -> return $ SolveMode (AllFail True) SolveAll
+        (True,False) -> return $ SolveMode (AllFail False) SolveGlobal
+        otherwise -> return $ SolveMode (AllFail False) SolveLocal
     
 -- | solves all constraints in the top environment
 solveWith :: (ProverK loc m) => loc -> String -> SolveMode -> TcM m ()
@@ -248,7 +248,7 @@ trySolveCstr mode (Loc l iok) = do
             then return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved global constraint") Nothing)]
             else catchError
                 (do
-                    opens <- getOpensSolved
+                    opens <- getOpensSet
                     if Set.member (ioCstrId iok) opens
                         then do
                             debugTc $ do
@@ -324,7 +324,7 @@ solveErrors l mode errs = do
 
 guessCstr :: ProverK Position m => [(LocIOCstr,SecrecError)] -> TcM m (Maybe (LocIOCstr,[LocIOCstr]))
 guessCstr errs = do
-    opens <- getOpensSolved
+    opens <- getOpensSet
     search $ filter (\(Loc l iok,err) -> not $ Set.member (ioCstrId iok) opens) errs
   where
     search [] = return Nothing
@@ -346,7 +346,7 @@ solveIOCstr_ l msg mode iok = do
             liftIO $ putStrLn $ "nonsolvedIOCstr " ++ ppiok ++ " " ++ pperr
         throwError err)
   where
-    solve = newErrorM $ resolveIOCstr_ l (solveDelay mode) iok $ \k gr ctx -> do
+    solve = newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
         --olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
         ppiok <- ppr iok
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppiok) ctx
@@ -382,7 +382,7 @@ solveIOCstr_ l msg mode iok = do
         return res
 
 solveNewCstr_ :: ProverK loc m => loc -> SolveMode -> IOCstr -> TcM m ()
-solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l (solveDelay mode) iok (\k gr ctx -> resolveTCstr l mode (ioCstrId iok) k)
+solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolveTCstr l mode (ioCstrId iok) k)
 
 -- * Throwing Constraints
 
@@ -630,7 +630,7 @@ resolveKind l k@(KVar v@(nonTok -> True) isPriv) = do
         Just k' -> resolveKind l k'
         Nothing -> do
             ppk <- pp k
-            throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to resolve kind" <+> ppk) Nothing
+            throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to resolve kind" <+> ppk) Nothing
 resolveKind l (KVar v@(nonTok -> False) isPriv) = return ()
 
 resolveHypCstr :: (ProverK loc m) => loc -> SolveMode -> HypCstr -> TcM m (Maybe IExpr)
@@ -658,7 +658,7 @@ resolveCheckCstr l mode k = do
 
 ioCstrResult :: (Hashable a,IsScVar (TcM m) a,MonadIO m,Location loc) => loc -> IOCstr -> Proxy a -> TcM m (Maybe a)
 ioCstrResult l iok proxy = do
-    st <- liftIO $ readIdRef (kStatus iok)
+    st <- readCstrStatus (locpos l) iok
     case st of
         Evaluated rest t -> liftM Just $ cstrResult l (kCstr iok) proxy t
         Erroneous err -> return Nothing

@@ -76,7 +76,6 @@ import System.IO.Error
 data SolveMode = SolveMode
     { solveFail :: SolveFail -- when to fail solving constraints
     , solveScope :: SolveScope -- which constraints to solve
-    , solveDelay :: Bool -- delay solved constraints
     }
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
@@ -213,7 +212,7 @@ getModuleCount :: (Monad m) => TcM m Int
 getModuleCount = liftM (snd . moduleCount) State.get
 
 -- solved constraints whose solutions have been delayed
-type Solved = Map LocIOCstr TCstrStatus
+type CstrCache = Map LocIOCstr TCstrStatus
 
 -- global typechecking environment
 data TcEnv = TcEnv {
@@ -224,7 +223,8 @@ data TcEnv = TcEnv {
     , localDeps :: Deps -- ^ local dependencies
     , tDict :: [TDict] -- ^ A stack of dictionaries
     , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
-    , solvedCstrs :: Solved -- constraints that have been solved
+    , cstrCache :: CstrCache -- cache for constraints
+    , solveToCache :: Bool -- solve constraints to the cache or global state
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: ((String,TyVarId),Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
@@ -352,6 +352,16 @@ withLeak b m = do
     x <- m
     State.modify $ \env -> env { isLeak = old }
     return x
+    
+onCache :: Monad m => TcM m a -> TcM m (a,CstrCache)
+onCache m = do
+    oldcache <- State.gets cstrCache
+    oldsolve <- State.gets solveToCache
+    State.modify $ \env -> env { cstrCache = Map.empty, solveToCache = True }
+    x <- m
+    cache <- State.gets cstrCache
+    State.modify $ \env -> env { solveToCache = oldsolve, cstrCache = oldcache }
+    return (x,cache)
 
 withKind :: Monad m => DecKind -> TcM m a -> TcM m a
 withKind k m = do
@@ -526,7 +536,8 @@ emptyTcEnv = TcEnv
     , localDeps = Set.empty
     , tDict = []
     , openedCstrs = []
-    , solvedCstrs = Map.empty
+    , cstrCache = Map.empty
+    , solveToCache = False
     , lineage = []
     , moduleCount = (("main",TyVarId 0),1)
     , inTemplate = False
@@ -1479,7 +1490,7 @@ instance PP m VarIdentifier => PP m PureTDict where
 ppConstraints :: MonadIO m => IOCstrGraph -> TcM m Doc
 ppConstraints d = do
     let ppK (Loc l c) = do
-        s <- liftIO $ readIdRef $ kStatus c
+        s <- readCstrStatus l c
         pre <- pp c
         case s of
             Evaluated rest t -> return $ pre <+> char '=' <+> text (show t)
@@ -1487,6 +1498,20 @@ ppConstraints d = do
             Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
     ss <- ppGrM ppK (const $ return PP.empty) d
     return ss
+
+readCstrStatus :: MonadIO m => Position -> IOCstr -> TcM m TCstrStatus
+readCstrStatus p iok = do
+    solved <- State.gets cstrCache
+    case Map.lookup (Loc p iok) solved of
+        Just st -> return st
+        Nothing -> liftIO $ readIdRef (kStatus iok)
+
+writeCstrStatus :: MonadIO m => Position -> IOCstr -> TCstrStatus -> TcM m ()
+writeCstrStatus p iok st = do
+    delaySolve <- State.gets solveToCache
+    if delaySolve
+        then State.modify $ \e -> e { cstrCache = Map.insert (Loc p iok) st (cstrCache e) }
+        else liftIO $ writeIdRef (kStatus iok) st
 
 data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
@@ -2881,10 +2906,3 @@ debugTc :: Monad m => TcM m () -> TcM m ()
 debugTc m = do
     opts <- askOpts
     if debug opts then m else return ()
-
---instance (Vars iden (TcM m) a,MonadIO m) => Vars iden (TcM m) (IdRef ModuleTyVarId a) where
---    traverseVars f ref = do
---        x <- liftIO $ readIdRef ref
---        x' <- f x
---        i <- newModuleTyVarId
---        liftIO $ newIdRef i x'

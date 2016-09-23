@@ -112,7 +112,7 @@ typeToBaseType l t@(ComplexT ct) = case ct of
                 then expandCTypeVar l v
                 else do
                     ppt <- pp t
-                    throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to base type" <+> ppt) Nothing
+                    throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to base type" <+> ppt) Nothing
         typeToBaseType l (ComplexT ct')     
     otherwise -> do
         ppt <- ppM l t
@@ -544,7 +544,7 @@ toMultisetType l t@(ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
             then expandCTypeVar l v
             else do
                 ppt <- pp t
-                throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
+                throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
     toMultisetType l $ ComplexT ct'
 toMultisetType l (ComplexT (CType s b d)) = do
     tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
@@ -581,10 +581,10 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
                         otherwise -> reshapeExpr l False rep ns (ComplexT ct)
         Left err -> do
             ppt <- pp t
-            throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> ppt) (Just err)
+            throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> ppt) (Just err)
 defaultExpr l t szs = do
     ppt <- pp t
-    throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "unsupported default value for type" <+> ppt) Nothing
+    throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "unsupported default value for type" <+> ppt) Nothing
 
 defaultBaseExpr :: ProverK loc m => loc -> SecType -> BaseType -> TcM m Expr
 defaultBaseExpr l s b@(BVar v) = do
@@ -622,8 +622,8 @@ defaultBaseClassify l s@(SVar v k) e@(loc -> BaseT b) = do
             else do
                 pps <- pp s
                 ppe <- ppExprTy e
-                throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing
+                throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing
 defaultBaseClassify l s e = do
     pps <- pp s
     ppe <- ppExprTy e
-    throwTcError $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing
+    throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing
