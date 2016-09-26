@@ -18,6 +18,11 @@ module builtin;
 //@     __builtin("core.classify",x) :: D T[[N]]
 //@ }
 
+//@ template <nonpublic kind K,domain D : K,type T,dim N>
+//@ function T[[N]] declassify (D T[[N]] x) {
+//@     __builtin("core.declassify",x) :: T[[N]]
+//@ }
+
 //@ template <domain D, type T, dim N>
 //@ function uint size (D T[[N]] x) {
 //@     __builtin("core.size",x)
@@ -43,34 +48,14 @@ module builtin;
 //@     __builtin("core.shape",arr) :: uint[[1]]
 //@ }
 
-// classify
-template <domain D,type T,dim N { N > 0} >
-D T[[N]] classify (public T[[N]] x)
-//@ free ensures \result == classify(x);
-{
-    havoc D T[[N]] ret;
-    for (uint i = 0; i < shape(x)[0]; i=i+1)
-    {
-        ret[i] = classify(x[i]);
-    }
-    return ret;
+template <nonpublic kind K,domain D : K,type T,dim N>
+function D T[[N]] classify (public T[[N]] x) {
+    __builtin("core.classify",x) :: D T[[N]]
 }
 
-//@ template <nonpublic kind K,domain D : K,type T,dim N>
-//@ function public T[[N]] declassify (D T[[N]] x) {
-//@     __builtin("core.declassify",x) :: public T[[N]]
-//@ }
-
-// declassify
-template <domain D,type T,dim N { N > 0 }>
-public T[[N]] declassify (D T[[N]] x)
-//@ free ensures \result == declassify(x);
-{
-    havoc public T[[N]] ret;
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = declassify(x[i]);
-    }
-    return ret;
+template <nonpublic kind K,domain D : K,type T,dim N>
+function T[[N]] declassify (D T[[N]] x) {
+    __builtin("core.declassify",x) :: T[[N]]
 }
 
 // strlen

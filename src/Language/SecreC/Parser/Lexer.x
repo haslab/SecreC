@@ -69,6 +69,7 @@ tokens :-
 <state_string_variable> @identifier             { leaveStateStringVariable }
 
 -- Keywords:
+<0>                     nonpublic             { lexerTokenInfo NONPUBLIC }
 <0>                     function              { lexerTokenInfo FUNCTION }
 <0>                     havoc                 { lexerTokenInfo HAVOC }
 <0>                     \\result              { lexerAnnTokenInfo RESULT }
@@ -125,7 +126,6 @@ tokens :-
 <0>                     assume                { lexerAnnTokenInfo ASSUME }
 <0>                     leakage               { lexerAnnTokenInfo LEAKAGE }
 <0>                     axiom                 { lexerAnnTokenInfo AXIOM }
-<0>                     nonpublic             { lexerAnnTokenInfo NONPUBLIC }
 <0>                     lemma                 { lexerAnnTokenInfo LEMMA }
 <0>                     invariant             { lexerAnnTokenInfo INVARIANT }
 <0>                     inline                { lexerAnnTokenInfo INLINE }
