@@ -387,11 +387,9 @@ solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolv
 -- * Throwing Constraints
 
 tCstrM_ :: ProverK loc m => loc -> TCstr -> TcM m ()
-tCstrM_ l (TcK c st) = withCstrState st $ tcCstrM_ l c
-tCstrM_ l (CheckK c st) = withCstrState st $ checkCstrM_ l Set.empty c
-tCstrM_ l (HypK c st) = withCstrState st $ hypCstrM_ l c
-tCstrM_ l (DelayedK c arr) = --withRecs rec $
-    addErrorM'' l arr (tCstrM_ l c)
+tCstrM_ l (TcK c st) = withCstrState l st $ tcCstrM_ l c
+tCstrM_ l (CheckK c st) = withCstrState l st $ checkCstrM_ l Set.empty c
+tCstrM_ l (HypK c st) = withCstrState l st $ hypCstrM_ l c
 
 checkCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
 checkCstrM_ l deps k = checkCstrM l deps k >> return ()
@@ -447,9 +445,7 @@ topTcCstrM_ l k = newErrorM $ tcCstrM_ l k
 newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe IOCstr)
 newTCstr l k = do
     deps <- getDeps
-    (i,delay) <- askErrorM'
-    let k' = DelayedK k (i,SecrecErrArr delay)
-    iok <- newTemplateConstraint l k'
+    iok <- newTemplateConstraint l k
     addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
     
     if (isGlobalCstr k)
@@ -459,14 +455,12 @@ newTCstr l k = do
             (\e -> if (isHaltError e) then return (Just iok) else throwError e)
                 
 resolveTCstr :: (ProverK loc m) => loc -> SolveMode -> Int -> TCstr -> TcM m ShowOrdDyn
-resolveTCstr l mode kid (TcK k st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState st $ do
+resolveTCstr l mode kid (TcK k st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState l st $ do
     resolveTcCstr l mode kid k
-resolveTCstr l mode kid (HypK h st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState st $ do
+resolveTCstr l mode kid (HypK h st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState l st $ do
     resolveHypCstr l mode h
-resolveTCstr l mode kid (CheckK c st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState st $ do
+resolveTCstr l mode kid (CheckK c st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState l st $ do
     resolveCheckCstr l mode c
-resolveTCstr l mode kid (DelayedK k (i,SecrecErrArr err)) = --withRecs rec $
-    addErrorM' l (i,err) $ resolveTCstr l mode kid k
 
 -- tests if a constraint is only used as part of an hypothesis
 --isHypInGraph :: Int -> IOCstrGraph loc -> Bool
@@ -1401,30 +1395,28 @@ coercesSec' l e1 t1 x2 t2 = constraintError (CoercionException "security type") 
 
 classifiesCstrs :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> SecType -> TcM m ([TCstr],Set VarIdentifier)
 classifiesCstrs l e1 ct1 x2 s2 = do
-    arr <- askErrorM''
     st <- getCstrState
     let ct2 = setCSec ct1 s2
     dec@(DVar dv) <- newDecVar False Nothing
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
     ppe1 <- pp e1
     v1 <- newTypedVar "cl" (loc e1) False $ Just $ ppe1
-    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st) arr
-    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) st) arr
-    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) st) arr
+    let k1 = TcK (PDec (Left $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st
+    let k2 = TcK (Unifies (loc x2) (ComplexT ct2)) st
+    let k3 = TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) classify' Nothing [(e1,False)])) st
     return ([k1,k2,k3],Set.fromList [dv,varNameId v1])
 
 repeatsCstrs :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> Expr -> TcM m ([TCstr],Set VarIdentifier)
 repeatsCstrs l e1 ct1 x2 d2 = do
-    arr <- askErrorM''
     st <- getCstrState
     let ct2 = setCBase ct1 d2
     dec@(DVar dv) <- newDecVar False Nothing
     let repeat' = ProcedureName (DecT dec) $ mkVarId "repeat"
     ppe1 <- pp e1
     v1 <- newTypedVar "rp" (loc e1) False $ Just $ ppe1
-    let k1 = DelayedK (TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st) arr
-    let k2 = DelayedK (TcK (Unifies (loc x2) (ComplexT ct2)) st) arr
-    let k3 = DelayedK (TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) st) arr
+    let k1 = TcK (PDec (Left $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec False [v1]) st
+    let k2 = TcK (Unifies (loc x2) (ComplexT ct2)) st
+    let k3 = TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) repeat' Nothing [(e1,False)])) st
     return ([k1,k2,k3],Set.fromList [dv,varNameId v1])
 
 coercesLit :: (ProverK loc m) => loc -> Expr -> TcM m ()
@@ -2694,3 +2686,4 @@ pDecCstrM l isTop doCoerce pid targs es tret = do
 match :: Bool -> Type -> Type -> TcCstr
 match True x y = Unifies x y
 match False x y = Equals x y
+

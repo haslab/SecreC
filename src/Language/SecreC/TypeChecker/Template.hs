@@ -75,7 +75,7 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
     debugTc $ do
         ppentries <- mapM (pp . entryType) entries
         liftIO $ putStrLn $ "matches " ++ show (vcat $ ppentries)
-    instances <- instantiateTemplateEntries l doCoerce n targs pargs ret rets entries
+    instances <- instantiateTemplateEntries l kid doCoerce n targs pargs ret rets entries
     let oks = rights instances
     let errs = lefts instances
     def <- ppTpltAppM l n targs pargs ret
@@ -138,11 +138,12 @@ discardMatchingEntry :: ProverK Position m => (EntryEnv,EntryEnv,[(Type,IsVariad
 discardMatchingEntry (e,e',_,dict,_,frees,_,_) = forM_ (Map.keysSet frees) removeFree
 
 mkRecDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
-mkRecDec l dec@(DecType j (Just (i,_)) targs hdict hfrees bdict bfrees specs d) targs' = return dec
+mkRecDec l dec@(DecType j (Just (i)) targs hdict hfrees bdict bfrees specs d) targs' = return dec
 mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs' = do
     j <- newModuleTyVarId
     ts' <- concatMapM (expandVariadicType l) targs'
-    return $ DecType j (Just (i,ts')) targs hdict hfrees bdict bfrees specs d
+    let specs' = map (,False) ts'
+    return $ DecType j (Just i) [] hdict hfrees bdict bfrees specs' d
 
 resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [(EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache)] -> TcM m DecType
 resolveTemplateEntries l kid n targs pargs ret [(e,e',targs',dict,dicts,frees,delfrees,solved)] = do
@@ -176,7 +177,6 @@ resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees d
     forM_ (Map.toList delfrees) $ \(v,_) -> removeFree v
     def <- ppTpltAppM p n targs pargs ret
     -- guarantee that the most specific template can be fully instantiated
-    arr <- askErrorM'
     olddec <- typeToDecType p (entryType olde)
     dec <- typeToDecType p (entryType e)
     forM_ (Map.toList $ decTypeFrees dec) $ \(v,isVariadic) -> addFree v isVariadic
@@ -197,7 +197,7 @@ resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees d
         liftIO $ putStrLn $ "resolveTplt "
             ++ show (isTemplateDecType olddec) ++ show (decIsRec olddec)
             ++ " " ++ ppdid ++ " : " ++ show (sepBy comma pplineage)
-    addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) arr rec def p dict
+    addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p dict
     case n of
         Right _ -> do
             let tycl@(DecClass isAnn isInline rs ws) = tyDecClass $ DecT decrec
@@ -210,10 +210,10 @@ resolveTemplateEntry p kid n targs pargs ret olde e targs' dict promoted frees d
         Left _ -> return ()
     return decrec
 
-templateCstrs :: Location loc => Lineage -> (Int,SecrecError -> SecrecError) -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
-templateCstrs lineage (i,arr) rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
+templateCstrs :: Location loc => Lineage -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
+templateCstrs lineage rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
     where
-    upd (Loc l k) = Loc l $ k { kCstr = DelayedK (newLineage lineage $ kCstr k) (succ i,SecrecErrArr arr) }
+    upd (Loc l k) = Loc l $ k { kCstr = updCstrState (\st -> st { cstrLineage = lineage}) (kCstr k) }
 
 -- removes type arguments from a template declaration, as a step of instantiation
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m (DecType,[(Constrained Var,IsVariadic)])
@@ -369,16 +369,16 @@ compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_,_,_) (e2,e2',_,d2,_,_,_,
     return (o,isLat)
 
 -- favor specializations over the base template
-comparesDecIds d1@(DecT (DecType j1 (Just (i1,_)) _ _ _ _ _ _ _)) d2@(DecT (DecType j2 Nothing _ _ _ _ _ _ _)) | i1 == j2 = return $ Comparison d1 d2 LT EQ
-comparesDecIds d1@(DecT (DecType j1 Nothing _ _ _ _ _ _ _)) d2@(DecT (DecType j2 (Just (i2,_)) _ _ _ _ _ _ _)) | j1 == i2 = return $ Comparison d1 d2 GT EQ
+comparesDecIds d1@(DecT (DecType j1 (Just (i1)) _ _ _ _ _ _ _)) d2@(DecT (DecType j2 Nothing _ _ _ _ _ _ _)) | i1 == j2 = return $ Comparison d1 d2 LT EQ
+comparesDecIds d1@(DecT (DecType j1 Nothing _ _ _ _ _ _ _)) d2@(DecT (DecType j2 (Just (i2)) _ _ _ _ _ _ _)) | j1 == i2 = return $ Comparison d1 d2 GT EQ
 comparesDecIds d1 d2 = return $ Comparison d1 d2 EQ EQ -- do nothing
      
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
-instantiateTemplateEntries :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> [EntryEnv] -> TcM m [Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache)]
-instantiateTemplateEntries l doCoerce n targs pargs ret rets es = do
-    mapM (instantiateTemplateEntry l doCoerce n targs pargs ret rets) es
+instantiateTemplateEntries :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> [EntryEnv] -> TcM m [Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache)]
+instantiateTemplateEntries l kid doCoerce n targs pargs ret rets es = do
+    mapM (instantiateTemplateEntry l kid doCoerce n targs pargs ret rets) es
 
 unifyTemplateTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m ()
 unifyTemplateTypeArgs l lhs rhs = do
@@ -515,8 +515,8 @@ mapErr :: (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],
 mapErr (Left x,_,_) = Left x
 mapErr (Right (x1,x2,x3,x4,x5,x6),y,z) = Right (x1,x2,x3,x4,x5,y,z,x6)
 
-instantiateTemplateEntry :: (ProverK loc m) => loc -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache))
-instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = limitExprC ReadOnlyE $ newErrorM $ liftM mapErr $ withFrees p $ do
+instantiateTemplateEntry :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache))
+instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = limitExprC ReadOnlyE $ newErrorM $ liftM mapErr $ withFrees p $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
             debugTc $ do
@@ -528,11 +528,11 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                     ppeb <- ppVariadicArg pp (e,b)
                     pple <- pp (loc e)
                     return $ ppeb <+> text "::" <+> pple
-                doc <- mapM (mapM f) pargs
+                ppargs <- mapM (mapM f) pargs
                 ppret <- ppr ret
                 pprets <- ppr rets
                 ppte <- ppr (entryType e)
-                liftIO $ putStrLn $ "instantiating " ++ ppp ++ " " ++ ppl ++ " " ++ ppn ++ " " ++ pptargs ++ " " ++ show doc ++ " " ++ ppret ++ " " ++ pprets ++ "\n" ++ ppte
+                liftIO $ putStrLn $ "instantiating " ++ ppp ++ " " ++ ppl ++ " " ++ ppn ++ " " ++ pptargs ++ " " ++ show ppargs ++ " " ++ ppret ++ " " ++ pprets ++ "\n" ++ ppte
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t
             exprC <- getExprC
             (e',hdict,bdict,bgr) <- templateTDict exprC e
@@ -544,6 +544,8 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 -- we remove the current entry while typechecking the head constraints
                 (_,ks) <- tcWithCstrs l "instantiate" $ do   
                     tcAddDeps l "tplt type args" $ do
+                        ppttargs <- liftM (sepBy comma) $ mapM (pp . fst) $ concat tplt_targs
+                        --debugTc $ liftIO $ putStrLn $ "tplttargs: " ++ show ppttargs
                         -- unify the explicit invocation template arguments unify with the base template
                         when (isJust targs) $ tcAddDeps l "targs" $ unifyTemplateTypeArgs l (concat targs) (concat tplt_targs)
                         -- unify the procedure return type
@@ -580,12 +582,13 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                 return rels'
             mode <- defaultSolveMode
             ok <- orError $ tcWith (locpos p) "instantiate" $ do
+                st <- getCstrState
                 ppn <- ppr n
                 ppp <- ppr l
                 ppl <- ppr l
                 addDicts >> matchName >> proveHead
                 solveWith p ("instantiate with names " ++ ppn ++ " " ++ ppp ++ " " ++ ppl ++ " " ++ show mode) mode
-                ((promoted,_),cache) <- onCache $ tcProveWith l "promote" (mode { solveFail = FirstFail False }) $ promote
+                ((promoted,_),cache) <- withCstrState (locpos p) st $ onCache $ tcProveWith l "promote" (mode { solveFail = FirstFail False }) $ promote
                 return (promoted,cache)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
@@ -594,7 +597,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                     debugTc $ do
                         ppn <- ppr n
                         pperr <- ppr err
-                        liftIO $ putStrLn $ "failed to instantiate " ++ ppn ++" "++ show (decTypeTyVarId $ unDecT $ entryType e) ++ "\n" ++ pperr
+                        liftIO $ putStrLn $ "failed to instantiate " ++ pprid kid ++ " " ++ ppn ++" "++ show (decTypeTyVarId $ unDecT $ entryType e) ++ "\n" ++ pperr
                     return $ Left (e,err)
                 Right ((promoted,cache),TDict hgr _ subst recs) -> do
                         --removeIOCstrGraphFrees hgr
@@ -610,7 +613,7 @@ instantiateTemplateEntry p doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT
                         debugTc $ do
                             remainder <- ppConstraints $ tCstrs depCstrs
                             ppn <- ppr n
-                            liftIO $ putStrLn $ "remainder" ++ ppn ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
+                            liftIO $ putStrLn $ "remainder " ++ pprid kid ++ " " ++ ppn ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show remainder
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
@@ -649,19 +652,17 @@ templateIdentifier (DecT t) = templateIdentifier' t
 -- | Extracts a head signature from a template type declaration (template arguments,procedure arguments, procedure return type)
 templateArgs :: (MonadIO m,Location loc) => loc -> TIdentifier -> Type -> TcM m (Maybe [(Constrained Type,IsVariadic)],Maybe [(Bool,Var,IsVariadic)],Maybe Type)
 templateArgs l (Left name) t = case t of
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] body) -> do -- a base template uses the base arguments
-        return (Just $ map (mapFst (fmap varNameToType)) args,Nothing,Nothing)
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees specials body) -> do -- a specialization uses the specialized arguments
-        return (Just $ map (mapFst (flip Constrained Nothing)) specials,Nothing,Nothing)
+    DecT d@(DecType _ _ args hcstrs hfrees cstrs bfrees specs body) -> do 
+        return (Just $ decTypeArgs d,Nothing,Nothing)
 templateArgs l (Right name) t = case t of
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
-        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (FunType isLeak _ n vars ret ann stmts _)) -> do -- include the return type
-        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just ret)
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (LemmaType isLeak _ n vars ann stmts _)) -> do
-        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Just $ ComplexT Void)
-    DecT (DecType _ _ args hcstrs hfrees cstrs bfrees [] (AxiomType isLeak _ vars ann _)) -> do
-        return (Just $ map (mapFst (fmap varNameToType)) args,Just vars,Nothing)
+    DecT d@(DecType _ _ args hcstrs hfrees cstrs bfrees specs (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
+        return (Just $ decTypeArgs d,Just vars,Just ret)
+    DecT d@(DecType _ _ args hcstrs hfrees cstrs bfrees specs (FunType isLeak _ n vars ret ann stmts _)) -> do -- include the return type
+        return (Just $ decTypeArgs d,Just vars,Just ret)
+    DecT d@(DecType _ _ args hcstrs hfrees cstrs bfrees specs (LemmaType isLeak _ n vars ann stmts _)) -> do
+        return (Just $ decTypeArgs d,Just vars,Just $ ComplexT Void)
+    DecT d@(DecType _ _ args hcstrs hfrees cstrs bfrees specs (AxiomType isLeak _ vars ann _)) -> do
+        return (Just $ decTypeArgs d,Just vars,Nothing)
     otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
 
 tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set VarIdentifier
@@ -679,7 +680,7 @@ templateTDict exprC e = case entryType e of
   where
     purify :: TCstrGraph -> TCstrGraph
     purify = Graph.nmap (fmap add)
-    add = updCstrState (\(x1,x2,x3,x4,l) -> (x1,min exprC x2,x3,x4,l))
+    add = updCstrState (\st -> st { cstrExprC = min exprC (cstrExprC st) })
 
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n

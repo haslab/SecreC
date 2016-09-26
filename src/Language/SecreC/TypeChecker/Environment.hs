@@ -37,7 +37,7 @@ import Data.Map (Map(..),(!))
 import qualified Data.Map as Map
 import Data.Bifunctor
 
-import Data.Graph.Inductive              as Graph hiding (mapSnd)
+import Data.Graph.Inductive              as Graph hiding (mapSnd,mapFst)
 import Data.Graph.Inductive.Graph        as Graph
 import Data.Graph.Inductive.PatriciaTree as Graph
 import Data.Graph.Inductive.Query.DFS    as Graph
@@ -550,7 +550,7 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Right o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
@@ -619,7 +619,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (Left n) $ getLns selector env
     dirtyGDependencies (locpos l) $ PIden n
@@ -941,7 +941,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,[])) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
@@ -1546,21 +1546,6 @@ tcWith l msg m = do
   where
     dropDict (x:xs) = xs
 
-
-addErrorM :: (MonadIO m,Location loc) => loc -> (SecrecError -> SecrecError) -> TcM m a -> TcM m a
-addErrorM l err m = addErrorM' l (1,err) m
-
-addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecError -> SecrecError) -> TcM m a -> TcM m a
-addErrorM' l (j,err) (TcM m) = do
-    size <- liftM fst Reader.ask
-    opts <- askOpts
-    if (size + j) > constraintStackSize opts
-        then tcError (locpos l) $ ConstraintStackSizeExceeded $ ppid (constraintStackSize opts) <+> text "nested errors"
-        else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
-
-addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
-addErrorM'' l (j,SecrecErrArr err) m = addErrorM' l (j,err) m
-
 onlyAnn :: ProverK loc m => loc -> Doc -> TcM m a -> TcM m a
 onlyAnn l doc m = do
     isAnn <- getAnn
@@ -1612,3 +1597,45 @@ getOpensSet :: MonadIO m => TcM m (Set Int)
 getOpensSet = do
     opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
     return (Set.fromList opens)
+
+withCstrState :: (Location loc,MonadIO m) => loc -> CstrState -> TcM m a -> TcM m a
+withCstrState l st m =
+    withAnn (cstrIsAnn st) $
+        withExprC (cstrExprC st) $
+            withLeak (cstrIsLeak st) $
+                withKind (cstrDecK st) $
+                    withLineage (cstrLineage st) $
+                        addErrorM'' l (cstrErr st) m
+
+withLineage :: MonadIO m => Lineage -> TcM m a -> TcM m a
+withLineage new m = do
+    old <- State.gets lineage
+    State.modify $ \env -> env { lineage = new }
+    debugTc $ do
+        ppline <- liftM (sepBy colon) . mapM pp =<< getLineage
+        liftIO $ putStrLn $ "lineage: " ++ show ppline
+    x <- m
+    State.modify $ \env -> env { lineage = old }
+    return x
+
+addErrorM :: (MonadIO m,Location loc) => loc -> (SecrecError -> SecrecError) -> TcM m a -> TcM m a
+addErrorM l err m = addErrorM' l (1,err) m
+
+addErrorM' :: (MonadIO m,Location loc) => loc -> (Int,SecrecError -> SecrecError) -> TcM m a -> TcM m a
+addErrorM' l (j,err) (TcM m) = do
+    size <- liftM fst Reader.ask
+    opts <- askOpts
+    if (size + j) > constraintStackSize opts
+        then tcError (locpos l) $ ConstraintStackSizeExceeded $ ppid (constraintStackSize opts) <+> text "nested errors"
+        else TcM $ RWS.withRWST (\(i,SecrecErrArr f) s -> ((i + j,SecrecErrArr $ f . err),s)) m
+
+addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a -> TcM m a
+addErrorM'' l (j,SecrecErrArr err) m = addErrorM' l (j,err) m
+
+decTypeArgs :: DecType -> [(Constrained Type,IsVariadic)]
+decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees [] body) =
+    -- a base template uses the base arguments
+    map (mapFst (fmap varNameToType)) args
+decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees specials body) =
+    -- a specialization uses the specialized arguments
+    map (mapFst (flip Constrained Nothing)) specials

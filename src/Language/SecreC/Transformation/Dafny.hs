@@ -165,28 +165,36 @@ collectDafnyIds = everything Set.union (mkQ Set.empty aux)
     aux :: DecType -> Set DafnyId
     aux = Set.fromList . maybeToList . decDafnyId
 
+decDafnyTypes :: DecType -> [Type]
+decDafnyTypes d@(DecType tid isRec _ _ _ _ _ _ _) = if isJust isRec then map (unConstrained . fst) (decTypeArgs d) else []
+
 -- (base id,instance id,base arguments)
 decDafnyIds :: DecType -> Maybe (DafnyId,DafnyId,[Type])
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (ProcType _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = pIdenToDafnyId pn tid
-    (bid,ts) = maybe (did,[]) (mapFst (pIdenToDafnyId pn)) isRec
+    (bid) = maybe (did) ((pIdenToDafnyId pn)) isRec
+    ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = fIdenToDafnyId pn tid isLeak
-    (bid,ts) = maybe (did,[]) (mapFst (\tid -> fIdenToDafnyId pn tid isLeak)) isRec
+    (bid) = maybe (did) ((\tid -> fIdenToDafnyId pn tid isLeak)) isRec
+    ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (StructType _ (TypeName _ sn) _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = SId sn tid
-    (bid,ts) = maybe (did,[]) (mapFst (SId sn)) isRec
+    (bid) = maybe (did) ((SId sn)) isRec
+    ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just (did,bid,ts)
     where
     did = AId tid isLeak
-    (bid,ts) = maybe (did,[]) (mapFst (flip AId isLeak)) isRec
+    (bid) = maybe (did) ((flip AId isLeak)) isRec
+    ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = LId pn tid isLeak
-    (bid,ts) = maybe (did,[]) (mapFst (\tid -> LId pn tid isLeak)) isRec
+    (bid) = maybe (did) ((\tid -> LId pn tid isLeak)) isRec
+    ts = decDafnyTypes d
 decDafnyIds dec = Nothing
 
 decDafnyId :: DecType -> Maybe DafnyId

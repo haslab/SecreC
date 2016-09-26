@@ -390,18 +390,8 @@ getCstrState = do
     lineage <- getLineage
     isLeak <- getLeak
     kind <- getKind
-    return (isAnn,exprC,isLeak,kind,lineage)
-
-withCstrState :: Monad m => CstrState -> TcM m a -> TcM m a
-withCstrState (isAnn,exprC,isLeak,kind,lineage) m = withAnn isAnn $ withExprC exprC $ withLeak isLeak $ withKind kind $ withLineage lineage m
-
-withLineage :: Monad m => Lineage -> TcM m a -> TcM m a
-withLineage new m = do
-    old <- State.gets lineage
-    State.modify $ \env -> env { lineage = new }
-    x <- m
-    State.modify $ \env -> env { lineage = old }
-    return x
+    err <- Reader.ask
+    return $ CstrState isAnn exprC isLeak kind lineage err
     
 getAnn :: Monad m => TcM m Bool
 getAnn = liftM (isAnnDecClass . decClass) State.get
@@ -845,24 +835,20 @@ isTrivialHypCstr (HypEqual e1 e2) = e1 == e2
  
 isTcCstr :: TCstr -> Bool
 isTcCstr (TcK {}) = True
-isTcCstr (DelayedK k _) = isTcCstr k
 isTcCstr (CheckK {}) = False
 isTcCstr (HypK {}) = False
 
 isCheckCstr :: TCstr -> Bool
 isCheckCstr (CheckK {}) = True
-isCheckCstr (DelayedK k _) = isCheckCstr k
 isCheckCstr (HypK {}) = False
 isCheckCstr (TcK {}) = False
 
 isHypCstr :: TCstr -> Bool
 isHypCstr (HypK {}) = True
-isHypCstr (DelayedK k _) = isHypCstr k
 isHypCstr _ = False
 
 isTrivialCstr :: TCstr -> Bool
 isTrivialCstr (TcK c _) = isTrivialTcCstr c
-isTrivialCstr (DelayedK c _) = isTrivialCstr c
 isTrivialCstr (CheckK c _) = isTrivialCheckCstr c
 isTrivialCstr (HypK c _) = isTrivialHypCstr c
 
@@ -873,25 +859,27 @@ type ExprL loc = Expression VarIdentifier (Typed loc)
 type Lineage = [(GIdentifier,ModuleTyVarId)] -- trace of parent declarations
 
 updCstrState :: (CstrState -> CstrState) -> TCstr -> TCstr
-updCstrState f (DelayedK c arr) = DelayedK (updCstrState f c) arr
 updCstrState f (TcK c st) = TcK c (f st)
 updCstrState f (CheckK c st) = CheckK c (f st)
 updCstrState f (HypK c st) = HypK c (f st)
 
-newLineage :: Lineage -> TCstr -> TCstr
-newLineage l = updCstrState (\(x1,x2,x3,x4,_) -> (x1,x2,x3,x4,l))
-
--- (is annotation,expression class,is leak,decKind,lineage)
-type CstrState = (Bool,ExprC,Bool,DecKind,Lineage)
+data CstrState = CstrState
+    { cstrIsAnn :: Bool
+    , cstrExprC :: ExprC
+    , cstrIsLeak :: Bool
+    , cstrDecK :: DecKind
+    , cstrLineage :: Lineage
+    , cstrErr :: (Int,SecrecErrArr)
+    }
+  deriving (Data,Typeable,Show,Generic)
+instance Binary CstrState
+instance Hashable CstrState where
+    hashWithSalt i (CstrState isAnn expr isLeak dec line err) = i `hashWithSalt` isAnn `hashWithSalt` expr `hashWithSalt` isLeak `hashWithSalt` dec `hashWithSalt` line `hashWithSalt` err
 
 data TCstr
     = TcK
         TcCstr -- constraint
         CstrState
-    | DelayedK
-        TCstr -- a constraint
-        (Int,SecrecErrArr) -- an error message with updated context
-        --ModuleTcEnv -- optional recursive declarations only in scope for solving this constraint
     | CheckK
         CheckCstr
         CstrState
@@ -903,32 +891,24 @@ data TCstr
 instance Binary TCstr
 instance Hashable TCstr where
     hashWithSalt i (TcK c _) = i `hashWithSalt` (0::Int) `hashWithSalt` c
-    hashWithSalt i (DelayedK c _) = i `hashWithSalt` (1::Int) `hashWithSalt` c
-    hashWithSalt i (CheckK c _) = i `hashWithSalt` (2::Int) `hashWithSalt` c
-    hashWithSalt i (HypK c _) = i `hashWithSalt` (3::Int) `hashWithSalt` c
- 
-coreTCstr :: TCstr -> TCstr
-coreTCstr (DelayedK c _) = coreTCstr c
-coreTCstr c = c
+    hashWithSalt i (CheckK c _) = i `hashWithSalt` (1::Int) `hashWithSalt` c
+    hashWithSalt i (HypK c _) = i `hashWithSalt` (2::Int) `hashWithSalt` c
  
 instance Hashable EntryEnv
  
 instance Eq TCstr where
-    (DelayedK c1 _) == (DelayedK c2 _) = c1 == c2
-    (TcK x b1) == (TcK y b4) = x == y && b1 == b4
-    (HypK x b1) == (HypK y b4) = x == y && b1 == b4 
-    (CheckK x b1) == (CheckK y b4) = x == y && b1 == b4 
+    (TcK x b1) == (TcK y b4) = x == y
+    (HypK x b1) == (HypK y b4) = x == y
+    (CheckK x b1) == (CheckK y b4) = x == y
     x == y = False
     
 instance Ord TCstr where
-    compare (DelayedK c1 _) (DelayedK c2 _) = c1 `compare` c2
-    compare (TcK x b1) (TcK y b4) = mconcat [compare x y,compare b1 b4]
-    compare (HypK x b1) (HypK y b4) = mconcat [compare x y,compare b1 b4]
-    compare (CheckK x b1) (CheckK y b4) = mconcat [compare x y,compare b1 b4]
+    compare (TcK x b1) (TcK y b4) = mconcat [compare x y]
+    compare (HypK x b1) (HypK y b4) = mconcat [compare x y]
+    compare (CheckK x b1) (CheckK y b4) = mconcat [compare x y]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
 
 priorityTCstr :: VarsIdTcM m => TCstr -> TCstr -> TcM m Ordering
-priorityTCstr (DelayedK c1 _) (DelayedK c2 _) = priorityTCstr c1 c2
 priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2
 priorityTCstr (HypK x _) (HypK y _) = return $ compare x y
 priorityTCstr (CheckK x _) (CheckK y _) = return $ compare x y
@@ -1087,9 +1067,6 @@ instance PP m VarIdentifier => PP m HypCstr where
         return $ text "hypothesis" <+> pp1 <+> text "==" <+> pp2
 
 instance PP m VarIdentifier => PP m TCstr where
-    pp (DelayedK c f) = do
-        pp1 <- pp c
-        return $ text "delayed" <+> pp1
     pp (TcK k _) = pp k
     pp (CheckK c _) = pp c
     pp (HypK h _) = pp h
@@ -1314,9 +1291,6 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars VarIdenti
         return $ HypEqual e1' e2'
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m TCstr where
-    traverseVars f (DelayedK c err) = do
-        c' <- f c
-        return $ DelayedK c' err
     traverseVars f (TcK k st) = do
         k' <- f k
         return $ TcK k' st
@@ -1681,7 +1655,7 @@ iDecTyKind (LemmaType {}) = LKind
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
-        (Maybe (ModuleTyVarId,[Type])) -- is a recursive invocation = Just (original,expanded template type arguments)
+        (Maybe ModuleTyVarId) -- is a recursive invocation = Just (original)
         [(Constrained Var,IsVariadic)] -- ^ template variables
         PureTDict -- ^ constraints for the header
         Frees -- set of free internal constant variables generated when typechecking the header
@@ -1753,7 +1727,7 @@ isNonRecursiveDecType :: DecType -> Bool
 isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
     where
     aux :: DecType -> Bool
-    aux (DecType _ (Just (j,_)) _ _ _ _ _ _ _) = i == j
+    aux (DecType _ (Just (j)) _ _ _ _ _ _ _) = i == j
     aux d = False
 isNonRecursiveDecType d = False
 
@@ -1940,7 +1914,7 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
             $+$ text "struct" <+> pp6 <> abrackets (sepBy comma pp7) <+> pp8
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Left n) args ret ann stmts _)) = do
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(ProcType _ (Left n) args ret ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp21 <- pp hfrees
@@ -1950,6 +1924,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp ret
         pp7 <- pp n
+        pp70 <- mapM pp specs
         pp8 <- mapM ppConstArg args
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
@@ -1959,10 +1934,10 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
-            $+$ pp6 <+> pp7 <> parens (sepBy comma pp8)
+            $+$ pp6 <+> pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(ProcType _ (Right n) args ret ann stmts _)) = do
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(ProcType _ (Right n) args ret ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp21 <- pp hfrees
@@ -1972,6 +1947,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp ret
         pp7 <- pp n
+        pp70 <- mapM pp specs
         pp8 <- mapM ppConstArg args
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
@@ -1981,10 +1957,10 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
-            $+$ pp6 <+> text "operator" <+> pp7 <> parens (sepBy comma pp8)
+            $+$ pp6 <+> text "operator" <+> pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType isLeak _ (Left n) args ret ann stmts _)) = do
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(FunType isLeak _ (Left n) args ret ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp21 <- pp hfrees
@@ -1994,6 +1970,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp ret
         pp7 <- pp n
+        pp70 <- mapM pp specs
         pp8 <- mapM ppConstArg args
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
@@ -2003,10 +1980,10 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
-            $+$ pp6 <+> pp7 <> parens (sepBy comma pp8)
+            $+$ pp6 <+> pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10)
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(FunType isLeak _ (Right n) args ret ann stmts _)) = do
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(FunType isLeak _ (Right n) args ret ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp21 <- pp hfrees
@@ -2016,6 +1993,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp ret
         pp7 <- pp n
+        pp70 <- mapM pp specs
         pp8 <- mapM ppConstArg args
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
@@ -2025,10 +2003,10 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
-            $+$ pp6 <+> text "operator" <+> pp7 <> parens (sepBy comma pp8)
+            $+$ pp6 <+> text "operator" <+> pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10)
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(AxiomType isLeak _ args ann _)) = do
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(AxiomType isLeak _ args ann _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp21 <- pp hfrees
@@ -2036,6 +2014,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp31 <- pp frees
         pp4 <- pp dict
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
+        pp50 <- mapM pp specs
         pp6 <- mapM ppConstArg args
         pp7 <- pp ann
         return $ ppLeak isLeak (pp1 <+> pp2
@@ -2043,9 +2022,9 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ pp3
             $+$ text "Frees:" <+> pp31
             $+$ pp4
-            $+$ text "axiom" <> abrackets (sepBy comma pp5)
+            $+$ text "axiom" <> abrackets (sepBy comma pp5) <> abrackets (sepBy comma pp50)
             <+> parens (sepBy comma $ pp6) $+$ pp7)
-    pp (DecType did isrec vars hdict hfrees dict frees [] body@(LemmaType isLeak _ n args ann stmts _)) = do
+    pp (DecType did isrec vars hdict hfrees dict frees specs body@(LemmaType isLeak _ n args ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp21 <- pp hfrees
@@ -2054,6 +2033,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp4 <- pp dict
         pp5 <- pp n
         pp6 <- mapM (ppVariadicArg ppTpltArg) vars
+        pp60 <- mapM pp specs
         pp7 <- mapM ppConstArg args
         pp8 <- pp ann
         pp9 <- ppOpt stmts (liftM braces . pp)
@@ -2062,7 +2042,7 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ pp3
             $+$ text "Frees:" <+> pp31
             $+$ pp4
-            $+$ text "lemma" <+> pp5 <+> abrackets (sepBy comma pp6)
+            $+$ text "lemma" <+> pp5 <+> abrackets (sepBy comma pp6) <> abrackets (sepBy comma pp60)
             <+> parens (sepBy comma pp7)
             $+$ pp8
             $+$ pp9)
