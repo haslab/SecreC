@@ -54,7 +54,7 @@ instance Assertable Result where
     assert (ResFailure i) = assertFailure $ "test failed with error code " ++ show i
     assert (ResTimeout t) = assertFailure $ "test timed out after " ++ show t ++ " seconds"
 
-timelimit = 3 * 1000
+timelimit = 3 * 60
 
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
