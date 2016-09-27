@@ -46,13 +46,23 @@ hasLabel :: String -> Test -> Bool
 hasLabel s (TestLabel l _) = s == l
 hasLabel s t = False
 
+data Result = ResSuccess | ResFailure Int | ResTimeout Int
+  deriving (Eq,Show)
+
+instance Assertable Result where
+    assert ResSuccess = return ()
+    assert (ResFailure i) = assertFailure $ "test failed with error code " ++ show i
+    assert (ResTimeout t) = assertFailure $ "test timed out after " ++ show t ++ " seconds"
+
+timelimit = 3 * 1000
+
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
-    code <- timeout (2*10^6) (system $ "secrec " ++ f)
+    code <- timeout (timelimit *10^6) (system $ "secrec " ++ f)
     case code of
-        Just ExitSuccess -> return True
-        Just (ExitFailure i) -> return False
-        Nothing -> return False
+        Just ExitSuccess -> return ResSuccess
+        Just (ExitFailure i) -> return $ ResFailure i
+        Nothing -> return $ ResTimeout timelimit
 
 --main = buildTestTree >>= runTestTT 
 
