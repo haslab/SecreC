@@ -1,13 +1,7 @@
 kind a3p;
 
-private int classify (public int x) {
-    private int y;
-    return y;
-}
-protected int classify (public int x) {
-    protected int y;
-    return y;
-}
+domain private a3p;
+domain protected a3p;
 
 template <domain d1 : a3p, domain d2 : a3p >
 d2 int reclassify (d1 int x) { return 0; }
@@ -17,9 +11,6 @@ d int reclassify (d int x) { return x; }
 
 template <domain d : a3p >
 d int classify_ (public int x) { d int out; return out; }
-
-domain private a3p;
-domain protected a3p;
 
 void main () {
     private int x;

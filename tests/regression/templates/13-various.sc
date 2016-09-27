@@ -24,6 +24,6 @@ T1 int get () {
 
 void main () {
     assert (check (0) == 0);
-    assert (check (get () :: private) == 2);
-    assert (check (get () :: protected) == 1);
+    assert (check (get () :: private int) == 2);
+    assert (check (get () :: protected int) == 1);
 }

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --fail=true
+
 kind test;
 
 template <domain T1 : test, domain T2>
