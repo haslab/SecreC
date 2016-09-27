@@ -353,10 +353,10 @@ lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find function" <+> ppdid
 
-emptyDec (DecType tid _ [] ((==emptyPureTDict)->True) (noNormalFrees->True) ((==emptyPureTDict)->True) ((==mempty)->True) _ t) = Just (tid,t)
+emptyDec (DecType tid _ [] ((==emptyPureTDict)->True) (noNormalFrees->True) ((==emptyPureTDict)->True) (noNormalFrees->True) _ t) = Just (tid,t)
 emptyDec d = Nothing
 
-targsDec (DecType tid _ ts ((==emptyPureTDict)->True) (noNormalFrees->True) ((==emptyPureTDict)->True) ((==mempty)->True) _ t) = Just (tid,ts,t)
+targsDec (DecType tid _ ts ((==emptyPureTDict)->True) (noNormalFrees->True) ((==emptyPureTDict)->True) (noNormalFrees->True) _ t) = Just (tid,ts,t)
 targsDec d = Nothing
 
 
