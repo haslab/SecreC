@@ -16,6 +16,10 @@ import Test.Hspec
 import Test.Hspec.Contrib.HUnit (fromHUnitTest)
 import Test.Hspec.Core.Runner (hspecWith, Config(..),defaultConfig)
 
+-- Configs
+fastfail = False
+timelimit = 3 * 60
+
 buildTestTree :: IO Test
 buildTestTree = do
     tests1 <- buildTestDirectoryTree "tests/regression/arrays"
@@ -54,8 +58,6 @@ instance Assertable Result where
     assert (ResFailure i) = assertFailure $ "test failed with error code " ++ show i
     assert (ResTimeout t) = assertFailure $ "test timed out after " ++ show t ++ " seconds"
 
-timelimit = 3 * 60
-
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
     code <- timeout (timelimit *10^6) (system $ "secrec " ++ f)
@@ -70,7 +72,7 @@ testTypeChecker f = test $ do
 main :: IO ()
 main = do
     testSuite <- buildTestTree
-    let cfg = defaultConfig { configFastFail = False }
+    let cfg = defaultConfig { configFastFail = fastfail }
     hspecWith cfg $ describe "SecreC tests" $ fromHUnitTest testSuite
 
 
