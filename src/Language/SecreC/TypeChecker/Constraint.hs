@@ -72,7 +72,7 @@ solveHypotheses l = do
 solveSelectionWith :: ProverK loc m => loc -> String -> SolveMode -> Set LocIOCstr -> TcM m ()
 solveSelectionWith l msg mode cs = tcNoDeps $ do
     newDict l $ "solveSelection " ++ msg
-    mb <- solveMb l ("solveSelection " ++ msg) mode cs
+    mb <- solveMb l ("solveSelection " ++ msg ++ " " ++ show mode) mode cs
     case mb of
         Just err -> throwError err
         Nothing -> do
@@ -577,7 +577,7 @@ resolveTcCstr l mode kid k = do
             ppy <- pp y
             return ((mapM_ (tCstrM_ l) x,ppx),(\b -> mapM_ (tCstrM_ l) y,ppy),(const $ return (),PP.empty),z)
         s' <- mapM mkSubst s
-        multipleSubstitutions l kid v s'
+        multipleSubstitutions l kid SolveGlobal v s'
     resolveTcCstr' kid (MatchTypeDimension t d) = matchTypeDimension l t d
     resolveTcCstr' kid (IsValid c) = do
         x <- ppM l c
@@ -759,30 +759,36 @@ relatedCstrs l kids vs filter = do
     filtered <- (filter $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") vs) vgr)
     return $ Set.difference filtered dependents
     
-multipleSubstitutions :: (ProverK loc m,VarsId (TcM m) a) => loc -> Int -> a -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> TcM m d
-multipleSubstitutions l kid bv ss = do
+multipleSubstitutions :: (ProverK loc m,VarsId (TcM m) a) => loc -> Int -> SolveScope -> a -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> TcM m d
+multipleSubstitutions l kid scope bv ss = do
     opts <- askOpts
     bvs <- liftM Map.keysSet $ fvs bv -- variables bound by the multiple substitutions
-    cs <- relatedCstrs l [kid] bvs (filterCstrSetScope SolveGlobal)
+    debugTc $ do
+        ppbvs <- ppr bvs
+        liftIO $ putStrLn $ "multipleSubstitutions bounds: " ++ ppbvs
+    cs <- relatedCstrs l [kid] bvs (filterCstrSetScope scope)
+    debugTc $ do
+        ppcs <- liftM (sepBy space) $ mapM (pp . ioCstrId . unLoc) $ Set.toList cs
+        liftIO $ putStrLn $ "multipleSubstitutions constraints: " ++ show ppcs
     --liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
     let removes = do
         let fs = Set.unions $ map fou4 ss
         forM_ fs removeFree
     if backtrack opts
         then do
-            ok <- newErrorM $ matchAll l kid cs ss (matchOne l kid cs) []
+            ok <- newErrorM $ matchAll l kid scope cs ss (matchOne l kid scope cs) []
             case ok of
                 Left d -> removes >> return d
                 Right errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
         else do
-            ok <- newErrorM $ matchAll l kid cs ss (matchHead l kid cs) []
+            ok <- newErrorM $ matchAll l kid scope cs ss (matchHead l kid scope cs) []
             case ok of
-                Left y -> matchBody l kid cs y >>= \d -> removes >> return d
+                Left y -> matchBody l kid scope cs y >>= \d -> removes >> return d
                 Right errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
     
-matchAll :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> (((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m x) -> [(Doc,SecrecError)] -> TcM m (Either x [(Doc,SecrecError)])
-matchAll l kid cs [] match errs = return $ Right errs
-matchAll l kid cs (x:xs) match errs = catchError
+matchAll :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> (((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m x) -> [(Doc,SecrecError)] -> TcM m (Either x [(Doc,SecrecError)])
+matchAll l kid scope cs [] match errs = return $ Right errs
+matchAll l kid scope cs (x:xs) match errs = catchError
     -- match and solve all remaining constraints
     (liftM Left $ match x)
     -- backtrack and try another match
@@ -790,34 +796,38 @@ matchAll l kid cs (x:xs) match errs = catchError
         debugTc $ do
             pe <- ppr e
             liftIO $ putStrLn $ "failed " ++ show (snd (fst4 x)) ++ " " ++ pe
-        matchAll l kid cs xs match (errs++[(snd (fst4 x),e)])
+        matchAll l kid scope cs xs match (errs++[(snd (fst4 x),e)])
         --throwError e
     )
 
-matchOne :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
-matchOne l kid cs (match,deps,post,frees) = do
-    res <- matchHead l kid cs (match,deps,post,frees)
-    matchBody l kid cs res
+matchOne :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
+matchOne l kid scope cs (match,deps,post,frees) = do
+    res <- matchHead l kid scope cs (match,deps,post,frees)
+    matchBody l kid scope cs res
 
-matchHead :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)
-matchHead l kid cs (match,deps,post,frees) = do
+matchHead :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)
+matchHead l kid scope cs (match,deps,post,frees) = do
+    forSetM_ cs $ \(Loc _ iok) -> liftIO $ readIdRef (kStatus iok) >>= \st -> case st of
+        Erroneous _ -> writeIdRef (kStatus iok) Unevaluated
+        otherwise -> return ()
     debugTc $ do
         ppl <- ppr l
         liftIO $ putStrLn $ ppl ++ " trying to match head"++show kid ++ " " ++ show (snd match)
-    (b,ks) <- prove l ("matchOneHead"++show kid) $ tcWithCstrs l ("matchOneHead"++show kid) (fst match)
+    mode <- defaultSolveMode
+    (b,ks) <- proveWithMode l ("matchOneHead"++show kid) (mode { solveScope = scope }) $ tcWithCstrs l ("matchOneHead"++show kid) (fst match)
     return ((b,ks),deps,post,frees)
 
-matchBody :: (ProverK loc m) => loc -> Int -> Set LocIOCstr -> ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
-matchBody l kid cs ((b,ks),deps,post,_) = do
+matchBody :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
+matchBody l kid scope cs ((b,ks),deps,post,_) = do
     debugTc $ do
         ppl <- ppr l
         liftIO $ putStrLn $ ppl ++ " trying to match "++show kid
-    c <- prove l ("matchOneHead"++show kid) $ withDependencies ks ((fst deps) b)
+    mode <- defaultSolveMode
+    c <- proveWithMode l ("matchOneHead"++show kid) (mode { solveScope = scope }) $ withDependencies ks ((fst deps) b)
     
     -- solve all other dependencies
     --liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
-    mode <- defaultSolveMode
-    solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True }) cs
+    solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True, solveScope = scope }) cs
     debugTc $ liftIO $ putStrLn $ "matchOne solved " ++ show kid
     (fst post) c
 

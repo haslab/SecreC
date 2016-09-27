@@ -1109,7 +1109,10 @@ closeCstr = do
     
 addCstrCache :: (ProverK loc m) => loc -> CstrCache -> TcM m ()
 addCstrCache l delays = do
-    State.modify $ \e -> e { cstrCache = Map.union (cstrCache e) delays }
+    solve <- State.gets solveToCache
+    if solve
+        then State.modify $ \e -> e { cstrCache = Map.union (cstrCache e) delays }
+        else liftIO $ forM_ (Map.toList delays) $ \(Loc l iok,st) -> writeIdRef (kStatus iok) st
 
 resolveIOCstr_ :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
 resolveIOCstr_ l iok resolve = resolveIOCstr l iok resolve >> return ()
@@ -1271,7 +1274,9 @@ updateHeadTDict l msg upd = do
 -- | forget the result for a constraint when the value of a variable it depends on changes
 dirtyGDependencies :: (MonadIO m) => Position -> GIdentifier -> TcM m ()
 dirtyGDependencies p v = do
-    --debugTc $ liftIO $ putStr $ "dirtyGDependencies " ++ ppr v
+    debugTc $ do
+        ppv <- ppr v
+        liftIO $ putStr $ "dirtyGDependencies " ++ ppv
     opens <- getOpens
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
@@ -1281,13 +1286,14 @@ dirtyGDependencies p v = do
             WeakMap.forGenericM_ m $ \(u,x) -> do
                 -- dirty other constraint dependencies
                 dirtyIOCstrDependencies p opens x
-    --debugTc $ liftIO $ putStrLn "\n"
+    debugTc $ liftIO $ putStrLn "\n"
 
 dirtyIOCstrDependencies :: MonadIO m => Position -> [IOCstr] -> IOCstr -> TcM m ()
 dirtyIOCstrDependencies p opens iok = do
     unless (elem iok opens) $ do
-        --debugTc $ putStr $ " " ++ ppr (ioCstrId iok)
+        debugTc $ liftIO $ putStr $ " " ++ pprid (ioCstrId iok)
         writeCstrStatus p iok Unevaluated
+        --writeIdRef (kStatus io) Unevaluated
     deps <- liftIO $ liftM ioDeps $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps (modTyId $ uniqId $ kStatus iok)
     case mb of
@@ -1518,9 +1524,11 @@ throwTcError l err = do
     (i,SecrecErrArr f) <- Reader.ask
     let err2 = f err
     ios <- liftM openedCstrs State.get
+    debugTc $ liftIO $ putStrLn $ "throwTcError " ++ show (map (pprid . ioCstrId . fst) ios)
     let add (io,vs) = do
         -- write error to the constraint's result
         writeCstrStatus (locpos l) io (Erroneous err2)
+        --liftIO $ writeIdRef (kStatus io) (Erroneous err2)
         -- dirty variables assigned by this constraint
         forM_ vs (dirtyGDependencies (locpos l) . VIden)
     mapM_ add ios
