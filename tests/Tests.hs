@@ -17,7 +17,7 @@ import Test.Hspec.Core.Runner (hspecWith, Config(..),defaultConfig)
 
 buildTestTree :: IO Test
 buildTestTree = do
-    tests1 <- buildTestDirectoryTree "tests/regression/structs"
+    tests1 <- buildTestDirectoryTree "tests/regression/arrays"
 --    tests2 <- buildTestDirectoryTree "imports/stdlib"
     return $ TestList [tests1]
 
