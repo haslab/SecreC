@@ -51,7 +51,7 @@ testTypeChecker f = test $ do
     code <- timeout (2*10^6) (system $ "secrec " ++ f)
     case code of
         Just ExitSuccess -> return True
-        Just ExitFailure i -> return False
+        Just (ExitFailure i) -> return False
         Nothing -> return False
 
 --main = buildTestTree >>= runTestTT 
