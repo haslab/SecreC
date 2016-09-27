@@ -3,10 +3,10 @@ A privacy-preserving cut that, given a vector a and a mask vector m, of equal si
 The idea is to shuffle the vectors and and m together (i.e., using the same random permutation for both), and then declassify the shuffled m before running the filter. Note that the order of the input elements in a is not preserved in the output.
 
 SecreC:
-The cut function receives as known leakage the number 1s in the input mask m.
+The cut function receives as known leakage the number of 1s in the input mask m.
 
-EasyCrypt:
-We need to prove that, for a shuffle function, if we know all the elements that belong to an input vector (but not their positions), then we can leak the shuffled vector.
+Assumptions:
+We assume that, for a shuffle function, if we know all the elements that belong to an input vector (but not their positions), then we can leak the shuffled vector.
 
 Execute:
 secrec examples/leakage/cut/cut.sc --verify
