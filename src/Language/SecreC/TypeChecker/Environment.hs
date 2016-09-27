@@ -561,7 +561,7 @@ newOperator hdeps op = do
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict True Map.empty d'
     let td = DecT $ DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
     let e = EntryEnv (locpos l) td
-    noNormalFrees e
+    noNormalFreesM e
     debugTc $ do
         ppe <- ppr (entryType e)
         liftIO $ putStrLn $ "addOp " ++ ppe
@@ -635,7 +635,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict True Map.empty d'
     let dt = DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
     let e = EntryEnv (locpos l) (DecT dt)
-    noNormalFrees e
+    noNormalFreesM e
     debugTc $ do
         ppe <- ppr (entryType e)
         ppd <- ppr dict
@@ -660,7 +660,7 @@ newAxiom l hdeps tvars d = do
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict True Map.empty d'
     let dt = DecType i Nothing tvars emptyPureTDict Map.empty emptyPureTDict frees [] d''
     let e = EntryEnv (locpos l) (DecT dt)
-    noNormalFrees e
+    noNormalFreesM e
     debugTc $ do
         ppe <- ppr (entryType e)
         liftIO $ putStrLn $ "addAxiom " ++ pprid (decTypeTyVarId dt) ++ " " ++ ppe
@@ -853,9 +853,12 @@ buildCstrGraph l cstrs = do
 --    liftIO $ putStrLn $ "buildCstrGraphTail: " ++ show doc
     return gr'
     
+noNormalFrees :: Frees -> Bool
+noNormalFrees = Map.null . Map.filter (\b -> not b)
+    
 -- no non-variadic free variable can be unbound
-noNormalFrees :: ProverK Position m => EntryEnv -> TcM m ()
-noNormalFrees e = do
+noNormalFreesM :: ProverK Position m => EntryEnv -> TcM m ()
+noNormalFreesM e = do
     frees <- liftM (Map.keysSet . Map.filter (\b -> not b) . localFrees) State.get
     TSubsts ss <- getTSubsts (loc e)
     let vs = Set.difference frees (Map.keysSet ss)
@@ -964,7 +967,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
                 ppl <- ppr l
                 ppe <- ppr e
                 liftIO $ putStrLn $ "newStruct: " ++ ppl ++ " " ++ ppe
-            noNormalFrees e
+            noNormalFreesM e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
             return $ TypeName (Typed l dt) n
 

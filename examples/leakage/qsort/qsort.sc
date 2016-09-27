@@ -8,25 +8,6 @@ import axioms;
 kind privatek;
 domain private privatek;
 
-function int declassify(private int x) {
-    __builtin("core.declassify",x) :: int
-}
-function uint declassify(private uint x) {
-    __builtin("core.declassify",x) :: uint
-}
-function bool declassify(private bool x) {
-    __builtin("core.declassify",x) :: bool
-}
-function private int classify(int x) {
-    __builtin("core.classify",x) :: private int
-}
-function private uint classify(uint x) {
-    __builtin("core.classify",x) :: private uint
-}
-function private bool classify(bool x) {
-    __builtin("core.classify",x) :: private bool
-}
-
 function private bool operator <= (private uint x,private uint y) {
     __builtin("core.le",x,y) :: private bool
 }
