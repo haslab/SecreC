@@ -9,6 +9,7 @@ import System.FilePath.Find as FilePath
 import System.FilePath
 import System.Process
 import System.Exit
+import System.Timeout
 
 import Test.HUnit.Base
 import Test.Hspec
@@ -19,6 +20,7 @@ buildTestTree :: IO Test
 buildTestTree = do
     tests1 <- buildTestDirectoryTree "tests/regression/arrays"
 --    tests2 <- buildTestDirectoryTree "imports/stdlib"
+--    tests3 <- buildTestDirectoryTree "examples"
     return $ TestList [tests1]
 
 buildTestDirectoryTree :: FilePath -> IO Test
@@ -43,13 +45,14 @@ addTestToList (x:xs) d ds f = x : addTestToList xs d ds f
 hasLabel :: String -> Test -> Bool
 hasLabel s (TestLabel l _) = s == l
 hasLabel s t = False
-    
+
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
-    code <- system $ "secrec " ++ f
+    code <- timeout (2*10^6) (system $ "secrec " ++ f)
     case code of
-        ExitSuccess -> return True
-        ExitFailure i -> return False
+        Just ExitSuccess -> return True
+        Just ExitFailure i -> return False
+        Nothing -> return False
 
 --main = buildTestTree >>= runTestTT 
 
