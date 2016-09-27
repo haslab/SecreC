@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --fail --implicitcoercions=False
 
 template <domain dom>
 void hasTypeError (dom int x) {

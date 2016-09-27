@@ -1,4 +1,4 @@
-#options_secrec --fail --implicit=False
+#OPTIONS_SECREC --fail --implicitcoercions=False
 
 template <domain dom>
 void foo (dom int x, dom int y) { }

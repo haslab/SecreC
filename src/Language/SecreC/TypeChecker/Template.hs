@@ -270,51 +270,57 @@ ppTpltApp (Right (Right n)) targs args (Just ret) = do
     ppargs <- mapM ppArg $ concat args
     return $ ppret <+> ppn <> abrackets (sepBy comma pptargs) <> parens (sepBy comma ppargs)
 
-compareTwice :: (ProverK loc m,PP (TcM m) x,VarsId (TcM m) x) => loc -> x -> x -> x -> x -> (x -> x -> TcM m (Comparison (TcM m))) -> TcM m (Comparison (TcM m))
-compareTwice l x x' y y' cmp = do
-    o <- cmp x y
+compareTwice :: (ProverK loc m,PP (TcM m) x,VarsId (TcM m) x) => loc -> x -> x -> x -> x -> (x -> x -> TcM m (Comparison (TcM m))) -> (x -> x -> TcM m (Comparison (TcM m))) -> TcM m (Comparison (TcM m))
+compareTwice l x x' y y' cmp1 cmp2 = do
+    o <- cmp1 x y
+    --debugTc $ do
+    --    ppo <- ppr o
+    --    liftIO $ putStrLn $ "comparing before " ++ ppo
     case compOrdering o of
         (ord,isLat) -> case mappend ord isLat of
             EQ -> return o
             otherwise -> do
-                o' <- cmp x' y'
+                o' <- cmp2 x' y'
+                --debugTc $ do
+                --    ppo' <- ppr o'
+                --    liftIO $ putStrLn $ "comparing after " ++ ppo'
                 case compOrdering o' of
                     (EQ,_) -> return o
                     otherwise -> do
                         ppo' <- ppr o'
                         constraintError (ComparisonException $ "comparetwice " ++ ppo') l x' pp y' pp Nothing
 
-comparesListTwice :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
-comparesListTwice l isLattice a@[] a'@[] b@[] b'@[] = return $ Comparison a b EQ EQ
-comparesListTwice l isLattice a@(x:xs) a'@(x':xs') b@(y:ys) b'@(y':ys') = do
-    f <- compareTwice l x x' y y' (compares l isLattice)
-    g <- comparesListTwice l isLattice xs xs' ys ys'
-    appendComparison l f g
-comparesListTwice l isLattice xs xs' ys ys' = constraintError (ComparisonException "type") l xs pp ys pp Nothing
+--comparesListTwice :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
+--comparesListTwice l isLattice a@[] a'@[] b@[] b'@[] = return $ Comparison a b EQ EQ
+--comparesListTwice l isLattice a@(x:xs) a'@(x':xs') b@(y:ys) b'@(y':ys') = do
+--    f <- compareTwice l x x' y y' (compares l isLattice)
+--    g <- comparesListTwice l isLattice xs xs' ys ys'
+--    appendComparison l f g
+--comparesListTwice l isLattice xs xs' ys ys' = constraintError (ComparisonException "type") l xs pp ys pp Nothing
 
-compareTypeArgs :: ProverK loc m => loc -> Bool -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
-compareTypeArgs l isLattice xs@[] xs'@[] ys@[] ys'@[] = return (Comparison xs ys EQ EQ)
-compareTypeArgs l isLattice ((Constrained t1 c1,isVariadic1):xs) ((Constrained t1' c1',isVariadic1'):xs') ((Constrained t2 c2,isVariadic2):ys) ((Constrained t2' c2',isVariadic2'):ys') = do
-    o1 <- compareTwice l t1 t1' t2 t2' (compares l isLattice)
+compareTypeArgs :: ProverK loc m => loc -> Bool -> [(Constrained Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m (Comparison (TcM m))
+compareTypeArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ EQ)
+compareTypeArgs l isLattice ((Constrained t1 c1,isVariadic1):xs) ((Constrained t2 c2,isVariadic2):ys) = do
+    o1 <- compares l isLattice t1 t2
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "type argument") l t1 pp t2 pp Nothing
-    o2 <- compareTypeArgs l isLattice xs xs' ys ys'
+    o2 <- compareTypeArgs l isLattice xs ys
     appendComparisons l [o1,o2]
-compareTypeArgs l isLattice xs xs' ys ys' = constraintError (ComparisonException "type argument") l xs pp ys pp Nothing
+compareTypeArgs l isLattice xs ys = constraintError (ComparisonException "type argument") l xs pp ys pp Nothing
 
-compareProcedureArgs :: (ProverK loc m) => loc -> Bool -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m (Comparison (TcM m))
-compareProcedureArgs l isLattice xs@[] xs'@[] ys@[] ys'@[] = return (Comparison xs ys EQ EQ)
-compareProcedureArgs l isLattice ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v1'@(VarName t1' n1'),isVariadic1'):xs') ((_,v2@(VarName t2 n2),isVariadic2):ys) ((_,v2'@(VarName t2' n2'),isVariadic2'):ys') = do
+compareProcedureArgs :: (ProverK loc m) => loc -> Bool -> [(Bool,Var,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m (Comparison (TcM m))
+compareProcedureArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ EQ)
+compareProcedureArgs l isLattice ((_,v1@(VarName t1 n1),isVariadic1):xs) ((_,v2@(VarName t2 n2),isVariadic2):ys) = do
 --    liftIO $ putStrLn $ "comparePArgExp " ++ ppr v1 ++ " " ++ ppr v2 ++ " "
-    o0 <- compareTwice l (varExpr v1) (varExpr v1') (varExpr v2) (varExpr v2') (comparesExpr l True)
+    o0 <- comparesExpr l True (varExpr v1) (varExpr v2)
 --    liftIO $ putStr $ show (compOrdering o0)
     --ss <- getTSubsts l
-    o1 <- compareTwice l t1 t1' t2 t2' (compares l isLattice)
+    o1 <- compares l isLattice t1 t2
     --liftIO $ putStrLn $ "comparePArg " ++ ppr t1 ++ " " ++ ppr t2 ++ " " ++ ppr ss ++"\n= " ++ ppr o1
 --    liftIO $ putStr $ show (compOrdering o1)
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "procedure argument") l t1 pp t2 pp Nothing
-    o2 <- compareProcedureArgs l isLattice xs xs' ys ys'
+    o2 <- compareProcedureArgs l isLattice xs ys
     appendComparisons l [o0,o1,o2]
-compareProcedureArgs l isLattice xs xs' ys ys' = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
+compareProcedureArgs l isLattice xs ys = constraintError (ComparisonException "procedure argument") l xs pp ys pp Nothing
 
 -- | Tells if one declaration is strictly more specific than another, and if not it fails.
 -- Since we are unifying base types during instantiation, it may happen that the most specific match is chosen over another more generic best match. This problem does not arise though if we only resolve templates on full instantiation. If we ever change this, we should use instead a three-way comparison that also tries to minimize the number of instantiated type variables in the context.
@@ -328,45 +334,42 @@ compareProcedureArgs l isLattice xs xs' ys ys' = constraintError (ComparisonExce
 -- compare original declarations, not instantiated ones
 compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache) -> (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,Set Int,Frees,Frees,CstrCache) -> TcM m (Ordering,Ordering)
 compareTemplateDecls def l isLattice n (e1,e1',_,d1,_,_,_,_) (e2,e2',_,d2,_,_,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
+    ord <- compareTwice l e1 e1' e2 e2' (compareTemplateEntries True def l isLattice n) (compareTemplateEntries False def l isLattice n)
+    debugTc $ do
+        ppo <- pp ord
+        liftIO $ putStrLn $ "finished comparing decls " ++ show ppo
+    return $ compOrdering ord
+    
+compareTemplateEntries :: (ProverK loc m) => Bool -> Doc -> loc -> Bool -> TIdentifier -> EntryEnv -> EntryEnv -> TcM m (Comparison (TcM m))
+compareTemplateEntries notEq def l isLattice n e1 e2 = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
     debugTc $ do
         pp1 <- ppr e1
         pp2 <- ppr e2
         liftIO $ putStrLn $ "compareTemplateDecls " ++ pp1 ++ "\n" ++ pp2
     State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
-    --e1' <- localTemplate e1
-    --e2' <- localTemplate e2
     (targs1,pargs1,ret1) <- templateArgs (entryLoc e1) n (entryType e1)
-    (targs1',pargs1',ret1') <- templateArgs (entryLoc e1) n (entryType e1)
     (targs2,pargs2,ret2) <- templateArgs (entryLoc e2) n (entryType e2)
-    (targs2',pargs2',ret2') <- templateArgs (entryLoc e2) n (entryType e2)
     unless (isJust ret1 == isJust ret2) $ do
         ppe1 <- ppr e1
         ppe2 <- ppr e2
         error $ "declarations should have the same return type " ++ ppe1 ++ "\n" ++ ppe2
-    --removeTSubsts $ tpltTyVars targs1
-    --removeTSubsts $ tpltTyVars targs2
-    let f (e,d) = do
+    let f e = do
         ppe <- pp (entryType e) 
-        ppd <- pp d
-        return $ (locpos $ entryLoc e,ppe $+$ text "Context:" <+> ppd)
-    defs <- mapM f [(e1,d1),(e2,d2)]
+        return $ (locpos $ entryLoc e,ppe)
+    defs <- mapM f [(e1),(e2)]
     let err = TypecheckerError (locpos l) . Halt . ConflictingTemplateInstances def defs
     ord <- addErrorM l err $ do
---        ss <- liftM (tSubsts . mconcat . tDict) State.get
---        liftIO $ putStrLn $ show $ ppTSubsts ss
---        liftIO $ putStrLn $ "compareTplt " ++ ppr l ++" "++ show (fmap (map (ppVarTy . unConstrained. snd3)) pargs1) ++" "++ ppr ret1 ++" "++ show (fmap (map (ppVarTy . unConstrained. snd3)) pargs2) ++" "++ ppr ret2
         ord2 <- if (isJust ret1)
             -- for procedures, compare the procedure arguments
-            then compareProcedureArgs l isLattice (concat pargs1) (concat pargs1') (concat pargs2) (concat pargs2')
+            then compareProcedureArgs l isLattice (concat pargs1) (concat pargs2)
             -- for structs, compare the specialization types
-            else compareTypeArgs l isLattice (concat targs1) (concat targs1') (concat targs2) (concat targs2')
-        ord3 <- comparesListTwice l isLattice (maybeToList ret1) (maybeToList ret1') (maybeToList ret2) (maybeToList ret2')
-        ord4 <- comparesDecIds (entryType e1) (entryType e2)
+            else compareTypeArgs l isLattice (concat targs1) (concat targs2)
+        ord3 <- comparesList l isLattice (maybeToList ret1) (maybeToList ret2)
+        ord4 <- if notEq then comparesDecIds (entryType e1) (entryType e2) else return $ Comparison (entryType e1) (entryType e2) EQ EQ
         appendComparisons l [ord2,ord3,ord4]
     let (o,isLat) = compOrdering ord
-    when (mappend o isLat == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
-    debugTc $ liftIO $ putStrLn $ "finished comparing decls " ++ pprid (o,isLat)
-    return (o,isLat)
+    when (notEq && mappend o isLat == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
+    return ord
 
 -- favor specializations over the base template
 comparesDecIds d1@(DecT (DecType j1 (Just (i1)) _ _ _ _ _ _ _)) d2@(DecT (DecType j2 Nothing _ _ _ _ _ _ _)) | i1 == j2 = return $ Comparison d1 d2 LT EQ
