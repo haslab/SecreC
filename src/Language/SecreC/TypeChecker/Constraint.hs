@@ -1650,15 +1650,15 @@ comparesSec l isLattice t1@(SVar v1@(nonTok -> True) k1) t2@(SVar v2@(nonTok -> 
     mb2 <- tryResolveSVar l v2
     case (mb1,mb2) of
         (Nothing,Nothing) -> do
-            cmpk <- comparesKind l isLattice k1 k2
-            case compOrdering cmpk of
-                (LT,isLat) -> return $ Comparison t1 t2 LT isLat
-                (GT,isLat) -> return $ Comparison t1 t2 GT isLat
-                (EQ,isLat) -> do
+            cmpk <- comparesKind l isLattice k1 k2 >>= compOrderingM l
+            case cmpk of
+                LT -> return $ Comparison t1 t2 EQ LT
+                GT -> return $ Comparison t1 t2 EQ GT
+                EQ -> do
                     x <- secToken
                     addSubstM l False CheckS (tyToVar $ SecT t1) $ SecT x
                     addSubstM l False CheckS (tyToVar $ SecT t2) $ SecT x
-                    return $ Comparison t1 t2 EQ isLat
+                    return $ Comparison t1 t2 EQ EQ
         (Just t1',Nothing) -> comparesSec l isLattice t1' t2
         (Nothing,Just t2') -> comparesSec l isLattice t1 t2'
         (Just t1',Just t2') -> comparesSec l isLattice t1' t2'        
@@ -1668,14 +1668,14 @@ comparesSec l isLattice t1 t2@(SVar v@(nonTok -> True) _) = do
         Just t2 -> comparesSec l isLattice t1 t2
         Nothing -> do
             addSubstM l False CheckS (tyToVar $ SecT t2) $ SecT t1
-            return $ Comparison t1 t2 LT EQ
+            return $ Comparison t1 t2 EQ LT
 comparesSec l isLattice t1@(SVar v@(nonTok -> True) _) t2 = do
     mb <- tryResolveSVar l v
     case mb of
         Just t1 -> comparesSec l isLattice t1 t2
         Nothing -> do
             addSubstM l False CheckS (tyToVar $ SecT t1) $ SecT t2
-            return $ Comparison t1 t2 GT EQ
+            return $ Comparison t1 t2 EQ GT
 comparesSec l isLattice t1 t2 = constraintError (ComparisonException $ show isLattice ++ " security type") l t1 pp t2 pp Nothing
 
 comparesKind :: (ProverK loc m) => loc -> Bool -> KindType -> KindType -> TcM m (Comparison (TcM m))
@@ -1702,14 +1702,14 @@ comparesKind l isLattice t1 t2@(KVar v@(nonTok -> True) priv) = do
         Just t2 -> comparesKind l isLattice t1 t2
         Nothing -> do
             addSubstM l False CheckS (VarName (KType priv) v) $ KindT t1
-            return $ Comparison t1 t2 LT EQ
+            return $ Comparison t1 t2 EQ LT
 comparesKind l isLattice t1@(KVar v@(nonTok -> True) priv) t2 = do
     mb <- tryResolveKVar l v
     case mb of
         Just t1 -> comparesKind l isLattice t1 t2
         Nothing -> do
             addSubstM l False CheckS (VarName (KType priv) v) $ KindT t2
-            return $ Comparison t1 t2 GT EQ
+            return $ Comparison t1 t2 EQ GT
 comparesKind l isLattice t1 t2 = constraintError (ComparisonException "kind type") l t1 pp t2 pp Nothing
 
 comparesSys :: (ProverK loc m) => loc -> Bool -> SysType -> SysType -> TcM m (Comparison (TcM m))
@@ -1835,6 +1835,8 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m,Typeable m) => Var
 
 compOrdering :: Comparison m -> (Ordering,Ordering)
 compOrdering (Comparison _ _ o b) = (o,b)
+compOrderingM :: ProverK loc m => loc -> Comparison (TcM m) -> TcM m Ordering
+compOrderingM l (Comparison _ _ o b) = appendOrdering l o b
 ppCompares x y o = ppid x <+> ppid o <+> ppid y
 
 comparesList :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
@@ -1847,15 +1849,17 @@ comparesList l isLattice xs ys = constraintError (ComparisonException "type") l 
     
 appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (TcM m) -> TcM m (Comparison (TcM m))
 appendComparison l c1@(Comparison x1 x2 o1 b1) c2@(Comparison y1 y2 o2 b2) = do
-    let append EQ y = return y
-        append x EQ = return x
-        append LT LT = return LT
-        append GT GT = return GT
-        append x y = constraintError (ComparisonException "comparison") l c1 pp c2 pp Nothing
-    o' <- append o1 o2
-    b' <- append b1 b2
-    append o' b'
+    o' <- appendOrdering l o1 o2
+    b' <- appendOrdering l b1 b2
+    appendOrdering l o' b'
     return $ Comparison y1 y2 o' b'
+
+appendOrdering :: ProverK loc m => loc -> Ordering -> Ordering -> TcM m Ordering
+appendOrdering l EQ y = return y
+appendOrdering l x EQ = return x
+appendOrdering l LT LT = return LT
+appendOrdering l GT GT = return GT
+appendOrdering l x y = constraintError (ComparisonException "comparison") l x pp y pp Nothing
 
 appendComparisons :: (ProverK loc m) => loc -> [Comparison (TcM m)] -> TcM m (Comparison (TcM m))
 appendComparisons l xs = foldr0M (Comparison () () EQ EQ) (appendComparison l) xs
@@ -2550,7 +2554,10 @@ comparesDim l True e1 e2 = do
         (Right _,Left _) -> return (Comparison e1 e2 EQ LT)
         (Left _,Right _) -> return (Comparison e1 e2 EQ GT)
         otherwise -> comparesExpr l True e1 e2
-comparesDim l False e1 e2 = comparesExpr l True e1 e2
+comparesDim l False e1 e2 = liftM swapComp $ comparesExpr l True e1 e2
+    
+swapComp :: Comparison m -> Comparison m
+swapComp (Comparison x y o b) = Comparison x y b o
     
 comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
 comparesExpr l doStatic e1 e2 = do

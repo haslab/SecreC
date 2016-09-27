@@ -1,7 +1,7 @@
 template <domain dom>
 dom int loop (dom int x) {
     if (false) /// to avoid actually recursing
-        (loop (x) :: dom int);
+        (loop (x));
     return x;
 }
 

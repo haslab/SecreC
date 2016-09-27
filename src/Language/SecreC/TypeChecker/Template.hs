@@ -277,7 +277,7 @@ compareTwice l x x' y y' cmp1 cmp2 = do
     --    ppo <- ppr o
     --    liftIO $ putStrLn $ "comparing before " ++ ppo
     case compOrdering o of
-        (ord,isLat) -> case mappend ord isLat of
+        (ord,isLat) -> case ord of
             EQ -> return o
             otherwise -> do
                 o' <- cmp2 x' y'
