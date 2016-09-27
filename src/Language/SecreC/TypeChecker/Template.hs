@@ -287,8 +287,9 @@ compareTwice l x x' y y' cmp1 cmp2 = do
                 case compOrdering o' of
                     (EQ,_) -> return o
                     otherwise -> do
-                        ppo' <- ppr o'
-                        constraintError (ComparisonException $ "comparetwice " ++ ppo') l x' pp y' pp Nothing
+                        ppo <- ppr o
+                        ppo' <- ppr $ compOrdering o'
+                        constraintError (\x y mb -> Halt $ ComparisonException ("comparetwice " ++ ppo ++ "\n" ++ ppo') x y mb) l x' pp y' pp Nothing
 
 --comparesListTwice :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
 --comparesListTwice l isLattice a@[] a'@[] b@[] b'@[] = return $ Comparison a b EQ EQ
@@ -368,7 +369,7 @@ compareTemplateEntries notEq def l isLattice n e1 e2 = liftM fst $ tcProveTop l 
         ord4 <- if notEq then comparesDecIds (entryType e1) (entryType e2) else return $ Comparison (entryType e1) (entryType e2) EQ EQ
         appendComparisons l [ord2,ord3,ord4]
     let (o,isLat) = compOrdering ord
-    when (notEq && mappend o isLat == EQ) $ tcError (locpos l) $ DuplicateTemplateInstances def defs
+    when (notEq && mappend o isLat == EQ) $ tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
     return ord
 
 -- favor specializations over the base template
