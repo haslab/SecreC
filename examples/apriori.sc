@@ -1,3 +1,4 @@
+module apriori;
 
 import stdlib;
 import shared3p;
@@ -25,19 +26,19 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
   D uint [[1]] C_dot (dbRows); // column data (dot product) for the new candidate itemset C
 
   // compute the itemsets of size 1
-  //for (uint i = 0; i < dbColumns; i=i+1)
-  ////x //@ invariant shape(F)[0] <= dbColumns;
-  ////x //@ invariant shape(F)[1] == 1;
-  ////x //@ invariant shape(F_cache)[0] == shape(F)[0];
-  ////x //@ invariant shape(F_cache)[1] == dbRows;
-  //{
-  //  D uint [[1]] z = db[:, i]; // all transactions where an item i occurs
-  //  D uint frequence = sum (z); // frequency of item i
-  //  if (declassify (frequence >= threshold)) {
-  //    F = cat (F, reshape((uint) i, 1, 1));
-  //    F_cache = cat (F_cache, reshape (z, 1, dbRows));
-  //  }
-  //}
+  for (uint i = 0; i < dbColumns; i=i+1)
+  //x //@ invariant shape(F)[0] <= dbColumns;
+  //x //@ invariant shape(F)[1] == 1;
+  //x //@ invariant shape(F_cache)[0] == shape(F)[0];
+  //x //@ invariant shape(F_cache)[1] == dbRows;
+  {
+    D uint [[1]] z = db[:, i]; // all transactions where an item i occurs
+    D uint frequence = sum (z); // frequency of item i
+    if (declassify (frequence >= threshold)) {
+      F = cat (F, reshape((uint) i, 1, 1));
+      F_cache = cat (F_cache, reshape (z, 1, dbRows));
+    }
+  }
   
   // until we find itemsets with length setSize
   //for (uint k = 1; k < setSize; k=k+1)
