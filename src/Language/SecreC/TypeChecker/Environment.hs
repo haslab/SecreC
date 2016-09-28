@@ -833,7 +833,7 @@ buildCstrGraph l cstrs = do
     let tops' = mapSet (ioCstrId . unLoc) tops
     let cstrs' = Set.union tops' cstrs
     --liftIO $ putStrLn $ "buildCstrGraph: " ++ show (sepBy space (map (pp) $ Set.toList cstrs))
-    d <- concatTDict l NoCheckS =<< liftM tDict State.get
+    d <- concatTDict l (SubstMode NoCheckS False) =<< liftM tDict State.get
     let gr = tCstrs d
     let tgr = Graph.trc gr 
     let gr' = Graph.nfilter (\n -> any (\h -> Graph.hasEdge tgr (n,h)) cstrs') tgr
@@ -964,26 +964,29 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
             return $ TypeName (Typed l dt) n
 
-data SubstMode = CheckS | NoFailS | NoCheckS
+data SubstMode = SubstMode { substCheck :: SubstCheck, substDirty :: Bool }
     deriving (Eq,Data,Typeable,Show)
 
-addSubstM :: (ProverK loc m) => loc -> Bool -> SubstMode -> Var -> Type -> TcM m ()
-addSubstM l dirty mode v@(VarName vt (VIden vn)) t = do
+data SubstCheck = CheckS | NoFailS | NoCheckS
+    deriving (Eq,Data,Typeable,Show)
+
+addSubstM :: (ProverK loc m) => loc -> SubstMode -> Var -> Type -> TcM m ()
+addSubstM l mode v@(VarName vt (VIden vn)) t = do
     ppv <- pp v
     addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> ppv) . Just) $ do
-        when dirty $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
-        t' <- case mode of
+        when (substDirty mode) $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
+        t' <- case substCheck mode of
             NoCheckS -> return t
             otherwise -> do
                 substs <- getTSubsts l
                 substFromTSubsts "addSubst" l substs False Map.empty t
-        case mode of
-            NoCheckS -> add l t'
+        case substCheck mode of
+            NoCheckS -> add l (substDirty mode) t'
             otherwise -> do
                 vns <- liftM videns $ fvsSet t'
                 if (varIdTok vn || Set.member vn vns)
                     then do -- add verification condition
-                        case mode of
+                        case substCheck mode of
                             NoFailS -> do
                                 ppv <- pp v
                                 ppt' <- pp t'
@@ -993,10 +996,10 @@ addSubstM l dirty mode v@(VarName vt (VIden vn)) t = do
                                 pptv <- pp tv
                                 ppt' <- pp t'
                                 addErrorM l (TypecheckerError (locpos l) . (EqualityException ("substitution with type")) (pptv) (ppt') . Just) $ tcCstrM_ l $ Equals tv t'
-                    else add l t'
+                    else add l (substDirty mode) t'
   where
-    add :: ProverK loc m => loc -> Type -> TcM m ()
-    add l t' = do -- add substitution
+    add :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
+    add l dirty t' = do -- add substitution
 --      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
         updateHeadTDict l "addSubstM" $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
         removeFree vn
@@ -1075,8 +1078,8 @@ mkVariadicTyArray True t = do
     sz <- newSizeVar True Nothing
     return $ VAType t sz
 
-addValueM :: ProverK loc m => loc -> Bool -> SubstMode -> Var -> Expr -> TcM m ()
-addValueM l dirty mode v e = addSubstM l dirty mode v (IdxT e)
+addValueM :: ProverK loc m => loc -> SubstMode -> Var -> Expr -> TcM m ()
+addValueM l mode v e = addSubstM l mode v (IdxT e)
     
 --addValue :: (MonadIO m,Location loc) => loc -> VarIdentifier -> Expr -> TcM m ()
 --addValue l v e = do
@@ -1203,7 +1206,10 @@ getCstrs :: Monad m => TcM m IOCstrGraph
 getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . tDict)
 
 addHeadTDict :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
-addHeadTDict l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l NoFailS x d
+addHeadTDict l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l (SubstMode NoFailS False) x d
+
+addHeadTDictDirty :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
+addHeadTDictDirty l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l (SubstMode NoFailS True) x d
 
 addHeadTCstrs :: (ProverK loc m) => loc -> String -> IOCstrGraph -> TcM m ()
 addHeadTCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict ks Set.empty emptyTSubsts mempty
@@ -1336,7 +1342,7 @@ errWarn msg = do
 
 isChoice :: (ProverK loc m) => loc -> Unique -> TcM m Bool
 isChoice l x = do
-    d <- concatTDict l NoCheckS =<< liftM tDict State.get
+    d <- concatTDict l (SubstMode NoCheckS False) =<< liftM tDict State.get
     return $ Set.member (hashUnique x) $ tChoices d
 
 addChoice :: (ProverK loc m) => loc -> Unique -> TcM m ()
@@ -1353,7 +1359,7 @@ appendTDict l noFail (TDict u1 c1 ss1 rec1) (TDict u2 c2 ss2 rec2) = do
     return $ TDict u12' (Set.union c1 c2) ss12 (mappend rec1 rec2)
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
-appendTSubsts l NoCheckS (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
+appendTSubsts l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
 appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
   where
     addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
@@ -1362,7 +1368,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
         vs <- liftM videns $ fvsSet t'
         if (varIdTok v || Set.member v vs)
             then do
-                case mode of
+                case substCheck mode of
                     NoFailS -> do
                         ppv <- pp v
                         ppt' <- pp t'
@@ -1370,7 +1376,9 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
                     CheckS -> do
                         st <- getCstrState
                         return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') $ VIden v) t') st : ks)
-            else return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
+            else do
+                when (substDirty mode) $ dirtyGDependencies (locpos l) $ VIden v
+                return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
 
 substFromTSubsts :: (PP (TcM m) loc,Typeable loc,VarsGTcM m,Location loc,VarsG (TcM m) a) => String -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubsts msg l tys doBounds ssBounds = substProxy msg (substsProxyFromTSubsts l tys) doBounds ssBounds
@@ -1488,7 +1496,7 @@ getTSubsts l = do
     let (x,y) = moduleEnv env
     let xs = Map.foldrWithKey (\(VIden k) (mb,_) m -> maybe m (\e -> Map.insert k (IdxT e) m) mb) Map.empty (globalVars x)
     let ys = Map.foldrWithKey (\(VIden k) (mb,_) m -> maybe m (\e -> Map.insert k (IdxT e) m) mb) Map.empty (globalVars y)
-    d <- concatTDict l NoCheckS $ tDict env
+    d <- concatTDict l (SubstMode NoCheckS False) $ tDict env
     return $ TSubsts $ unTSubsts (tSubsts d) `Map.union` xs `Map.union` ys
 
 substFromTDict :: (Vars GIdentifier (TcM m) a,ProverK loc m) => String -> loc -> TDict -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a

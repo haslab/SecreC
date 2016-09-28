@@ -252,31 +252,39 @@ loadDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m (Maybe DafnyId)
 loadDafnyId l n = do
     e <- lookupDafnyId l n
     let dec = unDecT $ entryType e
-    loadDafnyDec l dec
+    mb <- loadDafnyDec l dec
+    case mb of
+        Nothing -> lift $ debugTc $ do
+            ppd <- ppr dec
+            liftIO $ putStrLn $ "loadDafnyId: did not load " ++ ppd
+        otherwise -> return ()
+    return mb
 
 loadDafnyDec :: DafnyK m => Position -> DecType -> DafnyM m (Maybe DafnyId)
 loadDafnyDec l dec = do
     --liftIO $ putStrLn $ "loadDafnyDec: " ++ ppr dec
     current <- getModule
-    let Just fid@(bid,did,targs) = decDafnyIds dec
-    let mn = dafnyIdModule did
-    unless (current==mn) $ State.modify $ \env -> env { imports = Map.insertWith Set.union current (Set.singleton mn) (imports env) }
-    withModule mn $ do
-        leakMode <- getLeakMode
-        docs <- State.gets (Map.map (Map.filterWithKey (\did v -> leakMode >= dafnyIdLeak did)) . dafnies)
-        case Map.lookup mn docs of
-            Just docs -> case Map.lookup bid docs of
-                Just dids -> case Map.lookup did dids of
-                    Just (_,_,did',_) -> return $ Just did'
-                    Nothing -> do
-                        mb <- findEntry (decPos dec) (Map.toList dids) fid
-                        case mb of
-                            Just entry@(_,_,did',_) -> do
-                                State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did entry) bid) mn $ dafnies env }
-                                return $ Just did'
-                            Nothing -> newEntry l dec fid
-                Nothing -> newEntry l dec fid
-            Nothing -> newEntry l dec fid
+    case decDafnyIds dec of
+        Just fid@(bid,did,targs) -> do
+            let mn = dafnyIdModule did
+            unless (current==mn) $ State.modify $ \env -> env { imports = Map.insertWith Set.union current (Set.singleton mn) (imports env) }
+            withModule mn $ do
+                leakMode <- getLeakMode
+                docs <- State.gets (Map.map (Map.filterWithKey (\did v -> leakMode >= dafnyIdLeak did)) . dafnies)
+                case Map.lookup mn docs of
+                    Just docs -> case Map.lookup bid docs of
+                        Just dids -> case Map.lookup did dids of
+                            Just (_,_,did',_) -> return $ Just did'
+                            Nothing -> do
+                                mb <- findEntry (decPos dec) (Map.toList dids) fid
+                                case mb of
+                                    Just entry@(_,_,did',_) -> do
+                                        State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did entry) bid) mn $ dafnies env }
+                                        return $ Just did'
+                                    Nothing -> newEntry l dec fid
+                        Nothing -> newEntry l dec fid
+                    Nothing -> newEntry l dec fid
+        Nothing -> return Nothing
                    
 findEntry :: DafnyK m => Position -> [(DafnyId,DafnyEntry)] -> (DafnyId,DafnyId,[Type]) -> DafnyM m (Maybe DafnyEntry)
 findEntry l [] fid = return Nothing

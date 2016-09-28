@@ -150,17 +150,18 @@ mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs
 resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [EntryInst] -> TcM m DecType
 resolveTemplateEntries l kid n targs pargs ret [inst] = do
     resolveTemplateEntry False l kid n targs pargs ret inst
-resolveTemplateEntries l kid n targs pargs ret es = do
+resolveTemplateEntries l kid n targs pargs ret insts = do
     debugTc $ do
         ppkid <- ppr kid
-        let ppes = show $ map (\(e,_,_,_,_,_,_,_) -> pprid $ decTypeTyVarId $ unDecT $ entryType e) es
+        let ppes = show $ map (\(e,_,_,_,_,_,_,_) -> pprid $ decTypeTyVarId $ unDecT $ entryType e) insts
         liftIO $ putStrLn $ "resolveTemplateEntries " ++ ppkid ++ " " ++ ppes
-    let choice inst@(e,_,_,_,_,frees,_,_) = do
+    let choice refresh inst@(e,_,_,_,_,frees,_,_) = do
         ppkid <- pp kid
         pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
-        return $ ((resolveTemplateEntry True l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid),(return,PP.empty),(return,PP.empty),Map.keysSet frees)
-    choices <- mapM choice es
-    multipleSubstitutions l kid SolveAll (targs,pargs,ret) choices
+        return $ ((resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid),(return,PP.empty),(return,PP.empty),Map.keysSet frees)
+    choices' <- mapM (choice True) (init insts)
+    choice' <- choice False (last insts)
+    multipleSubstitutions l kid SolveAll (targs,pargs,ret) (choices'++[choice'])
 
 resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m DecType
 resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,bodyDict,frees,delfrees,solved) = do
@@ -204,12 +205,13 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
     if solveHead
         then do
             (_,headSubsts) <- tcProveTop p "resolve head" $ do
-                addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p headDict
+                addHeadTDictDirty p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p headDict
             addHeadTDict p "resolveTemplateEntry" headSubsts
             addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p bodyDict
         else do
-            dict <- mergeDependentCstrs p headDict bodyDict
-            addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p dict
+            addHeadTDictDirty p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p headDict
+            addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p $ bodyDict
+            linkDependentCstrs p headDict bodyDict
     case n of
         TIden _ -> return ()
         otherwise -> do
@@ -638,14 +640,13 @@ instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(
                         return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',headDict,bodyDict,cache)
 
 -- merge two dictionaries with the second depending on the first
-mergeDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m (TDict)
-mergeDependentCstrs l from to = do
+linkDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m ()
+linkDependentCstrs l from to = do
     let froms = map fst $ endsGr $ tCstrs from
     let tos = map fst $ rootsGr $ tCstrs to
     let deps = [ (f,t) | f <- froms, t <- tos ]
-    fromto <- appendTDict l CheckS from to
-    let merge = foldl' (\d (f,t) -> d { tCstrs = insEdge (f,t,()) (tCstrs d) } ) fromto deps
-    return merge
+    let upd d (f,t) = d { tCstrs = insEdge (f,t,()) (tCstrs d) } 
+    updateHeadTDict l "dependentCstrs" $ \d -> return ((),foldl' upd d deps)
 
 templateIdentifier :: Type -> TIdentifier
 templateIdentifier (DecT t) = templateIdentifier' t
