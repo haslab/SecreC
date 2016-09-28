@@ -74,8 +74,8 @@ tcStmts ret (s:ss) = do
             ppss <- mapM pp ss
             tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat ppss)
     (ss',StmtType cs) <- tcStmts ret ss
-    sBvs <- liftM videns $ bvsSet s'
-    ssFvs <- liftM videns $ fvsSet ss'
+    sBvs <- liftM (Map.keysSet . Map.filter (\b -> not b)) $ bvs $ bimap mkVarId (const ()) s
+    ssFvs <- fvsSet $ map (bimap mkVarId (const ())) ss
     -- issue warning for unused variable declarations
     forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> do
         ppv <- pp v

@@ -260,6 +260,16 @@ loadDafnyId l n = do
         otherwise -> return ()
     return mb
 
+loadDafnyDec' :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
+loadDafnyDec' l dec = do
+    mb <- loadDafnyDec l dec
+    case mb of
+        Just dec -> return dec
+        Nothing -> lift $ do
+            ppl <- ppr l
+            ppd <- ppr dec
+            error $ "loadDafnyDec: " ++ ppl ++ ": " ++ ppd
+
 loadDafnyDec :: DafnyK m => Position -> DecType -> DafnyM m (Maybe DafnyId)
 loadDafnyDec l dec = do
     --liftIO $ putStrLn $ "loadDafnyDec: " ++ ppr dec
@@ -720,7 +730,7 @@ baseTypeToDafny l (MSet b) = do
     b' <- baseTypeToDafny l b
     return $ text "multiset" <> abrackets b'
 baseTypeToDafny l (TApp _ args dec@(decTypeTyVarId -> Just mid)) = do
-    Just did <- loadDafnyDec l dec
+    did <- loadDafnyDec' l dec
     psn <- ppDafnyIdM did
     let ppArg (t,False) = typeToDafny l t
         ppArg (t,True) = do
@@ -802,7 +812,7 @@ assignmentToDafny annK e pre = do
 
 tAppDec :: DafnyK m => Position -> Type -> DafnyM m DafnyId
 tAppDec l t@(BaseT (TApp _ _ d)) = do
-    Just did <- loadDafnyDec l d
+    did <- loadDafnyDec' l d
     return did
 tAppDec l t@(ComplexT (CType Public b d)) = do
     mbd <- lift $ tryError $ evaluateIndexExpr l d
@@ -869,14 +879,14 @@ expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = do
     es' <- lift $ concatMapM unfoldVariadicExpr es
     builtinToDafny isLVal isQExpr annK l n es'
 expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ (DecT dec)) n) targs args) = do
-    Just did <- loadDafnyDec (unTyped l) dec
+    did <- loadDafnyDec' (unTyped l) dec
     (annargs,pargs) <- procCallArgsToDafny isLVal annK args
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)
     annp <- genDafnyPublics (unTyped l) (hasLeakExpr e || not (isFunType $ DecT dec)) annK pe (typed l)
     qExprToDafny isQExpr (annargs++annp) pe
 expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (DecT dec))) e2) = do
-    Just did <- loadDafnyDec (unTyped l) dec
+    did <- loadDafnyDec' (unTyped l) dec
     (annargs,pargs) <- procCallArgsToDafny isLVal annK [(e1,False),(e2,False)]
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)
