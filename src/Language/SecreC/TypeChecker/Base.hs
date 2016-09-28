@@ -1743,7 +1743,7 @@ data InnerDecType
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 
 isTemplateDecType :: DecType -> Bool
-isTemplateDecType (DecType _ _ ts _ _ _ _ specs _) = not (null ts && null specs)
+isTemplateDecType (DecType _ _ ts _ _ _ _ specs _) = not (null ts)
 isTemplateDecType _ = False
 
 isFunType :: Type -> Bool
