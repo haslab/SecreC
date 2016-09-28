@@ -601,7 +601,7 @@ defaultBaseExpr l s b@(MSet _) = return $ MultisetConstructorPExpr (ComplexT $ C
 defaultBaseExpr l Public b@(TApp (TIden sn) targs sdec) = do
 --    StructType _ _ (Just atts) cl <- structBody l dec
     let ct = BaseT b
-    (pdec,[]) <- pDecCstrM l False False (TIden sn) (Just targs) [] ct
+    (pdec,[]) <- pDecCstrM l False False (PIden sn) (Just targs) [] ct
     targs' <- mapM (\(x,y) -> liftM ((,y) . fmap typed) $ type2TemplateTypeArgument l x) targs
     let targs'' = if null targs' then Nothing else Just targs'
     return $ ProcCallExpr ct (fmap (const $ DecT pdec) $ ProcedureName () (TIden sn)) targs'' []
