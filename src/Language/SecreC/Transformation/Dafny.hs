@@ -1111,26 +1111,22 @@ dafnyGIdM v = do
 instance PP m VarIdentifier => PP m DafnyId where
     pp did = ppDafnyId (dafnyIdModule did) did
 
-ppPOId :: PP m VarIdentifier => Identifier -> POId -> m Doc
-ppPOId current (PIden pn) = dafnyGId current $ PIden pn
-ppPOId current (OIden on) = pp on
-
 ppDafnyId :: PP m VarIdentifier => Identifier -> DafnyId -> m Doc
 ppDafnyId current (PId pn (ModuleTyVarId (mn,blk) uid)) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    ppn <- ppPOId current pn
+    ppn <- dafnyGId current pn
     puid <- pp uid
     let suffix = text "LeakageProc"
     return $ prefix <> ppn <> puid <> suffix    
 ppDafnyId current (FId pn (ModuleTyVarId (mn,blk) uid) isLeak) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    ppn <- ppPOId current pn
+    ppn <- dafnyGId current pn
     puid <- pp uid
     let suffix = if isLeak then text "LeakageFun" else text "OriginalFun"
     return $ prefix <> ppn <> puid <> suffix
 ppDafnyId current (LId pn (ModuleTyVarId (mn,blk) uid) isLeak) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    ppn <- ppPOId current pn
+    ppn <- dafnyGId current pn
     puid <- pp uid
     let suffix = if isLeak then text "LeakageLemma" else text "OriginalLemma"
     return $ prefix <> ppn <> puid <> suffix
