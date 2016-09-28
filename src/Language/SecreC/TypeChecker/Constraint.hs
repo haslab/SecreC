@@ -608,6 +608,10 @@ resolveTcCstr l mode kid k = do
             let t = loc e
             res <- defaultExpr l t szs
             unifiesExpr l True e res
+    resolveTcCstr' kid k = do
+        ppkid <- ppr kid
+        ppk <- ppr k
+        error $ "resolveTcCstr: " ++ ppkid ++ " " ++ ppk
 
 resolve :: ProverK loc m => loc -> Type -> TcM m ()
 resolve l (KindT s) = resolveKind l s
