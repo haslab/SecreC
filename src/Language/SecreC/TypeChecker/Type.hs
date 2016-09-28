@@ -519,9 +519,11 @@ isPrivateSec l doUnify@True s = do
     s' <- newDomainTyVar "ps" k' False Nothing
     unifiesSec l s s'
 isPrivateSec l False (Private {}) = return ()
-isPrivateSec l False (SVar v k) = do
-    s' <- resolveSVar l v
-    isPrivateSec l False s'
+isPrivateSec l False (SVar v k) = if isPrivateKind k
+    then return ()
+    else do
+        s' <- resolveSVar l v
+        isPrivateSec l False s'
 isPrivateSec l False Public = do
     pps <- pp Public
     genTcError (locpos l) $ text "security type" <+> pps <+> text "is not private" <+> ppid False

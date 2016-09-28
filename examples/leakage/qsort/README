@@ -2,10 +2,12 @@
 Algorithm:
 Apply oblivious shuffle to the input array and run a leaky quicksort sort that reveals the results of the comparisons.
 
-Dafny:
+SecreC:
 The input leakage assumption of leaky sort is that we can leak the comparisons between all the elements of the shuffled array.
 
-EasyCrypt:
-Properties of shuffle, that rely on distributions, need to be proven in EasyCrypt.
-If all the elements of the input array are distinct, then we can leak the comparisons of the (randomly) shuffled array.
+Assumptions:
+Properties of shuffle, that rely on distributions, need to be proved separately.
+Namely, if all the elements of the input array are distinct, then we can leak the comparisons of the (randomly) shuffled array.
 
+Execute:
+secrec examples/leakage/qsort/qsort.sc --verify --entrypoints="leaky_sort"
