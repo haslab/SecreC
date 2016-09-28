@@ -505,20 +505,26 @@ isPrivate l doUnify (ComplexT (CVar v@(nonTok -> True) isNotVoid)) = do
     ct <- resolveCVar l v
     isPrivate l doUnify (ComplexT ct)
 isPrivate l doUnify (ComplexT (CType s _ _)) = isPrivateSec l doUnify s
-isPrivate l doUnify (SecT s) = isPrivateSec l doUnify s
+isPrivate l doUnify (SecT s) = do
+    pps <- pp s
+    addErrorM l (TypecheckerError (locpos l) . GenTcError (text "Type" <+> pps <+> text "is not private") . Just) $
+        isPrivateSec l doUnify s
 isPrivate l doUnify t = do
     ppt <- pp t
-    genTcError (locpos l) $ text "type" <+> ppt <+> text "is not private"
+    genTcError (locpos l) $ text "type" <+> ppt <+> text "is not private" <+> ppid doUnify
     
 isPrivateSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
-isPrivateSec l True s = do
+isPrivateSec l doUnify@True s = do
     k' <- newKindVar "pk" True False Nothing
     s' <- newDomainTyVar "ps" k' False Nothing
     unifiesSec l s s'
 isPrivateSec l False (Private {}) = return ()
-isPrivateSec l False s = do
-    pps <- pp s
-    genTcError (locpos l) $ text "security type" <+> pps <+> text "is not private"
+isPrivateSec l False (SVar v k) = do
+    s' <- resolveSVar l v
+    isPrivateSec l False s'
+isPrivateSec l False Public = do
+    pps <- pp Public
+    genTcError (locpos l) $ text "security type" <+> pps <+> text "is not private" <+> ppid False
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeSize l (BaseT _) = return $ indexExpr 1
