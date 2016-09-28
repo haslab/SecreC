@@ -47,8 +47,8 @@ type DafnyM m = StateT DafnySt (TcM m)
 data DafnyId
     = PId POId ModuleTyVarId
     | FId POId ModuleTyVarId Bool
-    | LId VarIdentifier ModuleTyVarId Bool
-    | SId VarIdentifier ModuleTyVarId
+    | LId GIdentifier ModuleTyVarId Bool
+    | SId GIdentifier ModuleTyVarId
     | AId ModuleTyVarId Bool
   deriving (Data,Typeable,Generic,Show,Eq,Ord)
 
@@ -180,7 +180,7 @@ decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | 
     did = fIdenToDafnyId pn tid isLeak
     (bid) = maybe (did) ((\tid -> fIdenToDafnyId pn tid isLeak)) isRec
     ts = decDafnyTypes d
-decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (StructType _ (TypeName _ sn) _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
+decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (StructType _ sn _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = SId sn tid
     (bid) = maybe (did) ((SId sn)) isRec
@@ -192,8 +192,8 @@ decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just 
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
-    did = LId pn tid isLeak
-    (bid) = maybe (did) ((\tid -> LId pn tid isLeak)) isRec
+    did = LId (funit pn) tid isLeak
+    (bid) = maybe (did) ((\tid -> LId (funit pn) tid isLeak)) isRec
     ts = decDafnyTypes d
 decDafnyIds dec = Nothing
 
@@ -225,13 +225,13 @@ resolveEntryPoint :: ProverK Position m => Identifier -> TcM m (Maybe DafnyId)
 resolveEntryPoint n = do
     let n' = mkVarId n
     env <- getModuleField True False id
-    case Map.lookup (Left n') (procedures env) of
+    case Map.lookup (PIden n') (procedures env) of
         Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
-        Nothing -> case Map.lookup n' (structs env) of
+        Nothing -> case Map.lookup (TIden n') (structs env) of
             Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
-            Nothing -> case Map.lookup (Left n') (functions env) of
+            Nothing -> case Map.lookup (PIden n') (functions env) of
                 Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
-                Nothing -> case Map.lookup n' (lemmas env) of
+                Nothing -> case Map.lookup (PIden n') (lemmas env) of
                     Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
                     Nothing -> return Nothing
             otherwise -> return Nothing
@@ -361,12 +361,12 @@ targsDec d = Nothing
 
 
 pIdenToDafnyId :: PIdentifier -> ModuleTyVarId -> DafnyId
-pIdenToDafnyId (Left n) mid = PId (Left n) mid
-pIdenToDafnyId (Right n) mid = PId (Right $ funit n) mid
+pIdenToDafnyId (PIden n) mid = PId (PIden n) mid
+pIdenToDafnyId (OIden n) mid = PId (OIden $ funit n) mid
 
 fIdenToDafnyId :: PIdentifier -> ModuleTyVarId -> Bool -> DafnyId
-fIdenToDafnyId (Left n) mid isLeak = FId (Left n) mid isLeak
-fIdenToDafnyId (Right n) mid isLeak = FId (Right $ funit n) mid isLeak
+fIdenToDafnyId (PIden n) mid isLeak = FId (PIden n) mid isLeak
+fIdenToDafnyId (OIden n) mid isLeak = FId (OIden $ funit n) mid isLeak
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = insideDecl did $ do
@@ -375,7 +375,7 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
     (pret,pretanns,anns',body') <- case ret of
         ComplexT Void -> return (empty,[],anns,body ++ [ReturnStatement (Typed l ret) Nothing])
         ComplexT ct -> do
-            result <- lift $ liftM (VarName (ComplexT ct)) $ genVar (mkVarId "result")
+            result <- lift $ liftM (VarName (ComplexT ct)) $ genVar (VIden $ mkVarId "result")
             let ss = TSubsts $ Map.singleton (mkVarId "\\result") (IdxT $ varExpr result)
             anns' <- lift $ substFromTSubsts "procedureToDafny" p ss False Map.empty anns
             body' <- lift $ substFromTSubsts "procedureToDafny" p ss False Map.empty body
@@ -410,8 +410,8 @@ decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)
         Just ss -> liftM vbraces $ statementToDafny $ compoundStmt noloc ss
         Nothing -> return empty
     return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLines parganns $+$ annLines panns $+$ pbody)
-  where did = LId pn mid isLeak
-decToDafny l (emptyDec -> Just (mid,StructType p (TypeName _ sn) (Just atts) cl)) = insideDecl did $ do
+  where did = LId (funit pn) mid isLeak
+decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = insideDecl did $ do
     psn <- ppDafnyIdM did
     patts <- structAttsToDafny l psn atts
     return $ Just (p,text "datatype" <+> psn <+> char '=' <+> psn <> parens patts)
@@ -434,17 +434,17 @@ decToDafny l dec = do
 
 decClassToDafny :: DafnyK m => DecClass -> DafnyM m Doc
 decClassToDafny (DecClass _ _ rs ws) = do
-    let ppVar (v,t) = varToDafny $ VarName (Typed noloc t) v
+    let ppVar (v,t) = varToDafny $ VarName (Typed noloc t) $ VIden v
     prs <- mapM ppVar $ Map.toList rs
     pws <- mapM ppVar $ Map.toList ws
     let pr = if null prs then empty else text "reads" <+> sepBy space prs
     let pw = if null pws then empty else text "modifies" <+> sepBy space pws
     return $ pr $+$ pw
 
-structAttsToDafny :: DafnyK m => Position -> Doc -> [Attribute VarIdentifier Type] -> DafnyM m Doc
+structAttsToDafny :: DafnyK m => Position -> Doc -> [Attr] -> DafnyM m Doc
 structAttsToDafny l sn = liftM (sepBy comma) . (mapM (structAttToDafny l True sn . attributeName))
 
-structAttToDafny :: DafnyK m => Position -> Bool -> Doc -> AttributeName VarIdentifier Type -> DafnyM m Doc
+structAttToDafny :: DafnyK m => Position -> Bool -> Doc -> AttributeName GIdentifier Type -> DafnyM m Doc
 structAttToDafny l withType sn (AttributeName t n) = do
     pv <- varToDafny $ VarName (Typed noloc t) n
     pt <- if withType
@@ -549,10 +549,10 @@ unfreeAnns = map unfreeAnn
 
 annLines = vcat . map annLine
 
-procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation VarIdentifier (Typed Position)] -> DafnyM m AnnsDoc
+procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
 
-procedureAnnToDafny :: DafnyK m => ProcedureAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
+procedureAnnToDafny :: DafnyK m => ProcedureAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
 procedureAnnToDafny (RequiresAnn l isFree isLeak e) = do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
@@ -572,10 +572,10 @@ procedureAnnToDafny (PDecreasesAnn l e) = do
     decr <- annExpr False False leakMode DecreaseK pe
     return $ anne ++ decr
 
-statementsToDafny :: DafnyK m => [Statement VarIdentifier (Typed Position)] -> DafnyM m Doc
+statementsToDafny :: DafnyK m => [Statement GIdentifier (Typed Position)] -> DafnyM m Doc
 statementsToDafny = liftM vcat . mapM statementToDafny
 
-statementToDafny :: DafnyK m => Statement VarIdentifier (Typed Position) -> DafnyM m Doc
+statementToDafny :: DafnyK m => Statement GIdentifier (Typed Position) -> DafnyM m Doc
 statementToDafny (CompoundStatement _ ss) = do
     pss <- statementsToDafny ss
     return $ vbraces pss
@@ -602,7 +602,7 @@ statementToDafny es@(ExpressionStatement (Typed l _) e) = do
             return $ annLines anne $+$ pe <> semicolon
         otherwise -> do
             let tl = Typed l (StmtType $ Set.singleton StmtFallthru)
-            eres <- lift $ liftM (VarName (Typed l t)) $ genVar (mkVarId "eres")
+            eres <- lift $ liftM (VarName (Typed l t)) $ genVar (VIden $ mkVarId "eres")
             t' <- lift $ type2TypeSpecifierNonVoid l t
             let edef = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl eres Nothing (Just e)
             statementToDafny edef
@@ -624,7 +624,7 @@ statementToDafny s = do
     pps <- lift $ pp s
     genError (unTyped $ loc s) $ text "statementToDafny:" <+> pps
 
-loopAnnsToDafny :: DafnyK m => [LoopAnnotation VarIdentifier (Typed Position)] -> DafnyM m AnnsDoc
+loopAnnsToDafny :: DafnyK m => [LoopAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 loopAnnsToDafny xs = liftM concat $ mapM loopAnnToDafny xs
 
 annExpr :: DafnyK m => Bool -> Bool -> Bool -> AnnKind -> Doc -> DafnyM m AnnsDoc
@@ -635,7 +635,7 @@ annExpr isFree isLeak leakMode annK e = do
         (False,True) -> return []
         (False,False) -> return [(annK,isFree,e)]
     
-loopAnnToDafny :: DafnyK m => LoopAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
+loopAnnToDafny :: DafnyK m => LoopAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
 loopAnnToDafny (DecreasesAnn l isLeak e) = do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
@@ -649,7 +649,7 @@ loopAnnToDafny (InvariantAnn l isFree isLeak e) = do
         inv <- annExpr isFree isLeak leakMode InvariantK pe
         return $ anne ++ inv
 
-statementAnnToDafny :: DafnyK m => StatementAnnotation VarIdentifier (Typed Position) -> DafnyM m AnnsDoc
+statementAnnToDafny :: DafnyK m => StatementAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
 statementAnnToDafny (AssumeAnn l isLeak e) = do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
@@ -670,7 +670,7 @@ statementAnnToDafny (EmbedAnn l isLeak e) = do
         return $ call
 
 -- checks that a dafny expression has a given shape
-checkDafnyShape :: DafnyK m => Position -> Bool -> Sizes VarIdentifier (Typed Position) -> Doc -> DafnyM m AnnsDoc
+checkDafnyShape :: DafnyK m => Position -> Bool -> Sizes GIdentifier (Typed Position) -> Doc -> DafnyM m AnnsDoc
 checkDafnyShape l isFree (Sizes szs) e = case Foldable.toList szs of
     [] -> return []
     [(d,False)] -> do
@@ -681,7 +681,7 @@ checkDafnyShape l isFree (Sizes szs) e = case Foldable.toList szs of
         ppe <- lift $ pp e
         genError l $ text "checkDafnyShape: unsupported array size" <+> ppszs <+> text "for" <+> ppe
     
-varInitToDafny :: DafnyK m => Bool -> Bool -> Doc -> VariableInitialization VarIdentifier (Typed Position) -> DafnyM m Doc
+varInitToDafny :: DafnyK m => Bool -> Bool -> Doc -> VariableInitialization GIdentifier (Typed Position) -> DafnyM m Doc
 varInitToDafny isConst False pty vd@(VariableInitialization l v sz (Just e)) = do
     ppvd <- lift $ pp vd
     genError (unTyped l) $ text "varInitToDafny: cannot convert default expression at" <+> ppvd
@@ -706,7 +706,7 @@ typeToDafny l t = do
     genError l $ text "typeToDafny:" <+> ppt
 
 baseTypeToDafny :: DafnyK m => Position -> BaseType -> DafnyM m Doc
-baseTypeToDafny l (BVar v) = dafnyVarIdM v
+baseTypeToDafny l (BVar v) = dafnyVarIdM $ VIden v
 baseTypeToDafny l (TyPrim prim) = lift $ pp prim
 baseTypeToDafny l (MSet b) = do
     b' <- baseTypeToDafny l b
@@ -745,7 +745,7 @@ instance Monad m => PP m AnnKind where
 type AnnsDoc = [AnnDoc]
 type AnnDoc = (AnnKind,Bool,Doc)
 
-indexToDafny :: DafnyK m => Bool -> AnnKind -> Index VarIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+indexToDafny :: DafnyK m => Bool -> AnnKind -> Index GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 indexToDafny isLVal annK (IndexInt l e) = do
     (anne,pe) <- expressionToDafny isLVal False annK e
     return (anne,pe)
@@ -755,7 +755,7 @@ indexToDafny isLVal annK (IndexSlice l e1 e2) = do
     return (anne1++anne2,ppid pe1 <> text ".." <> ppid pe2)
 
 -- left = expression, right = update
-assignmentToDafny :: DafnyK m => AnnKind -> Expression VarIdentifier (Typed Position) -> Either Doc Doc -> DafnyM m (AnnsDoc,Doc)
+assignmentToDafny :: DafnyK m => AnnKind -> Expression GIdentifier (Typed Position) -> Either Doc Doc -> DafnyM m (AnnsDoc,Doc)
 assignmentToDafny annK se@(SelectionExpr l e att) (Left pre) = do
     did <- tAppDec (unTyped $ loc e) (typed $ loc e)
     psn <- ppDafnyIdM did
@@ -807,14 +807,14 @@ tAppDec l t = do
     ppt <- lift $ pp t
     genError l $ text "tAppDec: unsupported type" <+> ppt
 
-hasLeakExpr :: Expression VarIdentifier (Typed Position) -> Bool
+hasLeakExpr :: Expression GIdentifier (Typed Position) -> Bool
 hasLeakExpr = everything (||) (mkQ False aux)
     where
-    aux :: Expression VarIdentifier (Typed Position) -> Bool
+    aux :: Expression GIdentifier (Typed Position) -> Bool
     aux (LeakExpr {}) = True
     aux _ = False
 
-expressionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression VarIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+expressionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 expressionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> [i])) = do
     (anne,pe) <- expressionToDafny isLVal False annK e
     (anni,pi) <- indexToDafny isLVal annK i
@@ -903,39 +903,39 @@ quantifierToDafny :: Quantifier (Typed Position) -> Doc
 quantifierToDafny (ForallQ _) = text "forall"
 quantifierToDafny (ExistsQ _) = text "exists"
 
-quantifierArgsToDafny :: DafnyK m => [(TypeSpecifier VarIdentifier (Typed Position),VarName VarIdentifier (Typed Position))] -> DafnyM m (Doc)
+quantifierArgsToDafny :: DafnyK m => [(TypeSpecifier GIdentifier (Typed Position),VarName GIdentifier (Typed Position))] -> DafnyM m (Doc)
 quantifierArgsToDafny xs = do
     (vs) <- mapM quantifierArgToDafny xs
     return (sepBy comma vs)
 
-quantifierArgToDafny :: DafnyK m => (TypeSpecifier VarIdentifier (Typed Position),VarName VarIdentifier (Typed Position)) -> DafnyM m (Doc)
+quantifierArgToDafny :: DafnyK m => (TypeSpecifier GIdentifier (Typed Position),VarName GIdentifier (Typed Position)) -> DafnyM m (Doc)
 quantifierArgToDafny (t,v) = do
     pv <- varToDafny v
     pt <- typeToDafny (unTyped $ loc v) (typed $ loc v)
     return (pv <> char ':' <> pt)
 
-expressionsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,[Doc])
+expressionsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,[Doc])
 expressionsToDafny isLVal annK es = do
     (annes,es') <- Utils.mapAndUnzipM (expressionToDafny isLVal False annK) $ Foldable.toList es
     return (concat annes,es')
 
-mapExpressionToDafny :: (Functor f,Traversable f,Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,f Doc)
+mapExpressionToDafny :: (Functor f,Traversable f,Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,f Doc)
 mapExpressionToDafny isLVal annK es = do
     rs <- mapM (expressionToDafny isLVal False annK) es
     return (concat $ Foldable.toList $ fmap fst rs,fmap snd rs)
 
-procCallArgsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression VarIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,[Doc])
+procCallArgsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression GIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,[Doc])
 procCallArgsToDafny isLVal annK es = do
     (annes,es') <- Utils.mapAndUnzipM (procCallArgToDafny isLVal annK) $ Foldable.toList es
     return (concat annes,es')
     
-procCallArgToDafny :: DafnyK m => Bool -> AnnKind -> (Expression VarIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,Doc)
+procCallArgToDafny :: DafnyK m => Bool -> AnnKind -> (Expression GIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,Doc)
 procCallArgToDafny isLVal annK (e,False) = expressionToDafny isLVal False annK e
 procCallArgToDafny isLVal annK (e,True) = do
     ppe <- lift $ pp e
     genError (unTyped $ loc e) $ text "unsupported variadic procedure argument" <+> ppe
 
-builtinToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Typed Position -> String -> [Expression VarIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
+builtinToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Typed Position -> String -> [Expression GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.eq" [x,y] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
@@ -1080,14 +1080,14 @@ literalToDafny lit = do
             pt <- typeToDafny (unTyped $ loc lit) (typed $ loc lit)
             return ([],pt <> parens (ppid lit))
 
-varToDafny :: DafnyK m => VarName VarIdentifier (Typed Position) -> DafnyM m Doc
+varToDafny :: DafnyK m => VarName GIdentifier (Typed Position) -> DafnyM m Doc
 varToDafny (VarName (Typed l t) n) = do
     let suffix = if isPublicType t then "Public" else "Private"
     dn <- dafnyVarIdM n
     return $ dn <> text suffix
 
-dafnyVarId :: PP m VarIdentifier => Identifier -> VarIdentifier -> m Doc
-dafnyVarId current v = do
+dafnyVarId :: PP m VarIdentifier => Identifier -> GIdentifier -> m Doc
+dafnyVarId current (VIden v) = do
     pm <- case varIdModule v of
         Nothing -> return empty
         Just (m,blk) -> do
@@ -1096,7 +1096,7 @@ dafnyVarId current v = do
     pid <- ppOpt (varIdUniq v) (\x -> liftM (char '_' <>) (pp x))
     return $ pm <> text (varIdBase v) <> pid
 
-dafnyVarIdM :: DafnyK m => VarIdentifier -> DafnyM m Doc
+dafnyVarIdM :: DafnyK m => GIdentifier -> DafnyM m Doc
 dafnyVarIdM v = do
     current <- getModule
     lift $ dafnyVarId current v
@@ -1105,8 +1105,8 @@ instance PP m VarIdentifier => PP m DafnyId where
     pp did = ppDafnyId (dafnyIdModule did) did
 
 ppPOId :: PP m VarIdentifier => Identifier -> POId -> m Doc
-ppPOId current (Left pn) = dafnyVarId current pn
-ppPOId current (Right on) = pp on
+ppPOId current (PIden pn) = dafnyVarId current $ PIden pn
+ppPOId current (OIden on) = pp on
 
 ppDafnyId :: PP m VarIdentifier => Identifier -> DafnyId -> m Doc
 ppDafnyId current (PId pn (ModuleTyVarId (mn,blk) uid)) = do
@@ -1123,7 +1123,7 @@ ppDafnyId current (FId pn (ModuleTyVarId (mn,blk) uid) isLeak) = do
     return $ prefix <> ppn <> puid <> suffix
 ppDafnyId current (LId pn (ModuleTyVarId (mn,blk) uid) isLeak) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    ppn <- ppPOId current $ Left pn
+    ppn <- ppPOId current pn
     puid <- pp uid
     let suffix = if isLeak then text "LeakageLemma" else text "OriginalLemma"
     return $ prefix <> ppn <> puid <> suffix
@@ -1135,7 +1135,7 @@ ppDafnyId current (SId sn (ModuleTyVarId (mn,blk) uid)) = do
     return $ prefix <> psn <> puid <> suffix
 ppDafnyId current (AId (ModuleTyVarId (mn,blk) uid) isLeak) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    psn <- dafnyVarId current $ mkVarId "axiom"
+    psn <- dafnyVarId current $ PIden $ mkVarId "axiom"
     puid <- pp uid
     let suffix = if isLeak then text "LeakageAxiom" else text "OriginalAxiom"
     return $ prefix <> psn <> puid <> suffix

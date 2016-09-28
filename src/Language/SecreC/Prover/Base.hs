@@ -183,7 +183,7 @@ iLitTy (IFloat64 _) = BaseT $ TyPrim $ DatatypeFloat64 ()
 iLitTy (IBool _) = BaseT $ TyPrim $ DatatypeBool ()
 iLitTy (ILitArr b xs) = ComplexT $ CType Public b (indexExpr $ fromInteger $ toInteger $ length xs)
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m ILit where
+instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ILit where
     traverseVars f (IInt8 i) = liftM IInt8 $ f i
     traverseVars f (IInt16 i) = liftM IInt16 $ f i
     traverseVars f (IInt32 i) = liftM IInt32 $ f i
@@ -198,7 +198,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
     traverseVars f (ILitArr t xs) = do
         t' <- f t
         liftM (ILitArr t') $ mapM (mapM f) xs
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m IExpr where
+instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m IExpr where
     traverseVars f (ILit i) = liftM ILit $ f i
     traverseVars f (IIdx v) = do
         v' <- f v
@@ -229,9 +229,8 @@ instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m IBOp where
 instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m IUOp where
     traverseVars f o = return o
 
-type ProverK loc m = (SMTK loc,Vars VarIdentifier (TcM m) loc,VarsIdTcM m,Location loc)
-type SMTK loc = (VarsIdTcM Symbolic,Location loc)
---Vars VarIdentifier Symbolic loc,
+type ProverK loc m = (SMTK loc,Vars GIdentifier (TcM m) loc,VarsGTcM m,Location loc)
+type SMTK loc = (VarsGTcM Symbolic,Location loc)
 
 instance MonadBase IO Symbolic where
     liftBase = liftIO

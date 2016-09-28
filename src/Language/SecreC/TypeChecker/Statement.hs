@@ -43,7 +43,7 @@ import Prelude hiding (mapM)
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
-tcStmtsRet :: ProverK loc m => loc -> Type -> [Statement Identifier loc] -> TcM m [Statement VarIdentifier (Typed loc)]
+tcStmtsRet :: ProverK loc m => loc -> Type -> [Statement Identifier loc] -> TcM m [Statement GIdentifier (Typed loc)]
 tcStmtsRet l ret ss = do
     (ss',StmtType st) <- tcStmts ret ss
     isReturnStmt l st ret 
@@ -60,7 +60,7 @@ isReturnStmt l cs ret = do
     aux (Set.toList -> [StmtReturn]) = return ()
     aux x = genTcError (locpos l) $ text "Unexpected return class"
 
-tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement VarIdentifier (Typed loc)],Type)
+tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement GIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.singleton StmtFallthru)
 tcStmts ret [s] = do
     (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
@@ -73,17 +73,17 @@ tcStmts ret (s:ss) = do
         ss -> unless (hasStmtFallthru c) $ do
             ppss <- mapM pp ss
             tcError (locpos $ loc (head ss)) $ UnreachableDeadCode (vcat ppss)
-    sBvs <- bvs $ bimap mkVarId id s
-    ssFvs <- liftM Map.keysSet $ fvs $ map (bimap mkVarId id) ss
     (ss',StmtType cs) <- tcStmts ret ss
+    sBvs <- liftM videns $ bvsSet s'
+    ssFvs <- liftM videns $ fvsSet ss'
     -- issue warning for unused variable declarations
-    forSetM_ (Map.keysSet sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> do
+    forSetM_ (sBvs `Set.difference` ssFvs) $ \(v::VarIdentifier) -> do
         ppv <- pp v
         tcWarn (locpos $ loc s) $ UnusedVariable (ppv)
     return (s':ss',StmtType $ extendStmtClasses c cs)
 
 -- | Typecheck a non-empty statement
-tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement GIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
     r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
     when (Set.null cs) $ do
@@ -92,7 +92,7 @@ tcNonEmptyStmt ret s = do
     return r
 
 -- | Typecheck a statement in the body of a loop
-tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM m (Statement GIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
     (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
@@ -106,7 +106,7 @@ tcLoopBodyStmt ret l s = do
 -- | Typechecks a @Statement@
 tcStmt :: (ProverK loc m) => Type -- ^ return type
     -> Statement Identifier loc -- ^ input statement
-    -> TcM m (Statement VarIdentifier (Typed loc),Type)
+    -> TcM m (Statement GIdentifier (Typed loc),Type)
 tcStmt ret (CompoundStatement l s) = do
     (ss',t) <- tcLocal l "tcStmt compound" $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
@@ -196,7 +196,7 @@ tcStmt ret (AnnStatement l ann) = do
     let t = StmtType $ Set.singleton StmtFallthru
     return (AnnStatement (Typed l t) ann',t)
 
-tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation VarIdentifier (Typed loc))
+tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))
 tcLoopAnn (DecreasesAnn l isFree e) = tcAddDeps l "loopann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
@@ -204,7 +204,7 @@ tcLoopAnn (InvariantAnn l isFree isLeak e) = tcAddDeps l "loopann" $ insideAnnot
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 
-tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation VarIdentifier (Typed loc))
+tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation GIdentifier (Typed loc))
 tcStmtAnn (AssumeAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
@@ -218,7 +218,7 @@ tcStmtAnn (EmbedAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ wit
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
 isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 
-tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM m (SyscallParameter VarIdentifier (Typed loc))
+tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM m (SyscallParameter GIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
     e' <- withExprC ReadWriteE $ tcVariadicArg tcExpr e
     let t = SysT $ SysPush $ typed $ loc $ fst e'
@@ -236,7 +236,7 @@ tcSyscallParam (SyscallPushCRef l e) = do
     let t = SysT $ SysCRef $ typed $ loc e'
     return $ SyscallPushCRef (Typed l t) e'
 
-tcForInitializer :: (ProverK loc m) => ForInitializer Identifier loc -> TcM m (ForInitializer VarIdentifier (Typed loc))
+tcForInitializer :: (ProverK loc m) => ForInitializer Identifier loc -> TcM m (ForInitializer GIdentifier (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing
 tcForInitializer (InitializerExpression (Just e)) = do
     e' <- withExprC ReadWriteE $ tcExpr e
@@ -245,20 +245,20 @@ tcForInitializer (InitializerVariable vd) = do
     vd' <- tcVarDecl LocalScope vd
     return $ InitializerVariable vd'
 
-tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM m (VariableDeclaration VarIdentifier (Typed loc))
+tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM m (VariableDeclaration GIdentifier (Typed loc))
 tcVarDecl scope (VariableDeclaration l isConst isHavoc tyspec vars) = do
     (tyspec') <- tcTypeSpec tyspec False
     let ty = typed $ loc tyspec'
     (vars') <- mapM (tcVarInit isConst isHavoc scope ty) vars
     return (VariableDeclaration (notTyped "tcVarDecl" l) isConst True tyspec' vars')
 
-tcVarInit :: (ProverK loc m) => Bool -> Bool -> Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization VarIdentifier (Typed loc))
+tcVarInit :: (ProverK loc m) => Bool -> Bool -> Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization GIdentifier (Typed loc))
 tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
     e' <- withExprC ReadWriteE $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     -- do not store the size, since it can change dynamically
-    let v' = VarName (Typed vl ty) $ mkVarId vn
+    let v' = VarName (Typed vl ty) $ VIden $ mkVarId vn
     -- add variable to the environment
     isAnn <- getAnn
     newVariable scope False isAnn v' Nothing -- don't add values to the environment
@@ -274,7 +274,7 @@ tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e
     newVariable scope True isAnn v' e'
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
-tcDefaultInitExpr :: ProverK loc m => loc -> IsHavoc -> Type -> Maybe (Sizes VarIdentifier (Typed loc)) -> Maybe (Expression Identifier loc) -> TcM m (Maybe (Expression VarIdentifier (Typed loc)))
+tcDefaultInitExpr :: ProverK loc m => loc -> IsHavoc -> Type -> Maybe (Sizes GIdentifier (Typed loc)) -> Maybe (Expression Identifier loc) -> TcM m (Maybe (Expression GIdentifier (Typed loc)))
 tcDefaultInitExpr l isHavoc ty szs (Just e) = do
     liftM Just $ tcExprTy ty e
 tcDefaultInitExpr l True ty szs Nothing = return Nothing

@@ -248,13 +248,15 @@ sciError :: MonadIO m => String -> SecrecM m ()
 sciError msg = do
     opts <- Reader.ask
     when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr msg
-    
 
 moduleVarId :: Module VarIdentifier loc -> VarIdentifier
 moduleVarId m = maybe (mkVarId "main") id $ moduleIdMb m
+
+moduleGId :: Module GIdentifier loc -> GIdentifier
+moduleGId m = maybe (MIden $ mkVarId "main") id $ moduleIdMb m
     
 type ModuleFile = Either (UnixTime,PPArgs,Module Identifier Position) ModuleSCI
-type TypedModuleFile = Either (UnixTime,PPArgs,Module VarIdentifier (Typed Position)) ModuleSCI
+type TypedModuleFile = Either (UnixTime,PPArgs,Module GIdentifier (Typed Position)) ModuleSCI
 
 moduleFileName :: ModuleFile -> FilePath
 moduleFileName (Left (_,_,m)) = moduleFile m

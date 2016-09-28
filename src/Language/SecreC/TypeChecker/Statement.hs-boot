@@ -11,6 +11,6 @@ import Language.SecreC.Prover.Base
 
 import Data.Set
 
-tcStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement VarIdentifier (Typed loc),Type)
+tcStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement GIdentifier (Typed loc),Type)
 
 

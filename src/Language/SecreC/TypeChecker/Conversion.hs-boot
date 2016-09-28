@@ -12,4 +12,4 @@ import Control.Monad.Except
 
 type ConversionK loc m = (Location loc,MonadError SecrecError m)
 
-type2TypeSpecifierNonVoid :: ConversionK loc m => loc -> Type -> m ((TypeSpecifier VarIdentifier (Typed loc)))
+type2TypeSpecifierNonVoid :: ConversionK loc m => loc -> Type -> m ((TypeSpecifier GIdentifier (Typed loc)))

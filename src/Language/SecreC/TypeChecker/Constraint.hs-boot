@@ -40,7 +40,7 @@ topCheckCstrM :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> CheckCst
 
 topCheckCstrM_ :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> CheckCstr -> TcM m ()
 
-tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Maybe (Expression VarIdentifier (Typed loc)))
+tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Maybe (Expression GIdentifier (Typed loc)))
 
 compares :: (ProverK loc m) => loc -> Bool -> Type -> Type -> TcM m (Comparison (TcM m))
 
@@ -50,12 +50,12 @@ solveTop :: ProverK loc m => loc -> String -> TcM m ()
 
 comparesList :: (ProverK loc m) => loc -> Bool -> [Type] -> [Type] -> TcM m (Comparison (TcM m))
 
-constraintList :: (ProverK loc m,VarsId (TcM m) [a],VarsId (TcM m) [b]) =>
+constraintList :: (ProverK loc m,VarsG (TcM m) [a],VarsG (TcM m) [b]) =>
     (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr)
     -> (a -> b -> TcM m x) -> loc -> [a] -> [b] -> TcM m [x]
 
 data Comparison m where
-    Comparison :: VarsId m a => a -> a -> Ordering -> Ordering -> Comparison m
+    Comparison :: VarsG m a => a -> a -> Ordering -> Ordering -> Comparison m
   deriving (Typeable)
 
 compOrdering :: Comparison m -> (Ordering,Ordering)
@@ -64,19 +64,19 @@ appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (
 
 appendComparisons :: (ProverK loc m) => loc -> [Comparison (TcM m)] -> TcM m (Comparison (TcM m))
 
-constraintError :: (ProverK loc m,VarsId (TcM m) a,VarsId (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> TcM m Doc) -> b -> (b -> TcM m Doc) -> Maybe SecrecError -> TcM m res
+constraintError :: (ProverK loc m,VarsG (TcM m) a,VarsG (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> TcM m Doc) -> b -> (b -> TcM m Doc) -> Maybe SecrecError -> TcM m res
 
-unifiesCondExpression :: (ProverK loc m) => loc -> CondExpression VarIdentifier Type -> CondExpression VarIdentifier Type -> TcM m ()
+unifiesCondExpression :: (ProverK loc m) => loc -> Cond -> Cond -> TcM m ()
 
-unifiesSizes :: (ProverK loc m) => loc -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> Maybe [(Expression VarIdentifier Type,IsVariadic)] -> TcM m ()
+unifiesSizes :: (ProverK loc m) => loc -> Maybe [(Expr,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> TcM m ()
 
 tryCstrBool :: (ProverK loc m) => loc -> TcM m a -> TcM m Bool
 
 tryCstrMaybe :: (ProverK loc m) => loc -> TcM m a -> TcM m (Maybe a)
 
-comparesExpr :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m (Comparison (TcM m))
+comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
 
-unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m ()
+unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
 
 unifiesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m ()
 
@@ -106,7 +106,7 @@ unifiesTIdentifier :: (ProverK loc m) => loc -> TIdentifier -> TIdentifier -> Tc
 
 pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
 
-expandVariadicExpr :: (ProverK loc m) => loc -> Bool -> (Expression VarIdentifier Type,IsVariadic) -> TcM m [Expression VarIdentifier Type]
+expandVariadicExpr :: (ProverK loc m) => loc -> Bool -> (Expr,IsVariadic) -> TcM m [Expr]
 
 expandVariadicType :: (ProverK loc m) => loc -> (Type,IsVariadic) -> TcM m [Type]
 
@@ -118,11 +118,11 @@ tryResolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe SecTyp
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 
-unifiesExprTy :: (ProverK loc m) => loc -> Bool -> Expression VarIdentifier Type -> Expression VarIdentifier Type -> TcM m ()
+unifiesExprTy :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 
-projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index VarIdentifier Type] -> TcM m Expr
+projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index GIdentifier Type] -> TcM m Expr
 
 

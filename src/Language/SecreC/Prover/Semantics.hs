@@ -43,7 +43,7 @@ evaluateIndexExpr l e = do
     IUint64 w <- evaluateExpr l $ fmap (Typed l) e
     return w
 
-evaluateExpr :: (ProverK loc m) => loc -> Expression VarIdentifier (Typed loc) -> TcM m ILit
+evaluateExpr :: (ProverK loc m) => loc -> Expression GIdentifier (Typed loc) -> TcM m ILit
 evaluateExpr l e = evaluate l (text "evaluateExpr") (evalIExpr l =<< expr2IExpr e)
 
 evaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
@@ -67,7 +67,7 @@ evaluate l doc m = do
 
 evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
 evalIExpr l (ILit lit) = return lit
-evalIExpr l (IIdx v@(VarName t n@(nonTok -> True))) = do
+evalIExpr l (IIdx v@(VarName t (VIden n@(nonTok -> True)))) = do
     mb <- tryResolveEVar l n t
     case mb of
         Nothing -> do

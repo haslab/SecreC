@@ -40,10 +40,10 @@ import Data.Generics
 
 import Text.PrettyPrint as PP
 
-tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcGuard e = limitExprC ReadOnlyE $ tcExprTy (BaseT bool) e
 
-tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcAnnGuard e = limitExprC ReadOnlyE $ insideAnnotation $ do
     e' <- tcExpr e
     let (Typed l ty) = loc e'
@@ -52,17 +52,17 @@ tcAnnGuard e = limitExprC ReadOnlyE $ insideAnnotation $ do
     topTcCstrM_ l $ Unifies ty (ComplexT $ CType s bool $ indexExpr 0)
     return e'
 
-tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcAnnExpr e = limitExprC ReadOnlyE $ insideAnnotation $ tcExpr e
 
-tcLValue :: (ProverK loc m) => Bool -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcLValue :: (ProverK loc m) => Bool -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcLValue isWrite (PostIndexExpr l e s) = do
     e' <- tcAddDeps l "lvalue" $ tcLValue isWrite e
     let t = typed $ loc e'
     (s',t') <- tcSubscript e' s
     return $ PostIndexExpr (Typed l t') e' s'
 tcLValue isWrite (SelectionExpr l pe a) = do
-    let va = bimap mkVarId id a
+    let va = bimap (TIden . mkVarId) id a
     pe' <- tcLValue isWrite pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
@@ -75,7 +75,7 @@ tcLValue isWrite (RVariablePExpr l v) = do
     return $ RVariablePExpr (Typed l t) v'
 tcLValue isWrite e = genTcError (locpos $ loc e) $ text "Not a l-value expression: " <+> quotes (ppid e)
 
-tcVariadicArg :: (PP (TcM m) (a VarIdentifier (Typed loc)),VarsIdTcM m,Located (a VarIdentifier (Typed loc)),Location loc,LocOf (a VarIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a VarIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a VarIdentifier (Typed loc),IsVariadic)
+tcVariadicArg :: (PP (TcM m) (a GIdentifier (Typed loc)),VarsGTcM m,Located (a GIdentifier (Typed loc)),Location loc,LocOf (a GIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a GIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a GIdentifier (Typed loc),IsVariadic)
 tcVariadicArg tcA (e,isVariadic) = do
     e' <- tcA e
     let (Typed l t) = loc e'
@@ -86,10 +86,10 @@ tcVariadicArg tcA (e,isVariadic) = do
         else when (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should not be variadic" 
     return (e',isVariadic)
 
-tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcPureExpr e = withExprC PureE $ tcExpr e
 
-tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcExpr (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
     tcExpr $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
 tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
@@ -136,7 +136,7 @@ tcExpr (BinaryExpr l e1 op e2) = do
     let t2 = typed $ loc e2'
     top <- tcOp op
     v <- newTyVar False False Nothing
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (OIden $ fmap typed top) Nothing [(fmap typed e1',False),(fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr pe@(PreOp l op e) = do
     exprC <- getExprC
@@ -161,7 +161,7 @@ tcExpr (UnaryExpr l op e) = do
         otherwise -> return ()
     
     v <- newTyVar False False Nothing
-    (dec,[(x,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e',False)] v
+    (dec,[(x,_)]) <- pDecCstrM l True True (OIden $ fmap typed top) Nothing [(fmap typed e',False)] v
     let ex = fmap (Typed l) x
     return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
 tcExpr (DomainIdExpr l s) = do
@@ -188,7 +188,7 @@ tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr qu
     tcQVar (t,v) = do
         t' <- tcTypeSpec t False
         let ty = typed $ loc t'
-        let v' = bimap mkVarId (flip Typed ty) v
+        let v' = bimap (VIden . mkVarId) (flip Typed ty) v
         topTcCstrM_ l $ IsPublic True $ typed $ loc v'
         isAnn <- getAnn
         newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
@@ -198,21 +198,21 @@ tcExpr le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
     topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
     return $ LeakExpr (Typed l $ BaseT bool) e'
 tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
-    let vn = bimap mkVarId id n
+    let vn = bimap (mkVarId) id n
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
     es' <- limitExprC ReadOnlyE $ mapM (tcVariadicArg tcExpr) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
     v <- newTyVar False False Nothing
-    (dec,xs) <- pDecCstrM l True True (Left $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
+    (dec,xs) <- pDecCstrM l True True (PIden $ procedureNameId vn) tspecs (map (mapFst (fmap typed)) es') v
     let exs = map (mapFst (fmap (Typed l))) xs
-    return $ ProcCallExpr (Typed l v) (fmap (flip Typed (DecT dec)) vn) specs' exs
+    return $ ProcCallExpr (Typed l v) (bimap PIden (flip Typed (DecT dec)) vn) specs' exs
 tcExpr (PostIndexExpr l e s) = limitExprC ReadOnlyE $ do
     e' <- tcAddDeps l "postindex" $ tcExpr e
     let t = typed $ loc e'
     (s',t') <- tcSubscript e' s
     return $ PostIndexExpr (Typed l t') e' s'
 tcExpr (SelectionExpr l pe a) = limitExprC ReadOnlyE $ do
-    let va = bimap mkVarId id a
+    let va = bimap (TIden . mkVarId) id a -- marking attributes as types
     pe' <- tcExpr pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
@@ -261,26 +261,26 @@ tcQuantifier :: ProverK loc m => Quantifier loc -> TcM m (Quantifier (Typed loc)
 tcQuantifier (ForallQ l) = return $ ForallQ (notTyped "quantifier" l)
 tcQuantifier (ExistsQ l) = return $ ExistsQ (notTyped "quantifier" l)
     
-tcBinaryOp :: (ProverK loc m) => loc -> Bool -> Op Identifier loc -> Expression VarIdentifier (Typed loc) -> TcM m (Expression VarIdentifier (Typed loc))
+tcBinaryOp :: (ProverK loc m) => loc -> Bool -> Op Identifier loc -> Expression GIdentifier (Typed loc) -> TcM m (Expression GIdentifier (Typed loc))
 tcBinaryOp l isPre op e1 = do
     elit1 <- tcLiteral $ IntLit l 1
     top <- tcOp op
     let t1 = typed $ loc e1
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (Right $ fmap typed top) Nothing [(fmap typed e1,False),(fmap typed elit1,False)] t1
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l True True (OIden $ fmap typed top) Nothing [(fmap typed e1,False),(fmap typed elit1,False)] t1
     let ex1 = fmap (Typed l) x1
     let op' = updLoc top (Typed l $ DecT dec)
     let t' = typed $ loc ex1
     let cons = if isPre then PreOp else PostOp
     return $ cons (Typed l t') op' ex1    
 
-tcOp :: (ProverK loc m) => Op Identifier loc -> TcM m (Op VarIdentifier (Typed loc))
+tcOp :: (ProverK loc m) => Op Identifier loc -> TcM m (Op GIdentifier (Typed loc))
 tcOp (OpCast l t) = do
     t' <- tcCastType t
     return $ OpCast (notTyped "tcOp" l) t'
-tcOp op = return $ bimap (mkVarId) (notTyped "tcOp") op
+tcOp op = return $ bimap (PIden . mkVarId) (notTyped "tcOp") op
 
 -- | Selects a list of indices from a type, and returns the type of the selection
-tcSubscript :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> Subscript Identifier loc -> TcM m (Subscript VarIdentifier (Typed loc),Type)
+tcSubscript :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> Subscript Identifier loc -> TcM m (Subscript GIdentifier (Typed loc),Type)
 tcSubscript e s = do
     let t = typed $ loc e
     let l = loc s
@@ -298,7 +298,7 @@ indexProjs [] = 0
 indexProjs (IndexInt {}:xs) = 1 + indexProjs xs
 indexProjs (IndexSlice {}:xs) = indexProjs xs
 
-tcIndex :: (ProverK loc m) => Index Identifier loc -> TcM m (Index VarIdentifier (Typed loc),ArrayProj)
+tcIndex :: (ProverK loc m) => Index Identifier loc -> TcM m (Index GIdentifier (Typed loc),ArrayProj)
 tcIndex (IndexInt l e) = do
     e' <- tcIndexExpr False e
     let ei = DynArrayIndex (fmap typed e')
@@ -312,7 +312,7 @@ tcIndex (IndexSlice l e1 e2) = do
     (e2',mb2) <- f =<< mapM (tcIndexExpr False) e2
     return (IndexSlice (notTyped "tcIndex" l) e1' e2',ArraySlice mb1 mb2)
 
-tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression GIdentifier (Typed loc))
 tcLiteral li = do
     let l = loc li
     b <- newBaseTyVar False Nothing
@@ -321,7 +321,7 @@ tcLiteral li = do
     topTcCstrM_ l $ CoercesLit elit
     return $ LitPExpr (Typed l t) $ fmap (const (Typed l t)) li
 
-tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression VarIdentifier (Typed loc))
+tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
@@ -333,7 +333,7 @@ tcArrayLiteral l es = do
     topTcCstrM_ l $ CoercesLit elit
     return $ ArrayConstructorPExpr (Typed l t) es'
 
-tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression VarIdentifier (Typed loc))
+tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
 tcMultisetLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
@@ -345,7 +345,7 @@ tcMultisetLiteral l es = do
     topTcCstrM_ l $ CoercesLit elit
     return $ MultisetConstructorPExpr (Typed l t) es'
 
-tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName VarIdentifier (Typed loc))
+tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName GIdentifier (Typed loc))
 tcVarName isWrite v@(VarName l n) = do
     exprC <- getExprC
     isAnn <- getAnn
@@ -364,23 +364,23 @@ binAssignOpToOp (BinaryAssignOr l)  = Just $ OpBor l
 binAssignOpToOp (BinaryAssignXor l) = Just $ OpXor l
 
 -- | typechecks an index condition
-tcIndexCond :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcIndexCond :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcIndexCond e = tcExprTy (BaseT bool) e
 
 -- | typechecks an index expression
-tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcIndexExpr isVariadic e = do
     t <- if isVariadic
         then mkVariadicTyArray True (BaseT index)
         else return (BaseT index)
     tcExprTy t e
     
-tcExprTy :: (ProverK loc m) => Type -> Expression Identifier loc -> TcM m (Expression VarIdentifier (Typed loc))
+tcExprTy :: (ProverK loc m) => Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcExprTy ty e = do
     e' <- tcExpr e
     tcExprTy' ty e'
     
-tcExprTy' :: (ProverK loc m) => Type -> Expression VarIdentifier (Typed loc) -> TcM m (Expression VarIdentifier (Typed loc))
+tcExprTy' :: (ProverK loc m) => Type -> Expression GIdentifier (Typed loc) -> TcM m (Expression GIdentifier (Typed loc))
 tcExprTy' ty e' = do
     let Typed l ty' = loc e'
     ppe' <- pp e'
@@ -388,7 +388,7 @@ tcExprTy' ty e' = do
     topTcCstrM_ l $ Coerces (fmap typed e') x2
     return $ fmap (Typed l) $ varExpr x2
 
-tcSizes :: (ProverK loc m) => loc -> Sizes Identifier loc -> TcM m (Sizes VarIdentifier (Typed loc))
+tcSizes :: (ProverK loc m) => loc -> Sizes Identifier loc -> TcM m (Sizes GIdentifier (Typed loc))
 tcSizes l (Sizes szs) = do
     szs' <- mapM (\x -> tcVariadicArg (tcIndexExpr $ snd x) x) $ Foldable.toList szs
     -- check array's dimension
@@ -398,57 +398,57 @@ tcSizes l (Sizes szs) = do
 repeatExpr :: ProverK loc m => loc -> Bool -> Expr -> Maybe Expr -> ComplexType -> TcM m Expr
 repeatExpr l isTop e Nothing t = do
     let repeat = mkVarId "repeat"
-    (dec,es') <- pDecCstrM l isTop False (Left repeat) Nothing [(e,False)] (ComplexT t)
-    return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () repeat) Nothing es'
+    (dec,es') <- pDecCstrM l isTop False (PIden repeat) Nothing [(e,False)] (ComplexT t)
+    return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () $ PIden repeat) Nothing es'
 repeatExpr l isTop e (Just sz) t = do
     let repeat = mkVarId "repeat"
-    (dec,es') <- pDecCstrM l isTop False (Left repeat) Nothing [(e,False),(sz,False)] (ComplexT t)
-    return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () repeat) Nothing es'
+    (dec,es') <- pDecCstrM l isTop False (PIden repeat) Nothing [(e,False),(sz,False)] (ComplexT t)
+    return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () $ PIden repeat) Nothing es'
 
 classifyExpr :: ProverK loc m => loc -> Bool -> Expr -> ComplexType -> TcM m Expr
 classifyExpr l isTop e t = do
     let classify = mkVarId "classify"
-    (dec,es') <- pDecCstrM l isTop False (Left classify) Nothing [(e,False)] (ComplexT t)
-    return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () classify) Nothing es'
+    (dec,es') <- pDecCstrM l isTop False (PIden classify) Nothing [(e,False)] (ComplexT t)
+    return $ ProcCallExpr (ComplexT t) (fmap (const $ DecT dec) $ ProcedureName () $ PIden classify) Nothing es'
 
 shapeExpr :: ProverK loc m => loc -> Bool -> Expr -> TcM m Expr
 shapeExpr l isTop e = do
     let shape = mkVarId "shape"
     let indexes = ComplexT $ CType Public index (indexExpr 1)
-    (dec,es') <- pDecCstrM l isTop False (Left shape) Nothing [(e,False)] indexes
-    return $ ProcCallExpr indexes (fmap (const $ DecT dec) $ ProcedureName () shape) Nothing es'
+    (dec,es') <- pDecCstrM l isTop False (PIden shape) Nothing [(e,False)] indexes
+    return $ ProcCallExpr indexes (fmap (const $ DecT dec) $ ProcedureName () $ PIden shape) Nothing es'
 
 reshapeExpr :: ProverK loc m => loc -> Bool -> Expr -> [(Expr,IsVariadic)] -> Type -> TcM m Expr
 reshapeExpr l isTop e ns ret = do
     let reshape = mkVarId "reshape"
-    (dec,ns') <- pDecCstrM l isTop False (Left reshape) Nothing ((e,False):ns) ret
-    return $ ProcCallExpr ret (fmap (const $ DecT dec) $ ProcedureName () reshape) Nothing ns'
+    (dec,ns') <- pDecCstrM l isTop False (PIden reshape) Nothing ((e,False):ns) ret
+    return $ ProcCallExpr ret (fmap (const $ DecT dec) $ ProcedureName () $ PIden reshape) Nothing ns'
 
 productIndexExpr :: (ProverK loc m) => loc -> Bool -> (Expr,IsVariadic) -> TcM m Expr
 productIndexExpr l isTop (e,isVariadic) = do
     let product = mkVarId "product"
-    (dec,es') <- pDecCstrM l isTop True (Left product) Nothing [(e,isVariadic)] (BaseT index)
-    return $ ProcCallExpr (BaseT index) (fmap (const $ DecT dec) $ ProcedureName () product) Nothing es'
+    (dec,es') <- pDecCstrM l isTop True (PIden product) Nothing [(e,isVariadic)] (BaseT index)
+    return $ ProcCallExpr (BaseT index) (fmap (const $ DecT dec) $ ProcedureName () $ PIden product) Nothing es'
 
 sumIndexExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 sumIndexExprs l isTop e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
 sumIndexExprs l isTop (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 + i2)
 sumIndexExprs l isTop e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpAdd $ NoType "sumIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (OIden $ OpAdd $ NoType "sumIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
     return (BinaryExpr (BaseT index) x1 (OpAdd $ DecT dec) x2)
 
 subtractIndexExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 subtractIndexExprs l isTop e1 e2@(LitPExpr _ (IntLit _ 0)) = return e1
 subtractIndexExprs l isTop (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 - i2)
 subtractIndexExprs l isTop e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpSub $ NoType "subtractIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (OIden $ OpSub $ NoType "subtractIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
     return (BinaryExpr (BaseT index) x1 (OpSub $ DecT dec) x2)
 
 multiplyIndexExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 multiplyIndexExprs l isTop e1 e2@(LitPExpr _ (IntLit _ 1)) = return e1
 multiplyIndexExprs l isTop (LitPExpr l1 (IntLit l2 i1)) (LitPExpr _ (IntLit _ i2)) = return $ LitPExpr (BaseT index) $ IntLit l2 (i1 * i2)
 multiplyIndexExprs l isTop e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpMul $ NoType "multiplyIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (OIden $ OpMul $ NoType "multiplyIndexExprs") Nothing [(e1,False),(e2,False)] (BaseT index)
     return (BinaryExpr (BaseT index) x1 (OpMul $ DecT dec) x2)
 
 multiplyIndexVariadicExprs :: (ProverK loc m) => loc -> Bool -> [(Expr,IsVariadic)] -> TcM m Expr
@@ -465,7 +465,7 @@ multiplyIndexVariadicExprs l isTop es = do
 
 landExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 landExprs l isTop e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpSub $ NoType "landExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (OIden $ OpSub $ NoType "landExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpLand $ DecT dec) x2)
 
 allExprs :: ProverK loc m => loc -> Bool -> [Expr] -> TcM m Expr
@@ -474,12 +474,12 @@ allExprs l isTop es = foldr1M (landExprs l isTop) es
 
 eqExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 eqExprs l isTop e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpEq $ NoType "eqExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (OIden $ OpEq $ NoType "eqExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpEq $ DecT dec) x2)
     
 geExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 geExprs l isTop e1 e2 = do
-    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (Right $ OpGe $ NoType "geExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
+    (dec,[(x1,_),(x2,_)]) <- pDecCstrM l isTop True (OIden $ OpGe $ NoType "geExprs") Nothing [(e1,False),(e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpGe $ DecT dec) x2)
     
 negBoolExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc)

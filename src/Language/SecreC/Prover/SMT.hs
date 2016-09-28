@@ -38,7 +38,7 @@ import Text.PrettyPrint
 
 import System.IO
 
---equalICond :: (VarsIdTcM m,Location loc) => loc -> ICond -> ICond -> TcM m Bool
+--equalICond :: (VarsGTcM m,Location loc) => loc -> ICond -> ICond -> TcM m Bool
 --equalICond l c1 c2 = do
 --    hyp <- solveHypotheses l
 --    addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ IAnd hyp) (text "equal" <+> pp c1 <+> pp c2)) $ do
@@ -46,7 +46,7 @@ import System.IO
 --            (IBool b1,IBool b2) -> return $ b1 == b2
 --            otherwise -> checkAny (\cfg -> equalSBV cfg l hyp ci1 ci2) 
 --
---compareICond :: (VarsIdTcM m,Location loc) => loc -> ICond -> ICond -> TcM m Ordering
+--compareICond :: (VarsGTcM m,Location loc) => loc -> ICond -> ICond -> TcM m Ordering
 --compareICond l c1 c2 = do
 --    hyp <- solveHypotheses l
 --    addErrorM l (TypecheckerError (locpos l) . SMTException (pp $ IAnd hyp) (text "compare" <+> pp c1 <+> pp c2)) $ do
@@ -66,7 +66,7 @@ isValid l c = do
 
 -- * SBV interface
 --
---compareSBV :: (VarsIdTcM m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM m Ordering
+--compareSBV :: (VarsGTcM m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM m Ordering
 --compareSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (ComparisonException "index condition") (pp c1) (pp c2) . Just) $ do
 --    let str1 = ppr (IAnd $ c1 : hyp) ++ " => " ++ ppr c2
 --    let str2 = ppr (IAnd $ c2 : hyp) ++ " => " ++ ppr c1
@@ -88,7 +88,7 @@ isValid l c = do
 --        (_,Nothing,Nothing,_) -> return GT
 --        otherwise -> genTcError (locpos l) $ text "not comparable"
 --
---equalSBV :: (VarsIdTcM m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM m Bool
+--equalSBV :: (VarsGTcM m,Location loc) => SMTConfig -> loc -> [ICond] -> ICond -> ICond -> TcM m Bool
 --equalSBV cfg l hyp c1 c2 = addErrorM l (TypecheckerError (locpos l) . (EqualityException "index condition") (pp c1) (pp c2) . Just) $ do
 --    let str = show (pp c1 <+> text "==" <+> pp c2)
 --    mb <- tryValiditySBV l cfg str $ do

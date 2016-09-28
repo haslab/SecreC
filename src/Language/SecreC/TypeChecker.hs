@@ -61,14 +61,14 @@ tcModuleFile (Right sci) = do
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (mappend x y,sciEnv sci) }
     return $ Right sci
 
-tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc) -> TcM m (PPArgs,Module VarIdentifier (Typed loc))
+tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc) -> TcM m (PPArgs,Module GIdentifier (Typed loc))
 tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
     x' <- tcModule x
     menv <- State.gets (snd . moduleEnv)
     TcM $ lift $ writeModuleSCI ppargs menv x
     return (ppargs,x')
 
-tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module VarIdentifier (Typed loc))
+tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module GIdentifier (Typed loc))
 tcModule m@(Module l name prog) = failTcM l $ do
     opts' <- TcM $ State.lift Reader.ask
     when (debugTypechecker opts') $ do
@@ -85,17 +85,17 @@ tcModule m@(Module l name prog) = failTcM l $ do
     --ss <- getTSubsts
     --modifyModuleEnvM $ substFromTSubsts "tcModule" l ss False Map.empty
     --State.modify $ \env -> env { tDict = [] }
-    let m' = Module (notTyped "tcModule" l) (fmap (bimap mkVarId (notTyped "tcModule")) name) prog'
+    let m' = Module (notTyped "tcModule" l) (fmap (bimap (MIden . mkVarId) (notTyped "tcModule")) name) prog'
     --m'' <- substFromTSubsts "tcModule" l ss False Map.empty m'
     return m'
 
-tcProgram :: (ProverK loc m) => Program Identifier loc -> TcM m (Program VarIdentifier (Typed loc))
+tcProgram :: (ProverK loc m) => Program Identifier loc -> TcM m (Program GIdentifier (Typed loc))
 tcProgram (Program l imports globals) = do
-    let imports' = map (bimap mkVarId (notTyped "tcProgram")) imports
+    let imports' = map (bimap (MIden . mkVarId) (notTyped "tcProgram")) imports
     globals' <- mapM tcGlobalDeclaration globals
     return $ Program (notTyped "tcProgram" l) imports' globals'
 
-tcGlobalDeclaration :: (ProverK loc m) => GlobalDeclaration Identifier loc -> TcM m (GlobalDeclaration VarIdentifier (Typed loc))
+tcGlobalDeclaration :: (ProverK loc m) => GlobalDeclaration Identifier loc -> TcM m (GlobalDeclaration GIdentifier (Typed loc))
 tcGlobalDeclaration (GlobalVariable l vd) = tcGlobal l $ do
     vd' <- tcVarDecl GlobalScope vd
     return $ GlobalVariable (notTyped "tcGlobalDeclaration" l) vd'
@@ -121,7 +121,7 @@ tcGlobalDeclaration (GlobalAnnotations l ann) = do
     ann' <- mapM tcGlobalAnn ann
     return $ GlobalAnnotations (notTyped "tcGlobalAnnotation" l) ann'
 
-tcGlobalAnn :: ProverK loc m => GlobalAnnotation Identifier loc -> TcM m (GlobalAnnotation VarIdentifier (Typed loc))
+tcGlobalAnn :: ProverK loc m => GlobalAnnotation Identifier loc -> TcM m (GlobalAnnotation GIdentifier (Typed loc))
 tcGlobalAnn (GlobalFunctionAnn l proc) = tcGlobal l $ insideAnnotation $ do
     proc' <- tcFunctionDecl (newOperator) newProcedureFunction proc
     return $ GlobalFunctionAnn (notTyped "tcGlobalAnn" l) proc'
@@ -141,26 +141,26 @@ tcGlobalAnn (GlobalLemmaAnn l ax) = tcGlobal l $ insideAnnotation $ do
     ax' <- tcLemmaDecl ax
     return $ GlobalLemmaAnn (notTyped "tcGlobalAnn" l) ax'
 
-tcDomainDecl :: (MonadIO m,Location loc) => DomainDeclaration Identifier loc -> TcM m (DomainDeclaration VarIdentifier (Typed loc))
+tcDomainDecl :: (MonadIO m,Location loc) => DomainDeclaration Identifier loc -> TcM m (DomainDeclaration GIdentifier (Typed loc))
 tcDomainDecl (Domain l (DomainName dl dn) k) = do
-    let vk = bimap mkVarId id k
-    let t = KindT $ PrivateK $ funit vk
-    let d' = DomainName (Typed dl t) $ mkVarId dn
+    let vk@(KindName _ kn) = bimap (mkVarId) id k
+    let t = KindT $ PrivateK $ TIden kn
+    let d' = DomainName (Typed dl t) $ TIden $ mkVarId dn
     newDomain d'
     isAnn <- getAnn
     checkKind isAnn vk
-    return $ Domain (notTyped "tcDomainDecl" l) d' (bimap mkVarId (notTyped "tcDomainDecl") k)
+    return $ Domain (notTyped "tcDomainDecl" l) d' (bimap (TIden . mkVarId) (notTyped "tcDomainDecl") k)
 
-tcKindDecl :: (MonadIO m,Location loc) => KindDeclaration Identifier loc -> TcM m (KindDeclaration VarIdentifier (Typed loc))
+tcKindDecl :: (MonadIO m,Location loc) => KindDeclaration Identifier loc -> TcM m (KindDeclaration GIdentifier (Typed loc))
 tcKindDecl (Kind l k) = do
     k' <- tcKindName k
     newKind k'
     return $ Kind (Typed l $ KType True) k'
     
-tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (KindName VarIdentifier (Typed loc))
-tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType True)) $ mkVarId kn
+tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (KindName GIdentifier (Typed loc))
+tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType True)) $ TIden $ mkVarId kn
 
-tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration VarIdentifier (Typed loc))
+tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))
 tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
@@ -173,7 +173,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak is
     dec <- newAxiom l hdeps tvars' idec
     dec2AxiomDecl l dec
 
-tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration VarIdentifier (Typed loc))
+tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration GIdentifier (Typed loc))
 tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate l $ withKind LKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
@@ -184,13 +184,13 @@ tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) =
     let tret = ComplexT Void
     s' <- mapM (tcStmtsRet l tret) body
     cl <- getDecClass $ Just $ PIden $ mkVarId pn
-    let idec = IDecT $ LemmaType isLeak (locpos l) (mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (fmap (map (fmap (fmap locpos))) s') cl
-    let lemma' = ProcedureName (Typed pl idec) $ mkVarId pn
+    let idec = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (fmap (map (fmap (fmap locpos))) s') cl
+    let lemma' = ProcedureName (Typed pl idec) $ PIden $ mkVarId pn
     lemma'' <- newLemma tvars' hdeps lemma'
     dec2LemmaDecl l $ unDecT $ typed $ loc lemma''
 
-tcFunctionDecl :: (ProverK loc m) => (Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))) -> (Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc)))
-                -> FunctionDeclaration Identifier loc -> TcM m (FunctionDeclaration VarIdentifier (Typed loc))
+tcFunctionDecl :: (ProverK loc m) => (Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
+                -> FunctionDeclaration Identifier loc -> TcM m (FunctionDeclaration GIdentifier (Typed loc))
 tcFunctionDecl addOp _ (OperatorFunDeclaration l isLeak ret op ps ann s) = withKind FKind $ withLeak isLeak $ do
     (ps',ret',vars',top,tret,vret) <- tcAddDeps l "tcProcedureDecl" $ do
         top <- tcOp op
@@ -199,7 +199,7 @@ tcFunctionDecl addOp _ (OperatorFunDeclaration l isLeak ret op ps ann s) = withK
         let tret = typed $ loc ret'
         when isLeak $ tcCstrM_ l $ Unifies tret (BaseT bool)
         vret <- do
-            let vr = (VarName (Typed l tret) (mkVarId "\\result"))
+            let vr = (VarName (Typed l tret) (VIden $ mkVarId "\\result"))
             newVariable LocalScope True True vr Nothing
             return vr
         return (ps',ret',vars',top,tret,vret)
@@ -207,8 +207,8 @@ tcFunctionDecl addOp _ (OperatorFunDeclaration l isLeak ret op ps ann s) = withK
     ann' <- mapM tcProcedureAnn ann
     s' <- tcExprTy tret s
     dropLocalVar vret
-    cl <- getDecClass $ Just $ OIden $ bimap mkVarId (const ()) op
-    let tproc = IDecT $ FunType isLeak (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
+    cl <- getDecClass $ Just $ OIden $ bimap id (const ()) top
+    let tproc = IDecT $ FunType isLeak (locpos l) (OIden $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
     let op' = updLoc top (Typed l tproc)
     op'' <- addOp hdeps op'
     dec2FunDecl l $ unDecT $ typed $ loc op''
@@ -220,7 +220,7 @@ tcFunctionDecl _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn) ps a
         let tret = typed $ loc ret'
         when isLeak $ tcCstrM_ l $ Unifies tret (BaseT bool)
         vret <- do
-            let vr = (VarName (Typed l tret) (mkVarId "\\result"))
+            let vr = (VarName (Typed l tret) (VIden $ mkVarId "\\result"))
             newVariable LocalScope True True vr Nothing
             return vr
         return (ps',ret',vars',tret,vret)
@@ -229,14 +229,14 @@ tcFunctionDecl _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn) ps a
     s' <- tcExprTy tret s
     dropLocalVar vret
     cl <- getDecClass $ Just $ PIden $ mkVarId pn
-    let tproc = IDecT $ FunType isLeak (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
-    let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
+    let tproc = IDecT $ FunType isLeak (locpos l) (PIden $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
+    let proc' = ProcedureName (Typed pl tproc) $ PIden $ mkVarId pn
     proc'' <- addProc hdeps proc'
     dec2FunDecl l $ unDecT $ typed $ loc proc''
     --return $ FunDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' ann' s'
 
-tcProcedureDecl :: (ProverK loc m) => (Deps -> Op VarIdentifier (Typed loc) -> TcM m (Op VarIdentifier (Typed loc))) -> (Deps -> ProcedureName VarIdentifier (Typed loc) -> TcM m (ProcedureName VarIdentifier (Typed loc)))
-                -> ProcedureDeclaration Identifier loc -> TcM m (ProcedureDeclaration VarIdentifier (Typed loc))
+tcProcedureDecl :: (ProverK loc m) => (Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
+                -> ProcedureDeclaration Identifier loc -> TcM m (ProcedureDeclaration GIdentifier (Typed loc))
 tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = withKind PKind $ do
     (ps',ret',vars',top,tret,vret) <- tcAddDeps l "tcProcedureDecl" $ do
         top <- tcOp op
@@ -246,7 +246,7 @@ tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = withKind PKind
         vret <- case ret' of
             ReturnType _ Nothing -> return Nothing
             ReturnType _ (Just _) -> do
-                let vr = (VarName (Typed l tret) (mkVarId "\\result"))
+                let vr = (VarName (Typed l tret) (VIden $ mkVarId "\\result"))
                 newVariable LocalScope True True vr Nothing
                 return $ Just vr
         return (ps',ret',vars',top,tret,vret)
@@ -254,8 +254,8 @@ tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps ann s) = withKind PKind
     ann' <- mapM tcProcedureAnn ann
     mapM_ dropLocalVar vret
     s' <- tcStmtsRet l tret s
-    cl <- getDecClass $ Just $ OIden $ bimap mkVarId (const ()) op
-    let tproc = IDecT $ ProcType (locpos l) (Right $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
+    cl <- getDecClass $ Just $ OIden $ bimap id (const ()) top
+    let tproc = IDecT $ ProcType (locpos l) (OIden $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
     let op' = updLoc top (Typed l tproc)
     op'' <- addOp hdeps op'
     dec2ProcDecl l $ unDecT $ typed $ loc op''
@@ -268,7 +268,7 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
         vret <- case ret' of
             ReturnType _ Nothing -> return Nothing
             ReturnType _ (Just _) -> do
-                let vr = (VarName (Typed l tret) (mkVarId "\\result"))
+                let vr = (VarName (Typed l tret) (VIden $ mkVarId "\\result"))
                 newVariable LocalScope True True vr Nothing
                 return $ Just vr
         return (ps',ret',vars',tret,vret)
@@ -277,13 +277,13 @@ tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps a
     mapM_ dropLocalVar vret
     s' <- tcStmtsRet l tret s
     cl <- getDecClass $ Just $ PIden $ mkVarId pn
-    let tproc = IDecT $ ProcType (locpos l) (Left $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
-    let proc' = ProcedureName (Typed pl tproc) $ mkVarId pn
+    let tproc = IDecT $ ProcType (locpos l) (PIden $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
+    let proc' = ProcedureName (Typed pl tproc) $ PIden $ mkVarId pn
     proc'' <- addProc hdeps proc'
     dec2ProcDecl l $ unDecT $ typed $ loc proc''
     --return $ ProcedureDeclaration (notTyped "tcProcedureDecl" l) ret' proc'' ps' ann' s'
 
-tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (ProcedureAnnotation VarIdentifier (Typed loc))
+tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (ProcedureAnnotation GIdentifier (Typed loc))
 tcProcedureAnn (PDecreasesAnn l e) = tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ PDecreasesAnn (Typed l $ typed $ loc e') e'
@@ -297,7 +297,7 @@ tcProcedureAnn (InlineAnn l isInline) = tcAddDeps l "pann" $ do
     addDecClass $ DecClass False isInline Map.empty Map.empty
     return $ InlineAnn (notTyped "inline" l) isInline
 
-tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter VarIdentifier (Typed loc),(Bool,Var,IsVariadic))
+tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter GIdentifier (Typed loc),(Bool,Var,IsVariadic))
 tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
@@ -315,26 +315,26 @@ tcProcedureParam (ProcedureParameter l True s isVariadic (VarName vl vi)) = do
     newVariable LocalScope True isAnn v' Nothing
     return (ProcedureParameter (notTyped "tcProcedureParam" l) True s' isVariadic v',(True,(fmap typed v'),isVariadic))
 
-tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName VarIdentifier (Typed loc) -> TcM m (TypeName VarIdentifier (Typed loc)))
-                -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration VarIdentifier (Typed loc))
+tcStructureDecl :: (ProverK loc m) => (Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc)))
+                -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration GIdentifier (Typed loc))
 tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) atts) = withKind TKind $ do
     hdeps <- getDeps
     atts' <- mapM tcAttribute atts
     cl <- getDecClass $ Just $ TIden $ mkVarId tn
-    let t = IDecT $ StructType (locpos l) (TypeName () $ mkVarId tn) (Just $ map (fmap typed) atts') cl
-    let ty' = TypeName (Typed tl t) $ mkVarId tn
+    let t = IDecT $ StructType (locpos l) (TIden $ mkVarId tn) (Just $ map (fmap typed) atts') cl
+    let ty' = TypeName (Typed tl t) $ TIden $ mkVarId tn
     ty'' <- addStruct hdeps ty'
     dec2StructDecl l $ unDecT $ typed $ loc ty''
     --return $ StructureDeclaration (notTyped "tcStructureDecl" l) ty'' atts'
 
-tcAttribute :: (ProverK loc m) => Attribute Identifier loc -> TcM m (Attribute VarIdentifier (Typed loc))
+tcAttribute :: (ProverK loc m) => Attribute Identifier loc -> TcM m (Attribute GIdentifier (Typed loc))
 tcAttribute (Attribute l ty (AttributeName vl vn) szs) = do
     ty' <- tcTypeSpec ty False
     (t,szs') <- tcTypeSizes l (typed $ loc ty') szs
-    let v' = AttributeName (Typed vl t) $ mkVarId vn
+    let v' = AttributeName (Typed vl t) $ TIden $ mkVarId vn
     return $ Attribute (Typed vl t) ty' v' szs'
 
-tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration VarIdentifier (Typed loc))
+tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration GIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate l $ do
     (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
     let tvars' = toList tvars
@@ -359,7 +359,7 @@ tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
     return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' p'
 
 -- for axioms we create tokens instead of variables
-tcTemplateQuantifier :: (ProverK loc m) => TemplateQuantifier Identifier loc -> TcM m (TemplateQuantifier VarIdentifier (Typed loc),(Constrained Var,IsVariadic))
+tcTemplateQuantifier :: (ProverK loc m) => TemplateQuantifier Identifier loc -> TcM m (TemplateQuantifier GIdentifier (Typed loc),(Constrained Var,IsVariadic))
 tcTemplateQuantifier (KindQuantifier l isPrivate isVariadic (KindName dl dn)) = do
     inTplt <- State.gets inTemplate
     let t = KType isPrivate
@@ -425,7 +425,7 @@ tcTemplate l m = do
     return x
 
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
-tcGlobal :: (Vars VarIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
+tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
 tcGlobal l m = do
     State.modify $ \e -> e { decClass = mempty }
     newDict l "tcGlobal"

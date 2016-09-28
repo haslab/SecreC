@@ -20,14 +20,14 @@ import Data.Typeable
 
 type SimplifyK loc m = ProverK loc m
 
-type SimplifyM loc m a = SimplifyK loc m => a -> TcM m ([Statement VarIdentifier (Typed loc)],a)
-type SimplifyT loc m a = SimplifyM loc m (a VarIdentifier (Typed loc))
+type SimplifyM loc m a = SimplifyK loc m => a -> TcM m ([Statement GIdentifier (Typed loc)],a)
+type SimplifyT loc m a = SimplifyM loc m (a GIdentifier (Typed loc))
 
-type SimplifyG loc m a = SimplifyK loc m => a VarIdentifier (Typed loc) -> TcM m (a VarIdentifier (Typed loc))
+type SimplifyG loc m a = SimplifyK loc m => a GIdentifier (Typed loc) -> TcM m (a GIdentifier (Typed loc))
 
-simplifyExpression :: SimplifyK loc m => Bool -> Expression VarIdentifier (Typed loc) -> TcM m ([Statement VarIdentifier (Typed loc)],Maybe (Expression VarIdentifier (Typed loc)))
+simplifyExpression :: SimplifyK loc m => Bool -> Expression GIdentifier (Typed loc) -> TcM m ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc)))
 
-simplifyStmts :: SimplifyK loc m => Maybe (VarName VarIdentifier (Typed loc)) -> [Statement VarIdentifier (Typed loc)] -> TcM m [Statement VarIdentifier (Typed loc)]
+simplifyStmts :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [Statement GIdentifier (Typed loc)] -> TcM m [Statement GIdentifier (Typed loc)]
 
 simplifyInnerDecType :: SimplifyK Position m => InnerDecType -> TcM m InnerDecType
 

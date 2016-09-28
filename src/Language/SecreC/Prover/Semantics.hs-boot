@@ -9,6 +9,6 @@ import Language.SecreC.Prover.Base
 
 import Data.Word
 
-evaluateIndexExpr :: (ProverK loc m) => loc -> Expression VarIdentifier Type -> TcM m Word64
-evaluateExpr :: (ProverK loc m) => loc -> Expression VarIdentifier (Typed loc) -> TcM m ILit
+evaluateIndexExpr :: (ProverK loc m) => loc -> Expression GIdentifier Type -> TcM m Word64
+evaluateExpr :: (ProverK loc m) => loc -> Expression GIdentifier (Typed loc) -> TcM m ILit
 evaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit

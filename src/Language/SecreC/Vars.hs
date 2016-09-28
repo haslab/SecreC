@@ -115,6 +115,9 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
 fvsSet :: Vars iden m a => a -> m (Set iden)
 fvsSet = liftM Map.keysSet . fvs
 
+bvsSet :: Vars iden m a => a -> m (Set iden)
+bvsSet = liftM Map.keysSet . bvs
+
 substsFromMap :: (Vars iden m r) => Map iden r -> Substs iden m
 substsFromMap xs = let f = unSubstsProxy (substsProxyFromMap xs) in f Proxy
 
@@ -177,20 +180,20 @@ varsBlock m = do
     State.put (lhs',lval',ss,fvs',bvs) -- forget bound substitutions and bound variables
     return x
 
-addFV :: (GenVar iden m,IsScVar m iden,MonadIO m) => iden -> VarsM iden m iden
-addFV x = do
-    State.modify $ \(lhs,lval,ss,fvs,bvs) -> if isJust (Map.lookup x bvs)
+addFV :: (GenVar iden m,IsScVar m iden2,MonadIO m) => (iden -> iden2) -> iden -> VarsM iden2 m iden
+addFV to x = do
+    State.modify $ \(lhs,lval,ss,fvs,bvs) -> if isJust (Map.lookup (to x) bvs)
         then (lhs,lval,ss,fvs,bvs) -- don't add an already bound variable to the free variables
-        else (lhs,lval,ss,Map.insertWith (||) x lval fvs,bvs)
+        else (lhs,lval,ss,Map.insertWith (||) (to x) lval fvs,bvs)
     return x
  
-addBV :: (GenVar iden m,IsScVar m iden,MonadIO m) => iden -> VarsM iden m iden
-addBV x = do
+addBV :: (GenVar iden m,IsScVar m iden2,MonadIO m) => (iden -> iden2) -> iden -> VarsM iden2 m iden
+addBV to x = do
     --liftIO $ putStrLn $ "addBV " ++ ppr x
     (lhs,lval,(substBounds,ss),fvs,bvs) <- State.get
     let isName = maybe False id lhs
-    (x',ss') <- if not isName && substBounds then liftM (\x' -> (x',Map.insert x x' ss)) (State.lift $ genVar x) else return (x,ss)
-    State.put (lhs,lval,(substBounds,ss'),fvs,Map.insert x isName bvs)
+    (x',ss') <- if not isName && substBounds then liftM (\x' -> (x',Map.insert (to x) (to x') ss)) (State.lift $ genVar x) else return (x,ss)
+    State.put (lhs,lval,(substBounds,ss'),fvs,Map.insert (to x) isName bvs)
     return x'
 
 instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m Integer where
@@ -300,14 +303,14 @@ instance (PP m a,PP m b) => PP m (Either a b) where
     pp (Left x) = pp x
     pp (Right y) = pp y
     
-instance (Vars iden m a,Vars iden m b) => Vars iden m (Either a b) where
+instance (Vars iden2 m a,Vars iden2 m b) => Vars iden2 m (Either a b) where
     traverseVars f (Left x) = liftM Left $ f x
     traverseVars f (Right y) = liftM Right $ f y
 
-instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m () where
+instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m () where
     traverseVars f () = return ()
 
-instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (ProcedureDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (ProcedureDeclaration iden loc) where
     traverseVars f (OperatorDeclaration l t o args anns s) = do
         l' <- f l
         t' <- f t
@@ -327,7 +330,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
             s' <- mapM f s
             return $ ProcedureDeclaration l' t' n' args' anns' s'
 
-instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (FunctionDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (FunctionDeclaration iden loc) where
     traverseVars f (OperatorFunDeclaration isLeak l t o args anns e) = do
         l' <- f l
         t' <- f t
@@ -347,7 +350,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
             e' <- f e
             return $ FunDeclaration isLeak l' t' n' args' anns' e'
 
-instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (AxiomDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (AxiomDeclaration iden loc) where
     traverseVars f (AxiomDeclaration isLeak l qs args anns) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
@@ -356,7 +359,7 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
             anns' <- mapM f anns
             return $ AxiomDeclaration isLeak l' qs' args' anns'
 
-instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (LemmaDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (LemmaDeclaration iden loc) where
     traverseVars f (LemmaDeclaration isLeak n l qs args anns body) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
@@ -366,76 +369,76 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
             body' <- mapM f body
             return $ LemmaDeclaration isLeak n l' qs' args' anns' body'
 
-instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (ProcedureParameter iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l isConst t isVariadic v) = do
         l' <- f l
         t' <- f t
         v' <- inLHS False $ f v
         return $ ProcedureParameter l' isConst t' isVariadic v'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (ReturnTypeSpecifier iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ReturnTypeSpecifier iden loc) where
     traverseVars f (ReturnType l mb) = do
         l' <- f l
         mb' <- mapM f mb
         return $ ReturnType l' mb'
     
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (VarName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (VarName iden loc) where
     traverseVars f v@(VarName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ VarName l' n'
     substL (VarName _ n) = substL n
     
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (ProcedureName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ProcedureName iden loc) where
     traverseVars f v@(ProcedureName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ ProcedureName l' n'
     substL (ProcedureName _ n) = substL n
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (DomainName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (DomainName iden loc) where
     traverseVars f v@(DomainName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ DomainName l' n'
     substL (DomainName _ n) = substL n
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (KindName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (KindName iden loc) where
     traverseVars f v@(KindName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ KindName l' n'
     substL (KindName _ n) = substL n
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (ModuleName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ModuleName iden loc) where
     traverseVars f v@(ModuleName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ ModuleName l' n'
     substL (ModuleName _ n) = substL n
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (TemplateArgName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateArgName iden loc) where
     traverseVars f v@(TemplateArgName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ TemplateArgName l' n'
     substL (TemplateArgName _ n) = substL n
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (AttributeName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (AttributeName iden loc) where
     traverseVars f v@(AttributeName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ AttributeName l' n'
     substL (AttributeName _ n) = substL n
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (TypeName iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TypeName iden loc) where
     traverseVars f v@(TypeName l n) = do
         l' <- inRHS $ f l
         n' <- f n
         return $ TypeName l' n'
     substL (TypeName _ n) = substL n
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (TypeSpecifier iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TypeSpecifier iden loc) where
     traverseVars f (TypeSpecifier l sec d dim) = do
         l' <- f l
         sec' <- mapM f sec
@@ -448,10 +451,10 @@ instance (Location loc,Vars iden m loc) => Vars iden m (PrimitiveDatatype loc) w
         l' <- f (loc p)
         return $ updLoc p l'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [Statement iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [Statement iden loc] where
     traverseVars f xs = mapM f xs
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Statement iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Statement iden loc) where
     traverseVars f (CompoundStatement l ss) = varsBlock $ do
         l' <- f l
         ss' <- mapM f ss
@@ -517,7 +520,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         e' <- f e
         return $ AnnStatement l' e'
     
-instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars iden m (Op iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (Op iden loc) where
     traverseVars f (OpCast l t) = do
         l' <- f l
         t' <- f t
@@ -526,24 +529,24 @@ instance (Vars iden m iden,Location loc,IsScVar m iden,Vars iden m loc) => Vars 
         l' <- f (loc o)
         return $ updLoc o l'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (DimtypeSpecifier iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (DimtypeSpecifier iden loc) where
     traverseVars f (DimSpecifier l e) = do
         l' <- f l
         e' <- f e
         return $ DimSpecifier l' e'
 
-instance (Location loc,Vars iden m loc) => Vars iden m (BinaryAssignOp loc) where
+instance (Location loc,Vars iden2 m loc) => Vars iden2 m (BinaryAssignOp loc) where
     traverseVars f o = do
         l' <- f (loc o)
         return $ updLoc o l'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [Expression iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [Expression iden loc] where
     traverseVars f = mapM f
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [(Expression iden loc,IsVariadic)] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [(Expression iden loc,IsVariadic)] where
     traverseVars f = mapM (mapFstM f)
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Expression iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Expression iden loc) where
     traverseVars f (LeakExpr l x) = do
         l' <- f l
         x' <- f x
@@ -660,17 +663,17 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         substL v
     substL e = return Nothing
 
-instance (Location loc,Vars iden m loc) => Vars iden m (Quantifier loc) where
+instance (Location loc,Vars iden2 m loc) => Vars iden2 m (Quantifier loc) where
     traverseVars f q = do
         l' <- f (loc q)
         return $ updLoc q l'
 
-instance (Location loc,Vars iden m loc) => Vars iden m (Literal loc) where
+instance (Location loc,Vars iden2 m loc) => Vars iden2 m (Literal loc) where
     traverseVars f lit = do
         l' <- f (loc lit)
         return $ updLoc lit l'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Index iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Index iden loc) where
     traverseVars f (IndexSlice l e1 e2) = do
         l' <- f l
         e1' <- mapM f e1
@@ -681,7 +684,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         e' <- f e
         return $ IndexInt l' e'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (CastType iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (CastType iden loc) where
     traverseVars f (CastPrim p) = do
         p' <- f p
         return $ CastPrim p'
@@ -689,7 +692,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         t' <- f t
         return $ CastTy t'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (DatatypeSpecifier iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (DatatypeSpecifier iden loc) where
     traverseVars f (PrimitiveSpecifier l p) = do
         l' <- f l
         p' <- f p
@@ -710,7 +713,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
     substL (VariableSpecifier l (TypeName _ n)) = substL n
     substL s = return Nothing
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (TemplateTypeArgument iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateTypeArgument iden loc) where
     traverseVars f (GenericTemplateTypeArgument l n) = do
         l' <- f l
         n' <- f n
@@ -731,7 +734,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         l' <- f l
         return $ PublicTemplateTypeArgument l'
     
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (SecTypeSpecifier iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (SecTypeSpecifier iden loc) where
     traverseVars f (PublicSpecifier l) = do
         l' <- f l
         return $ PublicSpecifier l'
@@ -742,14 +745,14 @@ instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (SecTy
     substL (PrivateSpecifier l (DomainName _ n)) = substL n
     substL s = return Nothing
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (VariableDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (VariableDeclaration iden loc) where
     traverseVars f (VariableDeclaration l isConst isHavoc t is) = do
         l' <- f l
         t' <- f t
         is' <- mapM f is
         return $ VariableDeclaration l' isConst isHavoc t' is'
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (VariableInitialization iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (VariableInitialization iden loc) where
     traverseVars f (VariableInitialization l v sz e) = do
         l' <- f l
         v' <- inLHS False $ f v
@@ -757,12 +760,12 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         e' <- mapM f e
         return $ VariableInitialization l' v' sz' e'
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Sizes iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Sizes iden loc) where
     traverseVars f (Sizes es) = do
         es' <- mapM f es
         return $ Sizes es'
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (SyscallParameter iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (SyscallParameter iden loc) where
     traverseVars f (SyscallPush l e) = do
         l' <- f l
         e' <- f e
@@ -780,7 +783,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         e' <- f e
         return $ SyscallPushCRef l' e'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (ForInitializer iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ForInitializer iden loc) where
     traverseVars f (InitializerExpression e) = do
         e' <- mapM f e
         return $ InitializerExpression e'
@@ -788,21 +791,21 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         vd' <- f vd
         return $ InitializerVariable vd'
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Module iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Module iden loc) where
     traverseVars f (Module l n p) = do
         l' <- f l
         n' <- mapM f n
         p' <- f p
         return $ Module l' n' p'
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Program iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Program iden loc) where
     traverseVars f (Program l is gs) = do
         l' <- f l
         is' <- mapM f is
         gs' <- mapM f gs
         return $ Program l' is' gs'
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (GlobalDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (GlobalDeclaration iden loc) where
     traverseVars f (GlobalVariable l vd) = do
         l' <- f l
         vd' <- f vd
@@ -836,7 +839,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         t' <- mapM f t
         return $ GlobalAnnotations l' t'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (TemplateDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateDeclaration iden loc) where
     traverseVars f (TemplateStructureDeclaration l qs s) = do
         l' <- f l
         qs' <- mapM f qs
@@ -859,14 +862,14 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         p' <- f p
         return $ TemplateFunctionDeclaration l' qs' p'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (StructureDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (StructureDeclaration iden loc) where
     traverseVars f (StructureDeclaration l n as) = do
         l' <- f l
         n' <- inLHS True $ f n
         as' <- mapM f as
         return $ StructureDeclaration l' n' as'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (Attribute iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Attribute iden loc) where
     traverseVars f (Attribute l t a szs) = do
         l' <- inRHS $ f l
         t' <- inRHS $ f t
@@ -874,19 +877,19 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         szs' <- inRHS $ f szs
         return $ Attribute l' t' a' szs'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [AttributeName iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [AttributeName iden loc] where
     traverseVars f = mapM f
 
 instance PP m iden => PP m [AttributeName iden loc] where
     pp atts = liftM vcat $ mapM pp atts
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [Attribute iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [Attribute iden loc] where
     traverseVars f = mapM f
 
 instance PP m iden => PP m [Attribute iden loc] where
     pp atts = liftM vcat $ mapM pp atts
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (TemplateQuantifier iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateQuantifier iden loc) where
     traverseVars f (DomainQuantifier l b d k) = do
         l' <- f l
         b' <- f b
@@ -911,44 +914,44 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         t' <- inLHS False $ f t
         return $ DataQuantifier l' b' t'
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (KindDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (KindDeclaration iden loc) where
     traverseVars f (Kind l n) = do
         l' <- f l
         n' <- inLHS True $ f n
         return $ Kind l' n'
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (DomainDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (DomainDeclaration iden loc) where
     traverseVars f (Domain l d k) = do
         l' <- f l
         d' <- inLHS True $ f d
         k' <- f k
         return $ Domain l' d' k'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [ImportDeclaration iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [ImportDeclaration iden loc] where
     traverseVars f xs = mapM f xs
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [GlobalDeclaration iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [GlobalDeclaration iden loc] where
     traverseVars f xs = mapM f xs
 
-instance (Vars iden m iden,Vars iden m loc,IsScVar m iden) => Vars iden m (ImportDeclaration iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ImportDeclaration iden loc) where
     traverseVars f (Import l m) = do
         l' <- f l
         m' <- f m
         return $ Import l' m'
 
-instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m Position where
+instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m Position where
     traverseVars f p = return p
 
-instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m Bool where
+instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m Bool where
     traverseVars f b = return b
 
-instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m Ordering where
+instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m Ordering where
     traverseVars f x = return x
 
-instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m SecrecError where
+instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m SecrecError where
     traverseVars f x = return x
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (LoopAnnotation iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (LoopAnnotation iden loc) where
     traverseVars f (DecreasesAnn l isFree e) = do
         l' <- f l
         e' <- f e
@@ -958,7 +961,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         e' <- f e
         return $ InvariantAnn l' isFree isLeak e'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (StatementAnnotation iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (StatementAnnotation iden loc) where
     traverseVars f (AssertAnn l isLeak e) = do
         l' <- f l
         e' <- f e
@@ -972,7 +975,7 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         e' <- f e
         return $ EmbedAnn l' isLeak e'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (ProcedureAnnotation iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ProcedureAnnotation iden loc) where
     traverseVars f (RequiresAnn l isFree isLeak e) = do
         l' <- f l
         e' <- f e
@@ -990,13 +993,13 @@ instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars 
         b' <- f b
         return $ InlineAnn l' b'
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [StatementAnnotation iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [StatementAnnotation iden loc] where
     traverseVars f xs = mapM f xs
     
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m [ProcedureAnnotation iden loc] where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m [ProcedureAnnotation iden loc] where
     traverseVars f xs = mapM f xs
 
-instance (Vars iden m iden,Location loc,Vars iden m loc,IsScVar m iden) => Vars iden m (GlobalAnnotation iden loc) where
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (GlobalAnnotation iden loc) where
     traverseVars f (GlobalFunctionAnn l p) = do
         l' <- f l
         p' <- f p

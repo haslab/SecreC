@@ -54,7 +54,7 @@ localExprM m = do
     merge (e,Nothing) (e',Nothing) = (mergeE e e',Nothing)
     mergeE x y = maybe x Just y
 
-expr2IExpr :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> TcM m IExpr
+expr2IExpr :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> TcM m IExpr
 expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
     substs <- lift $ getTSubsts l
@@ -67,10 +67,10 @@ expr2IExpr e = runExprM $ do
             genTcError (locpos l) $ text "failed to convert void expression" <+> ppe <+> text "to prover expression"
         Just e' -> expr2Prover e'
 
-stmts2Prover :: (ProverK loc m) => [Statement VarIdentifier (Typed loc)] -> ExprM m ()
+stmts2Prover :: (ProverK loc m) => [Statement GIdentifier (Typed loc)] -> ExprM m ()
 stmts2Prover = mapM_ stmt2Prover
 
-stmt2Prover :: (ProverK loc m) => Statement VarIdentifier (Typed loc) -> ExprM m ()
+stmt2Prover :: (ProverK loc m) => Statement GIdentifier (Typed loc) -> ExprM m ()
 stmt2Prover (CompoundStatement l ss) = localExprM $ stmts2Prover ss
 stmt2Prover (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) = mapM_ (varInit2Prover (unTyped l) isConst isHavoc) vs
 stmt2Prover (AssertStatement {}) = return ()
@@ -81,10 +81,10 @@ stmt2Prover s = lift $ do
     pps <- pp s
     genTcError (locpos $ unTyped $ loc s) $ text "failed to convert statement" <+> pps <+> text "to prover expression"
     
-syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter VarIdentifier (Typed loc)] -> ExprM m ()
+syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter GIdentifier (Typed loc)] -> ExprM m ()
 syscall2Prover l n@(isPrefixOf "core." -> True) args = do
     args' <- mapM unpush $ init args
-    VarName (Typed _ t) r <- unret $ last args
+    VarName (Typed _ t) (VIden r) <- unret $ last args
     ie <- corecall2Prover l (drop 5 n) args'
     addVar r (Just ie,Nothing)
   where
@@ -95,7 +95,7 @@ syscall2Prover l n args = lift $ do
     ppargs <- mapM pp args
     genTcError (locpos l) $ text "unsupported syscall" <+> ppn <+> sepBy space ppargs
     
-builtin2Prover :: ProverK loc m => loc -> String -> [(Expression VarIdentifier (Typed loc),IsVariadic)] -> ExprM m (Maybe IExpr)
+builtin2Prover :: ProverK loc m => loc -> String -> [(Expression GIdentifier (Typed loc),IsVariadic)] -> ExprM m (Maybe IExpr)
 builtin2Prover l n@(isPrefixOf "core." -> True) args = do
     args' <- mapM variadicExpr2Prover args
     liftM Just $ corecall2Prover l (drop 5 n) args'
@@ -125,11 +125,11 @@ corecall2Prover l n es = lift $ do
     pp2 <- mapM pp es
     genTcError (locpos l) $ text "failed to convert core call" <+> ppn <+> parens (sepBy comma pp2) <+> text "to prover expression"
     
-varInit2Prover :: (ProverK loc m) => loc -> Bool -> Bool -> VariableInitialization VarIdentifier (Typed loc) -> ExprM m ()
-varInit2Prover l isConst True (VariableInitialization _ v@(VarName vl n) _ e) = do
+varInit2Prover :: (ProverK loc m) => loc -> Bool -> Bool -> VariableInitialization GIdentifier (Typed loc) -> ExprM m ()
+varInit2Prover l isConst True (VariableInitialization _ v@(VarName vl (VIden n)) _ e) = do
     ie <- mapM expr2Prover e
     addVar n (ie,Just $ typed vl)
-varInit2Prover l isConst False (VariableInitialization _ v@(VarName vl n) _ (Just e)) = do
+varInit2Prover l isConst False (VariableInitialization _ v@(VarName vl (VIden n)) _ (Just e)) = do
     ie <- expr2Prover e
     addVar n (Just ie,Just $ typed vl)
 varInit2Prover l isConst isHavoc vd = lift $ do
@@ -138,8 +138,8 @@ varInit2Prover l isConst isHavoc vd = lift $ do
     pp3 <- pp vd
     genTcError (locpos l) $ text "failed to convert variable initialization to core" <+> pp1 <+> pp2 <+> pp3
 
-expr2ProverMb :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m (Maybe IExpr)
-expr2ProverMb (RVariablePExpr l v@(VarName tl n)) = do
+expr2ProverMb :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> ExprM m (Maybe IExpr)
+expr2ProverMb (RVariablePExpr l v@(VarName tl (VIden n))) = do
     vs <- State.get
     case Map.lookup n vs of
         Just (Nothing,_) -> return $ Just $ IIdx $ fmap typed v
@@ -152,7 +152,7 @@ expr2ProverMb (CondExpr l c e1 e2) = do
     e2' <- expr2Prover e2
     return $ Just $ ICond c' e1' e2'
 expr2ProverMb (BinaryAssign l lhs (BinaryAssignEqual _) e) = do
-    IIdx (VarName _ v) <- expr2Prover lhs
+    IIdx (VarName _ (VIden v)) <- expr2Prover lhs
     ie <- expr2Prover e
     addVar v (Just ie,Nothing)
     return Nothing
@@ -179,13 +179,13 @@ proverProcError str t e = do
         ppt <- pp t
         genTcError (locpos $ unTyped $ loc e) $ text "failed to convert" <+> text str <+> text "expression" <+> ppe <+> text "to prover expression: unknown declaration type" <+> ppt
 
-variadicExpr2Prover :: (ProverK loc m) => (Expression VarIdentifier (Typed loc),IsVariadic) -> ExprM m IExpr
+variadicExpr2Prover :: (ProverK loc m) => (Expression GIdentifier (Typed loc),IsVariadic) -> ExprM m IExpr
 variadicExpr2Prover (e,False) = expr2Prover e
 variadicExpr2Prover (e,True) = lift $ do
     ppe <- pp e
     genTcError (locpos $ unTyped $ loc e) $ text "failed to convert variadic expression" <+> ppe <+> text "to prover expression"
     
-expr2Prover :: (ProverK loc m) => Expression VarIdentifier (Typed loc) -> ExprM m IExpr
+expr2Prover :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> ExprM m IExpr
 expr2Prover e = do
     mb <- expr2ProverMb e
     case mb of
