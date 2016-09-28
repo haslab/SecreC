@@ -461,7 +461,7 @@ typeArgsToDafny l xs = do
 
 typeArgToDafny :: DafnyK m => Position -> (Constrained Var,IsVariadic) -> DafnyM m (Maybe Doc)
 typeArgToDafny l cv@(Constrained v Nothing,False) = case typeClass "targ" (loc v) of
-    (isType -> True) -> liftM Just $ dafnyVarIdM (varNameId v) -- there is a slight mismatch here: SecreC only supports base types while Dafny supports any type
+    (isType -> True) -> liftM Just $ dafnyGIdM (varNameId v) -- there is a slight mismatch here: SecreC only supports base types while Dafny supports any type
     (isKind -> True) -> return Nothing
     (isDomain -> True) -> return Nothing
     otherwise -> do
@@ -706,7 +706,7 @@ typeToDafny l t = do
     genError l $ text "typeToDafny:" <+> ppt
 
 baseTypeToDafny :: DafnyK m => Position -> BaseType -> DafnyM m Doc
-baseTypeToDafny l (BVar v) = dafnyVarIdM $ VIden v
+baseTypeToDafny l (BVar v) = dafnyGIdM $ VIden v
 baseTypeToDafny l (TyPrim prim) = lift $ pp prim
 baseTypeToDafny l (MSet b) = do
     b' <- baseTypeToDafny l b
@@ -1083,11 +1083,11 @@ literalToDafny lit = do
 varToDafny :: DafnyK m => VarName GIdentifier (Typed Position) -> DafnyM m Doc
 varToDafny (VarName (Typed l t) n) = do
     let suffix = if isPublicType t then "Public" else "Private"
-    dn <- dafnyVarIdM n
+    dn <- dafnyGIdM n
     return $ dn <> text suffix
 
-dafnyVarId :: PP m VarIdentifier => Identifier -> GIdentifier -> m Doc
-dafnyVarId current (VIden v) = do
+dafnyVarId :: PP m VarIdentifier => Identifier -> VarIdentifier -> m Doc
+dafnyVarId current v = do
     pm <- case varIdModule v of
         Nothing -> return empty
         Just (m,blk) -> do
@@ -1096,16 +1096,23 @@ dafnyVarId current (VIden v) = do
     pid <- ppOpt (varIdUniq v) (\x -> liftM (char '_' <>) (pp x))
     return $ pm <> text (varIdBase v) <> pid
 
-dafnyVarIdM :: DafnyK m => GIdentifier -> DafnyM m Doc
-dafnyVarIdM v = do
+dafnyGId :: PP m VarIdentifier => Identifier -> GIdentifier -> m Doc
+dafnyGId current (VIden vn) = dafnyVarId current vn
+dafnyGId current (MIden vn) = dafnyVarId current vn
+dafnyGId current (PIden vn) = dafnyVarId current vn
+dafnyGId current (TIden vn) = dafnyVarId current vn
+dafnyGId current (OIden on) = pp on
+
+dafnyGIdM :: DafnyK m => GIdentifier -> DafnyM m Doc
+dafnyGIdM v = do
     current <- getModule
-    lift $ dafnyVarId current v
+    lift $ dafnyGId current v
 
 instance PP m VarIdentifier => PP m DafnyId where
     pp did = ppDafnyId (dafnyIdModule did) did
 
 ppPOId :: PP m VarIdentifier => Identifier -> POId -> m Doc
-ppPOId current (PIden pn) = dafnyVarId current $ PIden pn
+ppPOId current (PIden pn) = dafnyGId current $ PIden pn
 ppPOId current (OIden on) = pp on
 
 ppDafnyId :: PP m VarIdentifier => Identifier -> DafnyId -> m Doc
@@ -1129,13 +1136,13 @@ ppDafnyId current (LId pn (ModuleTyVarId (mn,blk) uid) isLeak) = do
     return $ prefix <> ppn <> puid <> suffix
 ppDafnyId current (SId sn (ModuleTyVarId (mn,blk) uid)) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    psn <- dafnyVarId current sn
+    psn <- dafnyGId current sn
     puid <- pp uid
     let suffix = empty
     return $ prefix <> psn <> puid <> suffix
 ppDafnyId current (AId (ModuleTyVarId (mn,blk) uid) isLeak) = do
     prefix <- liftM (text mn <> char '_' <>) (pp blk)
-    psn <- dafnyVarId current $ PIden $ mkVarId "axiom"
+    psn <- dafnyGId current $ PIden $ mkVarId "axiom"
     puid <- pp uid
     let suffix = if isLeak then text "LeakageAxiom" else text "OriginalAxiom"
     return $ prefix <> psn <> puid <> suffix
