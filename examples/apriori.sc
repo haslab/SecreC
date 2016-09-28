@@ -5,6 +5,10 @@ import shared3p;
 
 domain pd_a3p shared3p;
 
+function pd_a3p bool operator >= (pd_a3p uint x,pd_a3p uint y) {
+    __builtin("core.ge",x,y) :: pd_a3p bool
+}
+
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 template <domain D >
