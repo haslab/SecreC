@@ -139,9 +139,9 @@ type EntryInst = (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,TDict,Frees,Frees,
 discardMatchingEntry :: ProverK Position m => EntryInst -> TcM m ()
 discardMatchingEntry (e,e',_,dict,_,frees,_,_) = forM_ (Map.keysSet frees) removeFree
 
-mkRecDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
-mkRecDec l dec@(DecType j (Just (i)) targs hdict hfrees bdict bfrees specs d) targs' = return dec
-mkRecDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs' = do
+mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
+mkInvocationDec l dec@(DecType j (Just (i)) targs hdict hfrees bdict bfrees specs d) targs' = return dec
+mkInvocationDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs' = do
     j <- newModuleTyVarId
     ts' <- concatMapM (expandVariadicType l) targs'
     let specs' = map (,False) ts'
@@ -190,7 +190,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
     let doWrap = isTemplateDecType olddec && not (decIsRec olddec)
     (decrec,rec) <- if doWrap
         then do
-            decrec <- mkRecDec p dec targs'
+            decrec <- mkInvocationDec p dec targs'
             rec <- mkDecEnv p decrec
             return (decrec,rec)
         else return (dec,mempty)
@@ -623,6 +623,8 @@ instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(
                         bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
                         hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
                         recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
+                        let headPureDict = (PureTDict hgr'' subst' recs'')
+                        let bodyPureDict = (PureTDict bgr'' emptyTSubsts mempty)
                         bgr1 <- fromPureCstrs bgr''
                         hgr1 <- fromPureCstrs hgr''
                         --let gr1 = unionGr bgr1 hgr1
@@ -636,8 +638,9 @@ instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(
                             liftIO $ putStrLn $ "remainder " ++ pprid kid ++ " " ++ ppn ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show pph ++"\n"++ show ppb
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
+                        let dec3 = addDecDicts dec2 headPureDict bodyPureDict
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
-                        return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',headDict,bodyDict,cache)
+                        return $ Right (e,e' { entryType = DecT dec3 },map (mapFst (varNameToType . unConstrained)) targs',headDict,bodyDict,cache)
 
 -- merge two dictionaries with the second depending on the first
 linkDependentCstrs :: (ProverK loc m) => loc -> TDict -> TDict -> TcM m ()
@@ -687,6 +690,9 @@ templateArgs l name t = case t of
 tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set GIdentifier
 tpltTyVars Nothing = Set.empty
 tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName . unConstrained . fst) xs
+
+addDecDicts :: DecType -> PureTDict -> PureTDict -> DecType
+addDecDicts (DecType i isRec vars hd hfrees bd bfrees specs ss) hd' bd' = DecType i isRec vars hd' hfrees bd' bfrees specs ss
 
 templateTDict :: (ProverK Position m) => ExprC -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
 templateTDict exprC e = case entryType e of

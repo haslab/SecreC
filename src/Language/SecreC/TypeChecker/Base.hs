@@ -468,16 +468,30 @@ filterRecModuleTcEnv lineage withBody env = env
     }
 
 filterRecBody :: Maybe Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
-filterRecBody lineage withBody xs = Map.map (Map.map remBody . filterLineage) xs
+filterRecBody lineage withBody xs = Map.map filterLineage xs
     where
     filterLineage = case lineage of
         Nothing -> id
-        Just lin -> Map.filter (isLineage lin)
+        Just lin -> processRecs lin withBody -- Map.map remDictBody . Map.filter (isLineage lin)
+    --isLineage lin (EntryEnv l (DecT d)) = case decTypeId d of
+    --    Nothing -> False
+    --    Just x -> List.elem x lin
+
+processRecs :: Lineage -> Bool -> Map ModuleTyVarId EntryEnv -> Map ModuleTyVarId EntryEnv
+processRecs lin withBody = Map.foldrWithKey go Map.empty
+    where
     remBody = if withBody then id else remEntryBody
     remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecBody d
-    isLineage lin (EntryEnv l (DecT d)) = case decTypeId d of
-        Nothing -> False
-        Just x -> List.elem x lin
+    remEntryDict (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecDict d
+    go k e@(EntryEnv l (DecT d)) xs = case decTypeId d of
+        Nothing -> Map.insert k e xs -- non-specialized decs go unchanged
+        Just x -> if List.elem x lin
+            then Map.insert k (remEntryDict $ remBody e) xs -- remove body and dictionary of recursive invocations
+            else Map.insert k e xs -- specialized invocations go unchanged
+
+remDecDict :: DecType -> DecType
+remDecDict d@(DecType i isRec ts hd hfrees bd bfrees specs b) =
+    DecType i isRec ts emptyPureTDict hfrees emptyPureTDict bfrees specs b
 
 remDecBody :: DecType -> DecType
 remDecBody d@(DecType i isRec ts hd hfrees bd bfrees specs b) =
@@ -1694,7 +1708,7 @@ iDecTyKind (LemmaType {}) = LKind
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
-        (Maybe ModuleTyVarId) -- is a recursive invocation = Just (original)
+        (Maybe (ModuleTyVarId)) -- is a specialized invocation = Just (original)
         [(Constrained Var,IsVariadic)] -- ^ template variables
         PureTDict -- ^ constraints for the header
         Frees -- set of free internal constant variables generated when typechecking the header
