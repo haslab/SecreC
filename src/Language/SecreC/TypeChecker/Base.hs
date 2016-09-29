@@ -765,7 +765,7 @@ isDelayableCstr k = everything orM (mkQ (return False) mk) k
 isMultipleSubstsTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
 isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
 isMultipleSubstsTcCstr (MultipleSubstitutions ts _) = do
-    xs::Set VarIdentifier <- liftM videns $ fvsSet ts
+    xs <- usedVs ts
     if Set.null xs then return False else return True
 isMultipleSubstsTcCstr _ = return False
 
@@ -985,8 +985,8 @@ priorityTcCstr' c1 c2 = return $ compare c1 c2
 
 priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
 priorityMultipleSubsts c1@(MultipleSubstitutions vs1 _) c2@(MultipleSubstitutions vs2 _) = do
-    x1::Set VarIdentifier <- liftM videns $ fvsSet vs1
-    x2::Set VarIdentifier <- liftM videns $ fvsSet vs2
+    x1 <- usedVs vs1
+    x2 <- usedVs vs2
     case compare (Set.size x1) (Set.size x2) of
         LT -> return LT
         GT -> return GT
@@ -2878,10 +2878,15 @@ varsCstrGraph :: (VarsGTcM m) => Set VarIdentifier -> IOCstrGraph -> TcM m IOCst
 varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
     where
     aux (i,x) = do
-        xvs <- liftM (videns . Map.keysSet) $ fvs (kCstr $ unLoc x)
+        xvs <- usedVs (kCstr $ unLoc x)
         if Set.null (vs `Set.intersection` xvs)
             then return False
             else return True
+
+usedVs :: (Vars GIdentifier (TcM m) a) => a -> TcM m (Set VarIdentifier)
+usedVs x = do
+    (fs,bs) <- uvs x
+    return $ Set.union (videns $ Map.keysSet fs) (videns $ Map.keysSet bs)
 
 compoundStmts :: Location loc => loc -> [Statement iden (Typed loc)] -> [Statement iden (Typed loc)]
 compoundStmts l = maybeToList . compoundStmtMb l

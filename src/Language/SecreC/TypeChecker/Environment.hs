@@ -866,7 +866,7 @@ noNormalFreesM e = do
 splitHeadFrees :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m (Frees,Frees)
 splitHeadFrees l deps = do
     frees <- getFrees l
-    hvs <- liftM (videns . Map.keysSet) $ fvs $ Set.map (kCstr . unLoc) deps
+    hvs <- usedVs $ Set.map (kCstr . unLoc) deps
     let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
     let bfrees = Map.difference frees hfrees
     return (hfrees,bfrees)
@@ -878,13 +878,13 @@ splitHead l deps dec = do
     frees <- getFrees l
     dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec
     cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty $ toPureCstrs $ tCstrs d
-    freevars <- liftM videns $ fvsSet cstrs
+    freevars <- usedVs cstrs
     forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Set.member v freevars) $ do
         ppv <- pp v
         ppd <- pp d
         ppdec' <- pp dec'
         genTcError (locpos l) $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd $+$ text "in declaration" <+> ppdec'
-    hvs <- liftM (videns . Map.keysSet) $ fvs $ Set.map (kCstr . unLoc) deps
+    hvs <- usedVs $ Set.map (kCstr . unLoc) deps
     let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
     let bfrees = Map.difference frees hfrees
     opens <- getOpensSet
@@ -986,7 +986,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
         case substCheck mode of
             NoCheckS -> add l (substDirty mode) t'
             otherwise -> do
-                vns <- liftM videns $ fvsSet t'
+                vns <- usedVs t'
                 if (varIdTok vn || Set.member vn vns)
                     then do -- add verification condition
                         case substCheck mode of
@@ -1368,7 +1368,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
     addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
     addSubst l mode (ss,ks) (v,t) = do
         t' <- substFromTSubsts "appendTSubsts" l ss False Map.empty t
-        vs <- liftM videns $ fvsSet t'
+        vs <- usedVs t'
         if (varIdTok v || Set.member v vs)
             then do
                 case substCheck mode of

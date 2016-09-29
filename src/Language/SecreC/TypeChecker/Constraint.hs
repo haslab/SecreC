@@ -723,11 +723,11 @@ buildVarGr l = do
     ds <- lift $ State.gets tDict
     let addSubsts g (TSubsts ss) = foldM addSubst g $ Map.toList ss
         addSubst g (key,val) = do
-            vals <- lift $ liftM (videns . Map.keysSet) $ fvs val
+            vals <- lift $ usedVs val
             addEdges g Nothing (key:Set.toList vals)
         addCstrs g ks = foldM addCstr g $ Set.toList $ flattenIOCstrGraphSet ks
         addCstr g iok@(Loc l k) = do
-            vals <- lift $ liftM (videns . Map.keysSet) $ fvs $ kCstr k
+            vals <- lift $ usedVs $ kCstr k
             addEdges g (Just iok) (Set.toList vals)
         addEdges g mb [] = return g
         addEdges g mb [x] = addEdge g mb x x

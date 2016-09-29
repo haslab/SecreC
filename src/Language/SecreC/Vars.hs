@@ -108,6 +108,10 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
     bvs a = do
         (x,lval,s,y,z) <- State.execStateT (varsM a) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
         return z
+    uvs :: a -> m (Map iden Bool,Map iden Bool)
+    uvs a = do
+        (x,lval,s,y,z) <- State.execStateT (varsM a) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
+        return (y,z)
     
     varsM :: a -> VarsM iden m a
     varsM x = traverseVars varsM x

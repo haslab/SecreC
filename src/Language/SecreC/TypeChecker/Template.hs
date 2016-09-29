@@ -219,7 +219,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret rets (olde,e,targs',headD
                 ReadOnlyE -> unless (Map.null ws) $ genTcError (locpos p) $ text "procedure not read-only" <+> def
                 ReadWriteE -> return ()
             addDecClass tycl
-    return decrec
+    return $ remDecDict decrec
 
 templateCstrs :: Location loc => Lineage -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
 templateCstrs lineage rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
@@ -575,7 +575,7 @@ instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e = limitExprC Re
                 return ()
             -- try to make progress on general constraints that may be bound to bindings of this instance
             let promote = do
-                vs <- liftM (videns . Map.keysSet) $ fvs (n,targs,pargs,ret)
+                vs <- usedVs (n,targs,pargs,ret)
                 tops <- topCstrs l
                 let tops' = mapSet (ioCstrId . unLoc) tops
                 rels <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
@@ -711,12 +711,23 @@ refreshEntryPVars :: ProverK loc m => loc -> EntryEnv -> Maybe [GIdentifier] -> 
 refreshEntryPVars l e Nothing = return e
 refreshEntryPVars l e@(EntryEnv p t) (Just vars') = case t of
     DecT (DecType i (Just (k,Just vars)) ts hd hfrees bd bfrees specs b) -> do
+        debugTc $ do
+            ppvars' <- ppr vars'
+            ppvars <- ppr vars
+            liftIO $ putStrLn $ "refreshEntryPVars: dropping " ++ ppvars ++ " for " ++ ppvars'
+        forM_ vars $ \(VIden v) -> removeFree v
         let ss = emptySubstsProxy
         let ssBounds = Map.fromList $ zip vars vars'
-        hd' <- substProxy "refreshEntryPVars" ss False ssBounds hd
+        hd' <- substProxy "refreshEntryPVars" ss False ssBounds $ deleteSubsts (map unVIden vars) hd
         hfrees' <- liftM (Map.mapKeys unVIden) $ substProxy "refreshEntryPVars" emptySubstsProxy False ssBounds $ Map.mapKeys VIden hfrees
         return $ EntryEnv p $ DecT $ DecType i (Just (k,Just vars')) ts hd' hfrees' bd bfrees specs b
     otherwise -> return e
+
+deleteSubsts :: [VarIdentifier] -> PureTDict -> PureTDict
+deleteSubsts vs d = d { pureSubsts = TSubsts $ deletes vs $ unTSubsts $ pureSubsts d }
+    where
+    deletes [] xs = xs
+    deletes (v:vs) xs = Map.delete v (deletes vs xs)
 
 -- | renames the variables in a template to local names
 localTemplate :: (ProverK loc m) => loc -> EntryEnv -> TcM m EntryEnv
