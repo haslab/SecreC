@@ -1705,7 +1705,7 @@ comparesKind l isLattice t1@(KVar v1@(nonTok -> True) priv1) t2@(KVar v2@(nonTok
             x <- kindToken (max priv1 priv2)
             addSubstM l (SubstMode CheckS False) (VarName (KType priv1) $ VIden v1) $ KindT x
             addSubstM l (SubstMode CheckS False) (VarName (KType priv2) $ VIden v2) $ KindT x
-            return $ Comparison t1 t2 EQ (compare priv1 priv2)
+            return $ Comparison t1 t2 EQ (compare priv2 priv1)
         (Just t1',Nothing) -> comparesKind l isLattice t1' t2
         (Nothing,Just t2') -> comparesKind l isLattice t1 t2'
         (Just t1',Just t2') -> comparesKind l isLattice t1' t2'        
@@ -1752,7 +1752,7 @@ comparesBase l isLattice t1@(BVar v1@(nonTok -> True) c1) t2@(BVar v2@(nonTok ->
             x <- baseToken (max c1 c2)
             addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t1) $ BaseT x
             addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t2) $ BaseT x
-            return $ Comparison t1 t2 (compare c1 c2) EQ
+            return $ Comparison t1 t2 (compare c2 c1) EQ
         (Just t1',Nothing) -> comparesBase l isLattice t1' t2
         (Nothing,Just t2') -> comparesBase l isLattice t1 t2'
         (Just t1',Just t2') -> comparesBase l isLattice t1' t2'        
