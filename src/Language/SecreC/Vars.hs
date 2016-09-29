@@ -639,7 +639,7 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         e' <- f e
         return $ ToMultisetExpr l' e'
     traverseVars f (RVariablePExpr l v) = do
-        l' <- f l
+        l' <- inRHS $ f l
         v' <- f v
         return $ RVariablePExpr l' v'
     traverseVars f (LitPExpr l lit) = do

@@ -1240,7 +1240,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         ts' <- mapM (mapM (mapFstM f)) ts
         args' <- mapM (mapFstM f) args
         ret' <- f ret
-        xs' <- mapM f xs
+        xs' <- inLHS False $ mapM f xs
         return $ PDec n' ts' args' ret' x' doCoerce xs'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
@@ -1248,17 +1248,17 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         return $ Equals t1' t2'
     traverseVars f (Coerces e1 v2) = do
         e1' <- f e1
-        v2' <- f v2
+        v2' <- inLHS False $ f v2
         return $ Coerces e1' v2'
     traverseVars f (CoercesSecDimSizes e1 e2) = do
         e1' <- f e1
-        e2' <- f e2
+        e2' <- inLHS False $ f e2
         return $ CoercesSecDimSizes e1' e2'
     traverseVars f (CoercesN exs) = do
-        exs' <- mapM f exs
+        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- inLHS False $ f y; return (x',y') }) exs
         return $ CoercesN exs'
     traverseVars f (CoercesNSecDimSizes exs) = do
-        exs' <- mapM f exs
+        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- inLHS False $ f y; return (x',y') }) exs
         return $ CoercesNSecDimSizes exs'
     traverseVars f (CoercesLit e) = do
         e' <- f e
@@ -1268,12 +1268,12 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         t2' <- f t2
         return $ Unifies t1' t2'
     traverseVars f (Assigns t1 t2) = do
-        t1' <- f t1
+        t1' <- inLHS False $ f t1
         t2' <- f t2
         return $ Assigns t1' t2'
     traverseVars f (SupportedPrint ts xs) = do
         ts' <- mapM f ts
-        xs' <- mapM f xs
+        xs' <- inLHS False $ mapM f xs
         return $ SupportedPrint ts' xs'
     traverseVars f (ProjectStruct t a x) = do
         t' <- f t
@@ -2329,7 +2329,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     traverseVars f (Private d k) = return $ Private d k
     traverseVars f (SVar v k) = do
         VIden v' <- f (VIden v::GIdentifier)
-        k' <- f k
+        k' <- inRHS $ f k
         return $ SVar v' k'
     substL (SVar v _) | not (varIdTok v) = return $ Just $ VIden v
     substL e = return $ Nothing
@@ -2450,7 +2450,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         return $ TApp n' ts' d'
     traverseVars f (BVar v c) = do
         VIden v' <- f (VIden v::GIdentifier)
-        c' <- f c
+        c' <- inRHS $ f c
         return $ BVar v' c'
     substL (BVar v _) | not (varIdTok v) = return $ Just $ VIden v
     substL e = return Nothing
@@ -2462,8 +2462,8 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         return $ VAVal ts' b'
     traverseVars f (VAVar v b sz) = do
         VIden v' <- f (VIden v::GIdentifier)
-        b' <- f b
-        sz' <- f sz
+        b' <- inRHS $ f b
+        sz' <- inRHS $ f sz
         return $ VAVar v' b' sz'
     substL (VAVar v _ _) | not (varIdTok v) = return $ Just $ VIden v
     substL e = return Nothing
@@ -2476,7 +2476,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         return $ CType s' t' d' 
     traverseVars f (CVar v b) = do
         VIden v' <- f (VIden v::GIdentifier)
-        b' <- f b
+        b' <- inRHS $ f b
         return $ CVar v' b'
     traverseVars f Void = return Void
     substL (CVar v b) | not (varIdTok v) = return $ Just $ VIden v

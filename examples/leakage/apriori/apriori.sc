@@ -6,7 +6,7 @@
  * without the written consent of the copyright owner.
  *
  * Main contributors:
- * Roman Jagomgis (neo15@ut.ee)
+ * Roman Jagomagis (neo15@ut.ee)
  */
 
 import stdlib;
@@ -17,16 +17,16 @@ domain pd_a3p shared3p;
 // ./bin/scc -o t.sb ../00-apriori.sc  -I ../src/stdlib/
 
 
-//template <domain D>
-//D uint [[2]] load_db () {
-//    D uint [[2]] db = reshape (0, 5, 5);
-//    db[0, 0] = 1; db[0, 1] = 1;               db[0, 3] = 1;
-//    db[1, 0] = 1;                             db[1, 3] = 1; db[1,4] = 1;
-//    db[2, 0] = 1; db[2, 1] = 1;
-//                                db[3, 2] = 1;
-//                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
-//    return db;
-//}
+template <domain D>
+D uint [[2]] load_db () {
+    D uint [[2]] db = reshape (0, 5, 5);
+    db[0, 0] = 1; db[0, 1] = 1;               db[0, 3] = 1;
+    db[1, 0] = 1;                             db[1, 3] = 1; db[1,4] = 1;
+    db[2, 0] = 1; db[2, 1] = 1;
+                                db[3, 2] = 1;
+                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
+    return db;
+}
     
 
 
@@ -126,8 +126,7 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
 
 
 void main () {
-    pd_a3p uint [[2]] db; // = load_db ();
-    //x //@ leakage infer frequents(db);
+    pd_a3p uint [[2]] db; = load_db ();
     uint [[2]] itemsets = apriori (db, 1 :: uint, 3 :: uint);
-    //printArray (itemsets);
+    printArray (itemsets);
 }
