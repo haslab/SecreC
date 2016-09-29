@@ -1403,7 +1403,7 @@ fromPureCstrs g = do
   where
     look is i = case Map.lookup i is of
         Just x -> x
-        Nothing -> error $ "fromPureCstrs: failed to look up " ++ show i ++ " in " ++ show is ++ " " ++ show g
+        Nothing -> error $ "fromPureCstrs: failed to look up " ++ show i ++ " in " ++ show is ++ "\n" ++ show g ++ "\n" ++ show g'
     newIOCstr (ins,i,Loc l k,outs) = do
         mn <- lift $ newModuleTyVarId
         st <- lift $ liftIO $ newIdRef mn Unevaluated
