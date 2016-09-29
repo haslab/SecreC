@@ -1169,7 +1169,7 @@ coercesComplex l e1@(loc -> ct1@(ComplexT (CVar v@(nonTok -> True) isNotVoid1)))
     mb <- tryResolveCVar l v
     case mb of
         Just ct1' -> coercesComplex l (updLoc e1 $ ComplexT ct1') x2
-        Nothing -> if isNotVoid1 || isNotVoid ct2
+        Nothing -> if max isNotVoid1 (isNotVoid ct2)
             then do
                 ct1' <- expandCTypeVar l v
                 tcCstrM_ l $ Coerces (updLoc e1 $ ComplexT ct1') x2
@@ -1178,7 +1178,7 @@ coercesComplex l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT (CVar v@(nonTok ->
     mb <- tryResolveCVar l v
     case mb of
         Just ct2' -> coercesComplex l e1 (updLoc x2 $ ComplexT ct2')
-        Nothing -> if isNotVoid2 || isNotVoid ct1
+        Nothing -> if max isNotVoid2 (isNotVoid ct1)
             then do
                 ct2' <- expandCTypeVar l v
                 tcCstrM_ l $ Coerces e1 (updLoc x2 $ ComplexT ct2')
@@ -2474,7 +2474,8 @@ assignsExpr l v1@(VarName _ (VIden n1@(nonTok -> True))) e2 = do
             pp2 <- pp e2
             pp1 <- pp v1
             pp1' <- pp e1'
-            genTcError (locpos l) $ text "cannot assign expression" <+> pp2 <+> text "to bound variable" <+> pp1 <+> text "=" <+> pp1'
+            addErrorM l (TypecheckerError (locpos l) . GenTcError (text "cannot assign expression" <+> pp2 <+> text "to bound variable" <+> pp1 <+> text "=" <+> pp1') . Just) $
+                equalsExpr l True (fmap typed e1') e2
 
 unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
 unifiesExpr l doStatic e1@(RVariablePExpr t1 v1@(VarName _ (VIden n1@(nonTok -> True)))) e2@(RVariablePExpr t2 v2@(VarName _ (VIden n2@(nonTok -> True)))) = do
