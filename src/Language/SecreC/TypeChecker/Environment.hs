@@ -787,12 +787,15 @@ withoutEntry e m = do
             case getLns lns env of
                 Nothing -> m
                 Just (es,trace) -> do
-                    let e = es!i
-                    let lns2 = entryLens did k `compLns` indexLens trace
-                    State.modify $ \env -> putLns lns env $ Just (Map.delete i es,trace)
-                    a <- m
-                    State.modify $ \env -> putLns lns2 env $ Just $ Map.insert i e $ fromJustNote "withoutEntry" $ getLns lns2 env
-                    return a
+                    case Map.lookup i es of
+                        Just e -> do
+                            let lns2 = entryLens did k `compLns` indexLens trace
+                            State.modify $ \env -> putLns lns env $ Just (Map.delete i es,trace)
+                            a <- m
+                            State.modify $ \env -> putLns lns2 env $ Just $ Map.insert i e $ fromJustNote "withoutEntry" $ getLns lns2 env
+                            return a
+                        Nothing -> m
+        Nothing -> m
 
 decIsRec :: DecType -> Bool
 decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isJust isfree
