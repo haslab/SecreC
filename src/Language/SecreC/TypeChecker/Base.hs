@@ -1398,9 +1398,9 @@ fromPureTDict (PureTDict g ss rec) = do
 fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m IOCstrGraph
 fromPureCstrs g = do
     (g',is) <- runStateT (mapGrM newIOCstr g) Map.empty
-    mapGrM go g'
+    mapGrM (go g' is) g'
   where
-    go (ins,j,x,outs) = do
+    go g' is (ins,j,x,outs) = do
         ins' <- fmapSndM (look g' is) ins
         outs' <- fmapSndM (look g' is) outs
         return $ (ins',j,x,outs')
