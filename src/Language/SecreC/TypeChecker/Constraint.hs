@@ -484,7 +484,7 @@ resolveTcCstr l mode kid k = do
             isAnn <- getAnn
             isLeak <- getLeak
             let check = if isTplt then checkTemplateType else checkNonTemplateType
-            res <- matchTemplate l kid True (TIden tn) (Just args) Nothing Nothing [] (check isAnn isLeak $ fmap (const l) $ TypeName () tn)
+            res <- matchTemplate l kid True (TIden tn) (Just args) Nothing Nothing Nothing (check isAnn isLeak $ fmap (const l) $ TypeName () tn)
             unifiesDec l x res
     resolveTcCstr' kid k@(PDec n@(PIden pn) specs args r x doCoerce xs) = do
         ppr <- pp r
@@ -494,7 +494,7 @@ resolveTcCstr l mode kid k = do
             isAnn <- getAnn
             isLeak <- getLeak
             kind <- getKind
-            res <- matchTemplate l kid doCoerce (PIden pn) specs (Just args) (Just r) xs (checkProcedureFunctionLemma isAnn isLeak kind $ ProcedureName l $ PIden pn)
+            res <- matchTemplate l kid doCoerce (PIden pn) specs (Just args) (Just r) (Just xs) (checkProcedureFunctionLemma isAnn isLeak kind $ ProcedureName l $ PIden pn)
             --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
             --liftIO $ putStrLn $ "matchTemplate " ++ ppr n ++ " " ++ show doc
             unifiesDec l x res
@@ -508,7 +508,7 @@ resolveTcCstr l mode kid k = do
             isAnn <- getAnn
             isLeak <- getLeak
             k <- getKind
-            res <- matchTemplate l kid doCoerce o specs (Just args) (Just r) xs (checkOperator isAnn isLeak k $ fmap (const l) on)
+            res <- matchTemplate l kid doCoerce o specs (Just args) (Just r) (Just xs) (checkOperator isAnn isLeak k $ fmap (const l) on)
             --doc <- ppConstraints =<< liftM (tCstrs . head . tDict) State.get
             --liftIO $ putStrLn $ "matchTemplate " ++ ppr o ++ " " ++ show doc
             unifiesDec l x res

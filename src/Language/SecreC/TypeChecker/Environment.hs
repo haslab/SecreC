@@ -550,7 +550,7 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,Nothing)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
@@ -621,7 +621,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,Nothing)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
     dirtyGDependencies (locpos l) n
@@ -940,7 +940,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i,Nothing)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of

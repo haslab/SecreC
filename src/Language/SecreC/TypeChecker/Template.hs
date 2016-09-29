@@ -60,16 +60,13 @@ instance PP m VarIdentifier => PP m [(Expr,Var)] where
             ppv <- ppVarTy v
             return $ ppe <+> text "~~>" <+> ppv
         liftM (sepBy comma) (mapM f xs)
-
-instance PP m VarIdentifier => PP m [Var] where
-    pp = liftM (sepBy comma) . mapM ppVarTy
     
 instance PP m VarIdentifier => PP m [(Var,IsVariadic)] where
     pp = liftM (sepBy comma) . mapM (\(y,z) -> ppVariadicArg pp (y,z))
 
 -- Procedure arguments are maybe provided with index expressions
 -- | Matches a list of template arguments against a list of template declarations
-matchTemplate :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> TcM m [EntryEnv] -> TcM m DecType
+matchTemplate :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> Maybe [Var] -> TcM m [EntryEnv] -> TcM m DecType
 matchTemplate l kid doCoerce n targs pargs ret rets check = do
     entries <- check
     debugTc $ do
@@ -90,13 +87,13 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
             kind <- getKind
             tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure (ppid isAnn <+> ppid isLeak <+> ppid kind <+> def) defs
         [inst] -> do
-            dec <- resolveTemplateEntry False l kid n targs pargs ret inst
+            dec <- resolveTemplateEntry False l kid n targs pargs ret rets inst
             return dec
         -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
         otherwise -> if backtrack opts
             then do
                 insts <- compMins (compareTemplateDecls def l (implicitCoercions opts) n) [] oks
-                dec <- resolveTemplateEntries l kid n targs pargs ret insts
+                dec <- resolveTemplateEntries l kid n targs pargs ret rets insts
                 debugTc $ do
                     n <- State.gets (length . tDict)
                     ppkid <- ppr kid
@@ -107,7 +104,7 @@ matchTemplate l kid doCoerce n targs pargs ret rets check = do
             else do
                 (inst:insts) <- sortByM (\x y -> compareTemplateDecls def l False n x y >>= uncurry (appendOrdering l)) oks
                 mapM_ discardMatchingEntry insts
-                resolveTemplateEntry False l kid n targs pargs ret inst
+                resolveTemplateEntry False l kid n targs pargs ret rets inst
 
 -- sort the templates, filtering out greater templates that do not rely on coercions
 compMins :: Monad m => (a -> a -> m (Ordering,Ordering)) -> [a] -> [a] -> m [a]
@@ -139,18 +136,18 @@ type EntryInst = (EntryEnv,EntryEnv,[(Type,IsVariadic)],TDict,TDict,Frees,Frees,
 discardMatchingEntry :: ProverK Position m => EntryInst -> TcM m ()
 discardMatchingEntry (e,e',_,dict,_,frees,_,_) = forM_ (Map.keysSet frees) removeFree
 
-mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
-mkInvocationDec l dec@(DecType j (Just (i)) targs hdict hfrees bdict bfrees specs d) targs' = return dec
-mkInvocationDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs' = do
+mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> Maybe [GIdentifier] -> TcM m DecType
+mkInvocationDec l dec@(DecType j (Just (i,rets)) targs hdict hfrees bdict bfrees specs d) targs' rets' = return dec
+mkInvocationDec l dec@(DecType i Nothing targs hdict hfrees bdict bfrees specs d) targs' rets' = do
     j <- newModuleTyVarId
     ts' <- concatMapM (expandVariadicType l) targs'
     let specs' = map (,False) ts'
-    return $ DecType j (Just i) [] hdict hfrees bdict bfrees specs' d
+    return $ DecType j (Just (i,rets')) [] hdict hfrees bdict bfrees specs' d
 
-resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [EntryInst] -> TcM m DecType
-resolveTemplateEntries l kid n targs pargs ret [inst] = do
-    resolveTemplateEntry False l kid n targs pargs ret inst
-resolveTemplateEntries l kid n targs pargs ret insts = do
+resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> Maybe [Var] -> [EntryInst] -> TcM m DecType
+resolveTemplateEntries l kid n targs pargs ret rets [inst] = do
+    resolveTemplateEntry False l kid n targs pargs ret rets inst
+resolveTemplateEntries l kid n targs pargs ret rets insts = do
     debugTc $ do
         ppkid <- ppr kid
         let ppes = show $ map (\(e,_,_,_,_,_,_,_) -> pprid $ decTypeTyVarId $ unDecT $ entryType e) insts
@@ -158,13 +155,13 @@ resolveTemplateEntries l kid n targs pargs ret insts = do
     let choice refresh inst@(e,_,_,_,_,frees,_,_) = do
         ppkid <- pp kid
         pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
-        return $ ((resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid),(return,PP.empty),(return,PP.empty),Map.keysSet frees)
+        return $ ((resolveTemplateEntry refresh l kid n targs pargs ret rets inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid),(return,PP.empty),(return,PP.empty),Map.keysSet frees)
     choices' <- mapM (choice True) (init insts)
     choice' <- choice False (last insts)
-    multipleSubstitutions l kid SolveAll (targs,pargs,ret) (choices'++[choice'])
+    multipleSubstitutions l kid SolveAll (targs,pargs,ret,rets) (choices'++[choice'])
 
-resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m DecType
-resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,bodyDict,frees,delfrees,solved) = do
+resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> Maybe [Var] -> EntryInst -> TcM m DecType
+resolveTemplateEntry solveHead p kid n targs pargs ret rets (olde,e,targs',headDict,bodyDict,frees,delfrees,solved) = do
     debugTc $ do
         ppn <- ppr n
         pptargs <- ppr targs
@@ -190,7 +187,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
     let doWrap = isTemplateDecType olddec && not (decIsRec olddec)
     (decrec,rec) <- if doWrap
         then do
-            decrec <- mkInvocationDec p dec targs'
+            decrec <- mkInvocationDec p dec targs' (fmap (map varNameId) rets)
             rec <- mkDecEnv p decrec
             return (decrec,rec)
         else return (dec,mempty)
@@ -387,14 +384,14 @@ compareTemplateEntries notEq def l isLattice n e1 e2 = liftM fst $ tcProveTop l 
     return ord
 
 -- favor specializations over the base template
-comparesDecIds d1@(DecT (DecType j1 (Just (i1)) _ _ _ _ _ _ _)) d2@(DecT (DecType j2 Nothing _ _ _ _ _ _ _)) | i1 == j2 = return $ Comparison d1 d2 LT EQ
-comparesDecIds d1@(DecT (DecType j1 Nothing _ _ _ _ _ _ _)) d2@(DecT (DecType j2 (Just (i2)) _ _ _ _ _ _ _)) | j1 == i2 = return $ Comparison d1 d2 GT EQ
+comparesDecIds d1@(DecT (DecType j1 (Just (i1,_)) _ _ _ _ _ _ _)) d2@(DecT (DecType j2 Nothing _ _ _ _ _ _ _)) | i1 == j2 = return $ Comparison d1 d2 LT EQ
+comparesDecIds d1@(DecT (DecType j1 Nothing _ _ _ _ _ _ _)) d2@(DecT (DecType j2 (Just (i2,_)) _ _ _ _ _ _ _)) | j1 == i2 = return $ Comparison d1 d2 GT EQ
 comparesDecIds d1 d2 = return $ Comparison d1 d2 EQ EQ -- do nothing
      
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
-instantiateTemplateEntries :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> [EntryEnv] -> TcM m [Either (EntryEnv,SecrecError) EntryInst]
+instantiateTemplateEntries :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> Maybe [Var] -> [EntryEnv] -> TcM m [Either (EntryEnv,SecrecError) EntryInst]
 instantiateTemplateEntries l kid doCoerce n targs pargs ret rets es = do
     mapM (instantiateTemplateEntry l kid doCoerce n targs pargs ret rets) es
 
@@ -533,8 +530,9 @@ mapErr :: (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,[(Type,IsVariadic)],
 mapErr (Left x,_,_) = Left x
 mapErr (Right (x1,x2,x3,x4,x5,x6),y,z) = Right (x1,x2,x3,x4,x5,y,z,x6)
 
-instantiateTemplateEntry :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) EntryInst)
-instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(DecT d)) = limitExprC ReadOnlyE $ newErrorM $ liftM mapErr $ withFrees p $ do
+instantiateTemplateEntry :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> Maybe [Var] -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) EntryInst)
+instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e = limitExprC ReadOnlyE $ newErrorM $ liftM mapErr $ withFrees p $ do
+            e@(EntryEnv l t@(DecT d)) <- refreshEntryPVars p e (fmap (map varNameId) rets)
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
             debugTc $ do
@@ -569,7 +567,7 @@ instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(
                         -- unify the procedure return type
                         unifiesList l (maybeToList tplt_ret) (maybeToList ret)
                         -- coerce procedure arguments into the base procedure arguments
-                        coerceProcedureArgs doCoerce l (zip (concat pargs) rets) (concat tplt_pargs)
+                        coerceProcedureArgs doCoerce l (zip (concat pargs) (concat rets)) (concat tplt_pargs)
                 -- if there are no explicit template type arguments, we need to make sure to check the type invariants
                 when (isNothing targs) $ do
                     forM_ (maybe [] (catMaybes . map (\(Constrained x c,isVariadic) -> c)) tplt_targs) $ \c -> do
@@ -623,14 +621,12 @@ instantiateTemplateEntry p kid doCoerce n targs pargs ret rets e@(EntryEnv l t@(
                         bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
                         hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
                         recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
-                        let headPureDict = (PureTDict hgr'' subst' recs'')
-                        let bodyPureDict = (PureTDict bgr'' emptyTSubsts mempty)
                         bgr1 <- fromPureCstrs bgr''
                         hgr1 <- fromPureCstrs hgr''
-                        --let gr1 = unionGr bgr1 hgr1
-                        --let depCstrs = TDict gr1 Set.empty subst' recs''
                         let headDict = (TDict hgr1 Set.empty subst' recs'')
                         let bodyDict = (TDict bgr1 Set.empty emptyTSubsts mempty)
+                        let headPureDict = toPureTDict headDict
+                        let bodyPureDict = toPureTDict bodyDict
                         debugTc $ do
                             pph <- ppConstraints $ tCstrs headDict
                             ppb <- ppConstraints $ tCstrs bodyDict
@@ -710,6 +706,17 @@ templateTDict exprC e = case entryType e of
 condVarType (Constrained (VarName t n) c) = constrainedType t c
 condVar (Constrained (VarName t n) c) = VarName (constrainedType t c) n
 condT (Constrained t c) = constrainedType t c
+
+refreshEntryPVars :: ProverK loc m => loc -> EntryEnv -> Maybe [GIdentifier] -> TcM m EntryEnv
+refreshEntryPVars l e Nothing = return e
+refreshEntryPVars l e@(EntryEnv p t) (Just vars') = case t of
+    DecT (DecType i (Just (k,Just vars)) ts hd hfrees bd bfrees specs b) -> do
+        let ss = emptySubstsProxy
+        let ssBounds = Map.fromList $ zip vars vars'
+        hd' <- substProxy "refreshEntryPVars" ss False ssBounds hd
+        hfrees' <- liftM (Map.mapKeys unVIden) $ substProxy "refreshEntryPVars" emptySubstsProxy False ssBounds $ Map.mapKeys VIden hfrees
+        return $ EntryEnv p $ DecT $ DecType i (Just (k,Just vars')) ts hd' hfrees' bd bfrees specs b
+    otherwise -> return e
 
 -- | renames the variables in a template to local names
 localTemplate :: (ProverK loc m) => loc -> EntryEnv -> TcM m EntryEnv

@@ -1717,7 +1717,7 @@ iDecTyKind (LemmaType {}) = LKind
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
-        (Maybe (ModuleTyVarId)) -- is a specialized invocation = Just (original)
+        (Maybe (ModuleTyVarId,Maybe [GIdentifier])) -- is a specialized invocation = Just (original,variables used for the arguments of specialized procedures)
         [(Constrained Var,IsVariadic)] -- ^ template variables
         PureTDict -- ^ constraints for the header
         Frees -- set of free internal constant variables generated when typechecking the header
@@ -1789,7 +1789,7 @@ isNonRecursiveDecType :: DecType -> Bool
 isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
     where
     aux :: DecType -> Bool
-    aux (DecType _ (Just (j)) _ _ _ _ _ _ _) = i == j
+    aux (DecType _ (Just (j,_)) _ _ _ _ _ _ _) = i == j
     aux d = False
 isNonRecursiveDecType d = False
 
@@ -2370,6 +2370,18 @@ instance PP m VarIdentifier => PP m DecClass where
 
 ppInline True = text "inline"
 ppInline False = text "noinline"
+
+instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m [GIdentifier] where
+    traverseVars = mapM
+    
+instance PP m VarIdentifier => PP m [GIdentifier] where
+    pp = liftM (sepBy comma) . mapM pp
+
+instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m [Var] where
+    traverseVars = mapM
+    
+instance PP m VarIdentifier => PP m [Var] where
+    pp = liftM (sepBy comma) . mapM ppVarTy
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
     traverseVars f (DecType tid isRec vs hd hfrees d frees spes t) = do
