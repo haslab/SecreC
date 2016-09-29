@@ -224,6 +224,7 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 //@ template<domain D, primitive type T>
 //@ function D T operator + (D T x,D T y) {
 //@     __builtin("core.add",x,y) :: D T
+//@ }
 
 template<domain D, primitive type T>
 function D T operator + (D T x,D T y) {

@@ -8,10 +8,6 @@ import axioms;
 kind privatek;
 domain private privatek;
 
-function private bool operator <= (private uint x,private uint y) {
-    __builtin("core.le",x,y) :: private bool
-}
-
 //* Annotations
 
 //@ template <domain D,type T>

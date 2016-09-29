@@ -1896,8 +1896,8 @@ unifiesN l ts = foldr0M_ (\t1 t2 -> tcCstrM_ l (Unifies t1 t2) >> return t2) ts
 -- | Non-directed unification, without implicit security coercions.
 -- applies substitutions
 unifies :: (ProverK loc m) => loc -> Type -> Type -> TcM m ()
-unifies l (BType c1) (BType c2) | c1 == c2 = return ()
-unifies l (KType c1) (KType c2) | c1 == c2 = return ()
+unifies l (BType c1) (BType c2) = return ()
+unifies l (KType c1) (KType c2) = return ()
 unifies l (KindT k1) (KindT k2) = unifiesKind l k1 k2
 unifies l (IdxT e1) (IdxT e2) = unifiesExpr l True e1 e2
 unifies l (SecT s1) (SecT s2) = unifiesSec l s1 s2
