@@ -1398,10 +1398,10 @@ fromPureTDict (PureTDict g ss rec) = do
 fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m IOCstrGraph
 fromPureCstrs g = do
     (g',is) <- runStateT (mapGrM newIOCstr g) Map.empty
-    let g'' = gmap (\(ins,j,x,outs) -> (fmapSnd (look is) ins,j,x,fmapSnd (look is) outs)) g'
+    let g'' = gmap (\(ins,j,x,outs) -> (fmapSnd (look g' is) ins,j,x,fmapSnd (look g' is) outs)) g'
     return g''
   where
-    look is i = case Map.lookup i is of
+    look g' is i = case Map.lookup i is of
         Just x -> x
         Nothing -> error $ "fromPureCstrs: failed to look up " ++ show i ++ " in " ++ show is ++ "\n" ++ show g ++ "\n" ++ show g'
     newIOCstr (ins,i,Loc l k,outs) = do
