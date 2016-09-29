@@ -60,14 +60,14 @@ castTypeToType (CastTy (TypeName t n)) = t
 typeToSecType :: (ProverK loc m) => loc -> Type -> TcM m SecType
 typeToSecType l (SecT s) = return s
 typeToSecType l t = do
-    ppi <- pp $ KindT $ KVar (mkVarId "*") False
+    ppi <- pp $ KindT $ KVar (mkVarId "*") Nothing
     ppt <- ppM l t
     tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToKindType :: (ProverK loc m) => loc -> Type -> TcM m KindType
 typeToKindType l (KindT s) = return s
 typeToKindType l t = do
-    ppi <- pp $ KType False
+    ppi <- pp $ KType Nothing
     ppt <- ppM l t 
     tcError (locpos l) $ TypeConversionError ppi ppt
 
@@ -116,11 +116,11 @@ typeToBaseType l t@(ComplexT ct) = case ct of
         typeToBaseType l (ComplexT ct')     
     otherwise -> do
         ppt <- ppM l t
-        ppi <- pp BType
+        ppi <- pp $ BType Nothing
         tcError (locpos l) $ TypeConversionError ppi ppt
 typeToBaseType l t = do
     ppt <- ppM l t
-    ppi <- pp BType
+    ppi <- pp $ BType Nothing
     tcError (locpos l) $ TypeConversionError ppi ppt
 
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType
@@ -386,7 +386,7 @@ projectStructField l t@(TyPrim {}) a = do
     ppt <- pp t
     ppa <- pp a
     tcError (locpos l) $ FieldNotFound (ppt) (ppa)
-projectStructField l t@(BVar v@(nonTok -> True)) a = do
+projectStructField l t@(BVar v@(nonTok -> True) _) a = do
     b <- resolveBVar l v
     projectStructField l b a
 projectStructField l (TApp _ _ d) a = do
@@ -515,13 +515,13 @@ isPrivate l doUnify t = do
     
 isPrivateSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
 isPrivateSec l doUnify@True s = do
-    k' <- newKindVar "pk" True False Nothing
+    k' <- newKindVar "pk" (Just NonPublicClass) False Nothing
     s' <- newDomainTyVar "ps" k' False Nothing
     unifiesSec l s s'
 isPrivateSec l False (Private {}) = return ()
-isPrivateSec l False (SVar v k) = if isPrivateKind k
-    then return ()
-    else do
+isPrivateSec l False (SVar v k) = case kindClass k of
+    Just NonPublicClass -> return ()
+    Nothing -> do
         s' <- resolveSVar l v
         isPrivateSec l False s'
 isPrivateSec l False Public = do
@@ -595,7 +595,7 @@ defaultExpr l t szs = do
     throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "unsupported default value for type" <+> ppt) Nothing
 
 defaultBaseExpr :: ProverK loc m => loc -> SecType -> BaseType -> TcM m Expr
-defaultBaseExpr l s b@(BVar v) = do
+defaultBaseExpr l s b@(BVar v _) = do
     b' <- resolveBVar l v
     defaultBaseExpr l s b'
 defaultBaseExpr l s b@(TyPrim p) | isIntPrimType p = defaultBaseClassify l s $ intExpr (BaseT b) 0
@@ -625,9 +625,9 @@ defaultBaseClassify l s@(SVar v k) e@(loc -> BaseT b) = do
     mb <- tryResolveSVar l v
     case mb of
         Just s' -> defaultBaseClassify l s' e
-        Nothing -> if isPrivateKind k
-            then classifyExpr l False e (CType s b $ indexExpr 0)
-            else do
+        Nothing -> case kindClass k of
+            Just NonPublicClass -> classifyExpr l False e (CType s b $ indexExpr 0)
+            Nothing -> do
                 pps <- pp s
                 ppe <- ppExprTy e
                 throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for base" <+> pps <+> ppe) Nothing

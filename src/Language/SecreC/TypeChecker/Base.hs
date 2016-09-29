@@ -596,7 +596,7 @@ varNameToType :: Var -> Type
 varNameToType (VarName (KType b) (VIden k)) = KindT $ KVar k b
 varNameToType (VarName (KindT k) (VIden n)) = SecT $ SVar n k
 varNameToType (VarName (TType b) (VIden n)) = ComplexT $ CVar n b
-varNameToType (VarName BType (VIden n)) = BaseT $ BVar n
+varNameToType (VarName (BType c) (VIden n)) = BaseT $ BVar n c
 varNameToType (VarName DType (VIden n)) = DecT $ DVar n
 varNameToType (VarName (VAType b sz) (VIden n)) = VArrayT $ VAVar n b sz
 varNameToType (VarName t n) | typeClass "varNameToType" t == TypeC = IdxT (RVariablePExpr t $ VarName t n)
@@ -609,7 +609,7 @@ typeToVarName :: Type -> Maybe Var
 typeToVarName (KindT (KVar n b)) = Just $ VarName (KType b) $ VIden n
 typeToVarName (SecT (SVar n k)) = Just (VarName (KindT k) $ VIden n)
 typeToVarName (ComplexT (CVar n b)) = Just (VarName (TType b) $ VIden n)
-typeToVarName (BaseT (BVar n)) = Just (VarName BType $ VIden n)
+typeToVarName (BaseT (BVar n c)) = Just (VarName (BType c) $ VIden n)
 typeToVarName (DecT (DVar n)) = Just (VarName DType $ VIden n)
 typeToVarName (VArrayT (VAVar n b sz)) = Just (VarName (VAType b sz) $ VIden n)
 typeToVarName (IdxT (RVariablePExpr _ (VarName t n))) | typeClass "typeToVarName" t == TypeC = Just (VarName t n)
@@ -1623,17 +1623,21 @@ instance Hashable SecType
 data KindType
     = PublicK
     | PrivateK GIdentifier -- a known kind
-    | KVar VarIdentifier Bool -- a kind variable (bool = is only private)
+    | KVar VarIdentifier (Maybe KindClass) -- a kind variable (bool = is only private)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary KindType
 instance Hashable KindType
 
+kindClass :: KindType -> Maybe KindClass
+kindClass PublicK = Nothing
+kindClass (PrivateK _) = Just NonPublicClass
+kindClass (KVar _ c) = c
+
 isPrivateKind :: KindType -> Bool
-isPrivateKind PublicK = False
-isPrivateKind (PrivateK _) = True
-isPrivateKind (KVar _ True) = True
-isPrivateKind (KVar _ False) = False
+isPrivateKind k = case kindClass k of
+    Just NonPublicClass -> True
+    Nothing -> False
 
 tyDecClass :: Type -> DecClass
 tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
@@ -1811,11 +1815,17 @@ data BaseType
     = TyPrim Prim
     | TApp SIdentifier [(Type,IsVariadic)] DecType -- template type application
     | MSet BaseType -- multiset type
-    | BVar VarIdentifier
+    | BVar VarIdentifier (Maybe DataClass)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary BaseType
 instance Hashable BaseType
+
+baseDataClass :: BaseType -> Maybe DataClass
+baseDataClass (TyPrim p) = if isNumericPrimType p then Just NumericClass else Just PrimitiveClass
+baseDataClass (TApp {}) = Nothing
+baseDataClass (MSet {}) = Nothing
+baseDataClass (BVar v k) = k
 
 type CondExpression iden loc = (Expression iden loc)
 type Cond = CondExpression GIdentifier Type
@@ -1846,8 +1856,8 @@ data Type
     = NoType String -- ^ For locations with no associated type information
     | TType Bool -- ^ Type of complex types (isNotVoid)
     | DType -- ^ Type of declarations
-    | BType -- ^ Type of base types
-    | KType Bool -- ^ Type of kinds (isPrivateKind)
+    | BType (Maybe DataClass) -- ^ Type of base types
+    | KType (Maybe KindClass) -- ^ Type of kinds
     | VAType Type Expr -- ^ Type of array types
     | StmtType (Set StmtClass) -- ^ Type of a @Statement@
     | ComplexT ComplexType
@@ -1883,9 +1893,9 @@ vArraySize (VAVar _ _ sz) = sz
 tyOf :: Type -> Type
 tyOf (IdxT e) = loc e
 tyOf (SecT s) = KindT (secTypeKind s)
-tyOf (KindT k) = KType (isPrivateKind k)
+tyOf (KindT k) = KType (kindClass k)
 tyOf (ComplexT t) = TType (isNotVoid t)
-tyOf (BaseT _) = BType
+tyOf (BaseT b) = BType $ baseDataClass b
 tyOf (DecT _) = DType
 tyOf (VArrayT (VAVal ts b)) = VAType b (indexExpr $ toEnum $ length ts)
 tyOf (VArrayT (VAVar v b sz)) = VAType b sz
@@ -2102,7 +2112,10 @@ instance PP m VarIdentifier => PP m BaseType where
     pp (MSet t) = do
         ppt <- pp t
         return $ text "multiset" <> braces ppt
-    pp (BVar v) = pp v
+    pp (BVar v c) = do
+        ppv <- pp v
+        ppc <- pp c
+        return $ ppv <+> ppc
 instance PP m VarIdentifier => PP m ComplexType where
     pp Void = return $ text "void"
     pp (CType s t d) = do
@@ -2124,7 +2137,7 @@ instance PP m VarIdentifier => PP m Type where
         ppsz <- pp sz
         return $ parens $ ppt <> text "..." <> nonemptyParens ppsz
     pp t@(TType b) = return $ text "complex type" <+> ppid b
-    pp t@BType = return $ text "base type"
+    pp t@(BType c) = return $ text "base type" <+> ppid c
     pp t@DType = return $ text "declaration type"
     pp t@(KindT k) = pp k
     pp t@(KType b) = return $ text "kind type" <+> ppid b
@@ -2173,7 +2186,7 @@ typeClass :: String -> Type -> TypeClass
 typeClass msg (CondType t _) = typeClass msg t
 typeClass msg (TType b) = TypeStarC
 typeClass msg (VAType b _) = VArrayStarC (typeClass msg b)
-typeClass msg BType = TypeStarC
+typeClass msg (BType c) = TypeStarC
 typeClass msg (KType _) = KindStarC
 typeClass msg (KindT _) = KindC
 typeClass msg (SecT _) = DomainC
@@ -2400,10 +2413,11 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         ts' <- mapM f ts
         d' <- f d
         return $ TApp n' ts' d'
-    traverseVars f (BVar v) = do
+    traverseVars f (BVar v c) = do
         VIden v' <- f (VIden v::GIdentifier)
-        return $ BVar v'
-    substL (BVar v) | not (varIdTok v) = return $ Just $ VIden v
+        c' <- f c
+        return $ BVar v' c'
+    substL (BVar v _) | not (varIdTok v) = return $ Just $ VIden v
     substL e = return Nothing
  
 instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m VArrayType where
@@ -2452,15 +2466,18 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     traverseVars f (PrivateK k) = return $ PrivateK k
     traverseVars f (KVar k b) = do
         VIden k' <- f (VIden k::GIdentifier)
-        return $ KVar k' b
+        b' <- f b
+        return $ KVar k' b'
     substL (KVar v _) | not (varIdTok v) = return $ Just $ VIden v
     substL e = return Nothing
 
 instance PP m VarIdentifier => PP m KindType where
     pp PublicK = return $ text "public"
     pp (PrivateK k) = pp k
-    pp (KVar k True) = liftM (text "nonpublic" <+>) (pp k)
-    pp (KVar k False) = pp k
+    pp (KVar k c) = do
+        ppk <- pp k
+        ppc <- pp c
+        return $ ppk <+> ppc
 
 type Attr = Attribute GIdentifier Type
 
@@ -2472,8 +2489,12 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         sz' <- f sz
         return $ VAType t' sz'
     traverseVars f DType = return DType
-    traverseVars f BType = return BType
-    traverseVars f (KType b) = return $ KType b
+    traverseVars f (BType c) = do
+        c' <- f c
+        return $ BType c'
+    traverseVars f (KType b) = do
+        b' <- f b
+        return $ KType b'
     traverseVars f (KindT s) = do
         s' <- f s
         return $ KindT s'
@@ -2675,16 +2696,24 @@ ppTpltArg :: PP m VarIdentifier => Constrained Var -> m Doc
 ppTpltArg = ppConstrained ppTpltArg'
     where
     ppTpltArg' :: PP m VarIdentifier => Var -> m Doc
-    ppTpltArg' (VarName BType v) = liftM (text "type" <+>) (pp v)
-    ppTpltArg' (VarName (KType isPriv) k) = ppIsPrivate isPriv (liftM (text "kind" <+>) (pp k))
+    ppTpltArg' (VarName (BType c) v) = do
+        ppv <- pp v
+        return $ maybe PP.empty ppDataClass c <+> text "type" <+> ppv
+    ppTpltArg' (VarName (KType isPriv) k) = do
+        ppk <- pp k
+        return $ maybe PP.empty ppKindClass isPriv <+> text "kind" <+> ppk
     ppTpltArg' (VarName (KindT k) v) = do
         ppv <- pp v
         ppk <- pp k
         return $ text "domain" <+> ppv <+> char ':' <+> ppk
     ppTpltArg' (VarName t v) | isIntType t = liftM (text "dim" <+>) (pp v)
     ppTpltArg' (VarName (VAType b sz) v) | isIntType b = liftM (text "dim..." <+>) (pp v)
-    ppTpltArg' (VarName (VAType BType sz) v) = liftM (text "type..." <+>) (pp v)
-    ppTpltArg' (VarName (VAType (KType isPriv) sz) v) = ppIsPrivate isPriv (liftM (text "kind..." <+>) (pp v))
+    ppTpltArg' (VarName (VAType (BType c) sz) v) = do
+        ppv <- pp v
+        return $ maybe PP.empty ppDataClass c <+> text "type..." <+> ppv
+    ppTpltArg' (VarName (VAType (KType isPriv) sz) v) = do
+        ppv <- pp v
+        return $ maybe PP.empty ppKindClass isPriv <+> text "kind..." <+> ppv
     ppTpltArg' (VarName (VAType (KindT k) sz) v) = do
         ppv <- pp v
         ppk <- pp k

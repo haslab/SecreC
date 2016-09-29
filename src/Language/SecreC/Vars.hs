@@ -908,11 +908,21 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         d' <- inLHS False $ f d
         e' <- f e
         return $ DimensionQuantifier l' b' d' e'
-    traverseVars f (DataQuantifier l b t) = do
+    traverseVars f (DataQuantifier l c b t) = do
         l' <- f l
+        c' <- f c
         b' <- f b
         t' <- inLHS False $ f t
-        return $ DataQuantifier l' b' t'
+        return $ DataQuantifier l' c' b' t'
+
+instance Monad m => PP m KindClass where
+    pp = return . ppKindClass
+instance Monad m => PP m DataClass where
+    pp = return . ppDataClass
+instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m KindClass where
+    traverseVars f x = return x
+instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m DataClass where
+    traverseVars f x = return x
 
 instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (KindDeclaration iden loc) where
     traverseVars f (Kind l n) = do

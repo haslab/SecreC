@@ -155,10 +155,10 @@ tcKindDecl :: (MonadIO m,Location loc) => KindDeclaration Identifier loc -> TcM 
 tcKindDecl (Kind l k) = do
     k' <- tcKindName k
     newKind k'
-    return $ Kind (Typed l $ KType True) k'
+    return $ Kind (Typed l $ KType $ Just NonPublicClass) k'
     
 tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (KindName GIdentifier (Typed loc))
-tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType True)) $ TIden $ mkVarId kn
+tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType $ Just NonPublicClass)) $ TIden $ mkVarId kn
 
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))
 tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak isLeak $ do
@@ -360,15 +360,15 @@ tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
 
 -- for axioms we create tokens instead of variables
 tcTemplateQuantifier :: (ProverK loc m) => TemplateQuantifier Identifier loc -> TcM m (TemplateQuantifier GIdentifier (Typed loc),(Constrained Var,IsVariadic))
-tcTemplateQuantifier (KindQuantifier l isPrivate isVariadic (KindName dl dn)) = do
+tcTemplateQuantifier (KindQuantifier l kClass isVariadic (KindName dl dn)) = do
     inTplt <- State.gets inTemplate
-    let t = KType isPrivate
+    let t = KType kClass
     t' <- mkVariadicTyArray isVariadic t
     vdn <- addConst LocalScope (not inTplt) False dn
     let v' = KindName (Typed dl t') vdn
     isAnn <- getAnn
     newKindVariable isAnn LocalScope v'
-    return (KindQuantifier (notTyped "tcTemplateQuantifier" l) isPrivate isVariadic v',(Constrained (VarName t' vdn) Nothing,isVariadic))
+    return (KindQuantifier (notTyped "tcTemplateQuantifier" l) kClass isVariadic v',(Constrained (VarName t' vdn) Nothing,isVariadic))
 tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
     inTplt <- State.gets inTemplate
     isAnn <- getAnn
@@ -380,11 +380,11 @@ tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
         Nothing -> do -- domain variable of any kind
             if inTplt
                 then do
-                    k@(KVar kv _) <- newKindVar "k" False True Nothing
+                    k@(KVar kv _) <- newKindVar "k" Nothing True Nothing
                     topTcCstrM_ l $ Resolve $ KindT k
                     return (Nothing,KindT k)
                 else do
-                    k <- kindToken
+                    k <- kindToken Nothing
                     return (Nothing,KindT k)
     t' <- mkVariadicTyArray isVariadic t
     vdn <- addConst LocalScope (not inTplt) False dn
@@ -405,16 +405,16 @@ tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
         Nothing -> return ()
         Just x -> tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
     return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' c',(Constrained (VarName t' vdn) $ fmap (fmap typed) c',isVariadic))
-tcTemplateQuantifier (DataQuantifier l isVariadic (TypeName tl tn)) = do
+tcTemplateQuantifier (DataQuantifier l dClass isVariadic (TypeName tl tn)) = do
     inTplt <- State.gets inTemplate
-    let t = BType -- variable of any base type
+    let t = BType dClass -- variable of any base type
     t' <- mkVariadicTyArray isVariadic t
     vtn <- addConst LocalScope (not inTplt) False tn
     let v' = TypeName (Typed tl t') vtn
     isAnn <- getAnn
     isLeak <- getLeak
     newTypeVariable isAnn isLeak LocalScope v'
-    return (DataQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v',(Constrained (VarName t' vtn) Nothing,isVariadic))
+    return (DataQuantifier (notTyped "tcTemplateQuantifier" l) dClass isVariadic v',(Constrained (VarName t' vtn) Nothing,isVariadic))
 
 tcTemplate :: (ProverK loc m) => loc -> TcM m a -> TcM m a
 tcTemplate l m = do

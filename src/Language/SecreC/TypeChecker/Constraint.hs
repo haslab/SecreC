@@ -889,8 +889,8 @@ equals l (BaseT b1) (ComplexT c2) = do
     equalsComplex l (defCType b1) c2
 equals l (TType isNotVoid1) (TType isNotVoid2) = return ()
 equals l DType DType = return ()
-equals l BType BType = return ()
-equals l (KType _) (KType _) = return ()
+equals l (BType c1) (BType c2) | c1 == c2 = return ()
+equals l (KType c1) (KType c2) | c1 == c2 = return ()
 equals l (VAType b1 sz1) (VAType b2 sz2) = do
     tcCstrM_ l $ Equals b1 b2
     equalsExprTy l True sz1 sz2
@@ -976,11 +976,11 @@ equalsComplex l Void Void = return ()
 equalsComplex l c1 c2 = constraintError (EqualityException "complex type") l c1 pp c2 pp Nothing
 
 equalsBase :: (ProverK loc m) => loc -> BaseType -> BaseType -> TcM m ()
-equalsBase l (BVar v1) (BVar v2) | v1 == v2 = return ()
-equalsBase l (BVar v@(nonTok -> True)) t2 = do
+equalsBase l (BVar v1 c1) (BVar v2 c2) | v1 == v2 = return ()
+equalsBase l (BVar v@(nonTok -> True) c1) t2 = do
     t1 <- resolveBVar l v
     tcCstrM_ l $ Equals (BaseT t1) (BaseT t2)
-equalsBase l t1 (BVar v@(nonTok -> True)) = do
+equalsBase l t1 (BVar v@(nonTok -> True) c2) = do
     t2 <- resolveBVar l v
     tcCstrM_ l $ Equals (BaseT t1) (BaseT t2)
 equalsBase l (TApp (TIden n1) ts1 d1) (TApp (TIden n2) ts2 d2) = do
@@ -1007,9 +1007,9 @@ equalsPrim l t1 t2 = constraintError (EqualityException "primitive type") l t1 p
 
 expandCTypeVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
 expandCTypeVar l v = do
-    k <- newKindVar "k" False False Nothing
+    k <- newKindVar "k" Nothing False Nothing
     d <- newDomainTyVar "d" k False Nothing
-    t <- newBaseTyVar False Nothing
+    t <- newBaseTyVar Nothing False Nothing
     dim <- newDimVar False Nothing
     let ct = CType d t dim 
     addSubstM l (SubstMode NoFailS True) (VarName (TType True) $ VIden v) $ ComplexT ct
@@ -1463,7 +1463,7 @@ equalsLit l lit1 lit2 = constraintError (EqualityException "literal type") l lit
 
 -- coerces a literal into a base type
 coercesLitBase :: (ProverK loc m) => loc -> Literal () -> BaseType -> TcM m ()
-coercesLitBase l lit t2@(BVar v@(nonTok -> True)) = do
+coercesLitBase l lit t2@(BVar v@(nonTok -> True) c2) = do
     mb <- tryResolveBVar l v
     case mb of
        Just t2' -> coercesLitBase l lit t2'
@@ -1496,27 +1496,26 @@ decToken = do
     let v = VarIdentifier "dtok" (Just mn) (Just i) True Nothing
     return $ DVar v
 
-kindToken :: MonadIO m => TcM m KindType
-kindToken = do
+kindToken :: MonadIO m => Maybe KindClass -> TcM m KindType
+kindToken cl = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "ktok" (Just mn) (Just i) True Nothing
-    return $ KVar v False
+    return $ KVar v cl
 
-secToken :: MonadIO m => TcM m SecType
-secToken = do
+secToken :: MonadIO m => KindType -> TcM m SecType
+secToken k = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "stok" (Just mn) (Just i) True Nothing
-    k <- newKindVar "k" False False Nothing
     return $ SVar v k
     
-baseToken :: MonadIO m => TcM m BaseType
-baseToken = do
+baseToken :: MonadIO m => Maybe DataClass -> TcM m BaseType
+baseToken cl = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "btok" (Just mn) (Just i) True Nothing
-    return $ BVar v
+    return $ BVar v cl
 
 arrayToken :: MonadIO m => Type -> Expr -> TcM m VArrayType
 arrayToken b sz = do
@@ -1537,7 +1536,7 @@ exprToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "etok" (Just mn) (Just i) True Nothing
-    let t = BaseT $ BVar v
+    let t = BaseT $ BVar v Nothing
     return $ RVariablePExpr t (VarName t $ VIden v)
 
 -- | Checks if a type is more specific than another, performing substitutions
@@ -1669,7 +1668,7 @@ comparesSec l isLattice t1@(SVar v1@(nonTok -> True) k1) t2@(SVar v2@(nonTok -> 
                 LT -> return $ Comparison t1 t2 EQ LT
                 GT -> return $ Comparison t1 t2 EQ GT
                 EQ -> do
-                    x <- secToken
+                    x <- secToken k1
                     addSubstM l (SubstMode CheckS False) (tyToVar $ SecT t1) $ SecT x
                     addSubstM l (SubstMode CheckS False) (tyToVar $ SecT t2) $ SecT x
                     return $ Comparison t1 t2 EQ EQ
@@ -1703,10 +1702,10 @@ comparesKind l isLattice t1@(KVar v1@(nonTok -> True) priv1) t2@(KVar v2@(nonTok
     mb2 <- tryResolveKVar l v2
     case (mb1,mb2) of
         (Nothing,Nothing) -> do
-            x <- kindToken
+            x <- kindToken (max priv1 priv2)
             addSubstM l (SubstMode CheckS False) (VarName (KType priv1) $ VIden v1) $ KindT x
             addSubstM l (SubstMode CheckS False) (VarName (KType priv2) $ VIden v2) $ KindT x
-            return $ Comparison t1 t2 EQ EQ
+            return $ Comparison t1 t2 EQ (compare priv1 priv2)
         (Just t1',Nothing) -> comparesKind l isLattice t1' t2
         (Nothing,Just t2') -> comparesKind l isLattice t1 t2'
         (Just t1',Just t2') -> comparesKind l isLattice t1' t2'        
@@ -1744,27 +1743,27 @@ comparesBase l isLattice t1@(TApp (TIden n1) ts1 d1) t2@(TApp (TIden n2) ts2 d2)
     --comparesDec l d1 d2
 comparesBase l isLattice t1@(TyPrim p1) t2@(TyPrim p2) = equalsPrim l p1 p2 >> return (Comparison t1 t2 EQ EQ)
 comparesBase l isLattice t1@(MSet b1) t2@(MSet b2) = comparesBase l isLattice b1 b2
-comparesBase l isLattice t1@(BVar v1) t2@(BVar v2) | v1 == v2 = return (Comparison t1 t2 EQ EQ)
-comparesBase l isLattice t1@(BVar v1@(nonTok -> True)) t2@(BVar v2@(nonTok -> True)) = do
+comparesBase l isLattice t1@(BVar v1 c1) t2@(BVar v2 c2) | v1 == v2 = return (Comparison t1 t2 EQ EQ)
+comparesBase l isLattice t1@(BVar v1@(nonTok -> True) c1) t2@(BVar v2@(nonTok -> True) c2) = do
     mb1 <- tryResolveBVar l v1
     mb2 <- tryResolveBVar l v2
     case (mb1,mb2) of
         (Nothing,Nothing) -> do
-            x <- baseToken
+            x <- baseToken (max c1 c2)
             addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t1) $ BaseT x
             addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t2) $ BaseT x
-            return $ Comparison t1 t2 EQ EQ
+            return $ Comparison t1 t2 (compare c1 c2) EQ
         (Just t1',Nothing) -> comparesBase l isLattice t1' t2
         (Nothing,Just t2') -> comparesBase l isLattice t1 t2'
         (Just t1',Just t2') -> comparesBase l isLattice t1' t2'        
-comparesBase l isLattice t1 t2@(BVar v@(nonTok -> True)) = do
+comparesBase l isLattice t1 t2@(BVar v@(nonTok -> True) c2) = do
     mb <- tryResolveBVar l v
     case mb of
         Just t2 -> comparesBase l isLattice t1 t2
         Nothing -> do
             addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t2) $ BaseT t1
             return $ Comparison t1 t2 LT EQ
-comparesBase l isLattice t1@(BVar v@(nonTok -> True)) t2 = do
+comparesBase l isLattice t1@(BVar v@(nonTok -> True) c1) t2 = do
     mb <- tryResolveBVar l v
     case mb of
         Just t1 -> comparesBase l isLattice t1 t2
@@ -1881,7 +1880,7 @@ appendComparisons l xs = foldr0M (Comparison () () EQ EQ) (appendComparison l) x
 assigns :: ProverK loc m => loc -> Type -> Type -> TcM m ()
 assigns l (IdxT (RVariablePExpr _ v1)) (IdxT e2) = assignsExpr l v1 e2
 assigns l (SecT (SVar v1 k1)) (SecT s2) = assignsSec l v1 k1 s2
-assigns l (BaseT (BVar v1)) (BaseT b2) = assignsBase l v1 b2
+assigns l (BaseT (BVar v1 c1)) (BaseT b2) = assignsBase l v1 c1 b2
 assigns l (ComplexT (CVar v1 _)) (ComplexT ct2) = assignsComplex l v1 ct2
 assigns l (ComplexT (CVar v1 _)) (BaseT b2) = assignsComplex l v1 (defCType b2)
 assigns l (DecT (DVar v1)) (DecT d2) = assignsDec l v1 d2
@@ -1897,6 +1896,8 @@ unifiesN l ts = foldr0M_ (\t1 t2 -> tcCstrM_ l (Unifies t1 t2) >> return t2) ts
 -- | Non-directed unification, without implicit security coercions.
 -- applies substitutions
 unifies :: (ProverK loc m) => loc -> Type -> Type -> TcM m ()
+unifies l (BType c1) (BType c2) | c1 == c2 = return ()
+unifies l (KType c1) (KType c2) | c1 == c2 = return ()
 unifies l (KindT k1) (KindT k2) = unifiesKind l k1 k2
 unifies l (IdxT e1) (IdxT e2) = unifiesExpr l True e1 e2
 unifies l (SecT s1) (SecT s2) = unifiesSec l s1 s2
@@ -2034,18 +2035,18 @@ unifiesComplex l d1@(CVar v1@(nonTok -> True) isNotVoid1) d2@(CVar v2@(nonTok ->
         (Nothing,Nothing) -> do
             o <- chooseVar l v1 v2
             case o of
-                GT -> addSubstM l (SubstMode CheckS True) (VarName (TType $ isNotVoid1 || isNotVoid2) $ VIden v2) (ComplexT d1)
+                GT -> addSubstM l (SubstMode CheckS True) (VarName (TType $ max isNotVoid1 isNotVoid2) $ VIden v2) (ComplexT d1)
                 otherwise -> addSubstM l (SubstMode CheckS True) (VarName (TType $ isNotVoid1 || isNotVoid2) $ VIden v1) (ComplexT d2)
 unifiesComplex l (CVar v@(nonTok -> True) isNotVoid1) c2 = do
     mb <- tryResolveCVar l v
     case mb of
         Just c1 -> tcCstrM_ l $ Unifies (ComplexT c1) (ComplexT c2)
-        Nothing -> addSubstM l (SubstMode CheckS True) (VarName (TType $ isNotVoid1 || isNotVoid c2) $ VIden v) (ComplexT c2)
+        Nothing -> addSubstM l (SubstMode CheckS True) (VarName (TType $ max isNotVoid1 (isNotVoid c2)) $ VIden v) (ComplexT c2)
 unifiesComplex l c1 (CVar v@(nonTok -> True) isNotVoid2) = do
     mb <- tryResolveCVar l v
     case mb of
         Just c2 -> tcCstrM_ l $ Unifies (ComplexT c1) (ComplexT c2)
-        Nothing -> addSubstM l (SubstMode CheckS True) (VarName (TType $ isNotVoid2 || isNotVoid c1) $ VIden v) (ComplexT c1)
+        Nothing -> addSubstM l (SubstMode CheckS True) (VarName (TType $ max isNotVoid2 (isNotVoid c1)) $ VIden v) (ComplexT c1)
 unifiesComplex l t1 t2 = do
     pp1 <- pp t1
     pp2 <- pp t2
@@ -2114,25 +2115,38 @@ unifiesKind l k1@(KVar v1@(nonTok -> True) priv1) k2@(KVar v2@(nonTok -> True) p
                     GT -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v2) (KindT k1)
                     otherwise -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v1) (KindT k2)
 unifiesKind l (KVar v1@(nonTok -> True) priv1) k2 = do
-    let priv2 = isPrivateKind k2
-    let priv = max priv1 priv2
     mb1 <- tryResolveKVar l v1
     case mb1 of
         Just k1 -> tcCstrM_ l $ Unifies (KindT k1) (KindT k2)
-        Nothing -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v1) (KindT k2)
+        Nothing -> do
+            priv <- matchKindClass l priv1 k2
+            addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v1) (KindT k2)
 unifiesKind l k1 (KVar v2@(nonTok -> True) priv2) = do
-    let priv1 = isPrivateKind k1
-    let priv = max priv1 priv2
     mb2 <- tryResolveKVar l v2
     case mb2 of
         Just k2 -> tcCstrM_ l $ Unifies (KindT k1) (KindT k2)
-        Nothing -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v2) (KindT k1)
+        Nothing -> do
+            priv <- matchKindClass l priv2 k1
+            addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v2) (KindT k1)
 unifiesKind l t1 t2 = do
     pp1 <- pp t1
     pp2 <- pp t2
     addErrorM l
         (TypecheckerError (locpos l) . (UnificationException "kind type") (pp1) (pp2) . Just)
         (equalsKind l t1 t2)
+
+matchKindClass :: ProverK loc m => loc -> Maybe KindClass -> KindType -> TcM m (Maybe KindClass)
+matchKindClass l Nothing PublicK = return Nothing
+matchKindClass l c (PrivateK k) = return c
+matchKindClass l c (KVar v k) = do
+    mb <- tryResolveKVar l v
+    case mb of
+        Nothing -> return $ max c k
+        Just k' -> matchKindClass l c k'
+matchKindClass l c k = do
+    ppc <- pp c
+    ppk <- pp k
+    genTcError (locpos l) $ text "kind mismatch" <+> ppc <+> text "against" <+> ppk
 
 assignsSec :: ProverK loc m => loc -> VarIdentifier -> KindType -> SecType -> TcM m ()
 assignsSec l v1@(nonTok -> True) k1 s2 = do
@@ -2157,38 +2171,46 @@ unifiesSys l t1 t2 = do
         (TypecheckerError (locpos l) . (UnificationException "system type") (pp1) (pp2) . Just)
         (equalsSys l t1 t2)
 
-assignsBase :: ProverK loc m => loc -> VarIdentifier -> BaseType -> TcM m ()
-assignsBase l v1@(nonTok -> True) d2 = do
+assignsBase :: ProverK loc m => loc -> VarIdentifier -> Maybe DataClass -> BaseType -> TcM m ()
+assignsBase l v1@(nonTok -> True) c1 d2 = do
     mb1 <- tryResolveBVar l v1
     case mb1 of
-        Nothing -> addSubstM l (SubstMode NoFailS True) (VarName BType $ VIden v1) (BaseT d2)
+        Nothing -> addSubstM l (SubstMode NoFailS True) (VarName (BType c1) $ VIden v1) (BaseT d2)
         Just d1' -> tcCstrM_ l $ Unifies (BaseT d1') (BaseT d2)
 
 unifiesBase :: (ProverK loc m) => loc -> BaseType -> BaseType -> TcM m ()
 unifiesBase l (TyPrim p1) (TyPrim p2) = equalsPrim l p1 p2
 unifiesBase l (MSet b1) (MSet b2) = unifiesBase l b1 b2
-unifiesBase l d1@(BVar v1@(nonTok -> True)) d2@(BVar v2@(nonTok -> True)) = do
+unifiesBase l d1@(BVar v1@(nonTok -> True) c1) d2@(BVar v2@(nonTok -> True) c2) = do
+    let c = max c1 c2
     mb1 <- tryResolveBVar l v1
     mb2 <- tryResolveBVar l v2
     case (mb1,mb2) of
         (Just d1',Just d2') -> tcCstrM_ l $ Unifies (BaseT d1') (BaseT d2')
         (Just d1',Nothing) -> tcCstrM_ l $ Unifies (BaseT d1') (BaseT d2)
         (Nothing,Just d2') -> tcCstrM_ l $ Unifies (BaseT d1) (BaseT d2')
-        (Nothing,Nothing) -> do
-            o <- chooseVar l v1 v2
-            case o of
-                GT -> addSubstM l (SubstMode CheckS True) (VarName BType $ VIden v2) (BaseT d1)
-                otherwise -> addSubstM l (SubstMode CheckS True) (VarName BType $ VIden v1) (BaseT d2)
-unifiesBase l (BVar v@(nonTok -> True)) t2 = do
+        (Nothing,Nothing) -> case compare c1 c2 of
+            LT -> addSubstM l (SubstMode CheckS True) (VarName (BType c) $ VIden v1) (BaseT d2)
+            GT -> addSubstM l (SubstMode CheckS True) (VarName (BType c) $ VIden v2) (BaseT d1)
+            EQ -> do
+                o <- chooseVar l v1 v2
+                case o of
+                    GT -> addSubstM l (SubstMode CheckS True) (VarName (BType c) $ VIden v2) (BaseT d1)
+                    otherwise -> addSubstM l (SubstMode CheckS True) (VarName (BType c) $ VIden v1) (BaseT d2)
+unifiesBase l (BVar v@(nonTok -> True) c1) t2 = do
     mb <- tryResolveBVar l v
     case mb of
         Just t1 -> tcCstrM_ l $ Unifies (BaseT t1) (BaseT t2)
-        Nothing -> addSubstM l (SubstMode CheckS True) (VarName BType $ VIden v) (BaseT t2)
-unifiesBase l t1 (BVar v@(nonTok -> True)) = do
+        Nothing -> do
+            c <- matchDataClass l c1 t2
+            addSubstM l (SubstMode CheckS True) (VarName (BType c) $ VIden v) (BaseT t2)
+unifiesBase l t1 (BVar v@(nonTok -> True) c2) = do
     mb <- tryResolveBVar l v
     case mb of
         Just t2 -> tcCstrM_ l $ Unifies (BaseT t1) (BaseT t2)
-        Nothing -> addSubstM l (SubstMode CheckS True) (VarName BType $ VIden v) (BaseT t1)
+        Nothing -> do
+            c <- matchDataClass l c2 t1
+            addSubstM l (SubstMode CheckS True) (VarName (BType c) $ VIden v) (BaseT t1)
 unifiesBase l (TApp (TIden n1) ts1 d1) (TApp (TIden n2) ts2 d2) = do
     unifiesTIdentifier l (TIden n1) (TIden n2)
     unifiesTpltArgs l ts1 ts2
@@ -2199,6 +2221,20 @@ unifiesBase l t1 t2 = do
     addErrorM l
         (TypecheckerError (locpos l) . (UnificationException "base type") (pp1) (pp2) . Just)
         (equalsBase l t1 t2)
+
+matchDataClass :: ProverK loc m => loc -> Maybe DataClass -> BaseType -> TcM m (Maybe DataClass)
+matchDataClass l Nothing b = return $ baseDataClass b
+matchDataClass l (Just NumericClass) (TyPrim p) | isNumericPrimType p = return $ Just NumericClass
+matchDataClass l (Just PrimitiveClass) (TyPrim p) = return $ Just PrimitiveClass
+matchDataClass l c (BVar v k) = do
+    mb <- tryResolveBVar l v
+    case mb of
+        Nothing -> return $ max c k
+        Just k' -> matchDataClass l c k'
+matchDataClass l c k = do
+    ppc <- pp c
+    ppk <- pp k
+    genTcError (locpos l) $ text "data type mismatch" <+> ppc <+> text "against" <+> ppk
 
 unifiesTpltArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Type,IsVariadic)] -> TcM m ()
 unifiesTpltArgs l ts1 ts2 = do

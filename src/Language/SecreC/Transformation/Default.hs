@@ -57,7 +57,7 @@ templateQuantifier2Arg :: TemplateQuantifier Identifier Position -> (TemplateTyp
 templateQuantifier2Arg (DomainQuantifier l isVariadic (DomainName dl dn) _) = (GenericTemplateTypeArgument l $ TemplateArgName dl dn,isVariadic)
 templateQuantifier2Arg (KindQuantifier l isPriv isVariadic (KindName kl kn)) = (GenericTemplateTypeArgument l $ TemplateArgName kl kn,isVariadic)
 templateQuantifier2Arg (DimensionQuantifier l isVariadic v _) = (ExprTemplateTypeArgument l $ RVariablePExpr l v,isVariadic)
-templateQuantifier2Arg (DataQuantifier l isVariadic (TypeName tl tn)) = (GenericTemplateTypeArgument l $ TemplateArgName tl tn,isVariadic)
+templateQuantifier2Arg (DataQuantifier l dataClass isVariadic (TypeName tl tn)) = (GenericTemplateTypeArgument l $ TemplateArgName tl tn,isVariadic)
 
 defaultConstructor :: DefaultK m => [(TemplateTypeArgument Identifier Position,IsVariadic)] -> StructureDeclaration Identifier Position -> DefaultM m (ProcedureDeclaration Identifier Position)
 defaultConstructor targs (StructureDeclaration l (TypeName tl tn) atts) = do

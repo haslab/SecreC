@@ -669,10 +669,20 @@ instance PP m iden => PP m (TemplateDeclaration iden loc) where
   
 data TemplateQuantifier iden loc
     = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))
-    | KindQuantifier loc Bool IsVariadic (KindName iden loc)
+    | KindQuantifier loc (Maybe KindClass) IsVariadic (KindName iden loc)
     | DimensionQuantifier loc IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
-    | DataQuantifier loc IsVariadic (TypeName iden loc)
+    | DataQuantifier loc (Maybe DataClass) IsVariadic (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+data KindClass = NonPublicClass
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Generic)
+instance Binary KindClass
+instance Hashable KindClass
+
+data DataClass = PrimitiveClass | NumericClass
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Generic)
+instance Binary DataClass
+instance Hashable DataClass
 
 instance (Binary iden,Binary loc) => Binary (TemplateQuantifier iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (TemplateQuantifier iden loc)
@@ -682,11 +692,11 @@ instance Location loc => Located (TemplateQuantifier iden loc) where
     loc (DomainQuantifier l _ _ _) = l
     loc (KindQuantifier l _ _ _) = l
     loc (DimensionQuantifier l _ _ _) = l
-    loc (DataQuantifier l _ _) = l
+    loc (DataQuantifier l _ _ _) = l
     updLoc (DomainQuantifier _ b x y) l = DomainQuantifier l b x y
     updLoc (KindQuantifier _ b0 b x) l = KindQuantifier l b0 b x
     updLoc (DimensionQuantifier _ b x y) l = DimensionQuantifier l b x y
-    updLoc (DataQuantifier _ b x) l = DataQuantifier l b x
+    updLoc (DataQuantifier _ k b x) l = DataQuantifier l k b x
 
 instance PP m iden => PP m (TemplateQuantifier iden loc) where
     pp (DomainQuantifier _ b d (Just k)) = do
@@ -700,15 +710,18 @@ instance PP m iden => PP m (TemplateQuantifier iden loc) where
         ppd <- pp dim
         pp2 <- ppOpt e (liftM braces . pp)
         return $ ppVariadic (text "dim") b <+> ppd <+> pp2
-    pp (DataQuantifier _ b t) = do
+    pp (DataQuantifier _ c b t) = do
+        ppc <- ppOpt c (return . ppDataClass)
         ppt <- pp t
-        return $ ppVariadic (text "type") b <+> ppt
+        return $ ppc <+> ppVariadic (text "type") b <+> ppt
     pp (KindQuantifier _ isPrivate isVariadic k) = do
+        ppc <- ppOpt isPrivate (return . ppKindClass)
         ppk <- pp k
-        ppIsPrivate isPrivate (return $ ppVariadic (text "kind") isVariadic <+> ppk)
+        return $ ppc <+> ppVariadic (text "kind") isVariadic <+> ppk
   
-ppIsPrivate False doc = doc
-ppIsPrivate True doc = liftM (text "nonpublic" <+>) doc
+ppKindClass NonPublicClass = text "nonpublic"
+ppDataClass NumericClass = text "numeric"
+ppDataClass PrimitiveClass = text "primitive"
   
  -- Structures:                                                                
 

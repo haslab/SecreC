@@ -88,8 +88,8 @@ targ2TemplateQuantifier l vars cv@(Constrained v@(VarName vt vn) e,isVariadic) =
         mbk <- case k of
             PublicK -> return Nothing
             PrivateK kn -> return $ Just $ fmap (const $ Typed l $ KindT k) $ KindName () kn
-            KVar kv False -> return $ Just $ KindName (Typed l $ KindT k) $ VIden kv
-            KVar kv True -> if List.elem (VIden kv) vars
+            KVar kv Nothing -> return $ Just $ KindName (Typed l $ KindT k) $ VIden kv
+            KVar kv (Just NonPublicClass) -> if List.elem (VIden kv) vars
                 then return $ Just $ KindName (Typed l $ KindT k) $ VIden kv
                 else do
                     ppk <- pp k
@@ -97,8 +97,8 @@ targ2TemplateQuantifier l vars cv@(Constrained v@(VarName vt vn) e,isVariadic) =
         return $ DomainQuantifier (notTyped "targ" l) isVariadic (DomainName (Typed l vt) vn) mbk
     (isKind -> True,KType isPriv) -> do
         return $ KindQuantifier (notTyped "targ" l) isPriv isVariadic (KindName (Typed l vt) vn)
-    (isType -> True,vt) -> do
-        return $ DataQuantifier (notTyped "targ" l) isVariadic $ TypeName (Typed l vt) vn
+    (isType -> True,BType c) -> do
+        return $ DataQuantifier (notTyped "targ" l) c isVariadic $ TypeName (Typed l vt) vn
     (isVariable -> True,vt) -> do
         return $ DimensionQuantifier (notTyped "targ" l) isVariadic (VarName (Typed l vt) vn) $ fmap (fmap (Typed l)) e
     otherwise -> do
@@ -165,7 +165,7 @@ baseType2DatatypeSpecifier l b@(TyPrim p) = do
 baseType2DatatypeSpecifier l b@(TApp n ts d) = do
     ts' <- fmapFstM (type2TemplateTypeArgument l) ts
     return $ TemplateSpecifier (Typed l $ BaseT b) (fmap (const $ Typed l $ DecT d) $ TypeName () n) ts'
-baseType2DatatypeSpecifier l b@(BVar v) = do
+baseType2DatatypeSpecifier l b@(BVar v c) = do
     let tl = Typed l $ BaseT b
     return $ VariableSpecifier tl (TypeName tl (VIden v))
 baseType2DatatypeSpecifier l t@(MSet b) = do
@@ -190,7 +190,7 @@ type2TemplateTypeArgument l t@(BaseT (TyPrim p)) = do
 type2TemplateTypeArgument l t@(BaseT (TApp n ts d)) = do
     ts' <- fmapFstM (type2TemplateTypeArgument l) ts
     return $ TemplateTemplateTypeArgument (Typed l t) (fmap (const $ Typed l $ DecT d) $ TypeName () n) ts'
-type2TemplateTypeArgument l t@(BaseT (BVar v)) = do
+type2TemplateTypeArgument l t@(BaseT (BVar v c)) = do
     let tl = Typed l t
     return $ GenericTemplateTypeArgument tl $ (TemplateArgName tl $ VIden v)
 type2TemplateTypeArgument l t = do

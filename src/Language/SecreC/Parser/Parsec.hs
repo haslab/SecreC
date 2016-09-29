@@ -398,13 +398,17 @@ scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?
 
 scTemplateQuantifier :: (Monad m,MonadCatch m) => ScParserT m (TemplateQuantifier Identifier Position)
 scTemplateQuantifier =
-        (apA4 scIsPrivate (scTok KIND) scVariadic scKindId (\x0 x1 x2 x3 -> KindQuantifier (loc x1) x0 x2 x3)
+        (apA4 (optionMaybe scKindClass) (scTok KIND) scVariadic scKindId (\x0 x1 x2 x3 -> KindQuantifier (loc x1) x0 x2 x3)
     <|> apA4 (scTok DOMAIN) scVariadic scDomainId (optionMaybe (scChar ':' *> scKindId)) (\x1 x2 x3 x4 -> DomainQuantifier (loc x1) x2 x3 x4)
     <|> apA4 (scTok DIMENSIONALITY) scVariadic scVarId scInvariant (\x1 x2 x3 x4 -> DimensionQuantifier (loc x1) x2 x3 x4)
-    <|> apA3 (scTok TYPE) scVariadic scTypeId (\x1 x2 x3 -> DataQuantifier (loc x1) x2 x3)) <?> "template quantifier"
+    <|> apA4 (optionMaybe scDataClass) (scTok TYPE) scVariadic scTypeId (\x0 x1 x2 x3 -> DataQuantifier (loc x1) x0 x2 x3)) <?> "template quantifier"
 
-scIsPrivate :: (Monad m,MonadCatch m) => ScParserT m IsVariadic
-scIsPrivate = apA (optionMaybe (scTok NONPUBLIC)) isJust
+scKindClass :: (Monad m,MonadCatch m) => ScParserT m KindClass
+scKindClass = apA (scTok NONPUBLIC) (const NonPublicClass)
+
+scDataClass :: (Monad m,MonadCatch m) => ScParserT m DataClass
+scDataClass = apA (scTok PRIMITIVE) (const PrimitiveClass)
+          <|> apA (scTok NUMERIC) (const NumericClass)
 
 scVariadic :: (Monad m,MonadCatch m) => ScParserT m IsVariadic
 scVariadic = apA (optionMaybe (scTok VARIADIC)) isJust

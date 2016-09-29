@@ -724,7 +724,7 @@ typeToDafny l t = do
     genError l $ text "typeToDafny:" <+> ppt
 
 baseTypeToDafny :: DafnyK m => Position -> BaseType -> DafnyM m Doc
-baseTypeToDafny l (BVar v) = dafnyGIdM $ VIden v
+baseTypeToDafny l (BVar v _) = dafnyGIdM $ VIden v
 baseTypeToDafny l (TyPrim prim) = lift $ pp prim
 baseTypeToDafny l (MSet b) = do
     b' <- baseTypeToDafny l b

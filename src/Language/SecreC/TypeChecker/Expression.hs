@@ -47,7 +47,7 @@ tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 tcAnnGuard e = limitExprC ReadOnlyE $ insideAnnotation $ do
     e' <- tcExpr e
     let (Typed l ty) = loc e'
-    k <- newKindVar "k" False False Nothing
+    k <- newKindVar "k" Nothing False Nothing
     s <- newDomainTyVar "s" k False Nothing
     topTcCstrM_ l $ Unifies ty (ComplexT $ CType s bool $ indexExpr 0)
     return e'
@@ -315,7 +315,7 @@ tcIndex (IndexSlice l e1 e2) = do
 tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression GIdentifier (Typed loc))
 tcLiteral li = do
     let l = loc li
-    b <- newBaseTyVar False Nothing
+    b <- newBaseTyVar Nothing False Nothing
     let t = BaseT b
     let elit = LitPExpr t $ fmap (const t) li
     topTcCstrM_ l $ CoercesLit elit
@@ -325,9 +325,9 @@ tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m
 tcArrayLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" False False Nothing
+    k <- newKindVar "k" Nothing False Nothing
     s <- newDomainTyVar "s" k False Nothing
-    b <- newBaseTyVar False Nothing
+    b <- newBaseTyVar Nothing False Nothing
     let t = ComplexT $ CType s b (indexExpr 1)
     let elit = ArrayConstructorPExpr t es''
     topTcCstrM_ l $ CoercesLit elit
@@ -337,9 +337,9 @@ tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> Tc
 tcMultisetLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" False False Nothing
+    k <- newKindVar "k" Nothing False Nothing
     s <- newDomainTyVar "s" k False Nothing
-    b <- newBaseTyVar False Nothing
+    b <- newBaseTyVar Nothing False Nothing
     let t = ComplexT $ CType s (MSet b) (indexExpr 0)
     let elit = MultisetConstructorPExpr t es''
     topTcCstrM_ l $ CoercesLit elit

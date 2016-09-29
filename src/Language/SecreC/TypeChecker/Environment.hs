@@ -352,7 +352,7 @@ checkKind isAnn (KindName l n) = do
     ks <- getKinds
     (n,t) <- case Map.lookup (TIden n) ks of
         Just e -> case entryType e of
-            KType True -> return (TIden n,KindT $ PrivateK $ TIden n)
+            KType (Just NonPublicClass) -> return (TIden n,KindT $ PrivateK $ TIden n)
             otherwise -> do
                 ppn <- pp n
                 genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
@@ -1012,7 +1012,7 @@ newDomainTyVar str k isVariadic doc = do
     n <- freeVarId str isVariadic doc
     return $ SVar n k
 
-newKindVar :: (MonadIO m) => String -> Bool -> IsVariadic -> Maybe Doc -> TcM m KindType
+newKindVar :: (MonadIO m) => String -> Maybe KindClass -> IsVariadic -> Maybe Doc -> TcM m KindType
 newKindVar str isPrivate isVariadic doc = do
     n <- freeVarId str isVariadic doc
     return $ KVar n isPrivate
@@ -1028,7 +1028,7 @@ newTypedVar s t isVariadic doc = liftM (VarName t) $ liftM VIden $ freeVarId s i
 
 newVarOf :: (MonadIO m) => String -> Type -> IsVariadic -> Maybe Doc -> TcM m Type
 newVarOf str (TType b) isVariadic doc = newTyVar b isVariadic doc
-newVarOf str BType isVariadic doc = liftM BaseT $ newBaseTyVar isVariadic doc
+newVarOf str (BType c) isVariadic doc = liftM BaseT $ newBaseTyVar c isVariadic doc
 newVarOf str (KindT k) isVariadic doc = liftM SecT $ newDomainTyVar str k isVariadic doc
 newVarOf str t isVariadic doc | typeClass "newVarOf" t == TypeC = liftM (IdxT . varExpr) $ newTypedVar str t isVariadic doc
 newVarOf str (VAType b sz) isVariadic doc = liftM VArrayT $ newArrayVar b sz isVariadic doc
@@ -1048,10 +1048,10 @@ newDecVar isVariadic doc = do
     n <- freeVarId "dec" isVariadic doc
     return $ DVar n
     
-newBaseTyVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m BaseType
-newBaseTyVar isVariadic doc = do
+newBaseTyVar :: (MonadIO m) => Maybe DataClass -> IsVariadic -> Maybe Doc -> TcM m BaseType
+newBaseTyVar c isVariadic doc = do
     n <- freeVarId "b" isVariadic doc
-    return $ BVar n
+    return $ BVar n c
 
 newIdxVar :: (MonadIO m) => IsVariadic -> Maybe Doc -> TcM m Var
 newIdxVar isVariadic doc = do
