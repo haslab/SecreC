@@ -1003,7 +1003,10 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
   where
     add :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
     add l dirty t' = do -- add substitution
---      liftIO $ putStrLn $ "addSubstM " ++ ppr v ++ " = " ++ ppr t'
+        debugTc $ do
+            ppv <- ppr v
+            ppt' <- ppr t'
+            liftIO $ putStrLn $ "addSubstM " ++ ppv ++ " = " ++ ppt'
         updateHeadTDict l "addSubstM" $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert vn t' (unTSubsts $ tSubsts d) })
         removeFree vn
         when dirty $ dirtyGDependencies (locpos l) $ VIden vn
