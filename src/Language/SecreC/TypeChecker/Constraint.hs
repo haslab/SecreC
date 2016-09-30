@@ -436,7 +436,7 @@ tcCstrM l k = do
     k <- newTCstr l $ TcK k st
     --gr <- liftM (tCstrs . head . tDict) State.get
     --doc <- ppConstraints gr
-    --liftIO $ putStrLn $ "tcCstrMexit " ++ ppr (maybe (-1) ioCstrId k) ++" " ++ show doc
+    debugTc $ liftIO $ putStrLn $ "tcCstrMexit " ++ pprid (maybe (-1) ioCstrId k)
     return k
 
 topTcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
