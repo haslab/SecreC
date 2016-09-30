@@ -436,7 +436,7 @@ tcCstrM l k = do
     k <- newTCstr l $ TcK k st
     --gr <- liftM (tCstrs . head . tDict) State.get
     --doc <- ppConstraints gr
-    debugTc $ liftIO $ putStrLn $ "tcCstrMexit " ++ pprid (maybe (-1) ioCstrId k)
+    --debugTc $ liftIO $ putStrLn $ "tcCstrMexit " ++ pprid (maybe (-1) ioCstrId k)
     return k
 
 topTcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
@@ -446,10 +446,11 @@ newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe IOCstr)
 newTCstr l k = do
     deps <- getDeps
     iok <- newTemplateConstraint l k
+    debugTc $ liftIO $ putStrLn $ "newTCstr: " ++ pprid (ioCstrId iok)
     addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
     
     if (isGlobalCstr k)
-        then return Nothing
+        then return (Just iok)
         else catchError
             (defaultSolveMode >>= \mode -> solveNewCstr_ l mode iok >> return Nothing)
             (\e -> if (isHaltError e) then return (Just iok) else throwError e)
