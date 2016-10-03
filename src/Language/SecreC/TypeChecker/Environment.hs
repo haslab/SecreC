@@ -85,6 +85,15 @@ withFrees l m = do
     State.modify $ \env -> env { localFrees = old }
     return (x,new,old `Map.difference` new)
 
+onFrees :: ProverK loc m => loc -> TcM m a -> TcM m a
+onFrees l m = do
+    old <- State.gets localFrees
+    State.modify $ \env -> env { localFrees = Map.empty }
+    x <- m
+    State.modify $ \env -> env { localFrees = old }
+    return x
+
+
 getDoSolve :: Monad m => TcM m Bool
 getDoSolve = State.gets (\e -> length (tDict e) <= 1)
 
@@ -1127,9 +1136,11 @@ resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Mayb
 resolveIOCstr l iok resolve = do
     st <- readCstrStatus (locpos l) iok
     case st of
-        Evaluated rest x -> do
+        Evaluated rest (frees,delfrees) x -> do
             remove
             addHeadTDict l "resolveIOCstr" rest
+            forM_ (Map.toList frees) $ \(v,isVariadic) -> addFree v isVariadic
+            forM_ (Map.toList delfrees) $ \(v,_) -> removeFree v
             debugTc $ do
                 ppiok <- ppr (ioCstrId iok)
                 pprest <- ppr rest
@@ -1142,10 +1153,10 @@ resolveIOCstr l iok resolve = do
         openCstr l iok
         gr <- liftM (tCstrs . head . tDict) State.get
         let ctx = contextGr gr (ioCstrId iok)
-        (x,rest) <- tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
+        ((x,rest),frees,delfrees) <- withFrees l $ tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
         remove
         closeCstr
-        writeCstrStatus (locpos l) iok $ Evaluated rest x
+        writeCstrStatus (locpos l) iok $ Evaluated rest (frees,delfrees) x
         addHeadTDict l "writeTCstrStatus" rest
         liftIO $ registerIOCstrDependencies iok gr ctx
         --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
@@ -1685,10 +1696,15 @@ class Variable var => ToVariable x var | x -> var where
     fromVar :: var -> x
     tryResolve :: ProverK loc m => loc -> var -> TcM m (Maybe x)
     
-    getReadableVar :: x -> Maybe var
-    getReadableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
-    getWritableVar :: x -> Maybe var
-    getWritableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
+isTok :: Variable var => var -> Bool
+isTok v = not (isReadable v) && not (isWritable v)
+
+getReadableVar :: ToVariable x var => x -> Maybe var
+getReadableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
+getWritableVar :: ToVariable x var => x -> Maybe var
+getWritableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
+getTokVar :: ToVariable x var => x -> Maybe var
+getTokVar = maybe Nothing (\v -> if isTok v then Just v else Nothing) . getVar
 
 readable2 :: (ToVariable x1 var1,ToVariable x2 var2,ProverK loc m) => (x1 -> x2 -> TcM m b) -> loc -> x1 -> x2 -> TcM m b
 readable2 = readable2' True True

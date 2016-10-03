@@ -591,7 +591,7 @@ instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = lim
                 ppl <- ppr l
                 addDicts >> matchName >> proveHead
                 solveWith p ("instantiate with names " ++ ppn ++ " " ++ ppp ++ " " ++ ppl ++ " " ++ show mode) mode
-                ((promoted,_),cache) <- withCstrState (locpos p) st $ onCache $ tcProveWith l "promote" (mode { solveFail = FirstFail False }) $ promote
+                ((promoted,_),cache) <- withCstrState (locpos p) st $ onFrees p $ onCache $ tcProveWith l "promote" (mode { solveFail = FirstFail False }) $ promote
                 return (cache)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks

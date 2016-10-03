@@ -131,6 +131,7 @@ data TCstrStatus
     = Unevaluated -- has never been evaluated
     | Evaluated -- has been evaluated
         TDict -- resolved dictionary (variables bindings and recursive constraints)
+        (Frees,Frees) -- (new frees,old frees)
         ShowOrdDyn -- result value
     | Erroneous -- has failed
         SecrecError -- failure error
@@ -1524,7 +1525,9 @@ ppConstraints d = do
         s <- readCstrStatus l c
         pre <- pp c
         case s of
-            Evaluated rest t -> return $ pre <+> char '=' <+> text (show t)
+            Evaluated rest frees t -> do
+                ppf <- pp frees
+                return $ pre <+> char '=' <+> text (show t) <+> text "with frees" <+> ppf
             Unevaluated -> return $ pre
             Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
     ss <- ppGrM ppK (const $ return PP.empty) d
