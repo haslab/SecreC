@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor, FunctionalDependencies #-}
 
 module Language.SecreC.TypeChecker.Environment where
 
@@ -146,10 +146,10 @@ getFrees l = do
     TSubsts ss <- getTSubsts l
     return $ Map.difference frees (Map.fromSet (const False) $ Map.keysSet ss)
 
-chooseVar :: ProverK loc m => loc -> VarIdentifier -> VarIdentifier -> TcM m Ordering
-chooseVar l v1 v2 | varIdTok v1 && not (varIdTok v2) = return GT
-chooseVar l v1 v2 | not (varIdTok v1) && varIdTok v2 = return LT
-chooseVar l v1 v2 = do
+chooseWriteVar :: ProverK loc m => loc -> VarIdentifier -> VarIdentifier -> TcM m Ordering
+--chooseWriteVar l v1 v2 | not (varIdWrite v1) && varIdWrite v2 = return GT
+--chooseWriteVar l v1 v2 | varIdWrite v1 && not (varIdWrite v2) = return LT
+chooseWriteVar l v1 v2 = do
     vs <- getFrees l
     case (Map.lookup v1 vs,Map.lookup v2 vs) of
         (Just _,Nothing) -> return LT
@@ -550,7 +550,7 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,Nothing)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
@@ -621,7 +621,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,Nothing)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
     dirtyGDependencies (locpos l) n
@@ -940,7 +940,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i,Nothing)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
@@ -987,7 +987,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
             NoCheckS -> add l (substDirty mode) t'
             otherwise -> do
                 vns <- usedVs t'
-                if (varIdTok vn || Set.member vn vns)
+                if (not (varIdWrite vn) || Set.member vn vns)
                     then do -- add verification condition
                         case substCheck mode of
                             NoFailS -> do
@@ -1372,7 +1372,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
     addSubst l mode (ss,ks) (v,t) = do
         t' <- substFromTSubsts "appendTSubsts" l ss False Map.empty t
         vs <- usedVs t'
-        if (varIdTok v || Set.member v vs)
+        if (not (varIdWrite v) || Set.member v vs)
             then do
                 case substCheck mode of
                     NoFailS -> do
@@ -1581,8 +1581,8 @@ onlyLeak l doc m = do
     x <- m
     return x
 
-nonTok v = varIdTok v == False
-tokVar v = v { varIdTok = True }
+--nonTok v = varIdTok v == False
+tokVar v = v { varIdRead = False, varIdWrite = False }
 
 getDecClass :: MonadIO m => Maybe GIdentifier -> TcM m DecClass
 getDecClass Nothing = State.gets decClass
@@ -1660,3 +1660,129 @@ decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees [] body) =
 decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees specials body) =
     -- a specialization uses the specialized arguments
     map (mapFst (flip Constrained Nothing)) specials
+
+unWrite :: Vars GIdentifier m a => a -> m a
+unWrite x = State.evalStateT (unWriteM x) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
+
+unWriteM :: Vars GIdentifier m a => a -> VarsM GIdentifier m a
+unWriteM x = do
+    mbiden <- State.lift $ substL x
+    x' <- case mbiden of -- try to substitute first
+        Nothing -> return x
+        Just (v::GIdentifier) -> do
+            v' <- case v of
+                VIden vi -> return $ VIden $ vi { varIdWrite = False }
+                otherwise -> return v
+            State.lift $ unSubstL x v' 
+    traverseVars unWriteM x'
+
+class Variable var where
+    isReadable :: var -> Bool
+    isWritable :: var -> Bool
+
+class Variable var => ToVariable x var | x -> var where
+    getVar :: x -> Maybe var
+    fromVar :: var -> x
+    tryResolve :: ProverK loc m => loc -> var -> TcM m (Maybe x)
+    
+    getReadableVar :: x -> Maybe var
+    getReadableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
+    getWritableVar :: x -> Maybe var
+    getWritableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
+
+readable2 :: (ToVariable x1 var1,ToVariable x2 var2,ProverK loc m) => (x1 -> x2 -> TcM m b) -> loc -> x1 -> x2 -> TcM m b
+readable2 = readable2' True True
+    where
+    readable2' True r2 go l e1@(getReadableVar -> Just v1) e2 = do
+        mb <- tryResolve l v1
+        case mb of
+            Just e1' -> readable2' True r2 go l e1' e2
+            Nothing -> readable2' False r2 go l e1 e2
+    readable2' r1 True go l e1 e2@(getReadableVar -> Just v2) = do
+        mb <- tryResolve l v2
+        case mb of
+            Just e2' -> readable2' r1 True go l e1 e2'
+            Nothing -> readable2' r1 False go l e1 e2
+    readable2' r1 r2 go l e1 e2 = go e1 e2
+
+readable1 :: (ToVariable x var,ProverK loc m) => (x -> TcM m b) -> loc -> x -> TcM m b
+readable1 = readable1' True
+    where
+    readable1' True go l e1@(getReadableVar -> Just v1) = do
+        mb <- tryResolve l v1
+        case mb of
+            Just e1' -> readable1' True go l e1'
+            Nothing -> readable1' False go l e1
+    readable1' r1 go l e1 = go e1
+
+assignable :: (ToVariable x var,ProverK loc m) => (x -> TcM m b) -> (var -> TcM m b) -> (var -> TcM m b) -> loc -> var -> TcM m b
+assignable bound ass go l v = assignable' True l v
+    where
+    assignable' True l v@(isReadable -> True) = do
+        mb <- tryResolve l v
+        case mb of
+            Nothing -> assignable' False l v
+            Just x' -> bound x'
+    assignable' r l v@(isWritable -> True) = ass v
+    assignable' r l x = go x
+
+
+instance Variable (VarName VarIdentifier Type) where
+    isReadable (VarName _ n) = varIdRead n
+    isWritable (VarName _ n) = varIdWrite n
+
+instance ToVariable Expr (VarName VarIdentifier Type) where
+    getVar (RVariablePExpr _ (VarName t1 (VIden n1))) = Just $ VarName t1 n1
+    getVar _ = Nothing
+    fromVar (VarName t1 n1) = RVariablePExpr t1 $ VarName t1 $ VIden n1
+    tryResolve l (VarName t1 n1) = liftM (fmap (fmap typed)) $ tryResolveEVar l n1 t1
+
+instance Variable (VarIdentifier) where
+    isReadable (v1) = varIdRead v1
+    isWritable (v1) = varIdWrite v1
+
+instance Variable (VarIdentifier,b) where
+    isReadable (v1,k1) = varIdRead v1
+    isWritable (v1,k1) = varIdWrite v1
+    
+instance Variable (VarIdentifier,b,c) where
+    isReadable (v1,_,_) = varIdRead v1
+    isWritable (v1,_,_) = varIdWrite v1
+
+instance ToVariable SecType (VarIdentifier,KindType) where
+    getVar (SVar v1 k1) = Just (v1,k1)
+    getVar s = Nothing
+    fromVar (v1,k1) = SVar v1 k1
+    tryResolve l (v1,k1) = tryResolveSVar l v1 k1
+
+instance ToVariable ComplexType (VarIdentifier,Bool) where
+    getVar (CVar v1 k1) = Just (v1,k1)
+    getVar s = Nothing
+    fromVar (v1,k1) = CVar v1 k1
+    tryResolve l (v1,k1) = tryResolveCVar l v1 k1
+
+instance ToVariable DecType VarIdentifier where
+    getVar (DVar v1) = Just v1
+    getVar s = Nothing
+    fromVar (v1) = DVar v1
+    tryResolve l (v1) = tryResolveDVar l v1
+
+instance ToVariable BaseType (VarIdentifier,Maybe DataClass) where
+    getVar (BVar v1 k1) = Just (v1,k1)
+    getVar s = Nothing
+    fromVar (v1,k1) = BVar v1 k1
+    tryResolve l (v1,k1) = tryResolveBVar l v1 k1
+
+instance ToVariable KindType (VarIdentifier,Maybe KindClass) where
+    getVar (KVar v1 k1) = Just (v1,k1)
+    getVar s = Nothing
+    fromVar (v1,k1) = KVar v1 k1
+    tryResolve l (v1,k1) = tryResolveKVar l v1 k1
+
+instance ToVariable VArrayType (VarIdentifier,Type,Expr) where
+    getVar (VAVar v1 b1 sz1) = Just (v1,b1,sz1)
+    getVar s = Nothing
+    fromVar (v1,b1,sz1) = VAVar v1 b1 sz1
+    tryResolve l (v1,b1,sz1) = tryResolveVAVar l v1 b1 sz1
+
+

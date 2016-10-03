@@ -173,27 +173,27 @@ decDafnyIds :: DecType -> Maybe (DafnyId,DafnyId,[Type])
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (ProcType _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = pIdenToDafnyId pn tid
-    (bid) = maybe (did) (\(tid,_) -> pIdenToDafnyId pn tid) isRec
+    (bid) = maybe (did) (\(tid) -> pIdenToDafnyId pn tid) isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = fIdenToDafnyId pn tid isLeak
-    (bid) = maybe (did) ((\(tid,_) -> fIdenToDafnyId pn tid isLeak)) isRec
+    (bid) = maybe (did) ((\(tid) -> fIdenToDafnyId pn tid isLeak)) isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (StructType _ sn _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = SId sn tid
-    (bid) = maybe (did) (\(tid,_) -> SId sn tid) isRec
+    (bid) = maybe (did) (\(tid) -> SId sn tid) isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just (did,bid,ts)
     where
     did = AId tid isLeak
-    (bid) = maybe (did) (\(tid,_) -> AId tid isLeak) isRec
+    (bid) = maybe (did) (\(tid) -> AId tid isLeak) isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = LId (funit pn) tid isLeak
-    (bid) = maybe (did) ((\(tid,_) -> LId (funit pn) tid isLeak)) isRec
+    (bid) = maybe (did) ((\(tid) -> LId (funit pn) tid isLeak)) isRec
     ts = decDafnyTypes d
 decDafnyIds dec = Nothing
 

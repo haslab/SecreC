@@ -5,7 +5,7 @@
 
 The SecreC analyser is a self-contained static code analysis tool being developed by the [HasLab](http://haslab.uminho.pt/) that aims to increase the level of assurance awarded by the Sharemind system, by allowing application developers to verify, validate and optimize their high-level SecreC programs.
 
-This tool takes a set of specific analysis and transformation flags, receives a (possibly annotated) SecreC program as input and returns a transformed SecreC program as output. Its goal is to implement data flows and optimizations that go beyond the current analyses performed by the SecreC compiler, including state-of-the-art techniques from information flow type systems and optimisation of secure multiparty computation protocols. It currently supports typechecking, simplification and verification of SecreC programs.
+This tool takes a set of specific analysis and transformation flags, receives a (possibly annotated) SecreC program as input and returns a transformed SecreC program as output. Its goal is to verify data flows and optimizations using formal verification techniques that go beyond the simpler analyses performed by the SecreC compiler. It currently supports typechecking, simplification and verification of SecreC programs.
 
 A programmer interacts with the SecreC analyser in the same way as with a typical compiler: as the tool produces errors, and the programmer responds by changing the program, including its security types and specifications.
 
@@ -56,7 +56,7 @@ secrec --help
 ```
 
 #### Tests:
-Before testing make sure that you have packages 'hspec', 'hspec-core' and 'hspec-contrib' installed:
+Before testing, make sure that you have the following packages installed:
 ```
 cabal install hspec
 cabal install hspec-core

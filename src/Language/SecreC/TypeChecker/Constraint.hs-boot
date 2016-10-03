@@ -82,7 +82,7 @@ unifiesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m ()
 
 isTyOf :: (ProverK loc m) => loc -> Type -> Type -> TcM m Bool
 
-expandCTypeVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
+expandCTypeVar :: (ProverK loc m) => loc -> VarIdentifier -> Bool -> TcM m ComplexType
 
 assignsExprTy :: (ProverK loc m) => loc -> Var -> Expr -> TcM m ()
 
@@ -92,13 +92,13 @@ tcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 
 resolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m Type
 
-tryResolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe ComplexType)
+tryResolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> Bool -> TcM m (Maybe ComplexType)
 
 tryResolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe Type)
 
 solve :: (ProverK loc m) => loc -> String -> TcM m ()
 
-resolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m ComplexType
+resolveCVar :: (ProverK loc m) => loc -> VarIdentifier -> Bool -> TcM m ComplexType
 
 resolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m DecType
 
@@ -110,11 +110,19 @@ expandVariadicExpr :: (ProverK loc m) => loc -> Bool -> (Expr,IsVariadic) -> TcM
 
 expandVariadicType :: (ProverK loc m) => loc -> (Type,IsVariadic) -> TcM m [Type]
 
-resolveBVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m BaseType
+resolveBVar :: (ProverK loc m) => loc -> VarIdentifier -> Maybe DataClass -> TcM m BaseType
 
-resolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m SecType
+resolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> KindType -> TcM m SecType
 
-tryResolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe SecType)
+tryResolveBVar :: (ProverK loc m) => loc -> VarIdentifier -> Maybe DataClass -> TcM m (Maybe BaseType)
+
+tryResolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> KindType -> TcM m (Maybe SecType)
+
+tryResolveKVar :: (ProverK loc m) => loc -> VarIdentifier -> Maybe KindClass -> TcM m (Maybe KindType)
+
+tryResolveVAVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> Expr -> TcM m (Maybe VArrayType)
+
+tryResolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe DecType)
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 

@@ -230,7 +230,7 @@ instance (GenVar iden m,IsScVar m iden,MonadIO m) => Vars iden m IUOp where
     traverseVars f o = return o
 
 type ProverK loc m = (SMTK loc,Vars GIdentifier (TcM m) loc,VarsGTcM m,Location loc)
-type SMTK loc = (VarsGTcM Symbolic,Location loc)
+type SMTK loc = (VarsGTcM Symbolic,Location loc,Vars GIdentifier (TcM Symbolic) loc)
 
 instance MonadBase IO Symbolic where
     liftBase = liftIO

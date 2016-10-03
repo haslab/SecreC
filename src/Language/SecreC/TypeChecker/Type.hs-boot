@@ -20,7 +20,7 @@ typeToSecType :: (ProverK loc m) => loc -> Type -> TcM m SecType
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType
 typeToDecType :: (ProverK loc m) => loc -> Type -> TcM m DecType
-typeToVArrayType :: (ProverK loc m) => loc -> Type -> Expression GIdentifier Type -> TcM m VArrayType
+typeToVArrayType :: (ProverK loc m) => loc -> Type -> TcM m VArrayType
 typeToKindType :: (ProverK loc m) => loc -> Type -> TcM m KindType
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr

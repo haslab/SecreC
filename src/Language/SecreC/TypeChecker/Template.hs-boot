@@ -11,4 +11,4 @@ import Language.SecreC.Position
 
 localTemplate :: (ProverK loc m) => loc -> EntryEnv -> TcM m EntryEnv
 
-matchTemplate :: (ProverK loc m) => loc -> Int -> Bool -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> Maybe [Var] -> TcM m [EntryEnv] -> TcM m DecType
+matchTemplate :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> TcM m [EntryEnv] -> TcM m DecType

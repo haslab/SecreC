@@ -105,9 +105,29 @@ iLit2SBV (IFloat32 i) = return $ SFloat32 $ realToFrac i
 iLit2SBV (IFloat64 i) = return $ SFloat64 $ realToFrac i
 iLit2SBV (IBool b) = return $ SBool $ fromBool b
 
+iIdx2SBV :: SMTK loc => loc -> Bool -> Var -> TcSBV SBVal
+iIdx2SBV l True v@(VarName t (VIden n@(varIdRead -> True))) = do
+    mb <- lift $ tryResolveEVar l n t
+    case mb of
+        Just e -> lift (expr2IExpr e) >>= iExpr2SBV l
+        Nothing -> iIdx2SBV l False v
+iIdx2SBV l r v@(VarName t (VIden n)) = do
+    (inHyp,sbvs) <- State.get
+    case Map.lookup n sbvs of
+        Just i -> return i
+        Nothing -> do
+            unless inHyp $ do
+                ppn <- lift $ pp n
+                lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (ppn)
+            i <- do
+                ppv <- lift $ ppr v
+                lift $ lift $ sbVal (ppv) t
+            State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n i sbvs)
+            return i
+
 iExpr2SBV :: SMTK loc => loc -> IExpr -> TcSBV SBVal
 iExpr2SBV l (ILit lit) = iLit2SBV lit
-iExpr2SBV l (IIdx v@(VarName _ (VIden n@(nonTok -> True)))) = tryResolveIExprVar (locpos l) v
+iExpr2SBV l (IIdx v) = iIdx2SBV l True v
 iExpr2SBV l (IBinOp o e1 e2) = do
     e1' <- iExpr2SBV l e1
     e2' <- iExpr2SBV l e2
@@ -213,22 +233,3 @@ sbVal v (BaseT (TyPrim (DatatypeXorUint32 _))) = liftM SUint32 $ sWord32 v
 sbVal v (BaseT (TyPrim (DatatypeXorUint64 _))) = liftM SUint64 $ sWord64 v
 sbVal v (BaseT (TyPrim (DatatypeFloat32   _))) = liftM SFloat32 $ sFloat v
 sbVal v (BaseT (TyPrim (DatatypeFloat64   _))) = liftM SFloat64 $ sDouble v
-
-tryResolveIExprVar :: Position -> Var -> TcSBV SBVal
-tryResolveIExprVar l v@(VarName t (VIden n@(nonTok -> True))) = do
-    mb <- lift $ tryResolveEVar l n t
-    case mb of
-        Just e -> lift (expr2IExpr e) >>= iExpr2SBV l
-        Nothing -> do
-            (inHyp,sbvs) <- State.get
-            case Map.lookup n sbvs of
-                Just i -> return i
-                Nothing -> do
-                    unless inHyp $ do
-                        ppn <- lift $ pp n
-                        lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (ppn)
-                    i <- do
-                        ppv <- lift $ ppr v
-                        lift $ lift $ sbVal (ppv) t
-                    State.modify $ \(inHyp,sbvs) -> (inHyp,Map.insert n i sbvs)
-                    return i

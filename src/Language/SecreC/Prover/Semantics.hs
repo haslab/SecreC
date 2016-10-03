@@ -67,7 +67,7 @@ evaluate l doc m = do
 
 evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
 evalIExpr l (ILit lit) = return lit
-evalIExpr l (IIdx v@(VarName t (VIden n@(nonTok -> True)))) = do
+evalIExpr l (IIdx v@(VarName t (VIden n@(varIdRead -> True)))) = do
     mb <- tryResolveEVar l n t
     case mb of
         Nothing -> do
