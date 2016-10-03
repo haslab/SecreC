@@ -164,6 +164,7 @@ expr2ProverMb e@(UnaryExpr l o e1) = proverProcError "unary" (typed $ loc o) e
 expr2ProverMb e@(BinaryExpr l e1 o e2) = proverProcError "binary" (typed $ loc o) e
 expr2ProverMb e@(ProcCallExpr l n ts es) = proverProcError "proccall" (typed $ loc n) e
 expr2ProverMb e@(BuiltinExpr l n args) = builtin2Prover (unTyped l) n args
+expr2ProverMb e@(QualExpr l e1 t) = expr2ProverMb e1
 expr2ProverMb e = lift $ do
     ppe <- ppExprTy (fmap typed e)
     genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> ppe <+> text "to prover expression"
