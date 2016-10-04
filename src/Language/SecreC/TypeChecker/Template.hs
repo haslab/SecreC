@@ -79,11 +79,11 @@ decLineage (DecType i j _ _ _ _ _ _ _) = i : maybeToList j
 -- | Matches a list of template arguments against a list of template declarations
 matchTemplate :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> Maybe Type -> TcM m [EntryEnv] -> TcM m DecType
 matchTemplate l kid n targs pargs ret check = do
-    entries <- check
+    entries <- liftM sortEntries check
     debugTc $ do
         ppentries <- mapM (pp . entryType) entries
         liftIO $ putStrLn $ "matches " ++ show (vcat $ ppentries)
-    (instances,_) <- instantiateTemplateEntries Set.empty l kid n targs pargs ret $ sortEntries entries
+    (instances,_) <- instantiateTemplateEntries Set.empty l kid n targs pargs ret entries
     let oks = rights instances
     let errs = lefts instances
     def <- ppTpltAppM l n targs pargs ret
