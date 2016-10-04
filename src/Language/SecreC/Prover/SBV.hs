@@ -44,10 +44,10 @@ hyp2SBV l c = do
     State.modify $ \(_,st) -> (inHyp,st)
     lift $ lift $ constrain h
 
-proveWithTcSBV :: (MonadIO m) => SMTConfig -> TcSBV SBool -> TcM m ThmResult
+proveWithTcSBV :: (MonadIO m) => SMTConfig -> TcSBV SBool -> TcM m (Either SecrecError ThmResult)
 proveWithTcSBV cfg m = proveWithTcM cfg $ evalStateT m (False,Map.empty)
 
-proveWithTcM :: (MonadIO m) => SMTConfig -> TcM Symbolic SBool -> TcM m ThmResult
+proveWithTcM :: (MonadIO m) => SMTConfig -> TcM Symbolic SBool -> TcM m (Either SecrecError ThmResult)
 proveWithTcM cfg m = do
     arr <- Reader.ask
     env <- State.get
@@ -65,12 +65,11 @@ proveWithTcM cfg m = do
     res <- liftIO $ proveWith cfg sym
     e <- liftIO $ readIORef st
     case e of
-        Left err -> do
-            throwError err
+        Left err -> return $ Left err
         Right (env',warns) -> do
             State.put env'
             TcM $ lift $ tell warns
-    return res
+            return $ Right res
 
 
 type TcSBV = StateT (Bool,SBVals) (TcM Symbolic)

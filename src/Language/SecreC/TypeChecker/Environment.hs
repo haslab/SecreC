@@ -983,7 +983,7 @@ data SubstCheck = CheckS | NoFailS | NoCheckS
     deriving (Eq,Data,Typeable,Show)
 
 addSubstM :: (ProverK loc m) => loc -> SubstMode -> Var -> Type -> TcM m ()
-addSubstM l mode v@(VarName vt (VIden vn)) t = do
+addSubstM l mode v@(VarName vt (VIden vn@(varIdWrite -> True))) t = do
     ppv <- pp v
     addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> ppv) . Just) $ do
         when (substDirty mode) $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
@@ -996,7 +996,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
             NoCheckS -> add l (substDirty mode) t'
             otherwise -> do
                 vns <- usedVs t'
-                if (not (varIdWrite vn) || Set.member vn vns)
+                if (Set.member vn vns)
                     then do -- add verification condition
                         case substCheck mode of
                             NoFailS -> do
@@ -1007,7 +1007,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
                                 let tv = (varNameToType v)
                                 pptv <- pp tv
                                 ppt' <- pp t'
-                                addErrorM l (TypecheckerError (locpos l) . (EqualityException ("substitution with type")) (pptv) (ppt') . Just) $ tcCstrM_ l $ Equals tv t'
+                                addErrorM l (TypecheckerError (locpos l) . (UnificationException ("substitution with type")) (pptv) (ppt') . Just) $ tcCstrM_ l $ Equals tv t'
                     else add l (substDirty mode) t'
   where
     add :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
@@ -1702,7 +1702,7 @@ isTok v = not (isReadable v) && not (isWritable v)
 getReadableVar :: ToVariable x var => x -> Maybe var
 getReadableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
 getWritableVar :: ToVariable x var => x -> Maybe var
-getWritableVar = maybe Nothing (\v -> if isReadable v then Just v else Nothing) . getVar
+getWritableVar = maybe Nothing (\v -> if isWritable v then Just v else Nothing) . getVar
 getTokVar :: ToVariable x var => x -> Maybe var
 getTokVar = maybe Nothing (\v -> if isTok v then Just v else Nothing) . getVar
 

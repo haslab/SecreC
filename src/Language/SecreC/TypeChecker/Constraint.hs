@@ -1211,20 +1211,16 @@ cSecM l (CVar v@(varIdRead -> True) isNotVoid) = resolveCVar l v isNotVoid >>= c
 cSecM l Void = genTcError (locpos l) $ text "no security type for void"
 
 coercesSecDimSizes :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesSecDimSizes l e1@(loc -> ComplexT (CVar v1@(varIdRead -> True) k1)) x2 = do
-    ct1 <- resolveCVar l v1 k1
-    coercesSecDimSizes l (updLoc e1 $ ComplexT ct1) x2
-coercesSecDimSizes l e1 x2@(loc -> ComplexT (CVar v2@(varIdRead -> True) k2)) = do
-    ct2 <- resolveCVar l v2 k2
-    coercesSecDimSizes l e1 (updLoc x2 $ ComplexT ct2)
-coercesSecDimSizes l e1@(loc -> ComplexT (CType s1 b1 d1)) x2@(loc -> ComplexT (CType s2 b2 d2)) = do
-    let t3 = ComplexT $ CType s1 b2 d2 -- intermediate type
-    pp1 <- pp e1
-    x3 <- newTypedVar "e" t3 False $ Just $ pp1
---    liftIO $ putStrLn $ "coercesSecDimSizes: " ++ ppr l ++ " " ++ ppr e1 ++ " " ++ ppr x2 ++ " " ++ ppr x3
-    coercesDimSizes l e1 x3
-    coercesSec l (varExpr x3) x2
-coercesSecDimSizes l e1 x2 = constraintError (CoercionException "complex type security dimension") l e1 ppExprTy x2 ppVarTy Nothing
+coercesSecDimSizes l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = readable2 coercesSecDimSizes' l ct1 ct2
+    where
+    coercesSecDimSizes' ct1@(CType s1 b1 d1) (CType s2 b2 d2) = do
+        let t3 = ComplexT $ CType s1 b2 d2 -- intermediate type
+        pp1 <- pp e1
+        x3 <- newTypedVar "e" t3 False $ Just $ pp1
+    --    liftIO $ putStrLn $ "coercesSecDimSizes: " ++ ppr l ++ " " ++ ppr e1 ++ " " ++ ppr x2 ++ " " ++ ppr x3
+        coercesDimSizes l (updLoc e1 $ ComplexT ct1) (updLoc x3 t3)
+        coercesSec l (varExpr x3) (updLoc x2 $ ComplexT ct2)
+    coercesSecDimSizes' ct1 ct2 = constraintError (CoercionException "complex type security dimension") l e1 ppExprTy x2 ppVarTy Nothing
 
 isZeroIdxExpr :: ProverK loc m => loc -> Expr -> TcM m ()
 isZeroIdxExpr l e = do
@@ -1234,8 +1230,12 @@ isZeroIdxExpr l e = do
         otherwise -> genTcError (locpos l) $ text "non-zero index expression"
 
 coercesDimSizes :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT ct2@(CType s2 b2 d2)) = coercesDimSizes' d1 d2
-    where
+coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT ct2@(CType s2 b2 d2)) = do
+    pp1 <- (ppExprTy e1)
+    pp2 <- (ppVarTy x2)
+    addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type dimension") pp1 pp2 . Just) $
+        coercesDimSizes' d1 d2
+  where
     coercesDimSizes' (getTokVar -> Just v1) d2 = assignsExprTy l x2 e1
     coercesDimSizes' d1 (getTokVar -> Just v2) = assignsExprTy l x2 e1
     coercesDimSizes' d1 d2 = do

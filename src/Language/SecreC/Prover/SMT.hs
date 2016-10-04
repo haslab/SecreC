@@ -122,16 +122,19 @@ validitySBV l cfg str sprop = do
 --  liftIO $ putStrLn smt
     when (debugTypechecker opts) $ do
         ppl <- ppr (locpos l)
-        liftIO $ hPutStrLn stderr (ppl ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
+        liftIO $ hPutStr stderr (ppl ++ ": Calling external SMT solver " ++ show cfg ++ " to check " ++ str ++ " ... ")
     r <- proveWithTcSBV cfg sprop
     case r of
-        ThmResult (Unsatisfiable _) -> do
+        Left err -> do
+            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "failed: " ++ pprid err
+            throwError err
+        Right (ThmResult (Unsatisfiable _)) -> do
             when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr "ok"
-        ThmResult (Satisfiable _ _) -> do
-            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr "falsifiable"
+        Right (ThmResult (Satisfiable _ _)) -> do
+            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "falsifiable: " ++ show r
             genTcError (UnhelpfulPos $ show cfg) $ text $ show r
         otherwise -> do
-            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr "error"
+            when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "failed: " ++ show r
             genTcError (UnhelpfulPos $ show cfg) $ text $ show r
 
 -- * Generic interface
