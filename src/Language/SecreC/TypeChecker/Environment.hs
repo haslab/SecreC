@@ -883,20 +883,19 @@ splitHeadFrees l deps = do
     let bfrees = Map.difference frees hfrees
     return (hfrees,bfrees)
     
-writetpltVars :: [(Constrained Var,IsVariadic)] -> TSubsts
-writetpltVars [] = emptyTSubsts
-writetpltVars ((unConstrained -> v@(VarName t (VIden n)),_):xs) = TSubsts $ Map.insert n t' (unTSubsts $ writetpltVars xs)
-    where
-    t' = varNameToType $ VarName t $ VIden n{ varIdWrite = True }
+writeTpltVars :: [(Constrained Var,IsVariadic)] -> (VarIdentifier -> VarIdentifier)
+writeTpltVars [] = id
+writeTpltVars ((unConstrained -> v@(VarName t (VIden n)),_):xs) = \x -> if x==n then n{varIdWrite = True} else writeTpltVars xs x
     
 splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (PureTDict,Frees,PureTDict,Frees,([(Constrained Var,IsVariadic)],a))
 splitTpltHead l deps vars dec = do
     d <- liftM (head . tDict) State.get
-    let hbsubsts = tSubsts d `mappend` writetpltVars vars
-    vars' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty vars
+    let chg = writeTpltVars vars
+    let hbsubsts = tSubsts d
+    vars' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty vars >>= chgVarId chg
     frees <- getFrees l
-    dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec
-    cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty $ toPureCstrs $ tCstrs d
+    dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec >>= chgVarId chg
+    cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty (toPureCstrs $ tCstrs d) >>= chgVarId chg
     freevars <- usedVs cstrs
     forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Set.member v freevars) $ do
         ppv <- pp v
