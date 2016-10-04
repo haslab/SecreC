@@ -1584,15 +1584,15 @@ compares l isLattice t1 t2 = do
 comparesDec :: (ProverK loc m) => loc -> DecType -> DecType -> TcM m (Comparison (TcM m))
 comparesDec l = readable2 comparesDec' l
     where
-    comparesDec' t1@(getWritableVar -> Just v1) t2@(getWritableVar -> Just v2) = do
+    comparesDec' t1@(getReadableVar -> Just v1) t2@(getReadableVar -> Just v2) = do
         x <- decToken
         addSubstM l (SubstMode CheckS False) (tyToVar $ DecT t1) $ DecT x
         addSubstM l (SubstMode CheckS False) (tyToVar $ DecT t2) $ DecT x
         return (Comparison t1 t2 EQ EQ)      
-    comparesDec' t1 t2@(getWritableVar -> Just v1) = do
+    comparesDec' t1 t2@(getReadableVar -> Just v1) = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ DecT t2) $ DecT t1
         return (Comparison t1 t2 LT EQ)
-    comparesDec' t1@(getWritableVar -> Just v2) t2 = do
+    comparesDec' t1@(getReadableVar -> Just v2) t2 = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ DecT t1) $ DecT t2
         return (Comparison t1 t2 GT EQ)
     comparesDec' t1 t2 = do
@@ -1608,15 +1608,15 @@ comparesArray l isLattice = readable2 comparesArray' l
     comparesArray' a1@(VAVal ts1 _) a2@(VAVal ts2 _) = do
         comparesList l isLattice ts1 ts2
     comparesArray' a1@(VAVar v1 b1 sz1) a2@(VAVar v2 b2 sz2) | v1 == v2 = return (Comparison a1 a2 EQ EQ)
-    comparesArray' a1@(getWritableVar -> Just (v1,b1,sz1)) a2@(getWritableVar -> Just (v2,b2,sz2)) = do
+    comparesArray' a1@(getReadableVar -> Just (v1,b1,sz1)) a2@(getReadableVar -> Just (v2,b2,sz2)) = do
         x <- arrayToken b1 sz1
         addSubstM l (SubstMode CheckS False) (tyToVar $ VArrayT a1) $ VArrayT x
         addSubstM l (SubstMode CheckS False) (tyToVar $ VArrayT a2) $ VArrayT x
         return $ Comparison a1 a2 EQ EQ     
-    comparesArray' a1 a2@(getWritableVar -> Just (v2,b2,sz2)) = do
+    comparesArray' a1 a2@(getReadableVar -> Just (v2,b2,sz2)) = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ VArrayT a2) $ VArrayT a2
         return $ Comparison a1 a2 LT EQ
-    comparesArray' a1@(getWritableVar -> Just (v1,b1,sz1)) a2 = do
+    comparesArray' a1@(getReadableVar -> Just (v1,b1,sz1)) a2 = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ VArrayT a1) $ VArrayT a2
         return $ Comparison a1 a2 GT EQ
     comparesArray' a1 a2 = constraintError (ComparisonException "array type") l a1 pp a2 pp Nothing
@@ -1632,7 +1632,7 @@ comparesSec l isLattice = readable2 (comparesSec' isLattice) l
     comparesSec' isLattice t1@(SVar v1 k1) t2@(SVar v2 k2) | v1 == v2 = do
         equalsKind l k1 k2
         return (Comparison t1 t2 EQ EQ)
-    comparesSec' isLattice t1@(getWritableVar -> Just (v1,k1)) t2@(getWritableVar -> Just (v2,k2)) = do
+    comparesSec' isLattice t1@(getReadableVar -> Just (v1,k1)) t2@(getReadableVar -> Just (v2,k2)) = do
         cmpk <- comparesKind l isLattice k1 k2 >>= compOrderingM l
         case cmpk of
             LT -> return $ Comparison t1 t2 EQ LT
@@ -1642,10 +1642,10 @@ comparesSec l isLattice = readable2 (comparesSec' isLattice) l
                 addSubstM l (SubstMode CheckS False) (tyToVar $ SecT t1) $ SecT x
                 addSubstM l (SubstMode CheckS False) (tyToVar $ SecT t2) $ SecT x
                 return $ Comparison t1 t2 EQ EQ     
-    comparesSec' isLattice t1 t2@(getWritableVar -> Just (v2,k2)) = do
+    comparesSec' isLattice t1 t2@(getReadableVar -> Just (v2,k2)) = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ SecT t2) $ SecT t1
         return $ Comparison t1 t2 EQ LT
-    comparesSec' isLattice t1@(getWritableVar -> Just (v1,k1)) t2 = do
+    comparesSec' isLattice t1@(getReadableVar -> Just (v1,k1)) t2 = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ SecT t1) $ SecT t2
         return $ Comparison t1 t2 EQ GT
     comparesSec' isLattice t1 t2 = constraintError (ComparisonException $ show isLattice ++ " security type") l t1 pp t2 pp Nothing
@@ -1658,15 +1658,15 @@ comparesKind l isLattice = readable2 (comparesKind' isLattice) l
     comparesKind' True t1@PublicK t2@(PrivateK {}) = return (Comparison t1 t2 EQ LT) -- public computations are preferrable (because of coercions)
     comparesKind' True t1@(PrivateK {}) t2@PublicK = return (Comparison t1 t2 EQ GT) -- public computations are preferrable (because of coercions)
     comparesKind' isLattice t1@(KVar k1 priv1) t2@(KVar k2 priv2) | k1 == k2 = return (Comparison t1 t2 EQ EQ)
-    comparesKind' isLattice t1@(getWritableVar -> Just (v1,priv1)) t2@(getWritableVar -> Just (v2,priv2)) = do
+    comparesKind' isLattice t1@(getReadableVar -> Just (v1,priv1)) t2@(getReadableVar -> Just (v2,priv2)) = do
         x <- kindToken (max priv1 priv2)
         addSubstM l (SubstMode CheckS False) (VarName (KType priv1) $ VIden v1) $ KindT x
         addSubstM l (SubstMode CheckS False) (VarName (KType priv2) $ VIden v2) $ KindT x
         return $ Comparison t1 t2 EQ (compare priv2 priv1)    
-    comparesKind' isLattice t1 t2@(getWritableVar -> Just (v2,priv2)) = do
+    comparesKind' isLattice t1 t2@(getReadableVar -> Just (v2,priv2)) = do
         addSubstM l (SubstMode CheckS False) (VarName (KType priv2) $ VIden v2) $ KindT t1
         return $ Comparison t1 t2 EQ LT
-    comparesKind' isLattice t1@(getWritableVar -> Just (v1,priv1)) t2 = do
+    comparesKind' isLattice t1@(getReadableVar -> Just (v1,priv1)) t2 = do
         addSubstM l (SubstMode CheckS False) (VarName (KType priv1) $ VIden v1) $ KindT t2
         return $ Comparison t1 t2 EQ GT
     comparesKind' isLattice t1 t2 = constraintError (ComparisonException "kind type") l t1 pp t2 pp Nothing
@@ -1692,15 +1692,15 @@ comparesBase l isLattice = readable2 (comparesBase' isLattice) l
     comparesBase' isLattice t1@(TyPrim p1) t2@(TyPrim p2) = equalsPrim l p1 p2 >> return (Comparison t1 t2 EQ EQ)
     comparesBase' isLattice t1@(MSet b1) t2@(MSet b2) = comparesBase l isLattice b1 b2
     comparesBase' isLattice t1@(BVar v1 c1) t2@(BVar v2 c2) | v1 == v2 = return (Comparison t1 t2 EQ EQ)
-    comparesBase' isLattice t1@(getWritableVar -> Just (v1,c1)) t2@(getWritableVar -> Just (v2,c2)) = do
+    comparesBase' isLattice t1@(getReadableVar -> Just (v1,c1)) t2@(getReadableVar -> Just (v2,c2)) = do
         x <- baseToken (max c1 c2)
         addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t1) $ BaseT x
         addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t2) $ BaseT x
         return $ Comparison t1 t2 (compare c2 c1) EQ       
-    comparesBase' isLattice t1 t2@(getWritableVar -> Just (v2,c2)) = do
+    comparesBase' isLattice t1 t2@(getReadableVar -> Just (v2,c2)) = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t2) $ BaseT t1
         return $ Comparison t1 t2 LT EQ
-    comparesBase' isLattice t1@(getWritableVar -> Just (v1,c1)) t2 = do
+    comparesBase' isLattice t1@(getReadableVar -> Just (v1,c1)) t2 = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ BaseT t1) $ BaseT t2
         return $ Comparison t1 t2 GT EQ
     comparesBase' isLattice t1 t2 = constraintError (ComparisonException "base type") l t1 pp t2 pp Nothing
@@ -1715,15 +1715,15 @@ comparesComplex l isLattice = readable2 (comparesComplex' isLattice) l
         o3 <- comparesDim l isLattice d1 d2
         appendComparisons l [o1,o2,o3]
     comparesComplex' isLattice t1@(CVar v1 _) t2@(CVar v2 _) | v1 == v2 = return (Comparison t1 t2 EQ EQ)
-    comparesComplex' isLattice t1@(getWritableVar -> Just (v1,k1)) t2@(getWritableVar -> Just (v2,k2)) = do
+    comparesComplex' isLattice t1@(getReadableVar -> Just (v1,k1)) t2@(getReadableVar -> Just (v2,k2)) = do
         x <- complexToken
         addSubstM l (SubstMode CheckS False) (tyToVar $ ComplexT t1) $ ComplexT x
         addSubstM l (SubstMode CheckS False) (tyToVar $ ComplexT t2) $ ComplexT x
         return $ Comparison t1 t2 EQ EQ    
-    comparesComplex' isLattice t1 t2@(getWritableVar -> Just (v2,k2)) = do
+    comparesComplex' isLattice t1 t2@(getReadableVar -> Just (v2,k2)) = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ ComplexT t2) $ ComplexT t1
         return $ Comparison t1 t2 LT EQ
-    comparesComplex' isLattice t1@(getWritableVar -> Just (v1,k1)) t2 = do
+    comparesComplex' isLattice t1@(getReadableVar -> Just (v1,k1)) t2 = do
         addSubstM l (SubstMode CheckS False) (tyToVar $ ComplexT t1) $ ComplexT t2
         return $ Comparison t1 t2 GT EQ
     comparesComplex' isLattice t1 t2 = constraintError (ComparisonException "complex type") l t1 pp t2 pp Nothing
@@ -2536,15 +2536,15 @@ comparesExpr l doStatic e1 e2 = do
   where
 --    comparesExpr' :: (ProverK loc m) => Bool -> Bool -> loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
     comparesExpr' e1 e2 | e1 == e2 = return (Comparison e1 e2 EQ EQ)
-    comparesExpr' e1@(getWritableVar -> Just (VarName t1 n1)) e2@(getWritableVar -> Just (VarName t2 n2)) = do
+    comparesExpr' e1@(getReadableVar -> Just (VarName t1 n1)) e2@(getReadableVar -> Just (VarName t2 n2)) = do
         x <- exprToken
         addValueM l (SubstMode NoCheckS False) (VarName t1 $ VIden n1) x
         addValueM l (SubstMode NoCheckS False) (VarName t2 $ VIden n2) x
         return (Comparison e1 e2 EQ EQ)
-    comparesExpr' e1@(getWritableVar -> Just (VarName t1 n1)) e2 = do
+    comparesExpr' e1@(getReadableVar -> Just (VarName t1 n1)) e2 = do
         addValueM l (SubstMode NoCheckS False) (VarName t1 $ VIden n1) e2
         return (Comparison e1 e2 GT EQ)
-    comparesExpr' e1 e2@(getWritableVar -> Just (VarName t2 n2)) = do
+    comparesExpr' e1 e2@(getReadableVar -> Just (VarName t2 n2)) = do
         addValueM l (SubstMode NoCheckS False) (VarName t2 $ VIden n2) e1
         return (Comparison e1 e2 GT EQ)
     comparesExpr' e1 e2 = do

@@ -845,7 +845,7 @@ freeVar (VIden v,isVariadic) = do
     return ((VIden v',isVariadic),(VIden v,VIden v'))
     
 uniqueTyVar :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> (Constrained Var,IsVariadic) -> TcM m ((Constrained Var,IsVariadic),SubstsProxy GIdentifier (TcM m), Map GIdentifier GIdentifier)
-uniqueTyVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (Constrained i@(VarName t (VIden v@(varIdWrite -> True))) c,isVariadic) = do
+uniqueTyVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (Constrained i@(VarName t (VIden v@(varIdRead -> True))) c,isVariadic) = do
     v' <- freshVarId (varIdBase v) Nothing
     t' <- substProxy "localTplt" ss False ssBounds t
     let i' = VarName t' $ VIden v'
@@ -855,6 +855,7 @@ uniqueTyVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (Constrained
         ssBounds' = Map.insert (VIden v) (VIden v') ssBounds
     c' <- substProxy "localTplt" ss' False ssBounds c
     return ((Constrained i' c',isVariadic),ss',ssBounds')
+uniqueTyVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (i,isVariadic) = return ((i,isVariadic),ss,ssBounds)
 
 uniqueTyVars :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> [(Constrained Var,IsVariadic)] -> TcM m ([(Constrained Var,IsVariadic)],SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
 uniqueTyVars l ss ssBounds [] = return ([],ss,ssBounds)
@@ -875,6 +876,7 @@ uniqueProcVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (isConst,i
     let ssBounds' :: Map GIdentifier GIdentifier
         ssBounds' = if doConst then Map.insert (VIden v) (VIden v') ssBounds else ssBounds
     return ((isConst,i',isVariadic),ss',ssBounds')
+uniqueProcVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (isConst,i,isVariadic) = return ((isConst,i,isVariadic),ss,ssBounds)
 
 uniqueProcVars :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> [(Bool,Var,IsVariadic)] -> TcM m ([(Bool,Var,IsVariadic)],SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
 uniqueProcVars l ss ssBounds [] = return ([],ss,ssBounds)
