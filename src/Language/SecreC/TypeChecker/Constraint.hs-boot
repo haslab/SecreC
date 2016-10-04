@@ -133,4 +133,4 @@ equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 
 projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index GIdentifier Type] -> TcM m Expr
 
-
+tryTcError :: Monad m => TcM m a -> TcM m (Either SecrecError a)

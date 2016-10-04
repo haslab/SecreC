@@ -1240,8 +1240,8 @@ coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT 
     coercesDimSizes' d1 (getTokVar -> Just v2) = assignsExprTy l x2 e1
     coercesDimSizes' d1 d2 = do
         opts <- askOpts
-        mb1 <- tryError $ evaluateIndexExpr l d1
-        mb2 <- tryError $ evaluateIndexExpr l d2
+        mb1 <- tryTcError $ evaluateIndexExpr l d1
+        mb2 <- tryTcError $ evaluateIndexExpr l d2
         case (mb1,mb2) of
             (_,Right 0) -> assignsExprTy l x2 e1
             (Right ((>0) -> True),_) -> assignsExprTy l x2 e1
@@ -2519,8 +2519,8 @@ comparesTpltArgs l isLattice ts1 ts2 = do
 
 comparesDim :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
 comparesDim l True e1 e2 = do
-    z1 <- tryError $ equalsExpr l True e1 (indexExpr 0)
-    z2 <- tryError $ equalsExpr l True e2 (indexExpr 0)
+    z1 <- tryTcError $ equalsExpr l True e1 (indexExpr 0)
+    z2 <- tryTcError $ equalsExpr l True e2 (indexExpr 0)
     case (z1,z2) of
         (Right _,Right _) -> return (Comparison e1 e2 EQ EQ)
         (Right _,Left _) -> return (Comparison e1 e2 EQ LT)
@@ -2645,4 +2645,7 @@ pDecCstrM l isTop doCoerce pid targs es tret = do
 match :: Bool -> Type -> Type -> TcCstr
 match True x y = Unifies x y
 match False x y = Equals x y
+
+tryTcError :: Monad m => TcM m a -> TcM m (Either SecrecError a)
+tryTcError m = catchError (liftM Right $ newErrorM m) (return . Left)
 

@@ -571,7 +571,7 @@ defaultExpr l t@(ComplexT (CVar v c)) szs = do
     c <- resolveCVar l v c
     defaultExpr l (ComplexT c) szs
 defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
-    mbd <- tryError $ evaluateIndexExpr l d
+    mbd <- tryTcError $ evaluateIndexExpr l d
     case mbd of
         Right 0 -> defaultBaseExpr l s b
         Right n -> do
