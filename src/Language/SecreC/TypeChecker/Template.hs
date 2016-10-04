@@ -865,7 +865,7 @@ uniqueTyVars l ss ssBounds (x:xs) = do
     
 uniqueProcVar :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> (Bool,Var,IsVariadic) -> TcM m ((Bool,Var,IsVariadic),SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
 -- refresh const variables
-uniqueProcVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (isConst,i@(VarName t (VIden v@(varIdWrite -> True))),isVariadic) = do
+uniqueProcVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (isConst,i@(VarName t (VIden v@(varIdRead -> True))),isVariadic) = do
     v' <- freshVarId (varIdBase v) Nothing
     t' <- substProxy "localTplt" ss False ssBounds t
     let i' = VarName t' $ VIden v'
