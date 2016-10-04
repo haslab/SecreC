@@ -2092,6 +2092,9 @@ matchDataClass l c (BVar v@(varIdRead -> True) k) = do
             let k' = max c k
             return (k',BVar v k')
         Just b' -> matchDataClass l c b'
+matchDataClass l c (BVar v k) = do
+    let k' = max c k
+    return (k',BVar v k')
 matchDataClass l c b = do
     ppc <- pp c
     ppb <- pp b
