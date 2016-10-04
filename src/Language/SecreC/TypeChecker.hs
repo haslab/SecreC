@@ -141,7 +141,7 @@ tcGlobalAnn (GlobalLemmaAnn l ax) = tcGlobal l $ insideAnnotation $ do
     ax' <- tcLemmaDecl ax
     return $ GlobalLemmaAnn (notTyped "tcGlobalAnn" l) ax'
 
-tcDomainDecl :: (MonadIO m,Location loc) => DomainDeclaration Identifier loc -> TcM m (DomainDeclaration GIdentifier (Typed loc))
+tcDomainDecl :: ProverK loc m => DomainDeclaration Identifier loc -> TcM m (DomainDeclaration GIdentifier (Typed loc))
 tcDomainDecl (Domain l (DomainName dl dn) k) = do
     let vk@(KindName _ kn) = bimap (mkVarId) id k
     let t = KindT $ PrivateK $ TIden kn
@@ -151,13 +151,13 @@ tcDomainDecl (Domain l (DomainName dl dn) k) = do
     checkKind isAnn vk
     return $ Domain (notTyped "tcDomainDecl" l) d' (bimap (TIden . mkVarId) (notTyped "tcDomainDecl") k)
 
-tcKindDecl :: (MonadIO m,Location loc) => KindDeclaration Identifier loc -> TcM m (KindDeclaration GIdentifier (Typed loc))
+tcKindDecl :: ProverK loc m => KindDeclaration Identifier loc -> TcM m (KindDeclaration GIdentifier (Typed loc))
 tcKindDecl (Kind l k) = do
     k' <- tcKindName k
     newKind k'
     return $ Kind (Typed l $ KType $ Just NonPublicClass) k'
     
-tcKindName :: (MonadIO m,Location loc) => KindName Identifier loc -> TcM m (KindName GIdentifier (Typed loc))
+tcKindName :: ProverK loc m => KindName Identifier loc -> TcM m (KindName GIdentifier (Typed loc))
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType $ Just NonPublicClass)) $ TIden $ mkVarId kn
 
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))

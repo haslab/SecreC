@@ -443,53 +443,6 @@ modifyModuleEnvM f = do
     y' <- f y
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
 
-getModuleField :: (MonadIO m) => Bool -> Bool -> (ModuleTcEnv -> x) -> TcM m x
-getModuleField withBody onlyRecs f = do
-    (x,y) <- State.gets moduleEnv
-    z <- getRecs withBody onlyRecs
-    let xyz = mappend x (mappend y z)
-    return $ f xyz
-
--- get only the recursive declarations for the lineage
-getRecs :: MonadIO m => Bool -> Bool -> TcM m ModuleTcEnv
-getRecs withBody onlyRecs = do
-    lineage <- getLineage
-    let filterRec = if onlyRecs then Just lineage else Nothing
-    debugTc $ do
-        ppline <- liftM (sepBy comma) $ mapM pp lineage
-        liftIO $ putStrLn $ "getRecs: " ++ show ppline
-    State.gets (filterRecModuleTcEnv filterRec withBody . mconcat . map tRec . tDict)
-
-filterRecModuleTcEnv :: Maybe Lineage -> Bool -> ModuleTcEnv -> ModuleTcEnv
-filterRecModuleTcEnv lineage withBody env = env
-    { structs = filterRecBody lineage withBody (structs env)
-    , procedures = filterRecBody lineage withBody (procedures env)
-    , functions = filterRecBody lineage withBody (functions env)
-    , lemmas = filterRecBody lineage withBody (lemmas env)
-    }
-
-filterRecBody :: Maybe Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> Map x (Map ModuleTyVarId EntryEnv)
-filterRecBody lineage withBody xs = Map.map filterLineage xs
-    where
-    filterLineage = case lineage of
-        Nothing -> id
-        Just lin -> processRecs lin withBody -- Map.map remDictBody . Map.filter (isLineage lin)
-    --isLineage lin (EntryEnv l (DecT d)) = case decTypeId d of
-    --    Nothing -> False
-    --    Just x -> List.elem x lin
-
-processRecs :: Lineage -> Bool -> Map ModuleTyVarId EntryEnv -> Map ModuleTyVarId EntryEnv
-processRecs lin withBody = Map.foldrWithKey go Map.empty
-    where
-    remBody = if withBody then id else remEntryBody
-    remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecBody d
-    remEntryDict (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecDict d
-    go k e@(EntryEnv l (DecT d)) xs = case decTypeId d of
-        Nothing -> Map.insert k e xs -- non-specialized decs go unchanged
-        Just x -> if List.elem x lin
-            then Map.insert k (remEntryDict $ remBody e) xs -- remove body and dictionary of recursive invocations
-            else Map.insert k e xs -- specialized invocations go unchanged
-
 remDecDict :: DecType -> DecType
 remDecDict d@(DecType i isRec ts hd hfrees bd bfrees specs b) =
     DecType i isRec ts emptyPureTDict hfrees emptyPureTDict bfrees specs b
@@ -504,29 +457,6 @@ remIDecBody d@(FunType isLeak pl n pargs pret panns body cl) = FunType isLeak pl
 remIDecBody d@(StructType sl sid atts cl) = StructType sl sid Nothing cl
 remIDecBody d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs cl
 remIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
-
-getStructs :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs structs
-getKinds :: MonadIO m => TcM m (Map GIdentifier EntryEnv)
-getKinds = getModuleField True False kinds
-getGlobalVars :: MonadIO m => TcM m (Map GIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
-getGlobalVars = getModuleField True False globalVars
-getGlobalConsts :: MonadIO m => TcM m (Map Identifier GIdentifier)
-getGlobalConsts = getModuleField True False globalConsts
-getDomains :: MonadIO m => TcM m (Map GIdentifier EntryEnv)
-getDomains = getModuleField True False domains
-getProcedures :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getProcedures withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs procedures
-getFunctions :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getFunctions withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs functions
-getLemmas :: MonadIO m => Bool -> Bool -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
-getLemmas withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs lemmas
-getAxioms :: MonadIO m => Bool -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
-getAxioms onlyRecs isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True onlyRecs axioms
 
 filterAnns :: Bool -> Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
 filterAnns isAnn isLeak = Map.map (filterAnns1 isAnn isLeak)
@@ -739,36 +669,10 @@ failTcM l m = do
 
 type PIdentifier = GIdentifier' Type --Either VarIdentifier (Op GIdentifier Type)
 
-cstrScope :: VarsGTcM m => TCstr -> TcM m SolveScope
-cstrScope k = do
-    isAll <- isDelayableCstr k
-    if isAll
-        then return SolveAll
-        else if isGlobalCstr k
-            then return SolveGlobal
-            else return SolveLocal
-
 -- | Does a constraint depend on global template, procedure or struct definitions?
 -- I.e., can it be overloaded?
 isGlobalCstr :: TCstr -> Bool
 isGlobalCstr k = isCheckCstr k || isHypCstr k || everything (||) (mkQ False isGlobalTcCstr) k
-
-isMultipleSubstsCstr :: VarsGTcM m => TCstr -> TcM m Bool
-isMultipleSubstsCstr k = everything orM (mkQ (return False) isMultipleSubstsTcCstr) k
-
-isDelayableCstr :: VarsGTcM m => TCstr -> TcM m Bool
-isDelayableCstr k = everything orM (mkQ (return False) mk) k
-    where
-    mk x = do
-        is1 <- isMultipleSubstsTcCstr x
-        return (is1 || isResolveTcCstr x)
-
-isMultipleSubstsTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
-isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
-isMultipleSubstsTcCstr (MultipleSubstitutions ts _) = do
-    xs <- usedVs ts
-    if Set.null xs then return False else return True
-isMultipleSubstsTcCstr _ = return False
 
 isResolveTcCstr :: TcCstr -> Bool
 isResolveTcCstr (Resolve {}) = True
@@ -959,39 +863,6 @@ instance Ord TCstr where
     compare (HypK x b1) (HypK y b4) = mconcat [compare x y]
     compare (CheckK x b1) (CheckK y b4) = mconcat [compare x y]
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
-
-priorityTCstr :: VarsGTcM m => TCstr -> TCstr -> TcM m Ordering
-priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2
-priorityTCstr (HypK x _) (HypK y _) = return $ compare x y
-priorityTCstr (CheckK x _) (CheckK y _) = return $ compare x y
-priorityTCstr (TcK {}) y  = return LT
-priorityTCstr x (TcK {})  = return GT
-priorityTCstr (HypK {}) y = return LT
-priorityTCstr x (HypK {}) = return GT
-
-priorityTcCstr :: VarsGTcM m => TcCstr -> TcCstr -> TcM m Ordering
-priorityTcCstr k1 k2 = do
-    mul1 <- isMultipleSubstsTcCstr k1
-    mul2 <- isMultipleSubstsTcCstr k2
-    case (mul1,mul2) of
-        (True,False) -> return GT
-        (False,True) -> return LT
-        (True,True) -> priorityMultipleSubsts k1 k2
-        (False,False) -> priorityTcCstr' k1 k2 
-priorityTcCstr' (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = return GT
-priorityTcCstr' (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = return LT
-priorityTcCstr' (isValidTcCstr -> True) (isValidTcCstr -> False) = return GT
-priorityTcCstr' (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
-priorityTcCstr' c1 c2 = return $ compare c1 c2
-
-priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
-priorityMultipleSubsts c1@(MultipleSubstitutions vs1 _) c2@(MultipleSubstitutions vs2 _) = do
-    x1 <- usedVs vs1
-    x2 <- usedVs vs2
-    case compare (Set.size x1) (Set.size x2) of
-        LT -> return LT
-        GT -> return GT
-        EQ -> return $ compare c1 c2
 
 isValidTcCstr (IsValid {}) = True
 isValidTcCstr (NotEqual {}) = True

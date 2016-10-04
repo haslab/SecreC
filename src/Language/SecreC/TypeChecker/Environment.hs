@@ -332,7 +332,7 @@ newTypeVariable isAnn isLeak scope (TypeName (Typed l t) (VIden n)) = do
                 Nothing -> addVar l scope (VIden n) Nothing False isAnn (EntryEnv (locpos l) t)
 
 -- | Adds a new kind to the environment
-newKind :: (MonadIO m,Location loc) => KindName GIdentifier (Typed loc) -> TcM m ()
+newKind :: ProverK loc m => KindName GIdentifier (Typed loc) -> TcM m ()
 newKind (KindName (Typed l t) n) = do
     ks <- getKinds
     case Map.lookup n ks of
@@ -344,7 +344,7 @@ newKind (KindName (Typed l t) n) = do
             modifyModuleEnv $ \env -> env { kinds = Map.insert n e (kinds env) } 
 
 -- | Adds a new domain to the environment
-newDomain :: (MonadIO m,Location loc) => DomainName GIdentifier (Typed loc) -> TcM m ()
+newDomain :: ProverK loc m => DomainName GIdentifier (Typed loc) -> TcM m ()
 newDomain (DomainName (Typed l t) n) = do
     ds <- getDomains
     case Map.lookup n ds of
@@ -356,7 +356,7 @@ newDomain (DomainName (Typed l t) n) = do
             modifyModuleEnv $ \env -> env { domains = Map.insert n e (domains env) }
 
 -- | Checks that a kind exists in scope
-checkKind :: (MonadIO m,Location loc) => Bool -> KindName VarIdentifier loc -> TcM m (KindName GIdentifier (Typed loc))
+checkKind :: ProverK loc m => Bool -> KindName VarIdentifier loc -> TcM m (KindName GIdentifier (Typed loc))
 checkKind isAnn (KindName l n) = do
     ks <- getKinds
     (n,t) <- case Map.lookup (TIden n) ks of
@@ -377,7 +377,7 @@ checkKind isAnn (KindName l n) = do
 
 -- | Checks if a domain exists in scope, and returns its type
 -- Searches for both user-defined private domains and domain variables
-checkDomain :: (MonadIO m,Location loc) => Bool -> DomainName VarIdentifier loc -> TcM m (DomainName GIdentifier (Typed loc))
+checkDomain :: ProverK loc m => Bool -> DomainName VarIdentifier loc -> TcM m (DomainName GIdentifier (Typed loc))
 checkDomain isAnn (DomainName l n) = do
     ds <- getDomains
     (n',t) <- case Map.lookup (TIden n) ds of
@@ -564,7 +564,8 @@ newOperator hdeps op = do
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
     
-    solveTop l "newOperator"
+    let did = fromJustNote "newOperator" (decTypeId $ unDecT recdt)
+    addLineage did $ solveTop l "newOperator"
     dict <- liftM (head . tDict) State.get
     frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict True Map.empty d'
@@ -640,7 +641,9 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
         liftIO $ putStrLn $ "addProc rec" ++ pprid (decTypeTyVarId $ unDecT $ recdt) ++ " " ++ ppe ++ "\n" ++ ppd
     --doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     --liftIO $ putStrLn $ "newProc: " ++ show doc
-    solveTop l "newProcedure"
+    
+    let did = fromJustNote "newProcedureFunction" (decTypeId $ unDecT recdt)
+    addLineage did $ solveTop l "newProcedure"
     dict <- liftM (head . tDict) State.get
     frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict True Map.empty d'
@@ -961,7 +964,8 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             dirtyGDependencies (locpos l) n
     
             -- solve the body
-            solveTop l "newStruct"
+            let did = fromJustNote "newStruct" (decTypeId $ unDecT recdt)
+            addLineage did $ solveTop l "newStruct"
             dict <- liftM (head . tDict) State.get
             frees <- getFrees l
             --i <- newModuleTyVarId
@@ -975,12 +979,20 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             noNormalFreesM e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
             return $ TypeName (Typed l dt) n
-
 data SubstMode = SubstMode { substCheck :: SubstCheck, substDirty :: Bool }
     deriving (Eq,Data,Typeable,Show)
 
 data SubstCheck = CheckS | NoFailS | NoCheckS
     deriving (Eq,Data,Typeable,Show)
+
+getTSubsts :: (ProverK loc m) => loc -> TcM m TSubsts
+getTSubsts l = do
+    env <- State.get
+    let (x,y) = moduleEnv env
+    let xs = Map.foldrWithKey (\(VIden k) (mb,_) m -> maybe m (\e -> Map.insert k (IdxT e) m) mb) Map.empty (globalVars x)
+    let ys = Map.foldrWithKey (\(VIden k) (mb,_) m -> maybe m (\e -> Map.insert k (IdxT e) m) mb) Map.empty (globalVars y)
+    d <- concatTDict l (SubstMode NoCheckS False) $ tDict env
+    return $ TSubsts $ unTSubsts (tSubsts d) `Map.union` xs `Map.union` ys
 
 addSubstM :: (ProverK loc m) => loc -> SubstMode -> Var -> Type -> TcM m ()
 addSubstM l mode v@(VarName vt (VIden vn@(varIdWrite -> True))) t = do
@@ -1507,15 +1519,6 @@ newIOCstr c = do
             liftM (IOCstr c) $ liftIO $ newIdRef mn Unevaluated
         Just (IOCstr _ st) -> return $ IOCstr c st
 
-getTSubsts :: (ProverK loc m) => loc -> TcM m TSubsts
-getTSubsts l = do
-    env <- State.get
-    let (x,y) = moduleEnv env
-    let xs = Map.foldrWithKey (\(VIden k) (mb,_) m -> maybe m (\e -> Map.insert k (IdxT e) m) mb) Map.empty (globalVars x)
-    let ys = Map.foldrWithKey (\(VIden k) (mb,_) m -> maybe m (\e -> Map.insert k (IdxT e) m) mb) Map.empty (globalVars y)
-    d <- concatTDict l (SubstMode NoCheckS False) $ tDict env
-    return $ TSubsts $ unTSubsts (tSubsts d) `Map.union` xs `Map.union` ys
-
 substFromTDict :: (Vars GIdentifier (TcM m) a,ProverK loc m) => String -> loc -> TDict -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTDict msg l dict doBounds ssBounds = substFromTSubsts msg l (tSubsts dict) doBounds ssBounds
     
@@ -1643,6 +1646,17 @@ withLineage :: MonadIO m => Lineage -> TcM m a -> TcM m a
 withLineage new m = do
     old <- State.gets lineage
     State.modify $ \env -> env { lineage = new }
+    debugTc $ do
+        ppline <- liftM (sepBy colon) . mapM pp =<< getLineage
+        liftIO $ putStrLn $ "lineage: " ++ show ppline
+    x <- m
+    State.modify $ \env -> env { lineage = old }
+    return x
+
+addLineage :: MonadIO m => (GIdentifier,ModuleTyVarId) -> TcM m a -> TcM m a
+addLineage i m = do
+    old <- State.gets lineage
+    State.modify $ \env -> env { lineage = i:old }
     debugTc $ do
         ppline <- liftM (sepBy colon) . mapM pp =<< getLineage
         liftIO $ putStrLn $ "lineage: " ++ show ppline
@@ -1801,4 +1815,144 @@ instance ToVariable VArrayType (VarIdentifier,Type,Expr) where
     fromVar (v1,b1,sz1) = VAVar v1 b1 sz1
     tryResolve l (v1,b1,sz1) = tryResolveVAVar l v1 b1 sz1
 
+isMultipleSubstsCstr :: VarsGTcM m => TCstr -> TcM m Bool
+isMultipleSubstsCstr k = everything orM (mkQ (return False) isMultipleSubstsTcCstr) k
+
+isDelayableCstr :: VarsGTcM m => TCstr -> TcM m Bool
+isDelayableCstr k = everything orM (mkQ (return False) mk) k
+    where
+    mk x = do
+        is1 <- isMultipleSubstsTcCstr x
+        return (is1 || isResolveTcCstr x)
+
+isMultipleSubstsTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
+isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
+isMultipleSubstsTcCstr (MultipleSubstitutions ts _) = do
+    xs <- usedVs' ts
+    if Set.null xs then return False else return True
+isMultipleSubstsTcCstr _ = return False
+
+usedVs' :: (ProverK Position m,Vars GIdentifier (TcM m) x) => x -> TcM m (Set VarIdentifier)
+usedVs' x = do
+    vs <- usedVs x
+    ss <- getTSubsts (noloc::Position)
+    return $ Set.difference vs (Map.keysSet $ unTSubsts ss)
+
+priorityTCstr :: VarsGTcM m => TCstr -> TCstr -> TcM m Ordering
+priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2
+priorityTCstr (HypK x _) (HypK y _) = return $ compare x y
+priorityTCstr (CheckK x _) (CheckK y _) = return $ compare x y
+priorityTCstr (TcK {}) y  = return LT
+priorityTCstr x (TcK {})  = return GT
+priorityTCstr (HypK {}) y = return LT
+priorityTCstr x (HypK {}) = return GT
+
+priorityTcCstr :: VarsGTcM m => TcCstr -> TcCstr -> TcM m Ordering
+priorityTcCstr k1 k2 = do
+    mul1 <- isMultipleSubstsTcCstr k1
+    mul2 <- isMultipleSubstsTcCstr k2
+    case (mul1,mul2) of
+        (True,False) -> return GT
+        (False,True) -> return LT
+        (True,True) -> priorityMultipleSubsts k1 k2
+        (False,False) -> priorityTcCstr' k1 k2 
+priorityTcCstr' (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = return GT
+priorityTcCstr' (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = return LT
+priorityTcCstr' (isValidTcCstr -> True) (isValidTcCstr -> False) = return GT
+priorityTcCstr' (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
+priorityTcCstr' c1 c2 = return $ compare c1 c2
+
+priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
+priorityMultipleSubsts c1@(MultipleSubstitutions vs1 _) c2@(MultipleSubstitutions vs2 _) = do
+    x1 <- usedVs vs1
+    x2 <- usedVs vs2
+    case compare (Set.size x1) (Set.size x2) of
+        LT -> return LT
+        GT -> return GT
+        EQ -> return $ compare c1 c2
+
+cstrScope :: VarsGTcM m => TCstr -> TcM m SolveScope
+cstrScope k = do
+    isAll <- isDelayableCstr k
+    if isAll
+        then return SolveAll
+        else if isGlobalCstr k
+            then return SolveGlobal
+            else return SolveLocal
+
+getModuleField :: (ProverK Position m) => Bool -> Bool -> (ModuleTcEnv -> x) -> TcM m x
+getModuleField withBody onlyRecs f = do
+    (x,y) <- State.gets moduleEnv
+    z <- getRecs withBody onlyRecs
+    let xyz = mappend x (mappend y z)
+    return $ f xyz
+
+getStructs :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs structs
+getKinds :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
+getKinds = getModuleField True False kinds
+getGlobalVars :: ProverK Position m => TcM m (Map GIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
+getGlobalVars = getModuleField True False globalVars
+getGlobalConsts :: ProverK Position m => TcM m (Map Identifier GIdentifier)
+getGlobalConsts = getModuleField True False globalConsts
+getDomains :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
+getDomains = getModuleField True False domains
+getProcedures :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getProcedures withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs procedures
+getFunctions :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getFunctions withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs functions
+getLemmas :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
+getLemmas withBody onlyRecs isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs lemmas
+getAxioms :: ProverK Position m => Bool -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms onlyRecs isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True onlyRecs axioms
+
+-- get only the recursive declarations for the lineage
+getRecs :: ProverK Position m => Bool -> Bool -> TcM m ModuleTcEnv
+getRecs withBody onlyRecs = do
+    lineage <- getLineage
+    debugTc $ do
+        ppline <- liftM (sepBy comma) $ mapM pp lineage
+        liftIO $ putStrLn $ "getRecs: " ++ show ppline
+    State.gets (mconcat . map tRec . tDict) >>= filterRecModuleTcEnv lineage withBody
+
+filterRecModuleTcEnv :: ProverK Position m => Lineage -> Bool -> ModuleTcEnv -> TcM m ModuleTcEnv
+filterRecModuleTcEnv lineage withBody env = do
+    structs' <- filterRecBody lineage withBody (structs env)
+    procedures' <- filterRecBody lineage withBody (procedures env)
+    functions' <- filterRecBody lineage withBody (functions env)
+    lemmas' <- filterRecBody lineage withBody (lemmas env)
+    return $ env { structs = structs', procedures = procedures', functions = functions', lemmas = lemmas' }
+
+filterRecBody :: ProverK Position m => Lineage -> Bool -> Map x (Map ModuleTyVarId EntryEnv) -> TcM m (Map x (Map ModuleTyVarId EntryEnv))
+filterRecBody lineage withBody xs = mapM filterLineage xs
+    where
+    filterLineage = processRecs lineage withBody -- Map.map remDictBody . Map.filter (isLineage lin)
+    --isLineage lin (EntryEnv l (DecT d)) = case decTypeId d of
+    --    Nothing -> False
+    --    Just x -> List.elem x lin
+
+processRecs :: ProverK Position m => Lineage -> Bool -> Map ModuleTyVarId EntryEnv -> TcM m (Map ModuleTyVarId EntryEnv)
+processRecs lin withBody = Map.foldrWithKey go (return Map.empty)
+    where
+    remBody = if withBody then id else remEntryBody
+    remEntryBody (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecBody d
+    remEntryDict (EntryEnv l (DecT d)) = EntryEnv l $ DecT $ remDecDict d
+    go k e@(EntryEnv l (DecT d)) mxs = case decTypeId d of
+        Nothing -> liftM (Map.insert k e) mxs -- non-specialized decs go unchanged
+        Just x -> if List.elem x lin
+            then liftM (Map.insert k (remEntryDict $ remBody e)) mxs -- remove body and dictionary of recursive invocations
+            else do
+                isMono <- isMonomorphicDec d
+                if isMono
+                    then liftM (Map.insert k e) mxs -- monomorphic invocations go unchanged
+                    else mxs -- drop non-lineage non-monomorphic recursive entries
+
+isMonomorphicDec :: (ProverK Position m) => DecType -> TcM m Bool
+isMonomorphicDec (DecType _ _ targs _ _ _ _ specs _) = do
+    vs <- usedVs' (targs,specs)
+    return $ Set.null vs
 
