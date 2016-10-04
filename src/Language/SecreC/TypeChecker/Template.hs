@@ -411,11 +411,12 @@ instantiateTemplateEntries valids l kid n targs pargs ret (e:es) = do
     if Set.member did valids
         then instantiateTemplateEntries valids l kid n targs pargs ret es
         else do
-            res <- instantiateTemplateEntry l kid n targs pargs ret e
-            let valids' = case res of
+            r <- instantiateTemplateEntry l kid n targs pargs ret e
+            let valids' = case r of
                             Left _ -> valids
                             Right _ -> (Set.fromList $ decLineage d) `Set.union` valids
-            instantiateTemplateEntries valids' l kid n targs pargs ret es
+            (rs,valids'') <- instantiateTemplateEntries valids' l kid n targs pargs ret es
+            return (r:rs,valids'')
 
 unifyTemplateTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m ()
 unifyTemplateTypeArgs l lhs rhs = do
