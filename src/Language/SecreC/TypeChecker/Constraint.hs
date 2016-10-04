@@ -1183,8 +1183,8 @@ coercesComplex l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = coercesComp
         addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type") pp1 pp2 . Just) $ do
             tcCstrM_ l $ Unifies (BaseT t1) (BaseT t2) -- we unify base types, no coercions here
             tcCstrM_ l $ CoercesSecDimSizes e1 x2
-    coercesComplex'' ct1@(getWritableVar -> Just (v1,isNotVoid1)) ct2@(getWritableVar -> Just (v2,isNotVoid2)) = do
-        constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
+    --coercesComplex'' ct1@(getVar -> Just (v1,isNotVoid1)) ct2@(getVar -> Just (v2,isNotVoid2)) = do
+    --    constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
     coercesComplex'' ct1@(getWritableVar -> Just (v1,isNotVoid1)) ct2 = do
         let is = max isNotVoid1 (isNotVoid ct2)
         if is
@@ -1304,7 +1304,7 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = readable2 coercesSec'' l s1 s2
     coercesSec'' s1@Public s2@(SVar v PublicK) = do
         unifiesSec l s1 s2
         assignsExprTy l x2 e1
-    coercesSec'' s1@Public s2@(getWritableVar -> Just (v2,k2)) | isPrivateKind k2 = do
+    coercesSec'' s1@Public s2@(getVar -> Just (v2,k2)) | isPrivateKind k2 = do
         opts <- askOpts
         if implicitCoercions opts
             then do
@@ -1315,7 +1315,7 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = readable2 coercesSec'' l s1 s2
             else do
                 tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
                 assignsExprTy l x2 e1
-    coercesSec'' s1@Public s2@(getWritableVar -> Just (v2,k2)) | not (isPrivateKind k2) = do
+    coercesSec'' s1@Public s2@(getVar -> Just (v2,k2)) | not (isPrivateKind k2) = do
         opts <- askOpts
         if implicitCoercions opts
             then do
@@ -1336,7 +1336,7 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = readable2 coercesSec'' l s1 s2
     coercesSec'' s1@(SVar v1 PublicK) s2@(Private d2 k2) = do
         unifiesSec l s1 Public
         coercesSec' l e1 ct1 x2 s2
-    coercesSec'' s1@(getWritableVar -> Just (v1,k1)) s2@(Private d2 k2) | not (isPrivateKind k1) = do
+    coercesSec'' s1@(getVar -> Just (v1,k1)) s2@(Private d2 k2) | not (isPrivateKind k1) = do
         opts <- askOpts
         if implicitCoercions opts
             then do
@@ -1351,7 +1351,7 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = readable2 coercesSec'' l s1 s2
     coercesSec'' s1@(SVar v1 k1) s2@(SVar v2 k2) | v1 == v2 = do
         tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
         assignsExprTy l x2 e1
-    coercesSec'' s1@(getWritableVar -> Just (v1,k1)) s2@(getWritableVar -> Just (v2,k2)) = do
+    coercesSec'' s1@(getVar -> Just (v1,k1)) s2@(getVar -> Just (v2,k2)) = do
         opts <- askOpts
         if implicitCoercions opts
             then do
@@ -1374,17 +1374,17 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = readable2 coercesSec'' l s1 s2
                 (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
                 forM_ ks $ tCstrM_ l
             else constraintError (CoercionException "security type") l e1 ppExprTy x2 ppVarTy Nothing
-    coercesSec'' (getWritableVar -> Just (v1,k1)) s2 = do
-        unifiesKind l k1 $ secTypeKind s2
+    coercesSec'' (getVar -> Just (v1,k1)) s2 = do
+        tcCstrM l $ Unifies (KindT k1) (KindT $ secTypeKind s2)
         assignsExprTy l x2 e1
-    coercesSec'' Public s2@(getWritableVar -> Just (v2,k2)) = do
+    coercesSec'' Public s2@(getVar -> Just (v2,k2)) = do
         opts <- askOpts
         if implicitCoercions opts
             then do
                 (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
                 forM_ ks $ tCstrM_ l
             else constraintError (CoercionException "security type") l e1 ppExprTy x2 ppVarTy Nothing
-    coercesSec'' (getWritableVar -> Just (v1,k1)) s2@(getWritableVar -> Just (v2,k2)) | not (isPrivateKind k1) = do
+    coercesSec'' (getVar -> Just (v1,k1)) s2@(getVar -> Just (v2,k2)) | not (isPrivateKind k1) = do
         opts <- askOpts
         if implicitCoercions opts
             then do
@@ -2578,7 +2578,7 @@ assignsExprTy l v1 e2 = do
     pp2 <- (ppExprTy e2)
     addErrorM l (TypecheckerError (locpos l) . (UnificationException "assign typed expression") pp1 pp2 . Just) $ do
         tcCstrM_ l $ Unifies (loc v1) (loc e2)
-        assignsExpr l v1 e2
+        tcCstrM_ l $ Assigns (IdxT $ varExpr v1) (IdxT e2)
     
 constraintError :: (ProverK loc m,VarsG (TcM m) a,VarsG (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> TcM m Doc) -> b -> (b -> TcM m Doc) -> Maybe SecrecError -> TcM m res
 constraintError k l e1 pp1 e2 pp2 (Just suberr) = do
