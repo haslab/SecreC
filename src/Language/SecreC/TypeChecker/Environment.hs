@@ -1001,7 +1001,7 @@ getTSubsts l = do
     return $ TSubsts $ unTSubsts (tSubsts d) `Map.union` xs `Map.union` ys
 
 addSubstM :: (ProverK loc m) => loc -> SubstMode -> Var -> Type -> TcM m ()
-addSubstM l mode v@(VarName vt (VIden vn@(varIdWrite -> True))) t = do
+addSubstM l mode v@(VarName vt (VIden vn)) t = do
     ppv <- pp v
     addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> ppv) . Just) $ do
         when (substDirty mode) $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
