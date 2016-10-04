@@ -506,37 +506,37 @@ checkTemplateArg isAnn isLeak (TemplateArgName l n) = do
             ppn <- pp n
             tcError (locpos l) $ AmbiguousName (ppn) $ map (locpos . entryLoc) $ maybe [] (\(es) -> Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap (thr3 . snd) mb3)
 
-unresolvedQVars :: ProverK loc m => loc -> String -> [(Constrained Var,IsVariadic)] -> TcM m ()
---unresolvedQVars l qs = return ()
-unresolvedQVars l msg qs = do
-    let vs = map (unConstrained . fst) qs
-    s <- getTSubsts l
-    mapM_ (unresolvedQVar l msg s . varNameId) vs
-
-unresolvedQVar :: ProverK loc m => loc -> String -> TSubsts -> GIdentifier -> TcM m ()
-unresolvedQVar l msg s v = do
-    mb <- substsFromMap (Map.mapKeys VIden $ unTSubsts s) v
-    case mb of
-        Nothing -> return ()
-        Just (x::Type) -> do
-            ppv <- pp v
-            ppx <- pp x
-            genTcError (locpos l) $ text msg <> char ':' <+> text "quantified variable" <+> ppv <+> text "=" <+> ppx <+> text "should be unbound"
+--unresolvedQVars :: ProverK loc m => loc -> String -> [(Constrained Var,IsVariadic)] -> TcM m ()
+----unresolvedQVars l qs = return ()
+--unresolvedQVars l msg qs = do
+--    let vs = map (unConstrained . fst) qs
+--    s <- getTSubsts l
+--    mapM_ (unresolvedQVar l msg s . varNameId) vs
+--
+--unresolvedQVar :: ProverK loc m => loc -> String -> TSubsts -> GIdentifier -> TcM m ()
+--unresolvedQVar l msg s v = do
+--    mb <- substsFromMap (Map.mapKeys VIden $ unTSubsts s) v
+--    case mb of
+--        Nothing -> return ()
+--        Just (x::Type) -> do
+--            ppv <- pp v
+--            ppx <- pp x
+--            genTcError (locpos l) $ text msg <> char ':' <+> text "quantified variable" <+> ppv <+> text "=" <+> ppx <+> text "should be unbound"
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
 addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
 addTemplateOperator vars hdeps op = do
     let Typed l (IDecT d) = loc op
-    unresolvedQVars l "0" vars
+--    unresolvedQVars l "0" vars
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
     let o = funit op
-    unresolvedQVars l "1" vars
+--    unresolvedQVars l "1" vars
     solve l "addTemplateOperator"
-    unresolvedQVars l "2" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
+--    unresolvedQVars l "2" vars
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
@@ -608,8 +608,8 @@ addTemplateProcedureFunction vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n)
                     PKind -> Lns procedures (\x v -> x { procedures = v })
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
-    unresolvedQVars l "addTemplateProcedureFunction" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
+--    unresolvedQVars l "addTemplateProcedureFunction" vars
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
@@ -668,7 +668,7 @@ newAxiom l hdeps tvars d = do
     
     doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
     solveTop l "newAxiom"
-    unresolvedQVars l "newAxiom" tvars
+--    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (head . tDict) State.get
     frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict True Map.empty d'
@@ -685,8 +685,8 @@ newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Procedu
 newLemma vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addLemma"
-    unresolvedQVars l "newLemma" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
+--    unresolvedQVars l "newLemma" vars
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
@@ -883,10 +883,17 @@ splitHeadFrees l deps = do
     let bfrees = Map.difference frees hfrees
     return (hfrees,bfrees)
     
-splitHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> a -> TcM m (PureTDict,Frees,PureTDict,Frees,a)
-splitHead l deps dec = do
+writetpltVars :: [(Constrained Var,IsVariadic)] -> TSubsts
+writetpltVars [] = emptyTSubsts
+writetpltVars ((unConstrained -> v@(VarName t (VIden n)),_):xs) = TSubsts $ Map.insert n t' (unTSubsts $ writetpltVars xs)
+    where
+    t' = varNameToType $ VarName t $ VIden n{ varIdWrite = True }
+    
+splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (PureTDict,Frees,PureTDict,Frees,([(Constrained Var,IsVariadic)],a))
+splitTpltHead l deps vars dec = do
     d <- liftM (head . tDict) State.get
-    let hbsubsts = tSubsts d
+    let hbsubsts = tSubsts d `mappend` writetpltVars vars
+    vars' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty vars
     frees <- getFrees l
     dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec
     cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty $ toPureCstrs $ tCstrs d
@@ -905,15 +912,15 @@ splitHead l deps dec = do
     let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,h)) cs) gr
     let bgr = differenceGr gr hgr
 --    liftIO $ putStrLn $ "splitHead " ++ ppr hgr ++ "\n|\n" ++ ppr bgr
-    return (PureTDict hgr emptyTSubsts (tRec d),hfrees,PureTDict bgr emptyTSubsts mempty,bfrees,dec')
+    return (PureTDict hgr emptyTSubsts (tRec d),hfrees,PureTDict bgr emptyTSubsts mempty,bfrees,(vars',dec'))
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
 addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
 addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
-    unresolvedQVars l "addTemplateStruct" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitHead l hdeps (vars,d)
+--    unresolvedQVars l "addTemplateStruct" vars
+    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
     let e = EntryEnv (locpos l) dt'
@@ -933,8 +940,8 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
 addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
 addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStructSpecialization"
-    unresolvedQVars l "addTemplateStructSpecialization" vars
-    (hdict,hfrees,bdict,bfrees,(vars',specials',d')) <- splitHead l hdeps (vars,specials,d)
+--    unresolvedQVars l "addTemplateStructSpecialization" vars
+    (hdict,hfrees,bdict,bfrees,(vars',(specials',d'))) <- splitTpltHead l hdeps vars (specials,d)
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees specials' d'
     let e = EntryEnv (locpos l) dt'
@@ -1333,11 +1340,12 @@ dirtyIOCstrDependencies p opens iok = do
         Just m -> WeakMap.forGenericM_ m $ \(u,x) -> dirtyIOCstrDependencies p opens x
 
 -- we need global const variables to distinguish them during typechecking
-addConst :: MonadIO m => Scope -> Bool -> IsVariadic -> Identifier -> TcM m GIdentifier
-addConst scope isTok isVariadic vi = do
+addConst :: MonadIO m => Scope -> (Bool,Bool) -> IsVariadic -> Identifier -> TcM m GIdentifier
+addConst scope (isRead,isWrite) isVariadic vi = do
+    let isTok = not isRead && not isWrite
     doc <- pp $ if isTok then vi++"Tok" else vi
     vi' <- freeVarId vi isVariadic $ Just doc
-    let vi'' = if isTok then tokVar vi' else vi'
+    let vi'' = if isTok then tokVar vi' else vi' { varIdRead = isRead, varIdWrite = isWrite }
     case scope of
         LocalScope -> State.modify $ \env -> env { localConsts = Map.insert vi (VIden vi'') $ localConsts env }
         GlobalScope -> modifyModuleEnv $ \env -> env { globalConsts = Map.insert vi (VIden vi'') $ globalConsts env }
@@ -1686,20 +1694,20 @@ decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees specials body) =
     -- a specialization uses the specialized arguments
     map (mapFst (flip Constrained Nothing)) specials
 
-unWrite :: Vars GIdentifier m a => a -> m a
-unWrite x = State.evalStateT (unWriteM x) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
+chgVarId :: Vars GIdentifier m a => (VarIdentifier -> VarIdentifier) -> a -> m a
+chgVarId f x = State.evalStateT (chgVarIdM f x) (Nothing,False,(False,Map.empty),Map.empty,Map.empty)
 
-unWriteM :: Vars GIdentifier m a => a -> VarsM GIdentifier m a
-unWriteM x = do
+chgVarIdM :: Vars GIdentifier m a => (VarIdentifier -> VarIdentifier) -> a -> VarsM GIdentifier m a
+chgVarIdM f x = do
     mbiden <- State.lift $ substL x
     x' <- case mbiden of -- try to substitute first
         Nothing -> return x
         Just (v::GIdentifier) -> do
             v' <- case v of
-                VIden vi -> return $ VIden $ vi { varIdWrite = False }
+                VIden vi -> return $ VIden $ f vi
                 otherwise -> return v
             State.lift $ unSubstL x v' 
-    traverseVars unWriteM x'
+    traverseVars (chgVarIdM f) x'
 
 class Variable var where
     isReadable :: var -> Bool

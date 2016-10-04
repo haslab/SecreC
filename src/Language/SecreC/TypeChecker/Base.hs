@@ -1303,9 +1303,9 @@ newtype TSubsts = TSubsts { unTSubsts :: Map VarIdentifier Type } deriving (Eq,S
 instance Binary TSubsts
 instance Hashable TSubsts
 
---instance Monoid TSubsts where
---    mempty = TSubsts Map.empty
---    mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
+instance Monoid TSubsts where
+    mempty = TSubsts Map.empty
+    mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
 
 instance PP m VarIdentifier => PP m TSubsts where
     pp = ppTSubsts

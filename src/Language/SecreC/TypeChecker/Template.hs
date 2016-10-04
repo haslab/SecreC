@@ -571,7 +571,8 @@ instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = lim
                 ppte <- ppr (entryType e)
                 liftIO $ putStrLn $ "instantiating " ++ ppp ++ " " ++ ppl ++ " " ++ ppn ++ " " ++ pptargs ++ " " ++ show ppargs ++ " " ++ ppret ++ " " ++ show isRec ++ "\n" ++ ppte
             -- can't instantiate recursive variables
-            (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t >>= (if isRec then unWrite else return)
+            let chg v = if isRec then v { varIdWrite = False } else v
+            (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t >>= chgVarId chg
             exprC <- getExprC
             (e',hdict,bdict,bgr) <- templateTDict exprC e
             let addDicts = do
@@ -640,9 +641,7 @@ instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = lim
                 Right ((cache),TDict hgr _ subst recs) -> do
                         --removeIOCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
-                        (e',(subst',bgr',hgr',recs')) <- if isRec
-                            then return (e,(subst,bgr,toPureCstrs hgr,recs))
-                            else localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
+                        (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
                         bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
                         hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
                         recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'

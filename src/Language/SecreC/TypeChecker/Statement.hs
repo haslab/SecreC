@@ -253,12 +253,13 @@ tcVarDecl scope (VariableDeclaration l isConst isHavoc tyspec vars) = do
     return (VariableDeclaration (notTyped "tcVarDecl" l) isConst True tyspec' vars')
 
 tcVarInit :: (ProverK loc m) => Bool -> Bool -> Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization GIdentifier (Typed loc))
-tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl vn) szs e) = do
+tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
     e' <- withExprC ReadWriteE $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     -- do not store the size, since it can change dynamically
-    let v' = VarName (Typed vl ty) $ VIden $ mkVarId vn
+    vn <- addConst scope (True,False) False n
+    let v' = VarName (Typed vl ty) vn
     -- add variable to the environment
     isAnn <- getAnn
     newVariable scope False isAnn v' Nothing -- don't add values to the environment
@@ -267,7 +268,7 @@ tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e
     (ty',szs') <- tcTypeSizes l ty szs
     e' <- withExprC PureE $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
-    vn <- addConst scope False False n
+    vn <- addConst scope (True,True) False n
     let v' = VarName (Typed vl ty') vn
     -- add variable to the environment
     isAnn <- getAnn
