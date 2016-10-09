@@ -67,7 +67,7 @@ decPos :: DecType -> Position
 decPos = iDecPos . innerDec
 
 innerDec :: DecType -> InnerDecType
-innerDec (DecType i isRec ts hd hfrees bd bfrees specs idec) = idec
+innerDec (DecType i isRec ts hd bd specs idec) = idec
 
 iDecPos :: InnerDecType -> Position
 iDecPos d@(ProcType pl n pargs pret panns body cl) = pl
@@ -443,38 +443,38 @@ checkTypeName isAnn tn@(TypeName l n) = do
         Just tn' -> return tn'
         Nothing -> do
             dec <- newDecVar False Nothing
-            topTcCstrM_ l $ TDec False (TIden n) [] dec
+            topTcCstrM_ l $ TDec (TIden n) [] dec
             let ret = BaseT $ TApp (TIden n) [] dec
             return $ TypeName (Typed l ret) (TIden n)
 
-checkNonTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
-checkNonTemplateType isAnn isLeak ty@(TypeName l n) = do
-    es <- checkType isAnn isLeak ty
-    case es of
-        [e] -> case entryType e of
-            DecT d -> case d of
-                (DecType _ _ [] _ _ _ _ _ (StructType {})) -> return [e]
-                otherwise -> do
-                    ppn <- pp n
-                    tcError (locpos l) $ NoNonTemplateType (ppn)
-            t -> do
-                ppn <- pp n
-                tcError (locpos l) $ NoNonTemplateType (ppn)
-        es -> do
-            ppn <- pp n
-            tcError (locpos l) $ NoNonTemplateType (ppn)
-
--- | Checks if a template type exists in scope
--- Returns all template type declarations in scope, base template first
-checkTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
-checkTemplateType isAnn isLeak ty@(TypeName _ n) = do
-    es <- checkType isAnn isLeak ty
-    let check e = unless (isStructTemplate $ entryType e) $ do
-        ppn <- pp n
-        ppe <- pp (entryType e)
-        tcError (locpos $ loc ty) $ NoTemplateType (ppn) (locpos $ entryLoc e) ppe
-    mapM_ check es
-    return (es)
+--checkNonTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
+--checkNonTemplateType isAnn isLeak ty@(TypeName l n) = do
+--    es <- checkType isAnn isLeak ty
+--    case es of
+--        [e] -> case entryType e of
+--            DecT d -> case d of
+--                (DecType _ _ [] _ _ _ _ _ (StructType {})) -> return [e]
+--                otherwise -> do
+--                    ppn <- pp n
+--                    tcError (locpos l) $ NoNonTemplateType (ppn)
+--            t -> do
+--                ppn <- pp n
+--                tcError (locpos l) $ NoNonTemplateType (ppn)
+--        es -> do
+--            ppn <- pp n
+--            tcError (locpos l) $ NoNonTemplateType (ppn)
+--
+---- | Checks if a template type exists in scope
+---- Returns all template type declarations in scope, base template first
+--checkTemplateType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
+--checkTemplateType isAnn isLeak ty@(TypeName _ n) = do
+--    es <- checkType isAnn isLeak ty
+--    let check e = unless (isStructTemplate $ entryType e) $ do
+--        ppn <- pp n
+--        ppe <- pp (entryType e)
+--        tcError (locpos $ loc ty) $ NoTemplateType (ppn) (locpos $ entryLoc e) ppe
+--    mapM_ check es
+--    return (es)
 
 -- | Checks if a variable argument of a template exists in scope
 -- The argument can be a (user-defined or variable) type, a (user-defined or variable) domain or a dimension variable
@@ -525,8 +525,8 @@ checkTemplateArg isAnn isLeak (TemplateArgName l n) = do
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
-addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
-addTemplateOperator vars hdeps op = do
+addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
+addTemplateOperator vars hctx bctx hdeps op = do
     let Typed l (IDecT d) = loc op
 --    unresolvedQVars l "0" vars
     let selector = case iDecTyKind d of
@@ -536,9 +536,9 @@ addTemplateOperator vars hdeps op = do
 --    unresolvedQVars l "1" vars
     solve l "addTemplateOperator"
 --    unresolvedQVars l "2" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
+    (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         pp1 <- ppr (entryType e)
@@ -547,8 +547,8 @@ addTemplateOperator vars hdeps op = do
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
 -- | Adds a new (possibly overloaded) operator to the environment.
-newOperator :: (ProverK loc m) => Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
-newOperator hdeps op = do
+newOperator :: (ProverK loc m) => DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
+newOperator bctx hdeps op = do
     let (Typed l (IDecT d)) = loc op
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
@@ -559,19 +559,18 @@ newOperator hdeps op = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
     
     let did = fromJustNote "newOperator" (decTypeId $ unDecT recdt)
-    addLineage did $ solveTop l "newOperator"
+    bctx' <- addLineage did $ newDecCtx l bctx True
     dict <- liftM (head . tDict) State.get
-    frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict True Map.empty d'
-    let td = DecT $ DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
+    let td = DecT $ DecType i Nothing [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
-    noNormalFreesM e
+--    noNormalFreesM e
     debugTc $ do
         ppe <- ppr (entryType e)
         liftIO $ putStrLn $ "addOp " ++ ppe
@@ -601,17 +600,17 @@ checkOperator isAnn isLeak k op = do
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
-addTemplateProcedureFunction :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
-addTemplateProcedureFunction vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+addTemplateProcedureFunction :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
+addTemplateProcedureFunction vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
 --    unresolvedQVars l "addTemplateProcedureFunction" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
+    (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -619,9 +618,48 @@ addTemplateProcedureFunction vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n)
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ getLns selector env
     return $ ProcedureName (Typed l dt') n
 
+addFrees :: MonadIO m => Frees -> TcM m ()
+addFrees frees = forM_ (Map.toList frees) $ \(v,isVariadic) -> addFree v isVariadic
+
+delFrees :: MonadIO m => Frees -> TcM m ()
+delFrees delfrees = forM_ (Map.toList delfrees) $ \(v,_) -> removeFree v
+
+newDecCtx :: ProverK loc m => loc -> DecCtx -> Bool -> TcM m DecCtx
+newDecCtx l (DecCtx False dict frees) doTop = do
+    addHeadTDict l "newDecCtx" =<< fromPureTDict dict
+    addFrees frees
+    if doTop then solveTop l "newDecCtx" else solve l "newDecCtx"
+    dict' <- liftM (head . tDict) State.get
+    frees' <- getFrees l
+    checkFrees l frees' (toPureCstrs $ tCstrs dict') dict'
+    return $ DecCtx False (toPureTDict dict') frees'
+newDecCtx l (DecCtx True dict frees) doTop = do
+    recs <- addTCstrGraphToRec (pureCstrs dict)
+    solveTop l "newDecCtx"
+    d' <- liftM (head . tDict) State.get
+    let d'' = substRecs recs d'
+    frees' <- getFrees l
+    checkFrees l frees' (pureCstrs dict) d''
+    updateHeadTDict l "newDecCtx" $ const $ return $ ((),d'')
+    return $ DecCtx True dict frees
+
+substRecs :: Data a => Map DecType VarIdentifier -> a -> a
+substRecs recs = everywhere (mkT aux)
+    where
+    aux :: DecType -> DecType
+    aux d = case Map.lookup d recs of
+        Just d' -> DVar d'
+        Nothing -> d
+
+addTCstrGraphToRec :: TCstrGraph -> TcM m (Map DecType VarIdentifier)
+addTCstrGraphToRec = undefined
+
+addTCstrToRec :: TCstr -> TcM m (Map DecType VarIdentifier)
+addTCstrToRec = undefined
+
 -- | Adds a new (possibly overloaded) procedure to the environment.
-newProcedureFunction :: (ProverK loc m) => Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
-newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+newProcedureFunction :: (ProverK loc m) => DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
+newProcedureFunction bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
@@ -631,7 +669,7 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
     dirtyGDependencies (locpos l) n
@@ -643,13 +681,11 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     --liftIO $ putStrLn $ "newProc: " ++ show doc
     
     let did = fromJustNote "newProcedureFunction" (decTypeId $ unDecT recdt)
-    addLineage did $ solveTop l "newProcedure"
+    bctx' <- addLineage did $ newDecCtx l bctx True
     dict <- liftM (head . tDict) State.get
-    frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict True Map.empty d'
-    let dt = DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
+    let dt = DecType i Nothing [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
-    noNormalFreesM e
     debugTc $ do
         ppe <- ppr (entryType e)
         ppd <- ppr dict
@@ -657,8 +693,8 @@ newProcedureFunction hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
   
-newAxiom :: ProverK loc m => loc -> Deps -> [(Constrained Var,IsVariadic)] -> InnerDecType -> TcM m DecType
-newAxiom l hdeps tvars d = do
+newAxiom :: ProverK loc m => loc -> [(Constrained Var,IsVariadic)] -> DecCtx -> Deps -> InnerDecType -> TcM m DecType
+newAxiom l tvars bctx hdeps d = do
     -- prove the head constraints first
     (_,recdict) <- tcProve l "newAxiom head" $ addHeadTFlatCstrs l "newAxiom head" hdeps
     addHeadTDict l "newAxiom" recdict
@@ -667,32 +703,30 @@ newAxiom l hdeps tvars d = do
     d' <- substFromTDict "newAxiom head" l recdict False Map.empty d
     
     doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
-    solveTop l "newAxiom"
+    bctx' <- newDecCtx l bctx True
 --    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (head . tDict) State.get
-    frees <- getFrees l
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict True Map.empty d'
-    let dt = DecType i Nothing tvars emptyPureTDict Map.empty emptyPureTDict frees [] d''
+    let dt = DecType i Nothing tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
-    noNormalFreesM e
     debugTc $ do
         ppe <- ppr (entryType e)
         liftIO $ putStrLn $ "addAxiom " ++ pprid (decTypeTyVarId dt) ++ " " ++ ppe
     modifyModuleEnv $ \env -> env { axioms = Map.insert i e (axioms env) }
     return dt
 
-newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
-newLemma vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
---    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
+newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
+newLemma vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+--    liftIO $ putStrLn $ "entering newLemma " ++ ppr pn
     solve l "addLemma"
 --    unresolvedQVars l "newLemma" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
+    (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         ppe <- ppr (entryType e)
-        liftIO $ putStrLn $ "addTemplateProc " ++ ppe
+        liftIO $ putStrLn $ "newLemma " ++ ppe
     modifyModuleEnv $ \env -> env { lemmas = Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ lemmas env }
     return $ ProcedureName (Typed l dt') n
     
@@ -810,22 +844,22 @@ withoutEntry e m = do
         Nothing -> m
 
 decIsRec :: DecType -> Bool
-decIsRec (DecType _ isfree _ _ hfs _ bfs _ _) = isJust isfree
+decIsRec (DecType _ isfree _ _ _ _ _) = isJust isfree
 
 mkDecEnv :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(ProcType pl n pargs pret panns body cl)) = do
+mkDecEnv l d@(DecType i _ ts hd bd specs p@(ProcType pl n pargs pret panns body cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { procedures = Map.singleton (funit n) $ Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(FunType isLeak pl n pargs pret panns body cl)) = do
+mkDecEnv l d@(DecType i _ ts hd bd specs p@(FunType isLeak pl n pargs pret panns body cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { functions = Map.singleton (funit n) $ Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs s@(StructType sl sid atts cl)) = do
+mkDecEnv l d@(DecType i _ ts hd bd specs s@(StructType sl sid atts cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { structs = Map.singleton sid $ Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs a@(AxiomType isLeak pa pargs panns cl)) = do
+mkDecEnv l d@(DecType i _ ts hd bd specs a@(AxiomType isLeak pa pargs panns cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { axioms = Map.singleton i e }
-mkDecEnv l d@(DecType i _ ts hd hfrees bd bfrees specs p@(LemmaType isLeak pl pn pargs panns body cl)) = do
+mkDecEnv l d@(DecType i _ ts hd bd specs p@(LemmaType isLeak pl pn pargs panns body cl)) = do
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { lemmas = Map.singleton (funit pn) $ Map.singleton i e }
     
@@ -887,21 +921,12 @@ writeTpltVars :: [(Constrained Var,IsVariadic)] -> (VarIdentifier -> VarIdentifi
 writeTpltVars [] = id
 writeTpltVars ((unConstrained -> v@(VarName t (VIden n)),_):xs) = \x -> if x==n then n{varIdWrite = True} else writeTpltVars xs x
     
-splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> Set LocIOCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (PureTDict,Frees,PureTDict,Frees,([(Constrained Var,IsVariadic)],a))
-splitTpltHead l deps vars dec = do
+splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> DecCtx -> DecCtx -> Set LocIOCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (DecCtx,DecCtx,([(Constrained Var,IsVariadic)],a))
+splitTpltHead l hctx bctx deps vars dec = do
     d <- liftM (head . tDict) State.get
-    let chg = writeTpltVars vars
-    let hbsubsts = tSubsts d
-    vars' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty vars >>= chgVarId chg
+    let cstrs = toPureCstrs $ tCstrs d
+    
     frees <- getFrees l
-    dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec >>= chgVarId chg
-    cstrs <- substFromTSubsts "splitHead" l hbsubsts False Map.empty (toPureCstrs $ tCstrs d) >>= chgVarId chg
-    freevars <- usedVs cstrs
-    forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Set.member v freevars) $ do
-        ppv <- pp v
-        ppd <- pp d
-        ppdec' <- pp dec'
-        genTcError (locpos l) $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd $+$ text "in declaration" <+> ppdec'
     hvs <- usedVs $ Set.map (kCstr . unLoc) deps
     let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
     let bfrees = Map.difference frees hfrees
@@ -911,17 +936,43 @@ splitTpltHead l deps vars dec = do
     let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,h)) cs) gr
     let bgr = differenceGr gr hgr
 --    liftIO $ putStrLn $ "splitHead " ++ ppr hgr ++ "\n|\n" ++ ppr bgr
-    return (PureTDict hgr emptyTSubsts (tRec d),hfrees,PureTDict bgr emptyTSubsts mempty,bfrees,(vars',dec'))
+    let headDict = PureTDict hgr emptyTSubsts (tRec d)
+    let bodyDict = PureTDict bgr emptyTSubsts mempty
+    hctx' <- tcNew (locpos l) "split" $ do
+        addHeadTDict l "split" =<< fromPureTDict headDict
+        addFrees hfrees
+        newDecCtx l hctx False
+    bctx' <- tcNew (locpos l) "split" $ do
+        addHeadTDict l "split" =<< fromPureTDict bodyDict
+        addFrees bfrees
+        newDecCtx l bctx False
+    
+    hbsubsts <- getTSubsts l
+    let chg = writeTpltVars vars
+    vars' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty vars >>= chgVarId chg
+    dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec >>= chgVarId chg
+    hctx'' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty hctx' >>= chgVarId chg
+    bctx'' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty bctx' >>= chgVarId chg
+        
+    return (hctx'',bctx'',(vars',dec'))
+    
+checkFrees :: (Vars GIdentifier (TcM m) x,ProverK loc m,PP (TcM m) d) => loc -> Frees -> x -> d -> TcM m ()
+checkFrees l frees x dict = do
+    freevars <- usedVs x
+    forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Set.member v freevars) $ do
+        ppv <- pp v
+        ppd <- pp dict
+        genTcError (locpos l) $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
-addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
+addTemplateStruct vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStruct"
 --    unresolvedQVars l "addTemplateStruct" vars
-    (hdict,hfrees,bdict,bfrees,(vars',d')) <- splitTpltHead l hdeps vars d
+    (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees [] d'
+    let dt' = DecT $ DecType i Nothing vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     ss <- getStructs False False (tyIsAnn dt') (isLeakType dt')
     case Map.lookup n ss of
@@ -936,20 +987,20 @@ addTemplateStruct vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     
 -- Adds a new (possibly overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
-addTemplateStructSpecialization vars specials hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
+addTemplateStructSpecialization vars specials hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     solve l "addTemplateStructSpecialization"
 --    unresolvedQVars l "addTemplateStructSpecialization" vars
-    (hdict,hfrees,bdict,bfrees,(vars',(specials',d'))) <- splitTpltHead l hdeps vars (specials,d)
+    (hctx',bctx',(vars',(specials',d'))) <- splitTpltHead l hctx bctx hdeps vars (specials,d)
     i <- newModuleTyVarId
-    let dt' = DecT $ DecType i Nothing vars' hdict hfrees bdict bfrees specials' d'
+    let dt' = DecT $ DecType i Nothing vars' hctx' bctx' specials' d'
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
     return $ TypeName (Typed l dt') n
 
 -- | Defines a new struct type
-newStruct :: (ProverK loc m) => Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
-newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+newStruct :: (ProverK loc m) => DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
+newStruct bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     addGDependencies n
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l "newStruct head" hdeps
@@ -958,7 +1009,7 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
-    let recdt = DecT $ DecType i (Just (i)) [] emptyPureTDict hfrees emptyPureTDict Map.empty [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (Just (i)) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False False (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
@@ -971,18 +1022,17 @@ newStruct hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     
             -- solve the body
             let did = fromJustNote "newStruct" (decTypeId $ unDecT recdt)
-            addLineage did $ solveTop l "newStruct"
+            bctx' <- addLineage did $ newDecCtx l bctx True
             dict <- liftM (head . tDict) State.get
-            frees <- getFrees l
             --i <- newModuleTyVarId
             d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" (locpos l) dict True Map.empty d'
-            let dt = DecT $ DecType i Nothing [] emptyPureTDict Map.empty emptyPureTDict frees [] d''
+            let dt = DecT $ DecType i Nothing [] implicitDecCtx bctx' [] d''
             let e = EntryEnv (locpos l) dt
             debugTc $ do
                 ppl <- ppr l
                 ppe <- ppr e
                 liftIO $ putStrLn $ "newStruct: " ++ ppl ++ " " ++ ppe
-            noNormalFreesM e
+            --noNormalFreesM e
             modifyModuleEnv $ \env -> env { structs = Map.insert n (Map.singleton i e) (structs env) }
             return $ TypeName (Typed l dt) n
 data SubstMode = SubstMode { substCheck :: SubstCheck, substDirty :: Bool }
@@ -1588,6 +1638,12 @@ tcWith l msg m = do
   where
     dropDict (x:xs) = xs
 
+tcNew :: (VarsGTcM m) => Position -> String -> TcM m a -> TcM m a
+tcNew l msg m = do
+    (x,d) <- tcWith l msg m
+    addHeadTDict l msg d
+    return x
+
 onlyAnn :: ProverK loc m => loc -> Doc -> TcM m a -> TcM m a
 onlyAnn l doc m = do
     isAnn <- getAnn
@@ -1686,10 +1742,10 @@ addErrorM'' :: (MonadIO m,Location loc) => loc -> (Int,SecrecErrArr) -> TcM m a 
 addErrorM'' l (j,SecrecErrArr err) m = addErrorM' l (j,err) m
 
 decTypeArgs :: DecType -> [(Constrained Type,IsVariadic)]
-decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees [] body) =
+decTypeArgs (DecType _ _ args _ _ [] body) =
     -- a base template uses the base arguments
     map (mapFst (fmap varNameToType)) args
-decTypeArgs (DecType _ _ args hcstrs hfrees cstrs bfrees specials body) =
+decTypeArgs (DecType _ _ args _ _ specials body) =
     -- a specialization uses the specialized arguments
     map (mapFst (flip Constrained Nothing)) specials
 
@@ -1959,7 +2015,9 @@ processRecs lin withBody = Map.foldrWithKey go (return Map.empty)
                     else mxs -- drop non-lineage non-monomorphic recursive entries
 
 isMonomorphicDec :: (ProverK Position m) => DecType -> TcM m Bool
-isMonomorphicDec (DecType _ _ targs _ _ _ _ specs _) = do
+isMonomorphicDec (DecType _ _ targs _ _ specs _) = do
     vs <- usedVs' (targs,specs)
     return $ Set.null vs
+
+--context2Cstr :: ProverK loc m => ContextConstraint GIdentifier (Typed loc) -> TcM m (TCstr)
 

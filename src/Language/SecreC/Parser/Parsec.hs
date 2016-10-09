@@ -84,6 +84,12 @@ apA6 ma mb mc md me mg f = pure f <*> ma <*> mb <*> mc <*> md <*> me <*> mg
 apA7 :: Applicative f => f a -> f b -> f c -> f d -> f e -> f g -> f h -> (a -> b -> c -> d -> e -> g -> h -> i) -> f i
 apA7 ma mb mc md me mg mh f = pure f <*> ma <*> mb <*> mc <*> md <*> me <*> mg <*> mh
 
+apA8 :: Applicative f => f a -> f b -> f c -> f d -> f e -> f g -> f h -> f i -> (a -> b -> c -> d -> e -> g -> h -> i -> j) -> f j
+apA8 ma mb mc md me mg mh mi f = pure f <*> ma <*> mb <*> mc <*> md <*> me <*> mg <*> mh <*> mi
+
+apA9 :: Applicative f => f a -> f b -> f c -> f d -> f e -> f g -> f h -> f i -> f j -> (a -> b -> c -> d -> e -> g -> h -> i -> j -> k) -> f k
+apA9 ma mb mc md me mg mh mi mj f = pure f <*> ma <*> mb <*> mc <*> md <*> me <*> mg <*> mh <*> mi <*> mj
+
 scTok :: (Monad m,MonadCatch m) => Token -> ScParserT m TokenInfo
 scTok t = scTokPred ((==t) . tSymb)
 
@@ -386,12 +392,34 @@ scTemplateDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (TemplateDeclar
 scTemplateDeclaration = (do
     x1 <- scTok TEMPLATE
     x3 <- scABrackets scTemplateQuantifiers
-    (    apA scStructure (templStruct x1 x3)
-     <|> apA scFunctionDeclaration  (\x5 -> TemplateFunctionDeclaration (loc x1) x3 x5)
-     <|> apA scProcedureDeclaration  (\x5 -> TemplateProcedureDeclaration (loc x1) x3 x5))) <?> "template declaration"
+    xc <- scTemplateContext
+    (    apA scStructure (templStruct x1 x3 xc)
+     <|> apA scFunctionDeclaration  (\x5 -> TemplateFunctionDeclaration (loc x1) x3 xc x5)
+     <|> apA scProcedureDeclaration  (\x5 -> TemplateProcedureDeclaration (loc x1) x3 xc x5))) <?> "template declaration"
   where
-    templStruct x1 x3 (Nothing,x5) = TemplateStructureDeclaration (loc x1) x3 x5
-    templStruct x1 x3 (Just x4,x5) = TemplateStructureSpecialization (loc x1) x3 x4 x5
+    templStruct x1 x3 xc (Nothing,x5) = TemplateStructureDeclaration (loc x1) x3 xc x5
+    templStruct x1 x3 xc (Just x4,x5) = TemplateStructureSpecialization (loc x1) x3 xc x4 x5
+
+scTemplateContext :: (Monad m,MonadCatch m) => ScParserT m (TemplateContext Identifier Position)
+scTemplateContext = apA scMb (\x1 -> TemplateContext (maybe noloc (maybe noloc loc . headMay) x1) x1) <?> "template context"
+    where
+    scMb = optionMaybe (scTok CONTEXT *> scABrackets (Text.Parsec.sepBy scContextConstraint (scChar ',')))
+
+scContextConstraint :: (Monad m,MonadCatch m) => ScParserT m (ContextConstraint Identifier Position)
+scContextConstraint =
+         scPO
+    <||> (apA2 scTypeId (scABrackets scTemplateTypeArguments) (\x1 x2 -> ContextTDec (loc x1) x1 x2))
+  where
+    scPO = scReturnTypeSpecifier $ \x1 ->
+            apA3 scProcedureId (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextPDec (loc x1) x1 x2 x3 x4)
+        <|> apA3 scOp (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextODec (loc x1) x1 x2 x3 x4)
+
+scCtxPArgs :: (Monad m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
+scCtxPArgs = scParens $ Text.Parsec.sepBy scCtxPArg (scChar ',')
+
+scCtxPArg :: (Monad m,MonadCatch m) => ScParserT m (CtxPArg Identifier Position)
+scCtxPArg = scTypeSpecifier $ \x1 -> apA scVariadic (\x2 -> CtxNormalPArg (loc x1) x1 x2)
+        <|> apA scExpression (\x1 -> CtxConstPArg (loc x1) x1)
 
 scTemplateQuantifiers :: (Monad m,MonadCatch m) => ScParserT m [TemplateQuantifier Identifier Position]
 scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?> "template quantifiers"
@@ -416,10 +444,10 @@ scVariadic = apA (optionMaybe (scTok VARIADIC)) isJust
 -- ** Structures                                                                 
 
 scStructure :: (Monad m,MonadCatch m) => ScParserT m (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
-scStructure = apA4 (scTok STRUCT) scTypeId (optionMaybe $ scABrackets scTemplateTypeArguments) (scCBrackets scAttributeList) (\x1 x2 x3 x4 -> (x3,StructureDeclaration (loc x1) x2 x4)) <?> "structure declaration"
+scStructure = apA5 (scTok STRUCT) scTypeId (optionMaybe $ scABrackets scTemplateTypeArguments) scTemplateContext (scCBrackets scAttributeList) (\x1 x2 x3 xc x4 -> (x3,StructureDeclaration (loc x1) x2 xc x4)) <?> "structure declaration"
 
 scStructureDeclaration :: (Monad m,MonadCatch m) => ScParserT m (StructureDeclaration Identifier Position)
-scStructureDeclaration = apA3 (scTok STRUCT) scTypeId (scCBrackets scAttributeList) (\x1 x2 x3 -> StructureDeclaration (loc x1) x2 x3) <?> "structure declaration"
+scStructureDeclaration = apA4 (scTok STRUCT) scTypeId scTemplateContext (scCBrackets scAttributeList) (\x1 x2 xc x3 -> StructureDeclaration (loc x1) x2 xc x3) <?> "structure declaration"
 
 scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier Position]
 scAttributeList = many scAttribute <?> "attribute list"
@@ -441,12 +469,13 @@ scProcedureDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureDecl
 scProcedureDeclaration = do
     scReturnTypeSpecifier $ \x1 -> o1 x1 <|> o2 x1 <?> "procedure definition"
   where
-    o1 x1 = apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 x6 -> OperatorDeclaration (loc x1) x1 x3 x4 x5 (unLoc x6))
-    o2 x1 = apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundStatement (\x2 x3 x4 x5 -> ProcedureDeclaration (loc x1) x1 x2 x3 x4 (unLoc x5))
+    o1 x1 = apA6 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundStatement (\x2 x3 x4 xc x5 x6 -> OperatorDeclaration (loc x1) x1 x3 x4 xc x5 (unLoc x6))
+    o2 x1 = apA5 scProcedureId (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundStatement (\x2 x3 xc x4 x5 -> ProcedureDeclaration (loc x1) x1 x2 x3 xc x4 (unLoc x5))
 
 scLemmaDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (LemmaDeclaration Identifier Position)
-scLemmaDeclaration = (apA7 scLeak (scTok LEMMA) scProcedureId scTArgs scPArgs scAnns scBody (\isLeak x2 x3 x4 x5 x6 x7 -> LemmaDeclaration (loc x2) isLeak x3 x4 x5 x6 $ fmap unLoc x7)) <?> "lemma definition"
+scLemmaDeclaration = (apA9 scLeak (scTok LEMMA) scProcedureId scTArgs scCtx scPArgs scCtx scAnns scBody (\isLeak x2 x3 x4 xc x5 xcb x6 x7 -> LemmaDeclaration (loc x2) isLeak x3 x4 xc x5 xcb x6 $ fmap unLoc x7)) <?> "lemma definition"
     where
+    scCtx = scTemplateContext
     scTArgs = option [] (scABrackets scTemplateQuantifiers)
     scPArgs = scParens scProcedureParameterList
     scAnns = scProcedureAnnotations
@@ -464,8 +493,8 @@ scFunctionDeclaration = do
     scTypeSpecifier $ \x1 -> do
         (o1 isLeak x0 x1 <|> o2 isLeak x0 x1) <?> "function definition"
   where
-    o1 isLeak x0 x1 = apA5 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scProcedureAnnotations scCompoundExpression (\x2 x3 x4 x5 x6 -> OperatorFunDeclaration (loc x0) isLeak x1 x3 x4 x5 (unLoc x6))
-    o2 isLeak x0 x1 = apA4 scProcedureId (scParens scProcedureParameterList) scProcedureAnnotations scCompoundExpression (\x2 x3 x4 x5 -> FunDeclaration (loc x0) isLeak x1 x2 x3 x4 (unLoc x5))
+    o1 isLeak x0 x1 = apA6 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundExpression (\x2 x3 xc x4 x5 x6 -> OperatorFunDeclaration (loc x0) isLeak x1 x3 xc x4 x5 (unLoc x6))
+    o2 isLeak x0 x1 = apA5 scProcedureId (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundExpression (\x2 x3 xc x4 x5 -> FunDeclaration (loc x0) isLeak x1 x2 x3 xc x4 (unLoc x5))
     
 scProcedureParameterList :: (Monad m,MonadCatch m) => ScParserT m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"

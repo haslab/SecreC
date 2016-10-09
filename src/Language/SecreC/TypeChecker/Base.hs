@@ -444,12 +444,12 @@ modifyModuleEnvM f = do
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
 
 remDecDict :: DecType -> DecType
-remDecDict d@(DecType i isRec ts hd hfrees bd bfrees specs b) =
-    DecType i isRec ts emptyPureTDict hfrees emptyPureTDict bfrees specs b
+remDecDict d@(DecType i isRec ts hctx bctx specs b) =
+    DecType i isRec ts hctx{dCtxDict = emptyPureTDict} bctx{dCtxDict = emptyPureTDict} specs b
 
 remDecBody :: DecType -> DecType
-remDecBody d@(DecType i isRec ts hd hfrees bd bfrees specs b) =
-    DecType i isRec ts hd hfrees bd bfrees specs (remIDecBody b)
+remDecBody d@(DecType i isRec ts hctx bctx specs b) =
+    DecType i isRec ts hctx bctx specs (remIDecBody b)
 
 remIDecBody :: InnerDecType -> InnerDecType
 remIDecBody d@(ProcType pl n pargs pret panns body cl) = ProcType pl n pargs pret panns Nothing cl
@@ -689,18 +689,15 @@ isGlobalTcCstr _ = False
 -- | A template constraint with a result type
 data TcCstr
     = TDec -- ^ type template declaration
-        Bool -- is template
         SIdentifier -- template name
         [(Type,IsVariadic)] -- template arguments
         DecType -- resulting type
     | PDec -- ^ procedure declaration
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
-        [(Expr,IsVariadic)] -- procedure arguments
+        [(Either Expr Type,IsVariadic)] -- procedure arguments
         Type -- return type
         DecType -- result
-        --Bool -- coerce arguments
-        --[Var] -- resulting coerced procedure arguments
     | Equals Type Type -- ^ types equal
     | Coerces -- ^ types coercible
         Expr
@@ -875,7 +872,7 @@ ppExprTy e = do
 ppVarTy v = ppExprTy (varExpr v)
 
 instance PP m VarIdentifier => PP m TcCstr where
-    pp (TDec isTplt n ts x) = do
+    pp (TDec n ts x) = do
         ppn <- pp n
         ppts <- (mapM pp ts) 
         ppx <- pp x
@@ -884,7 +881,7 @@ instance PP m VarIdentifier => PP m TcCstr where
         ppr <- pp r
         ppn <- pp n
         ppspecs <- mapM pp $ maybe [] id specs
-        ppts <- mapM (ppVariadicArg ppExprTy) ts
+        ppts <- mapM (ppVariadicArg (eitherM ppExprTy pp)) ts
         ppx <- pp x
         return $ ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> parens (sepBy comma ppts) <+> char '=' <+> ppx
     pp (Equals t1 t2) = do
@@ -1099,11 +1096,11 @@ indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
 indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
     
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCstr where
-    traverseVars f (TDec isTplt n args x) = do
+    traverseVars f (TDec n args x) = do
         n' <- f n
         args' <- mapM f args
         x' <- f x
-        return $ TDec isTplt n' args' x'
+        return $ TDec n' args' x'
     traverseVars f (PDec n ts args ret x) = do
         n' <- f n
         x' <- f x
@@ -1541,18 +1538,18 @@ isPrivateKind k = case kindClass k of
     Nothing -> False
 
 tyDecClass :: Type -> DecClass
-tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
-tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (FunType _ _ _ _ _ _ _ cl))) = cl
-tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (StructType _ _ _ cl))) = cl
-tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (AxiomType _ _ _ _ cl))) = cl
-tyDecClass (DecT (DecType _ _ _ _ _ _ _ _ (LemmaType _ _ _ _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ (ProcType _ _ _ _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ (FunType _ _ _ _ _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ (StructType _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ (AxiomType _ _ _ _ cl))) = cl
+tyDecClass (DecT (DecType _ _ _ _ _ _ (LemmaType _ _ _ _ _ _ cl))) = cl
 tyDecClass t = error $ "tyDecClass: " ++ show t
 
 tyIsAnn t = let (DecClass b _ _ _) = tyDecClass t in b
 tyIsInline t = let (DecClass _ b _ _) = tyDecClass t in b
 
 decTypeFrees :: DecType -> Frees
-decTypeFrees (DecType _ _ _ hvs hfs _ bfs _ _) = Map.unionWith (||) hfs bfs
+decTypeFrees (DecType _ _ _ hctx bctx _ _) = Map.unionWith (||) (dCtxFrees hctx) (dCtxFrees bctx)
 
 decTypeId :: DecType -> Maybe (GIdentifier,ModuleTyVarId)
 decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
@@ -1560,7 +1557,7 @@ decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
     otherwise -> Nothing
     
 decTypeDecId :: DecType -> Maybe GIdentifier
-decTypeDecId (DecType _ _ _ _ _ _ _ _ d) = decTypeDecId' d
+decTypeDecId (DecType _ _ _ _ _ _ d) = decTypeDecId' d
     where
     decTypeDecId' (ProcType _ o _ _ _ _ _) = Just $ funit o
     decTypeDecId' (LemmaType _ _ p _ _ _ _) = Just $ funit p
@@ -1573,7 +1570,7 @@ isLeakType :: Type -> Bool
 isLeakType (DecT d) = isLeakDec d
 
 isLeakDec :: DecType -> Bool
-isLeakDec (DecType _ _ _ _ _ _ _ _ i) = isLeakInnerDec i
+isLeakDec (DecType _ _ _ _ _ _ i) = isLeakInnerDec i
 
 isLeakInnerDec :: InnerDecType -> Bool
 isLeakInnerDec (ProcType {}) = False
@@ -1583,7 +1580,7 @@ isLeakInnerDec (AxiomType isLeak _ _ _ _) = isLeak
 isLeakInnerDec (LemmaType isLeak _ _ _ _ _ _) = isLeak
 
 decTyKind :: DecType -> DecKind
-decTyKind (DecType _ _ _ _ _ _ _ _ i) = iDecTyKind i
+decTyKind (DecType _ _ _ _ _ _ i) = iDecTyKind i
 
 iDecTyKind :: InnerDecType -> DecKind
 iDecTyKind (ProcType {}) = PKind
@@ -1592,15 +1589,36 @@ iDecTyKind (AxiomType {}) = AKind
 iDecTyKind (StructType {}) = TKind
 iDecTyKind (LemmaType {}) = LKind
 
+data DecCtx = DecCtx { dCtxExplicit :: Bool, dCtxDict :: PureTDict, dCtxFrees :: Frees }
+  deriving (Typeable,Show,Data,Generic,Eq,Ord)
+instance Binary DecCtx
+instance Hashable DecCtx
+
+implicitDecCtx :: DecCtx
+implicitDecCtx = DecCtx False emptyPureTDict Map.empty
+
+ppContext hasCtx = if hasCtx then text "context" else PP.empty
+
+instance PP m VarIdentifier => PP m DecCtx where
+    pp (DecCtx has dict frees) = do
+        ppfrees <- pp frees
+        ppd <- pp dict
+        return $ ppContext has $+$ text "Frees:" <+> ppfrees $+$ ppd
+
+instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m DecCtx where
+    traverseVars f (DecCtx has dict frees) = do
+        has' <- f has
+        frees' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList frees
+        dict' <- f dict
+        return $ DecCtx has' dict' frees'
+
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
         (Maybe (ModuleTyVarId)) -- is a specialized invocation = Just (original)
         [(Constrained Var,IsVariadic)] -- ^ template variables
-        PureTDict -- ^ constraints for the header
-        Frees -- set of free internal constant variables generated when typechecking the header
-        PureTDict -- ^ constraints for the template
-        Frees -- set of free internal constant variables generated when typechecking the template
+        DecCtx -- ^ header
+        DecCtx -- ^ body
         [(Type,IsVariadic)] -- ^ template specializations
         InnerDecType -- ^ template's type
     | DVar -- declaration variable
@@ -1648,7 +1666,7 @@ data InnerDecType
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 
 isTemplateDecType :: DecType -> Bool
-isTemplateDecType (DecType _ _ ts _ _ _ _ specs _) = not (null ts)
+isTemplateDecType (DecType _ _ ts _ _ specs _) = not (null ts)
 isTemplateDecType _ = False
 
 isFunType :: Type -> Bool
@@ -1656,7 +1674,7 @@ isFunType (DecT d) = isFunDecType d
 isFunType _ = False 
 
 isFunDecType :: DecType -> Bool
-isFunDecType (DecType _ _ _ _ _ _ _ specs (FunType {})) = True
+isFunDecType (DecType _ _ _ _ _ specs (FunType {})) = True
 isFunDecType _ = False
 
 isFunInnerDecType :: InnerDecType -> Bool
@@ -1664,10 +1682,10 @@ isFunInnerDecType (FunType {}) = True
 isFunInnerDecType _ = False
 
 isNonRecursiveDecType :: DecType -> Bool
-isNonRecursiveDecType (DecType i _ _ _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
+isNonRecursiveDecType (DecType i _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
     where
     aux :: DecType -> Bool
-    aux (DecType _ (Just (j)) _ _ _ _ _ _ _) = i == j
+    aux (DecType _ (Just (j)) _ _ _ _ _) = i == j
     aux d = False
 isNonRecursiveDecType d = False
 
@@ -1767,6 +1785,8 @@ data Type
     | KindT KindType
     | DecT DecType
     | IDecT InnerDecType -- internal only
+    | DecCtxT DecCtx -- internal only
+    | TCstrT TCstr -- internal only
     | SysT SysType
     | VArrayT VArrayType -- for variadic array types
     | IdxT Expr -- for index expressions
@@ -1846,31 +1866,24 @@ ppAtt (Attribute t _ n szs) = do
     return $ ppt <+> ppn <> ppz        
 
 instance PP m VarIdentifier => PP m DecType where
-    pp (DecType did isrec vars hdict hfrees dict frees specs body@(StructType _ n atts cl)) = do
+    pp (DecType did isrec vars hctx bctx specs body@(StructType _ n atts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
-        pp21 <- pp hfrees
-        pp3 <- pp hdict
-        pp31 <- pp frees
-        pp4 <- pp dict
+        pp3 <- pp hctx
+        pp4 <- pp bctx
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp n
         pp7 <- mapM pp specs
         pp8 <- ppOpt atts (liftM (braces . vcat) . mapM ppAtt)
         return $ pp1 <+> pp2
-            $+$ text "Frees:" <+> pp21
-            $+$ pp3
-            $+$ text "Frees:" <+> pp31
-            $+$ pp4
+            $+$ pp3 $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
             $+$ text "struct" <+> pp6 <> abrackets (sepBy comma pp7) <+> pp8
-    pp (DecType did isrec vars hdict hfrees dict frees specs body@(ProcType _ n args ret ann stmts _)) = do
+    pp (DecType did isrec vars hctx bctx specs body@(ProcType _ n args ret ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
-        pp21 <- pp hfrees
-        pp3 <- pp hdict
-        pp31 <- pp frees
-        pp4 <- pp dict
+        pp3 <- pp hctx
+        pp4 <- pp bctx
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp ret
         pp7 <- pp n
@@ -1879,21 +1892,17 @@ instance PP m VarIdentifier => PP m DecType where
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
         return $ pp1 <+> pp2
-            $+$ text "Frees:" <+> pp21
             $+$ pp3
-            $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
             $+$ pp6 <+> prefixOp (isOIden' n) pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10
-    pp (DecType did isrec vars hdict hfrees dict frees specs body@(FunType isLeak _ n args ret ann stmts _)) = do
+    pp (DecType did isrec vars hctx bctx specs body@(FunType isLeak _ n args ret ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
-        pp21 <- pp hfrees
-        pp3 <- pp hdict
-        pp31 <- pp frees
-        pp4 <- pp dict
+        pp3 <- pp hctx
+        pp4 <- pp bctx
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp6 <- pp ret
         pp7 <- pp n
@@ -1902,39 +1911,31 @@ instance PP m VarIdentifier => PP m DecType where
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
         return $ ppLeak isLeak (pp1 <+> pp2
-            $+$ text "Frees:" <+> pp21
             $+$ pp3
-            $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
             $+$ pp6 <+> prefixOp (isOIden' n) pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10)
-    pp (DecType did isrec vars hdict hfrees dict frees specs body@(AxiomType isLeak _ args ann _)) = do
+    pp (DecType did isrec vars hctx bctx specs body@(AxiomType isLeak _ args ann _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
-        pp21 <- pp hfrees
-        pp3 <- pp hdict
-        pp31 <- pp frees
-        pp4 <- pp dict
+        pp3 <- pp hctx
+        pp4 <- pp bctx
         pp5 <- mapM (ppVariadicArg ppTpltArg) vars
         pp50 <- mapM pp specs
         pp6 <- mapM ppConstArg args
         pp7 <- pp ann
         return $ ppLeak isLeak (pp1 <+> pp2
-            $+$ text "Frees:" <+> pp21
             $+$ pp3
-            $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "axiom" <> abrackets (sepBy comma pp5) <> abrackets (sepBy comma pp50)
             <+> parens (sepBy comma $ pp6) $+$ pp7)
-    pp (DecType did isrec vars hdict hfrees dict frees specs body@(LemmaType isLeak _ n args ann stmts _)) = do
+    pp (DecType did isrec vars hctx bctx specs body@(LemmaType isLeak _ n args ann stmts _)) = do
         pp1 <- pp did
         pp2 <- pp isrec
-        pp21 <- pp hfrees
-        pp3 <- pp hdict
-        pp31 <- pp frees
-        pp4 <- pp dict
+        pp3 <- pp hctx
+        pp4 <- pp bctx
         pp5 <- pp n
         pp6 <- mapM (ppVariadicArg ppTpltArg) vars
         pp60 <- mapM pp specs
@@ -1942,9 +1943,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp8 <- pp ann
         pp9 <- ppOpt stmts (liftM braces . pp)
         return $ ppLeak isLeak (pp1 <+> pp2
-            $+$ text "Frees:" <+> pp21
             $+$ pp3
-            $+$ text "Frees:" <+> pp31
             $+$ pp4
             $+$ text "lemma" <+> pp5 <+> abrackets (sepBy comma pp6) <> abrackets (sepBy comma pp60)
             <+> parens (sepBy comma pp7)
@@ -2052,6 +2051,8 @@ instance PP m VarIdentifier => PP m Type where
     pp (SecT s) = pp s
     pp (DecT d) = pp d
     pp (IDecT d) = pp d
+    pp (DecCtxT d) = pp d
+    pp (TCstrT d) = pp d
     pp (SysT s) = pp s
     pp (IdxT e) = pp e
     pp (VArrayT a) = pp a
@@ -2106,11 +2107,11 @@ typeClass msg (BaseT _) = TypeC
 typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
 
 isStruct :: DecType -> Bool
-isStruct (DecType _ _ _ _ _ _ _ _ (StructType {})) = True
+isStruct (DecType _ _ _ _ _ _ (StructType {})) = True
 isStruct _ = False
 
 isStructTemplate :: Type -> Bool
-isStructTemplate (DecT (DecType _ _ _ _ _ _ _ _ (StructType {}))) = True
+isStructTemplate (DecT (DecType _ _ _ _ _ _ (StructType {}))) = True
 isStructTemplate _ = False
 
 isVoid :: ComplexType -> Bool
@@ -2266,17 +2267,15 @@ instance PP m VarIdentifier => PP m [Var] where
     pp = liftM (sepBy comma) . mapM ppVarTy
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
-    traverseVars f (DecType tid isRec vs hd hfrees d frees spes t) = do
+    traverseVars f (DecType tid isRec vs hctx bctx spes t) = do
         isRec' <- mapM f isRec
         varsBlock $ do
             vs' <- inLHS False $ mapM f vs
-            hfrees' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList hfrees
-            frees' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList frees
-            hd' <- f hd
-            d' <- f d
+            hctx' <- f hctx
+            bctx' <- f bctx
             spes' <- mapM f spes
             t' <- f t
-            return $ DecType tid isRec' vs' hd' hfrees' d' frees' spes' t'
+            return $ DecType tid isRec' vs' hctx' bctx' spes' t'
     traverseVars f (DVar v) = do
         VIden v' <- f (VIden v::GIdentifier)
         return $ DVar v'
@@ -2415,6 +2414,15 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     traverseVars f (KindT s) = do
         s' <- f s
         return $ KindT s'
+    traverseVars f (IDecT s) = do
+        s' <- f s
+        return $ IDecT s'
+    traverseVars f (DecCtxT s) = do
+        s' <- f s
+        return $ DecCtxT s'
+    traverseVars f (TCstrT s) = do
+        s' <- f s
+        return $ TCstrT s'
     traverseVars f (StmtType s) = do
         s' <- mapSetM f s
         return (StmtType s')
@@ -2575,7 +2583,7 @@ instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m ModuleTyVarId w
     traverseVars f x = return x
 
 decTypeTyVarId :: DecType -> Maybe ModuleTyVarId
-decTypeTyVarId (DecType i _ _ _ _ _ _ _ _) = Just i
+decTypeTyVarId (DecType i _ _ _ _ _ _) = Just i
 decTypeTyVarId (DVar _) = Nothing
 
 typeTyVarId :: Type -> Maybe ModuleTyVarId

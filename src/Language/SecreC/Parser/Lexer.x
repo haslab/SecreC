@@ -70,6 +70,7 @@ tokens :-
 
 -- Keywords:
 <0>                     nonpublic             { lexerTokenInfo NONPUBLIC }
+<0>                     context             { lexerTokenInfo CONTEXT }
 <0>                     numeric             { lexerTokenInfo NUMERIC }
 <0>                     primitive             { lexerTokenInfo PRIMITIVE }
 <0>                     function              { lexerTokenInfo FUNCTION }

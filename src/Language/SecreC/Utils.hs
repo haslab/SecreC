@@ -681,3 +681,8 @@ rightsMap = Map.foldrWithKey f Map.empty
     f (Left a) v xs = xs
     f (Right b) v xs = Map.insert b v xs
 
+eitherM :: Monad m => (a -> m x) -> (b -> m x) -> Either a b -> m x
+eitherM f g (Left x) = f x
+eitherM f g (Right y) = g y
+
+

@@ -478,13 +478,13 @@ resolveTcCstr l mode kid k = do
 --    if warn then newErrorM $ orWarn_ $ resolveTcCstr' k else 
     resolveTcCstr' kid k
   where
-    resolveTcCstr' kid k@(TDec isTplt n@(TIden tn) args x) = do
+    resolveTcCstr' kid k@(TDec n@(TIden tn) args x) = do
         ppn <- pp n
         ppargs <- mapM pp args
         addErrorM l (TypecheckerError (locpos l) . TemplateSolvingError (quotes (ppn <+> parens (sepBy comma ppargs)))) $ do
             isAnn <- getAnn
             isLeak <- getLeak
-            let check = if isTplt then checkTemplateType else checkNonTemplateType
+            let check = checkType --if isTplt then checkTemplateType else checkNonTemplateType
             res <- matchTemplate l kid (TIden tn) (Just args) Nothing Nothing (check isAnn isLeak $ fmap (const l) $ TypeName () tn)
             unifiesDec l x res
     resolveTcCstr' kid k@(PDec n@(PIden pn) specs args r x) = do
@@ -1412,7 +1412,7 @@ classifiesCstrs l e1 ct1 x2 s2 = do
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
     ppe1 <- pp e1
     --v1@(VarName _ (VIden vn1)) <- newTypedVar "cl" (loc e1) False $ Just $ ppe1
-    let k1 = TcK (PDec (PIden $ procedureNameId classify') Nothing [(e1,False)] (ComplexT ct2) dec) st
+    let k1 = TcK (PDec (PIden $ procedureNameId classify') Nothing [(Left e1,False)] (ComplexT ct2) dec) st
     let k2 = TcK (Unifies (loc x2) (ComplexT ct2)) st
     let k3 = TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) (bimap PIden id classify') Nothing [(e1,False)])) st
     return ([k1,k2,k3],Set.fromList [dv])
@@ -1425,7 +1425,7 @@ repeatsCstrs l e1 ct1 x2 d2 = do
     let repeat' = ProcedureName (DecT dec) $ mkVarId "repeat"
     ppe1 <- pp e1
     --v1@(VarName _ (VIden vn1)) <- newTypedVar "rp" (loc e1) False $ Just $ ppe1
-    let k1 = TcK (PDec (PIden $ procedureNameId repeat') Nothing [(e1,False)] (ComplexT ct2) dec) st
+    let k1 = TcK (PDec (PIden $ procedureNameId repeat') Nothing [(Left e1,False)] (ComplexT ct2) dec) st
     let k2 = TcK (Unifies (loc x2) (ComplexT ct2)) st
     let k3 = TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) (bimap PIden id repeat') Nothing [(e1,False)])) st
     return ([k1,k2,k3],Set.fromList [dv])
@@ -1529,13 +1529,15 @@ complexToken = do
     let v = VarIdentifier "ctok" (Just mn) (Just i) False False Nothing
     return $ CVar v False
 
-exprToken :: MonadIO m => TcM m Expr
-exprToken = do
+exprToken :: MonadIO m => Type -> TcM m Expr
+exprToken t = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "etok" (Just mn) (Just i) False False Nothing
-    let t = BaseT $ BVar v Nothing
     return $ RVariablePExpr t (VarName t $ VIden v)
+
+exprTypeToken :: MonadIO m => TcM m Expr
+exprTypeToken = complexToken >>= exprToken . ComplexT
 
 -- | Checks if a type is more specific than another, performing substitutions
 compares :: (ProverK loc m) => loc -> Bool -> Type -> Type -> TcM m (Comparison (TcM m))
@@ -2540,7 +2542,7 @@ comparesExpr l doStatic e1 e2 = do
 --    comparesExpr' :: (ProverK loc m) => Bool -> Bool -> loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
     comparesExpr' e1 e2 | e1 == e2 = return (Comparison e1 e2 EQ EQ)
     comparesExpr' e1@(getReadableVar -> Just (VarName t1 n1)) e2@(getReadableVar -> Just (VarName t2 n2)) = do
-        x <- exprToken
+        x <- exprTypeToken
         addValueM l (SubstMode NoCheckS False) (VarName t1 $ VIden n1) x
         addValueM l (SubstMode NoCheckS False) (VarName t2 $ VIden n2) x
         return (Comparison e1 e2 EQ EQ)
@@ -2624,23 +2626,36 @@ checkIndex l e = do
 
 pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
 pDecCstrM l isTop doCoerce pid targs es tret = do
+    (dec',es') <- pDecCstrM' l isTop doCoerce pid targs (map (mapFst Left) es) tret
+    return (dec',map (mapFst (\(Left x) -> x)) es')
+
+pDecCstrM' :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(Either Expr Type,IsVariadic)])
+pDecCstrM' l isTop doCoerce pid targs es tret = do
     dec <- newDecVar False Nothing
     opts <- askOpts
     let tck = if isTop then topTcCstrM_ else tcCstrM_
     if (doCoerce && implicitCoercions opts)
         then do
-            xs <- forM es $ \(e,isVariadic) -> do
-                tx <- newTyVar True False Nothing
-                ppe <- pp e
-                x <- newTypedVar "parg" tx False $ Just ppe
-                tck l $ Coerces e x
-                return (varExpr x,isVariadic)
+            xs <- forM es $ coerceArg tck
             tck l $ PDec pid targs xs tret dec
             return (dec,xs)
         else do
             tck l $ PDec pid targs es tret dec
             return (dec,es)
-
+  where
+    coerceArg tck (Left e,isVariadic) = do
+        tx <- newTyVar True False Nothing
+        ppe <- pp e
+        x <- newTypedVar "parg" tx False $ Just ppe
+        tck l $ Coerces e x
+        return (Left $ varExpr x,isVariadic)
+    coerceArg tck (Right t,isVariadic) = do
+        tx <- newTyVar True False Nothing
+        e <- exprToken t
+        ppe <- pp e
+        x <- newTypedVar "parg" tx False $ Just ppe
+        tck l $ Coerces e x
+        return (Right tx,isVariadic)
 
 match :: Bool -> Type -> Type -> TcCstr
 match True x y = Unifies x y

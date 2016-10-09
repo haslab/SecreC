@@ -219,7 +219,7 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     let ts = map (mapFst (typed . loc)) args'
     let vn@(TypeName _ vnn) = bimap (TIden . mkVarId) id n
     dec <- newDecVar False Nothing
-    topTcCstrM_ l $ TDec True vnn ts dec
+    topTcCstrM_ l $ TDec vnn ts dec
     let ret = TApp vnn ts dec
     let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
@@ -372,9 +372,9 @@ projectSize p t i (Just x) y1 y2 = do
             liftM Just $ subtractIndexExprs p False eupp elow          
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
-structBody l d@(DecType _ Nothing _ _ _ _ _ _ b) = return b
-structBody l d@(DecType j (Just i) _ _ _ _ _ _ (StructType sl sid _ cl)) = do
-    (DecType _ isRec _ _ _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) (isLeakDec d) sid j
+structBody l d@(DecType _ Nothing _ _ _ _ b) = return b
+structBody l d@(DecType j (Just i) _ _ _ _ (StructType sl sid _ cl)) = do
+    (DecType _ isRec _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) (isLeakDec d) sid j
     return s        
 structBody l (DVar v@(varIdRead -> True)) = resolveDVar l v >>= structBody l
 --structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d

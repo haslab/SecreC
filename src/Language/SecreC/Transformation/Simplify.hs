@@ -79,9 +79,9 @@ trySimplify f x = do
         else return x
 
 simplifyDecType :: SimplifyK Position m => DecType -> TcM m DecType
-simplifyDecType (DecType i isRec ts hd hfrees bd bfrees specs dec) = do
+simplifyDecType (DecType i isRec ts hd bd specs dec) = do
     dec' <- simplifyInnerDecType dec
-    return $ DecType i isRec ts hd hfrees bd bfrees specs dec'
+    return $ DecType i isRec ts hd bd specs dec'
 simplifyDecType d = return d
 
 simplifyInnerDecType :: SimplifyK Position m => InnerDecType -> TcM m InnerDecType
@@ -147,56 +147,108 @@ simplifyGlobalAnn (GlobalTemplateAnn l p) = do
 simplifyGlobalAnn g = return g
 
 simplifyTemplateDeclaration :: SimplifyG loc m TemplateDeclaration
-simplifyTemplateDeclaration (TemplateProcedureDeclaration l args p) = do
+simplifyTemplateDeclaration (TemplateProcedureDeclaration l args ctx p) = do
+    (ss0,ctx') <- simplifyTemplateContext ctx
     p' <- simplifyProcedureDeclaration p
-    return $ TemplateProcedureDeclaration l args p'
-simplifyTemplateDeclaration (TemplateFunctionDeclaration l args p) = do
+    ctxanns <- stmtsAnns (ss0)
+    ctxanns' <- concatMapM (procAnn False) ctxanns
+    return $ TemplateProcedureDeclaration l args ctx' (addAnnsProcedureDeclaration p' ctxanns')
+simplifyTemplateDeclaration (TemplateFunctionDeclaration l args ctx p) = do
+    (ss0,ctx') <- simplifyTemplateContext ctx
     p' <- simplifyFunctionDeclaration p
-    return $ TemplateFunctionDeclaration l args p'
-simplifyTemplateDeclaration (TemplateStructureDeclaration l targs s) = do
+    ctxanns <- stmtsAnns (ss0)
+    ctxanns' <- concatMapM (procAnn False) ctxanns
+    return $ TemplateFunctionDeclaration l args ctx' (addAnnsFunctionDeclaration p' ctxanns')
+simplifyTemplateDeclaration (TemplateStructureDeclaration l targs ctx s) = do
+    (ss0,ctx') <- simplifyTemplateContext ctx
     s' <- simplifyStructureDeclaration s
-    return $ TemplateStructureDeclaration l targs s'
-simplifyTemplateDeclaration (TemplateStructureSpecialization l targs tspecs s) = do
+    return $ TemplateStructureDeclaration l targs ctx' s'
+simplifyTemplateDeclaration (TemplateStructureSpecialization l targs ctx tspecs s) = do
+    (ss0,ctx') <- simplifyTemplateContext ctx
     s' <- simplifyStructureDeclaration s
-    return $ TemplateStructureSpecialization l targs tspecs s'
+    return $ TemplateStructureSpecialization l targs ctx' tspecs s'
 
 simplifyStructureDeclaration :: SimplifyG loc m StructureDeclaration
 simplifyStructureDeclaration s = return s
 
 simplifyProcedureDeclaration :: SimplifyG loc m ProcedureDeclaration
-simplifyProcedureDeclaration (OperatorDeclaration l ret op args anns body) = do
+simplifyProcedureDeclaration (OperatorDeclaration l ret op args ctx anns body) = do
+    (ss0,ret') <- simplifyReturnTypeSpecifier True ret
+    (ss1,ctx') <- simplifyTemplateContext ctx
     anns' <- simplifyProcedureAnns anns
     body' <- simplifyStatements Nothing body
-    return $ OperatorDeclaration l ret op args anns' body'
-simplifyProcedureDeclaration (ProcedureDeclaration l ret op args anns body) = do
+    ctxanns <- stmtsAnns (ss0++ss1)
+    ctxanns' <- concatMapM (procAnn False) ctxanns
+    return (OperatorDeclaration l ret' op args ctx' (anns'++ctxanns') body')
+simplifyProcedureDeclaration (ProcedureDeclaration l ret op args ctx anns body) = do
+    (ss0,ret') <- simplifyReturnTypeSpecifier True ret
+    (ss1,ctx') <- simplifyTemplateContext ctx
     anns' <- simplifyProcedureAnns anns
     body' <- simplifyStatements Nothing body
-    return $ ProcedureDeclaration l ret op args anns' body'
+    ctxanns <- stmtsAnns (ss0++ss1)
+    ctxanns' <- concatMapM (procAnn False) ctxanns
+    return (ProcedureDeclaration l ret' op args ctx' (anns'++ctxanns') body')
 
 simplifyFunctionDeclaration :: SimplifyG loc m FunctionDeclaration
-simplifyFunctionDeclaration (OperatorFunDeclaration l isLeak ret op args anns body) = do
+simplifyFunctionDeclaration (OperatorFunDeclaration l isLeak ret op args ctx anns body) = do
+    (ss0,ret') <- simplifyTypeSpecifier True ret
+    (ss1,ctx') <- simplifyTemplateContext ctx
     anns' <- simplifyProcedureAnns anns
     (ss,body') <- simplifyNonVoidExpression True body
-    bodyanns <- stmtsAnns ss
+    bodyanns <- stmtsAnns (ss0++ss1++ss)
     bodyanns' <- concatMapM (procAnn False) bodyanns
-    return $ OperatorFunDeclaration l isLeak ret op args (anns' ++ bodyanns') body'
-simplifyFunctionDeclaration (FunDeclaration l isLeak ret op args anns body) = do
+    return (OperatorFunDeclaration l isLeak ret' op args ctx' (anns' ++ bodyanns') body')
+simplifyFunctionDeclaration (FunDeclaration l isLeak ret op args ctx anns body) = do
+    (ss0,ret') <- simplifyTypeSpecifier True ret
+    (ss1,ctx') <- simplifyTemplateContext ctx
     anns' <- simplifyProcedureAnns anns
     (ss,body') <- simplifyNonVoidExpression True body
-    bodyanns <- stmtsAnns ss
+    bodyanns <- stmtsAnns (ss0++ss1++ss)
     bodyanns' <- concatMapM (procAnn False) bodyanns
-    return $ FunDeclaration l isLeak ret op args (anns' ++ bodyanns') body'
+    return (FunDeclaration l isLeak ret' op args ctx' (anns' ++ bodyanns') body')
 
 simplifyLemmaDeclaration :: SimplifyG loc m LemmaDeclaration
-simplifyLemmaDeclaration (LemmaDeclaration l isLeak op qs args anns body) = do
+simplifyLemmaDeclaration (LemmaDeclaration l isLeak op qs hctx args bctx anns body) = do
+    (ss0,hctx') <- simplifyTemplateContext hctx
+    (ss1,bctx') <- simplifyTemplateContext bctx
     anns' <- simplifyProcedureAnns anns
+    ctxanns <- stmtsAnns (ss0++ss1)
+    ctxanns' <- concatMapM (procAnn False) ctxanns
     body' <- mapM (simplifyStatements Nothing) body
-    return $ LemmaDeclaration l isLeak op qs args (anns') body'
+    return $ LemmaDeclaration l isLeak op qs hctx' args bctx' (anns' ++ ctxanns') body'
     
 simplifyAxiomDeclaration :: SimplifyG loc m AxiomDeclaration
 simplifyAxiomDeclaration (AxiomDeclaration l isLeak op args anns) = do
     anns' <- simplifyProcedureAnns anns
     return $ AxiomDeclaration l isLeak op args (anns' )
+
+simplifyTemplateContext :: SimplifyK loc m => SimplifyM loc m (TemplateContext GIdentifier (Typed loc))
+simplifyTemplateContext (TemplateContext l c) = do
+    (ss,c') <- simplifyMaybe (simplifyList (simplifyContextConstraint True)) c
+    return (ss,TemplateContext l c')
+
+simplifyContextConstraint :: SimplifyK loc m => Bool -> SimplifyM loc m (ContextConstraint GIdentifier (Typed loc))
+simplifyContextConstraint isExpr (ContextPDec l ret n targs pargs) = do
+    (ss1,ret') <- simplifyReturnTypeSpecifier isExpr ret
+    (ss2,targs') <- simplifyMaybe (simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr))) targs
+    (ss3,pargs') <- simplifyList (simplifyCtxPArg isExpr) pargs
+    return (ss1++ss2++ss3,ContextPDec l ret' n targs' pargs')
+simplifyContextConstraint isExpr (ContextODec l ret n targs pargs) = do
+    (ss1,ret') <- simplifyReturnTypeSpecifier isExpr ret
+    (ss2,targs') <- simplifyMaybe (simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr))) targs
+    (ss3,pargs') <- simplifyList (simplifyCtxPArg isExpr) pargs
+    return (ss1++ss2++ss3,ContextODec l ret' n targs' pargs')
+simplifyContextConstraint isExpr (ContextTDec l n targs) = do
+    (ss1,targs') <- simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr)) targs
+    return (ss1,ContextTDec l n targs')
+
+simplifyCtxPArg :: SimplifyK loc m => Bool -> SimplifyM loc m (CtxPArg GIdentifier (Typed loc))
+simplifyCtxPArg isExpr (CtxConstPArg l e) = do
+    (ss,e') <- simplifyNonVoidExpression isExpr e
+    return (ss,CtxConstPArg l e')
+simplifyCtxPArg isExpr (CtxNormalPArg l t isVariadic) = do
+    (ss,t') <- simplifyTypeSpecifier isExpr t
+    return (ss,CtxNormalPArg l t' isVariadic)
 
 simplifyVariableDeclaration :: SimplifyK loc m => VariableDeclaration GIdentifier (Typed loc) -> TcM m [Statement GIdentifier (Typed loc)]
 simplifyVariableDeclaration (VariableDeclaration l isConst isHavoc t vs) = do
@@ -215,6 +267,11 @@ simplifyVariableInitialization isConst t (VariableInitialization l v szs mbe) = 
             let ass' = maybe [] (\e -> [ExpressionStatement l $ BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e]) e'
             return (ss'++ass')
     return (ss ++ VarStatement l def:ass)
+
+simplifyReturnTypeSpecifier :: Bool -> SimplifyT loc m ReturnTypeSpecifier
+simplifyReturnTypeSpecifier isExpr (ReturnType l t) = do
+    (ss,t') <- simplifyMaybe (simplifyTypeSpecifier isExpr) t
+    return (ss,ReturnType l t')
     
 simplifyTypeSpecifier :: Bool -> SimplifyT loc m TypeSpecifier
 simplifyTypeSpecifier isExpr (TypeSpecifier l s t d) = do
@@ -504,7 +561,7 @@ loopAnn2StmtAnn (InvariantAnn l False isLeak e) = AssertAnn l isLeak e
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
 inlineProcCall :: SimplifyK loc m => Bool -> loc -> PIdentifier -> Type -> [(Expression GIdentifier (Typed loc),IsVariadic)] -> TcM m (Either ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc))) Type)
-inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
+inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ (ProcType _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     debugTc $ do
         ppn <- ppr n
         ppes <- ppr es
@@ -534,7 +591,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (ProcType _ _ args r
             ss <- simplifyStatements Nothing body'
             ens' <- simplifyStatementAnns True ens
             return $ Left (compoundStmts l (decls++reqs'++ss++ens'),Nothing)
-inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
+inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     debugTc $ do
         ppn <- ppr n
         ppes <- ppr es
@@ -556,7 +613,7 @@ inlineProcCall False l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ 
     let sbody = [ExpressionStatement tl $ BinaryAssign (loc res) (varExpr res) (BinaryAssignEqual tl) body'']
     ens' <- simplifyStatementAnns True ens
     return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++sbody++ens'),Just $ varExpr res)
-inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
+inlineProcCall True l n t@(DecT d@(DecType _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c))) es | isInlineDecClass c = do
     debugTc $ do
         ppn <- ppr n
         ppes <- ppr es

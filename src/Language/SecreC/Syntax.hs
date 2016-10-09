@@ -628,11 +628,83 @@ instance PP m iden => PP m (DimtypeSpecifier iden loc) where
   
 -- Templates:                                                                  
 
+data TemplateContext iden loc = TemplateContext loc (Maybe [ContextConstraint iden loc])
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Binary iden,Binary loc) => Binary (TemplateContext iden loc)  
+instance (Hashable iden,Hashable loc) => Hashable (TemplateContext iden loc)
+
+instance PP m iden => PP m (TemplateContext iden loc) where
+    pp (TemplateContext _ Nothing) = return PP.empty
+    pp (TemplateContext _ (Just ks)) = do
+        pks <- mapM pp ks
+        return $ text "context" <+> abrackets (sepBy comma pks)
+
+instance Location loc => Located (TemplateContext iden loc) where
+    type LocOf (TemplateContext iden loc) = loc
+    loc (TemplateContext l _ ) = l
+    updLoc (TemplateContext _ x) l = TemplateContext l x
+
+data ContextConstraint iden loc
+    = ContextPDec loc (ReturnTypeSpecifier iden loc) (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
+    | ContextODec loc (ReturnTypeSpecifier iden loc) (Op iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
+    | ContextTDec loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Binary iden,Binary loc) => Binary (ContextConstraint iden loc)  
+instance (Hashable iden,Hashable loc) => Hashable (ContextConstraint iden loc)
+
+instance Location loc => Located (ContextConstraint iden loc) where
+    type LocOf (ContextConstraint iden loc) = loc
+    loc (ContextPDec l _ _ _ _) = l
+    loc (ContextODec l _ _ _ _) = l
+    loc (ContextTDec l _ _) = l
+    updLoc (ContextPDec _ x y z w) l = ContextPDec l x y z w
+    updLoc (ContextODec _ x y z w) l = ContextODec l x y z w
+    updLoc (ContextTDec _ x y) l = ContextTDec l x y
+
+instance PP m iden => PP m (ContextConstraint iden loc) where
+    pp (ContextPDec l r n ts ps) = do
+        ppr <- pp r
+        ppn <- pp n
+        ppts <- mapM (mapM (ppVariadicArg pp)) ts
+        ppps <- mapM pp ps
+        return $ ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)
+    pp (ContextODec l r n ts ps) = do
+        ppr <- pp r
+        ppn <- pp n
+        ppts <- mapM (mapM (ppVariadicArg pp)) ts
+        ppps <- mapM pp ps
+        return $ ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)
+    pp (ContextTDec l n ts) = do
+        ppn <- pp n
+        ppts <- mapM (ppVariadicArg pp) ts
+        return $ ppn <> abrackets (sepBy comma ppts)
+
+data CtxPArg iden loc
+    = CtxConstPArg loc (Expression iden loc)
+    | CtxNormalPArg loc (TypeSpecifier iden loc) IsVariadic
+  deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+instance (Binary iden,Binary loc) => Binary (CtxPArg iden loc)  
+instance (Hashable iden,Hashable loc) => Hashable (CtxPArg iden loc)
+
+instance Location loc => Located (CtxPArg iden loc) where
+    type LocOf (CtxPArg iden loc) = loc
+    loc (CtxConstPArg l _) = l
+    loc (CtxNormalPArg l _ _) = l
+    updLoc (CtxConstPArg _ x) l = CtxConstPArg l x
+    updLoc (CtxNormalPArg _ x y) l = CtxNormalPArg l x y 
+
+instance PP m iden => PP m (CtxPArg iden loc) where
+    pp (CtxConstPArg _ e) = pp e
+    pp (CtxNormalPArg _ t isVariadic) = ppVariadicM t isVariadic
+
 data TemplateDeclaration iden loc
-    = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
-    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
-    | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
-    | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (FunctionDeclaration iden loc)
+    = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (StructureDeclaration iden loc)
+    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] (TemplateContext iden loc) [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
+    | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (ProcedureDeclaration iden loc)
+    | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (FunctionDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TemplateDeclaration iden loc)  
@@ -640,32 +712,36 @@ instance (Hashable iden,Hashable loc) => Hashable (TemplateDeclaration iden loc)
   
 instance Location loc => Located (TemplateDeclaration iden loc) where
     type LocOf (TemplateDeclaration iden loc) = loc
-    loc (TemplateStructureDeclaration l _ _) = l
-    loc (TemplateStructureSpecialization l _ _ _) = l
-    loc (TemplateProcedureDeclaration l _ _) = l
-    loc (TemplateFunctionDeclaration l _ _) = l
-    updLoc (TemplateStructureDeclaration _ x y) l = TemplateStructureDeclaration l x y
-    updLoc (TemplateStructureSpecialization _ x y z) l = TemplateStructureSpecialization l x y z
-    updLoc (TemplateProcedureDeclaration _ x y) l = TemplateProcedureDeclaration l x y
-    updLoc (TemplateFunctionDeclaration _ x y) l = TemplateFunctionDeclaration l x y
+    loc (TemplateStructureDeclaration l _ _ _) = l
+    loc (TemplateStructureSpecialization l _ _ _ _) = l
+    loc (TemplateProcedureDeclaration l _ _ _) = l
+    loc (TemplateFunctionDeclaration l _ _ _) = l
+    updLoc (TemplateStructureDeclaration _ x y z) l = TemplateStructureDeclaration l x y z
+    updLoc (TemplateStructureSpecialization _ x y z w) l = TemplateStructureSpecialization l x y z w
+    updLoc (TemplateProcedureDeclaration _ x y z) l = TemplateProcedureDeclaration l x y z
+    updLoc (TemplateFunctionDeclaration _ x y z) l = TemplateFunctionDeclaration l x y z
   
 instance PP m iden => PP m (TemplateDeclaration iden loc) where
-    pp (TemplateStructureDeclaration _ qs struct) = do
+    pp (TemplateStructureDeclaration _ qs ctx struct) = do
         pp1 <- mapM pp qs
+        ppc <- pp ctx
         pp2 <- ppStruct Nothing struct
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
-    pp (TemplateStructureSpecialization _ qs specials struct) = do
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
+    pp (TemplateStructureSpecialization _ qs ctx specials struct) = do
         pp1 <- mapM pp qs
+        ppc <- pp ctx
         pp2 <- ppStruct (Just specials) struct
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
-    pp (TemplateProcedureDeclaration _ qs proc) = do
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
+    pp (TemplateProcedureDeclaration _ qs ctx proc) = do
         pp1 <- mapM pp qs
+        ppc <- pp ctx
         pp2 <- pp proc
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
-    pp (TemplateFunctionDeclaration _ qs proc) = do
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
+    pp (TemplateFunctionDeclaration _ qs ctx proc) = do
         pp1 <- mapM pp qs
+        ppc <- pp ctx
         pp2 <- pp proc
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
   
 data TemplateQuantifier iden loc
     = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))
@@ -725,33 +801,35 @@ ppDataClass PrimitiveClass = text "primitive"
   
  -- Structures:                                                                
 
-data StructureDeclaration iden loc = StructureDeclaration loc (TypeName iden loc) [Attribute iden loc]
+data StructureDeclaration iden loc = StructureDeclaration loc (TypeName iden loc) (TemplateContext iden loc) [Attribute iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (StructureDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (StructureDeclaration iden loc)
 
 structureDeclarationId :: StructureDeclaration iden loc -> iden
-structureDeclarationId (StructureDeclaration _ tn _) = typeId tn
+structureDeclarationId (StructureDeclaration _ tn _ _) = typeId tn
  
 instance Location loc => Located (StructureDeclaration iden loc) where
     type LocOf (StructureDeclaration iden loc) = loc
-    loc (StructureDeclaration l _ _) = l
-    updLoc (StructureDeclaration _ x y) l = StructureDeclaration l x y
+    loc (StructureDeclaration l _ _ _) = l
+    updLoc (StructureDeclaration _ x y z) l = StructureDeclaration l x y z
   
 instance PP m iden => PP m (StructureDeclaration iden loc) where
     pp s = ppStruct Nothing s
   
 ppStruct :: PP m iden => Maybe [(TemplateTypeArgument iden loc,IsVariadic)] -> StructureDeclaration iden loc -> m Doc
-ppStruct Nothing (StructureDeclaration _ t as) = do
+ppStruct Nothing (StructureDeclaration _ t ctx as) = do
     ppt <- pp t
+    ppc <- pp ctx
     ppas <- mapM pp as
-    return $ text "struct" <+> ppt <+> braces (vcat ppas)
-ppStruct (Just specials) (StructureDeclaration _ t as) = do
+    return $ text "struct" <+> ppt <+> ppc <+> braces (vcat ppas)
+ppStruct (Just specials) (StructureDeclaration _ t ctx as) = do
     ppt <- pp t
     pp2 <- mapM (ppVariadicArg pp) specials
+    ppc <- pp ctx
     ppas <- mapM pp as
-    return $ text "struct" <+> ppt <+> abrackets (sepBy comma pp2) <+> braces (vcat ppas)
+    return $ text "struct" <+> ppt <+> abrackets (sepBy comma pp2) <+> ppc <+> braces (vcat ppas)
   
 data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc) (Maybe (Sizes iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -799,41 +877,49 @@ data ProcedureDeclaration iden loc
         (ReturnTypeSpecifier iden loc)
         (Op iden loc)
         [ProcedureParameter iden loc]
+        (TemplateContext iden loc)
         [ProcedureAnnotation iden loc]
         [Statement iden loc]
     | ProcedureDeclaration loc
         (ReturnTypeSpecifier iden loc)
         (ProcedureName iden loc)
         [ProcedureParameter iden loc]
+        (TemplateContext iden loc)
         [ProcedureAnnotation iden loc]
         [Statement iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+addAnnsProcedureDeclaration :: ProcedureDeclaration iden loc -> [ProcedureAnnotation iden loc] -> ProcedureDeclaration iden loc
+addAnnsProcedureDeclaration (OperatorDeclaration l r o ps ctx anns s) anns' = (OperatorDeclaration l r o ps ctx (anns++anns') s)
+addAnnsProcedureDeclaration (ProcedureDeclaration l r o ps ctx anns s) anns' = (ProcedureDeclaration l r o ps ctx (anns++anns') s)
 
 instance (Binary iden,Binary loc) => Binary (ProcedureDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (ProcedureDeclaration iden loc)
 
 instance Location loc => Located (ProcedureDeclaration iden loc) where
     type LocOf (ProcedureDeclaration iden loc) = loc
-    loc (OperatorDeclaration l _ _ _ _ _) = l
-    loc (ProcedureDeclaration l _ _ _ _ _) = l
-    updLoc (OperatorDeclaration _ x y z w s) l = OperatorDeclaration l x y z w s
-    updLoc (ProcedureDeclaration _ x y z w s) l = ProcedureDeclaration l x y z w s
+    loc (OperatorDeclaration l _ _ _ _ _ _) = l
+    loc (ProcedureDeclaration l _ _ _ _ _ _) = l
+    updLoc (OperatorDeclaration _ x y z w s q) l = OperatorDeclaration l x y z w s q
+    updLoc (ProcedureDeclaration _ x y z w s q) l = ProcedureDeclaration l x y z w s q
   
 instance PP m iden => PP m (ProcedureDeclaration iden loc) where
-    pp (OperatorDeclaration _ ret op params anns stmts) = do
+    pp (OperatorDeclaration _ ret op params ctx anns stmts) = do
         pp0 <- pp ret
         pp1 <- pp op
         pp2 <- mapM pp params
+        ppc <- pp ctx
         pp3 <- pp anns
         pp4 <- pp stmts
-        return $ pp0 <+> text "operator" <+> pp1 <+> parens (sepBy comma pp2) $+$ pp3 $+$ lbrace $+$ nest 4 pp4 $+$ rbrace
-    pp (ProcedureDeclaration _ ret proc params anns stmts) = do
+        return $ pp0 <+> text "operator" <+> pp1 <+> parens (sepBy comma pp2) $+$ ppc $+$ pp3 $+$ lbrace $+$ nest 4 pp4 $+$ rbrace
+    pp (ProcedureDeclaration _ ret proc params ctx anns stmts) = do
         pp1 <- pp ret
         pp2 <- pp proc
         pp3 <- mapM pp params
+        ppc <- pp ctx
         pp4 <- pp anns
         pp5 <- pp stmts
-        return $ pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace
+        return $ pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ ppc $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace
     
 data AxiomDeclaration iden loc
     = AxiomDeclaration loc
@@ -862,8 +948,10 @@ data LemmaDeclaration iden loc
     = LemmaDeclaration loc
         Bool -- is leakage
         (ProcedureName iden loc)
-        [TemplateQuantifier iden loc] -- template arguments
+        [TemplateQuantifier iden loc]
+        (TemplateContext iden loc) -- template arguments
         [ProcedureParameter iden loc]
+        (TemplateContext iden loc)
         [ProcedureAnnotation iden loc]
         (Maybe [Statement iden loc])
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -873,17 +961,19 @@ instance (Hashable iden,Hashable loc) => Hashable (LemmaDeclaration iden loc)
 
 instance Location loc => Located (LemmaDeclaration iden loc) where
     type LocOf (LemmaDeclaration iden loc) = loc
-    loc (LemmaDeclaration l _ _ _ _ _ _) = l
-    updLoc (LemmaDeclaration _ isLeak n x y z ss) l = LemmaDeclaration l isLeak n x y z ss
+    loc (LemmaDeclaration l _ _ _ _ _ _ _ _) = l
+    updLoc (LemmaDeclaration _ isLeak n x y z ss w q) l = LemmaDeclaration l isLeak n x y z ss w q
   
 instance PP m iden => PP m (LemmaDeclaration iden loc) where
-    pp (LemmaDeclaration _ isLeak n qs params anns body) = do
+    pp (LemmaDeclaration _ isLeak n qs ctx params bctx anns body) = do
         pp1 <- pp n
         pp2 <- mapM pp qs
+        ppc <- pp ctx
         pp3 <- mapM pp params
+        ppbc <- pp bctx
         pp4 <- pp anns
         pp5 <- ppOpt body (\stmts -> do { x <- pp stmts; return $ lbrace $+$ nest 4 x $+$ rbrace })
-        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> abrackets (sepBy comma pp2) <+> parens (sepBy comma pp3) $+$ pp4 $+$ pp5)
+        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> abrackets (sepBy comma pp2) <+> ppc <+> parens (sepBy comma pp3) $+$ ppbc $+$ pp4 $+$ pp5)
 
 data FunctionDeclaration iden loc
     = OperatorFunDeclaration loc
@@ -891,6 +981,7 @@ data FunctionDeclaration iden loc
         (TypeSpecifier iden loc)
         (Op iden loc)
         [ProcedureParameter iden loc]
+        (TemplateContext iden loc)
         [ProcedureAnnotation iden loc]
         (Expression iden loc)
     | FunDeclaration loc
@@ -898,35 +989,42 @@ data FunctionDeclaration iden loc
         (TypeSpecifier iden loc)
         (ProcedureName iden loc)
         [ProcedureParameter iden loc]
+        (TemplateContext iden loc)
         [ProcedureAnnotation iden loc]
         (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+addAnnsFunctionDeclaration :: FunctionDeclaration iden loc -> [ProcedureAnnotation iden loc] -> FunctionDeclaration iden loc
+addAnnsFunctionDeclaration (OperatorFunDeclaration l leak ret n ps ctx anns e) anns' = (OperatorFunDeclaration l leak ret n ps ctx (anns++anns') e)
+addAnnsFunctionDeclaration (FunDeclaration l leak ret n ps ctx anns e) anns' = (FunDeclaration l leak ret n ps ctx (anns++anns') e)
 
 instance (Binary iden,Binary loc) => Binary (FunctionDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (FunctionDeclaration iden loc)
 
 instance Location loc => Located (FunctionDeclaration iden loc) where
     type LocOf (FunctionDeclaration iden loc) = loc
-    loc (OperatorFunDeclaration l _ _ _ _ _ _) = l
-    loc (FunDeclaration l _ _ _ _ _ _) = l
-    updLoc (OperatorFunDeclaration _ isLeak x y z w s) l = OperatorFunDeclaration l isLeak x y z w s
-    updLoc (FunDeclaration _ isLeak x y z w s) l = FunDeclaration l isLeak x y z w s
+    loc (OperatorFunDeclaration l _ _ _ _ _ _ _) = l
+    loc (FunDeclaration l _ _ _ _ _ _ _) = l
+    updLoc (OperatorFunDeclaration _ isLeak x y z w s q) l = OperatorFunDeclaration l isLeak x y z w s q
+    updLoc (FunDeclaration _ isLeak x y z w s q) l = FunDeclaration l isLeak x y z w s q
   
 instance PP m iden => PP m (FunctionDeclaration iden loc) where
-    pp (OperatorFunDeclaration _ isLeak ret op params anns stmts) = do
+    pp (OperatorFunDeclaration _ isLeak ret op params ctx anns stmts) = do
         pp1 <- pp ret
         pp2 <- pp op
         pp3 <- mapM pp params
+        ppc <- pp ctx
         pp4 <- pp anns
         pp5 <- pp stmts
-        return $ ppLeak isLeak (text "function" <+> pp1 <+> text "operator" <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace)
-    pp (FunDeclaration _ isLeak ret proc params anns stmts) = do
+        return $ ppLeak isLeak (text "function" <+> pp1 <+> text "operator" <+> pp2 <+> parens (sepBy comma pp3) $+$ ppc $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace)
+    pp (FunDeclaration _ isLeak ret proc params ctx anns stmts) = do
         ppr <- pp ret
         ppp <- pp proc
         pas <- mapM pp params
+        ppc <- pp ctx
         p1 <- pp anns
         p2 <- pp stmts
-        return $ ppLeak isLeak (text "function" <+> ppr <+> ppp <+> parens (sepBy comma pas) $+$ p1 $+$ lbrace $+$ nest 4 p2 $+$ rbrace)
+        return $ ppLeak isLeak (text "function" <+> ppr <+> ppp <+> parens (sepBy comma pas) $+$ ppc $+$ p1 $+$ lbrace $+$ nest 4 p2 $+$ rbrace)
   
 data Op iden loc
     = OpAdd      loc
@@ -1338,6 +1436,10 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (ResultExpr _) l = ResultExpr l
     updLoc (QuantifiedExpr _ x y z) l = QuantifiedExpr l x y z
 
+ppVariadicM :: PP m a => a -> IsVariadic -> m Doc
+ppVariadicM x b = do
+    ppx <- pp x
+    return $ ppVariadic ppx b
 
 ppVariadic :: Doc -> IsVariadic -> Doc
 ppVariadic x False = x
@@ -1733,8 +1835,11 @@ $(deriveBifunctor ''Op)
 $(deriveBifunctor ''Expression) 
 $(deriveBifunctor ''GlobalAnnotation) 
 $(deriveBifunctor ''LemmaDeclaration) 
+$(deriveBifunctor ''ContextConstraint) 
+$(deriveBifunctor ''CtxPArg) 
 $(deriveBifunctor ''AxiomDeclaration) 
 $(deriveBifunctor ''FunctionDeclaration) 
+$(deriveBifunctor ''TemplateContext) 
 $(deriveBifunctor ''ProcedureAnnotation) 
 $(deriveBifunctor ''LoopAnnotation) 
 $(deriveBifunctor ''StatementAnnotation) 

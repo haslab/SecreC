@@ -5,6 +5,7 @@ module Language.SecreC.Location where
 import Data.Generics hiding (Generic)
 import Data.Hashable
 import Data.Binary
+import Data.Bifunctor
     
 import Language.SecreC.Pretty
 import Language.SecreC.Position
@@ -36,7 +37,12 @@ instance Location () where
     locpos () = noloc
     noloc = ()
     updpos _ p = ()
-    
+
+instance (Located a,Located b,LocOf a ~ LocOf b) => Located (Either a b) where
+    type LocOf (Either a b) = LocOf a
+    loc = either loc loc
+    updLoc x l = bimap (flip updLoc l) (flip updLoc l) x
+
 data Loc loc a = Loc loc a
   deriving (Read,Show,Data,Typeable,Functor,Generic)
 

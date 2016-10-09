@@ -38,9 +38,9 @@ defaultGlobalDecl :: DefaultK m => GlobalDeclaration Identifier Position -> m [G
 defaultGlobalDecl g@(GlobalStructure l s) = do
     g' <- liftM (GlobalProcedure l) $ evalStateT (defaultConstructor [] s) Set.empty
     return [g,g']
-defaultGlobalDecl g@(GlobalTemplate l (TemplateStructureDeclaration sl qs s)) = do
+defaultGlobalDecl g@(GlobalTemplate l (TemplateStructureDeclaration sl qs hctx s)) = do
     let targs = map templateQuantifier2Arg qs
-    g' <- liftM (GlobalTemplate l . TemplateProcedureDeclaration sl qs) $ evalStateT (defaultConstructor targs s) Set.empty
+    g' <- liftM (GlobalTemplate l . TemplateProcedureDeclaration sl qs hctx) $ evalStateT (defaultConstructor targs s) Set.empty
     return [g,g']
 defaultGlobalDecl g = return [g]
 
@@ -60,12 +60,12 @@ templateQuantifier2Arg (DimensionQuantifier l isVariadic v _) = (ExprTemplateTyp
 templateQuantifier2Arg (DataQuantifier l dataClass isVariadic (TypeName tl tn)) = (GenericTemplateTypeArgument l $ TemplateArgName tl tn,isVariadic)
 
 defaultConstructor :: DefaultK m => [(TemplateTypeArgument Identifier Position,IsVariadic)] -> StructureDeclaration Identifier Position -> DefaultM m (ProcedureDeclaration Identifier Position)
-defaultConstructor targs (StructureDeclaration l (TypeName tl tn) atts) = do
+defaultConstructor targs (StructureDeclaration l (TypeName tl tn) (TemplateContext cl _) atts) = do
     State.modify $ \xs -> Set.union xs $ Set.insert tn $ Set.fromList $ map (attributeNameId . attributeName) atts 
     let ty = TypeSpecifier l Nothing (TemplateSpecifier l (TypeName tl tn) targs) Nothing
     let ret = ReturnType l $ Just ty
     body <- defaultConstructorBody l ty atts
-    return $ ProcedureDeclaration l ret (ProcedureName tl tn) [] [] body 
+    return $ ProcedureDeclaration l ret (ProcedureName tl tn) [] (TemplateContext cl Nothing) [] body 
     
 defaultConstructorBody :: DefaultK m => Position -> TypeSpecifier Identifier Position -> [Attribute Identifier Position] -> DefaultM m [Statement Identifier Position]
 defaultConstructorBody l ty atts = do

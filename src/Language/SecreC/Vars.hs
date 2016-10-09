@@ -315,44 +315,48 @@ instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m () where
     traverseVars f () = return ()
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (ProcedureDeclaration iden loc) where
-    traverseVars f (OperatorDeclaration l t o args anns s) = do
+    traverseVars f (OperatorDeclaration l t o args ctx anns s) = do
         l' <- f l
         t' <- f t
         o' <- f o
         varsBlock $ do
             args' <- mapM f args
+            ctx' <- f ctx
             anns' <- mapM f anns
             s' <- mapM f s
-            return $ OperatorDeclaration l' t' o' args' anns' s'
-    traverseVars f (ProcedureDeclaration l t n args anns s) = do
+            return $ OperatorDeclaration l' t' o' args' ctx' anns' s'
+    traverseVars f (ProcedureDeclaration l t n args ctx anns s) = do
         l' <- f l
         t' <- f t
         n' <- inLHS True $ f n
         varsBlock $ do
             args' <- mapM f args
+            ctx' <- f ctx
             anns' <- mapM f anns
             s' <- mapM f s
-            return $ ProcedureDeclaration l' t' n' args' anns' s'
+            return $ ProcedureDeclaration l' t' n' args' ctx' anns' s'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (FunctionDeclaration iden loc) where
-    traverseVars f (OperatorFunDeclaration isLeak l t o args anns e) = do
+    traverseVars f (OperatorFunDeclaration isLeak l t o args ctx anns e) = do
         l' <- f l
         t' <- f t
         o' <- f o
         varsBlock $ do
             args' <- mapM f args
+            ctx' <- f ctx
             anns' <- mapM f anns
             e' <- f e
-            return $ OperatorFunDeclaration isLeak l' t' o' args' anns' e'
-    traverseVars f (FunDeclaration isLeak l t n args anns e) = do
+            return $ OperatorFunDeclaration isLeak l' t' o' args' ctx' anns' e'
+    traverseVars f (FunDeclaration isLeak l t n args ctx anns e) = do
         l' <- f l
         t' <- f t
         n' <- inLHS True $ f n
         varsBlock $ do
             args' <- mapM f args
+            ctx' <- f ctx
             anns' <- mapM f anns
             e' <- f e
-            return $ FunDeclaration isLeak l' t' n' args' anns' e'
+            return $ FunDeclaration isLeak l' t' n' args' ctx' anns' e'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (AxiomDeclaration iden loc) where
     traverseVars f (AxiomDeclaration isLeak l qs args anns) = do
@@ -364,14 +368,16 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden
             return $ AxiomDeclaration isLeak l' qs' args' anns'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (LemmaDeclaration iden loc) where
-    traverseVars f (LemmaDeclaration isLeak n l qs args anns body) = do
+    traverseVars f (LemmaDeclaration isLeak n l qs ctx args bctx anns body) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
+        ctx' <- f ctx
         varsBlock $ do
             args' <- mapM f args
+            bctx' <- f bctx
             anns' <- mapM f anns
             body' <- mapM f body
-            return $ LemmaDeclaration isLeak n l' qs' args' anns' body'
+            return $ LemmaDeclaration isLeak n l' qs' ctx' args' bctx' anns' body'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l isConst t isVariadic v) = do
@@ -843,35 +849,78 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         t' <- mapM f t
         return $ GlobalAnnotations l' t'
 
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateContext iden loc) where
+    traverseVars f (TemplateContext l xs) = do
+        l' <- f l
+        xs' <- mapM (mapM f) xs
+        return $ TemplateContext l' xs'
+
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (CtxPArg iden loc) where
+    traverseVars f (CtxConstPArg l e) = do
+        l' <- f l
+        e' <- f e
+        return $ CtxConstPArg l' e'
+    traverseVars f (CtxNormalPArg l t b) = do
+        l' <- f l
+        t' <- f t
+        b' <- f b
+        return $ CtxNormalPArg l' t' b'
+
+instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ContextConstraint iden loc) where
+    traverseVars f (ContextPDec l r n ts ps) = do
+        l' <- f l
+        r' <- f r
+        n' <- f n
+        ts' <- mapM (mapM f) ts
+        ps' <- mapM f ps
+        return $ ContextPDec l r' n' ts' ps'
+    traverseVars f (ContextODec l r n ts ps) = do
+        l' <- f l
+        r' <- f r
+        n' <- f n
+        ts' <- mapM (mapM f) ts
+        ps' <- mapM f ps
+        return $ ContextODec l r' n' ts' ps'
+    traverseVars f (ContextTDec l n ts) = do
+        l' <- f l
+        n' <- f n
+        ts' <- mapM f ts
+        return $ ContextTDec l n' ts'
+
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateDeclaration iden loc) where
-    traverseVars f (TemplateStructureDeclaration l qs s) = do
+    traverseVars f (TemplateStructureDeclaration l qs ctx s) = do
         l' <- f l
         qs' <- mapM f qs
+        ctx' <- f ctx
         s' <- f s
-        return $ TemplateStructureDeclaration l qs' s'
-    traverseVars f (TemplateStructureSpecialization l qs specs s) = do
+        return $ TemplateStructureDeclaration l qs' ctx' s'
+    traverseVars f (TemplateStructureSpecialization l qs ctx specs s) = do
         l' <- f l
         qs' <- mapM f qs
+        ctx' <- f ctx
         specs' <- mapM f specs
         s' <- f s
-        return $ TemplateStructureSpecialization l' qs' specs' s'
-    traverseVars f (TemplateProcedureDeclaration l qs p) = do
+        return $ TemplateStructureSpecialization l' qs' ctx' specs' s'
+    traverseVars f (TemplateProcedureDeclaration l qs ctx p) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
+        ctx' <- f ctx
         p' <- f p
-        return $ TemplateProcedureDeclaration l' qs' p'
-    traverseVars f (TemplateFunctionDeclaration l qs p) = do
+        return $ TemplateProcedureDeclaration l' qs' ctx' p'
+    traverseVars f (TemplateFunctionDeclaration l qs ctx p) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
+        ctx' <- f ctx
         p' <- f p
-        return $ TemplateFunctionDeclaration l' qs' p'
+        return $ TemplateFunctionDeclaration l' qs' ctx' p'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (StructureDeclaration iden loc) where
-    traverseVars f (StructureDeclaration l n as) = do
+    traverseVars f (StructureDeclaration l n ctx as) = do
         l' <- f l
         n' <- inLHS True $ f n
+        ctx' <- f ctx
         as' <- mapM f as
-        return $ StructureDeclaration l' n' as'
+        return $ StructureDeclaration l' n' ctx' as'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (Attribute iden loc) where
     traverseVars f (Attribute l t a szs) = do

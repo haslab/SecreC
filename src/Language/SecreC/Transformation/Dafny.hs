@@ -166,31 +166,31 @@ collectDafnyIds = everything Set.union (mkQ Set.empty aux)
     aux = Set.fromList . maybeToList . decDafnyId
 
 decDafnyTypes :: DecType -> [Type]
-decDafnyTypes d@(DecType tid isRec _ _ _ _ _ _ _) = if isJust isRec then map (unConstrained . fst) (decTypeArgs d) else []
+decDafnyTypes d@(DecType tid isRec _ _ _ _ _) = if isJust isRec then map (unConstrained . fst) (decTypeArgs d) else []
 
 -- (base id,instance id,base arguments)
 decDafnyIds :: DecType -> Maybe (DafnyId,DafnyId,[Type])
-decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (ProcType _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
+decDafnyIds d@(DecType tid isRec _ _ _ _ (ProcType _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = pIdenToDafnyId pn tid
     (bid) = maybe (did) (\(tid) -> pIdenToDafnyId pn tid) isRec
     ts = decDafnyTypes d
-decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
+decDafnyIds d@(DecType tid isRec _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = fIdenToDafnyId pn tid isLeak
     (bid) = maybe (did) ((\(tid) -> fIdenToDafnyId pn tid isLeak)) isRec
     ts = decDafnyTypes d
-decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (StructType _ sn _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
+decDafnyIds d@(DecType tid isRec _ _ _ _ (StructType _ sn _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = SId sn tid
     (bid) = maybe (did) (\(tid) -> SId sn tid) isRec
     ts = decDafnyTypes d
-decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just (did,bid,ts)
+decDafnyIds d@(DecType tid isRec _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just (did,bid,ts)
     where
     did = AId tid isLeak
     (bid) = maybe (did) (\(tid) -> AId tid isLeak) isRec
     ts = decDafnyTypes d
-decDafnyIds d@(DecType tid isRec _ _ _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
+decDafnyIds d@(DecType tid isRec _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = LId (funit pn) tid isLeak
     (bid) = maybe (did) ((\(tid) -> LId (funit pn) tid isLeak)) isRec
@@ -371,12 +371,13 @@ lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find function" <+> ppdid
 
-emptyDec (DecType tid _ [] ((==emptyPureTDict)->True) (noNormalFrees->True) ((==emptyPureTDict)->True) (noNormalFrees->True) _ t) = Just (tid,t)
+emptyDec (DecType tid _ [] (emptyDecCtx->True) (emptyDecCtx->True) _ t) = Just (tid,t)
 emptyDec d = Nothing
 
-targsDec (DecType tid _ ts ((==emptyPureTDict)->True) (noNormalFrees->True) ((==emptyPureTDict)->True) (noNormalFrees->True) _ t) = Just (tid,ts,t)
+targsDec (DecType tid _ ts (emptyDecCtx->True) (emptyDecCtx->True) _ t) = Just (tid,ts,t)
 targsDec d = Nothing
 
+emptyDecCtx (DecCtx _ dict frees) = dict==emptyPureTDict && noNormalFrees frees
 
 pIdenToDafnyId :: PIdentifier -> ModuleTyVarId -> DafnyId
 pIdenToDafnyId (PIden n) mid = PId (PIden n) mid

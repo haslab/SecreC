@@ -56,6 +56,7 @@ data Token
     | FLOAT32
     | FLOAT64
     | FOR
+    | CONTEXT
     | IF
     | IMPORT
     | INT
@@ -152,7 +153,8 @@ instance Monad m => PP m Token where
     pp (CONST) =                return $ text "const"
     pp (STR_IDENTIFIER s) =     return $ text s
     pp NONPUBLIC =              return $ text "nonpublic"
-    pp NUMERIC =              return $ text "numeric"
+    pp NUMERIC =                return $ text "numeric"
+    pp CONTEXT =                return $ text "context"
     pp PRIMITIVE =              return $ text "primitive"
     pp (CHAR c) =               return $ char c
     pp ASSERT =                 return $ text "assert"

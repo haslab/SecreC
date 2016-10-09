@@ -11,6 +11,8 @@ import Language.SecreC.Pretty
 import Language.SecreC.Position
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Type
 
+import Data.Graph.Inductive.Graph as Graph
+
 import Text.PrettyPrint
 
 import Control.Monad.Except
@@ -22,38 +24,46 @@ type ConversionK loc m = (PP m VarIdentifier,PP m loc,Location loc,MonadError Se
 ftloc :: (Location loc,Functor f) => loc -> f (Typed Position) -> f (Typed loc)
 ftloc l x = fmap (fmap (updpos l)) x
 
-dec2ProcDecl :: ConversionK loc m => loc -> DecType -> m (ProcedureDeclaration GIdentifier (Typed loc))
-dec2ProcDecl l dec@(DecType _ _ _ _ _ _ _ _ (ProcType p pn@(PIden _) pargs ret anns (Just body) _)) = do
+dec2ProcDecl :: ConversionK loc m => loc -> DecType -> m (TemplateContext GIdentifier (Typed loc),ProcedureDeclaration GIdentifier (Typed loc))
+dec2ProcDecl l dec@(DecType _ _ _ hctx bctx _ (ProcType p pn@(PIden _) pargs ret anns (Just body) _)) = do
     ret' <- type2ReturnTypeSpecifier l ret
     pargs' <- mapM (parg2ProcedureParameter l) pargs
+    hctx' <- decCtx2TemplateContext l hctx
+    bctx' <- decCtx2TemplateContext l bctx
     let pn' = (ProcedureName (Typed l $ DecT dec) $ funit pn)
-    return $ ProcedureDeclaration (notTyped "decl" l) ret' pn' pargs' (map (ftloc l) anns) (map (ftloc l) body)
-dec2ProcDecl l dec@(DecType _ _ _ _ _ _ _ _ (ProcType p (OIden on) pargs ret anns (Just body) _)) = do
+    return (hctx',ProcedureDeclaration (notTyped "decl" l) ret' pn' pargs' bctx' (map (ftloc l) anns) (map (ftloc l) body))
+dec2ProcDecl l dec@(DecType _ _ _ hctx bctx _ (ProcType p (OIden on) pargs ret anns (Just body) _)) = do
     ret' <- type2ReturnTypeSpecifier l ret
     pargs' <- mapM (parg2ProcedureParameter l) pargs
+    hctx' <- decCtx2TemplateContext l hctx
+    bctx' <- decCtx2TemplateContext l bctx
     let on' = updLoc (fmap (Typed l) on) (Typed l $ DecT dec)
-    return $ OperatorDeclaration (notTyped "decl" l) ret' on' pargs' (map (ftloc l) anns) (map (ftloc l) body)
+    return (hctx',OperatorDeclaration (notTyped "decl" l) ret' on' pargs' bctx' (map (ftloc l) anns) (map (ftloc l) body))
 dec2ProcDecl l t = do
     ppt <- pp t
     genError (locpos l) $ text "dec2ProcDecl:" <+> ppt
    
-dec2FunDecl :: ConversionK loc m => loc -> DecType -> m (FunctionDeclaration GIdentifier (Typed loc)) 
-dec2FunDecl l dec@(DecType _ _ _ _ _ _ _ _ (FunType isLeak p pn@(PIden _) pargs ret anns (Just body) _)) = do
+dec2FunDecl :: ConversionK loc m => loc -> DecType -> m (TemplateContext GIdentifier (Typed loc),FunctionDeclaration GIdentifier (Typed loc)) 
+dec2FunDecl l dec@(DecType _ _ _ hctx bctx _ (FunType isLeak p pn@(PIden _) pargs ret anns (Just body) _)) = do
     ret' <- type2TypeSpecifierNonVoid l ret
     pargs' <- mapM (parg2ProcedureParameter l) pargs
+    hctx' <- decCtx2TemplateContext l hctx
+    bctx' <- decCtx2TemplateContext l bctx
     let pn' = (ProcedureName (Typed l $ DecT dec) $ funit pn)
-    return $ FunDeclaration (notTyped "decl" l) isLeak ret' pn' pargs' (map (ftloc l) anns) (ftloc l body)
-dec2FunDecl l dec@(DecType _ _ _ _ _ _ _ _ (FunType isLeak p (OIden on) pargs ret anns (Just body) _)) = do
+    return (hctx',FunDeclaration (notTyped "decl" l) isLeak ret' pn' pargs' bctx' (map (ftloc l) anns) (ftloc l body))
+dec2FunDecl l dec@(DecType _ _ _ hctx bctx _ (FunType isLeak p (OIden on) pargs ret anns (Just body) _)) = do
     ret' <- type2TypeSpecifierNonVoid l ret
     pargs' <- mapM (parg2ProcedureParameter l) pargs
+    hctx' <- decCtx2TemplateContext l hctx
+    bctx' <- decCtx2TemplateContext l bctx
     let on' = updLoc (fmap (Typed l) on) (Typed l $ DecT dec)
-    return $ OperatorFunDeclaration (notTyped "decl" l) isLeak ret' on' pargs' (map (ftloc l) anns) (ftloc l body)
+    return (hctx',OperatorFunDeclaration (notTyped "decl" l) isLeak ret' on' pargs' bctx' (map (ftloc l) anns) (ftloc l body))
 dec2FunDecl l t = do
     ppt <- pp t
     genError (locpos l) $ text "dec2FunDecl:" <+> ppt
 
 dec2AxiomDecl :: ConversionK loc m => loc -> DecType -> m (AxiomDeclaration GIdentifier (Typed loc)) 
-dec2AxiomDecl l dec@(DecType _ _ targs _ _ _ _ _ (AxiomType isLeak p pargs anns _)) = do
+dec2AxiomDecl l dec@(DecType _ _ targs _ _ _ (AxiomType isLeak p pargs anns _)) = do
     let vars = map (varNameId . unConstrained . fst) targs
     targs' <- mapM (targ2TemplateQuantifier l vars) targs
     pargs' <- mapM (parg2ProcedureParameter l) pargs
@@ -62,22 +72,67 @@ dec2AxiomDecl l t = do
     ppt <- pp t
     genError (locpos l) $ text "dec2AxiomDecl:" <+> ppt
 
+decCtx2TemplateContext :: ConversionK loc m => loc -> DecCtx -> m (TemplateContext GIdentifier (Typed loc))
+decCtx2TemplateContext l dec@(DecCtx False _ _) = return $ TemplateContext (Typed l (DecCtxT dec)) Nothing
+decCtx2TemplateContext l dec@(DecCtx True d _) = liftM (TemplateContext (Typed l (DecCtxT dec)) . Just) $ cstrs2Context l (pureCstrs d)
+    where
+    cstrs2Context :: ConversionK loc m => loc -> TCstrGraph -> m [ContextConstraint GIdentifier (Typed loc)]
+    cstrs2Context l g = mapM (cstr2Context l . unLoc . snd) $ Graph.labNodes g
+    cstr2Context :: ConversionK loc m => loc -> TCstr -> m (ContextConstraint GIdentifier (Typed loc))
+    cstr2Context l (TcK k st) = tcCstr2Context l k st
+    cstr2Context l (CheckK k _) = do
+        ppk <- pp k
+        genError (locpos l) $ text "cstr2Context: check" <+> ppk
+    cstr2Context l (HypK k _) = do
+        ppk <- pp k
+        genError (locpos l) $ text "cstr2Context: hypothesis" <+> ppk
+    tcCstr2Context :: ConversionK loc m => loc -> TcCstr -> CstrState -> m (ContextConstraint GIdentifier (Typed loc))
+    tcCstr2Context l k@(TDec (TIden n) ts x) st = do
+        let tn' = TypeName (Typed l $ DecT x) $ TIden n
+        ts' <- mapM (mapFstM (type2TemplateTypeArgument l)) ts
+        return $ ContextTDec (Typed l $ TCstrT $ TcK k st) tn' ts'
+    tcCstr2Context l k@(PDec (PIden n) ts args ret x) st = do
+        ret' <- type2ReturnTypeSpecifier l ret
+        let pn' = ProcedureName (Typed l $ DecT x) $ PIden n
+        ts' <- mapM (mapM (mapFstM (type2TemplateTypeArgument l))) ts
+        args' <- mapM (decPArg2CtxPArg l) args
+        return $ ContextPDec (Typed l $ TCstrT $ TcK k st) ret' pn' ts' args'
+    tcCstr2Context l k@(PDec (OIden o) ts args ret _) st = do
+        ret' <- type2ReturnTypeSpecifier l ret
+        let o' = fmap (Typed l) o
+        ts' <- mapM (mapM (mapFstM (type2TemplateTypeArgument l))) ts
+        args' <- mapM (decPArg2CtxPArg l) args
+        return $ ContextODec (Typed l $ TCstrT $ TcK k st) ret' o' ts' args'
+    tcCstr2Context l k st = do
+        ppk <- pp k
+        genError (locpos l) $ text "tcCstr2Context:" <+> ppk
+
+decPArg2CtxPArg :: ConversionK loc m => loc -> (Either Expr Type,IsVariadic) -> m (CtxPArg GIdentifier (Typed loc))
+decPArg2CtxPArg l (Left e,False) = return $ CtxConstPArg (Typed l $ loc e) (fmap (Typed l) e)
+decPArg2CtxPArg l (Right t,isVariadic) = do
+    t' <- type2TypeSpecifierNonVoid l t
+    return $ CtxNormalPArg (Typed l $ tyOf t) t' isVariadic
+
 dec2LemmaDecl :: ConversionK loc m => loc -> DecType -> m (LemmaDeclaration GIdentifier (Typed loc)) 
-dec2LemmaDecl l dec@(DecType _ _ targs _ _ _ _ _ (LemmaType isLeak p pn pargs anns body _)) = do
+dec2LemmaDecl l dec@(DecType _ _ targs hctx bctx _ (LemmaType isLeak p pn pargs anns body _)) = do
     let vars = map (varNameId . unConstrained . fst) targs
     targs' <- mapM (targ2TemplateQuantifier l vars) targs
+    hctx' <- decCtx2TemplateContext l hctx
     pargs' <- mapM (parg2ProcedureParameter l) pargs
+    bctx' <- decCtx2TemplateContext l bctx
     let pn' = (ProcedureName (Typed l $ DecT dec) $ funit pn)
-    return $ LemmaDeclaration (Typed l $ DecT dec) isLeak pn' targs' pargs' (map (ftloc l) anns) (fmap (map (ftloc l)) body)
+    return $ LemmaDeclaration (Typed l $ DecT dec) isLeak pn' targs' hctx' pargs' bctx' (map (ftloc l) anns) (fmap (map (ftloc l)) body)
 dec2LemmaDecl l t = do
     ppt <- pp t
     genError (locpos l) $ text "dec2LemmaDecl:" <+> ppt
 
-dec2StructDecl :: ConversionK loc m => loc -> DecType -> m (StructureDeclaration GIdentifier (Typed loc)) 
-dec2StructDecl l dec@(DecType _ _ _ _ _ _ _ _ (StructType p sid (Just atts) _)) = do
+dec2StructDecl :: ConversionK loc m => loc -> DecType -> m (TemplateContext GIdentifier (Typed loc),StructureDeclaration GIdentifier (Typed loc)) 
+dec2StructDecl l dec@(DecType _ _ _ hctx bctx _ (StructType p sid (Just atts) _)) = do
+    hctx' <- decCtx2TemplateContext l hctx
+    bctx' <- decCtx2TemplateContext l bctx
     let atts' = map (fmap (Typed l)) atts
     let sid' = fmap (const $ Typed l $ DecT dec) $ TypeName () sid
-    return $ StructureDeclaration (notTyped "decl" l) sid' atts'
+    return (hctx',StructureDeclaration (notTyped "decl" l) sid' bctx' atts')
 dec2StructDecl l t = do
     ppt <- pp t
     genError (locpos l) $ text "dec2StructDecl:" <+> ppt
