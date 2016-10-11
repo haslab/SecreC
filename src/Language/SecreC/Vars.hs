@@ -856,36 +856,53 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         return $ TemplateContext l' xs'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (CtxPArg iden loc) where
-    traverseVars f (CtxConstPArg l e) = do
+    traverseVars f (CtxExprPArg l isConst e isVariadic) = do
         l' <- f l
+        isConst' <- f isConst
         e' <- f e
-        return $ CtxConstPArg l' e'
-    traverseVars f (CtxNormalPArg l t b) = do
+        isVariadic' <- f isVariadic
+        return $ CtxExprPArg l' isConst' e' isVariadic'
+    traverseVars f (CtxTypePArg l isConst t b) = do
         l' <- f l
+        isConst' <- f isConst
         t' <- f t
         b' <- f b
-        return $ CtxNormalPArg l' t' b'
+        return $ CtxTypePArg l' isConst' t' b'
+
+instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m ExprClass where
+    traverseVars f = f
+instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m CstrKind where
+    traverseVars f = f
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ContextConstraint iden loc) where
-    traverseVars f (ContextPDec l r n ts ps) = do
+    traverseVars f (ContextPDec l cl isLeak isAnn k r n ts ps) = do
         l' <- f l
+        cl' <- f cl
+        isLeak' <- f isLeak
+        isAnn' <- f isAnn
+        k' <- f k
         r' <- f r
         n' <- f n
         ts' <- mapM (mapM f) ts
         ps' <- mapM f ps
-        return $ ContextPDec l r' n' ts' ps'
-    traverseVars f (ContextODec l r n ts ps) = do
+        return $ ContextPDec l cl' isLeak' isAnn' k' r' n' ts' ps'
+    traverseVars f (ContextODec l cl isLeak isAnn k r n ts ps) = do
         l' <- f l
+        cl' <- f cl
+        isLeak' <- f isLeak
+        isAnn' <- f isAnn
+        k' <- f k
         r' <- f r
         n' <- f n
         ts' <- mapM (mapM f) ts
         ps' <- mapM f ps
-        return $ ContextODec l r' n' ts' ps'
-    traverseVars f (ContextTDec l n ts) = do
+        return $ ContextODec l cl' isLeak' isAnn' k' r' n' ts' ps'
+    traverseVars f (ContextTDec l cl n ts) = do
         l' <- f l
+        cl' <- f cl
         n' <- f n
         ts' <- mapM f ts
-        return $ ContextTDec l n' ts'
+        return $ ContextTDec l cl' n' ts'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateDeclaration iden loc) where
     traverseVars f (TemplateStructureDeclaration l qs ctx s) = do

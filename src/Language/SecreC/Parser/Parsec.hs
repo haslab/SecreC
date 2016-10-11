@@ -400,26 +400,50 @@ scTemplateDeclaration = (do
     templStruct x1 x3 xc (Nothing,x5) = TemplateStructureDeclaration (loc x1) x3 xc x5
     templStruct x1 x3 xc (Just x4,x5) = TemplateStructureSpecialization (loc x1) x3 xc x4 x5
 
-scTemplateContext :: (Monad m,MonadCatch m) => ScParserT m (TemplateContext Identifier Position)
+scTemplateContext :: (MonadIO m,MonadCatch m) => ScParserT m (TemplateContext Identifier Position)
 scTemplateContext = apA scMb (\x1 -> TemplateContext (maybe noloc (maybe noloc loc . headMay) x1) x1) <?> "template context"
     where
-    scMb = optionMaybe (scTok CONTEXT *> scABrackets (Text.Parsec.sepBy scContextConstraint (scChar ',')))
+    scMb = optionMaybe (scTok CONTEXT *> scABrackets (liftM concat $ Text.Parsec.sepBy scContextConstraint (scChar ',')))
 
-scContextConstraint :: (Monad m,MonadCatch m) => ScParserT m (ContextConstraint Identifier Position)
-scContextConstraint =
-         scPO
-    <||> (apA2 scTypeId (scABrackets scTemplateTypeArguments) (\x1 x2 -> ContextTDec (loc x1) x1 x2))
+scContextConstraint :: (MonadIO m,MonadCatch m) => ScParserT m [ContextConstraint Identifier Position]
+scContextConstraint = liftM (:[]) (scContextConstraint') <|> scAnnotations1 (many1 (scContextConstraint' <* scChar ','))
+    
+
+scContextConstraint' :: (MonadIO m,MonadCatch m) => ScParserT m (ContextConstraint Identifier Position)  
+scContextConstraint' = scContextTDec <|> scContextPODec
   where
-    scPO = scReturnTypeSpecifier $ \x1 ->
-            apA3 scProcedureId (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextPDec (loc x1) x1 x2 x3 x4)
-        <|> apA3 scOp (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextODec (loc x1) x1 x2 x3 x4)
+    scContextTDec = apA4 scExprClass (scTok TYPE) scTypeId (scABrackets scTemplateTypeArguments) (\cl x0 x1 x2 -> ContextTDec (loc x0) cl x1 x2)
+    scContextPODec = do
+        cl <- scExprClass
+        isLeak <- scLeak
+        isAnn <- getState
+        ck <- scCstrKind
+        scReturnTypeSpecifier $ \x1 -> scP cl isLeak isAnn ck x1 <||> scO cl isLeak isAnn ck x1
+      where
+        scP cl isLeak isAnn ck x1 = apA3 scProcedureId (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextPDec (loc x1) cl isLeak isAnn ck x1 x2 x3 x4)
+        scO cl isLeak isAnn ck x1 = apA3 scOp (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextODec (loc x1) cl isLeak isAnn ck x1 x2 x3 x4)
 
-scCtxPArgs :: (Monad m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
+scExprClass :: (MonadIO m,MonadCatch m) => ScParserT m ExprClass
+scExprClass = apA (scTok READONLY) (const ReadOnlyExpr)
+          <|> apA (scTok READWRITE) (const ReadWriteExpr)
+          <|> apA (scTok PURE) (const PureExpr)
+          <|> return ReadWriteExpr
+          
+scCstrKind :: (MonadIO m,MonadCatch m) => ScParserT m CstrKind
+scCstrKind = apA (scTok FUNCTION) (const CstrFunction)
+         <|> apA (scTok LEMMA) (const CstrLemma)
+         <|> return CstrProcedure
+
+scCtxPArgs :: (MonadIO m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
 scCtxPArgs = scParens $ Text.Parsec.sepBy scCtxPArg (scChar ',')
 
-scCtxPArg :: (Monad m,MonadCatch m) => ScParserT m (CtxPArg Identifier Position)
-scCtxPArg = scTypeSpecifier $ \x1 -> apA scVariadic (\x2 -> CtxNormalPArg (loc x1) x1 x2)
-        <|> apA scExpression (\x1 -> CtxConstPArg (loc x1) x1)
+scCtxPArg :: (MonadIO m,MonadCatch m) => ScParserT m (CtxPArg Identifier Position)
+scCtxPArg = do
+    x1 <- scConst
+    scType x1 <|> scExpr x1
+  where
+    scType x1 = scTypeSpecifier (\x2 -> apA scVariadic (\x3 -> CtxTypePArg (loc x2) x1 x2 x3))
+    scExpr x1 = apA2 scExpression scVariadic (\x2 x3 -> CtxExprPArg (loc x2) x1 x2 x3)
 
 scTemplateQuantifiers :: (Monad m,MonadCatch m) => ScParserT m [TemplateQuantifier Identifier Position]
 scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?> "template quantifiers"
@@ -443,10 +467,10 @@ scVariadic = apA (optionMaybe (scTok VARIADIC)) isJust
 
 -- ** Structures                                                                 
 
-scStructure :: (Monad m,MonadCatch m) => ScParserT m (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
+scStructure :: (MonadIO m,MonadCatch m) => ScParserT m (Maybe [(TemplateTypeArgument Identifier Position,IsVariadic)],StructureDeclaration Identifier Position)
 scStructure = apA5 (scTok STRUCT) scTypeId (optionMaybe $ scABrackets scTemplateTypeArguments) scTemplateContext (scCBrackets scAttributeList) (\x1 x2 x3 xc x4 -> (x3,StructureDeclaration (loc x1) x2 xc x4)) <?> "structure declaration"
 
-scStructureDeclaration :: (Monad m,MonadCatch m) => ScParserT m (StructureDeclaration Identifier Position)
+scStructureDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (StructureDeclaration Identifier Position)
 scStructureDeclaration = apA4 (scTok STRUCT) scTypeId scTemplateContext (scCBrackets scAttributeList) (\x1 x2 xc x3 -> StructureDeclaration (loc x1) x2 xc x3) <?> "structure declaration"
 
 scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier Position]
@@ -459,7 +483,7 @@ scAttribute = scTypeSpecifier $ \x1 -> apA3 scAttributeId (optionMaybe scSizes) 
 
 scReturnTypeSpecifier :: (Monad m,MonadCatch m) => (ReturnTypeSpecifier Identifier Position -> ScParserT m a) -> ScParserT m a
 scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Nothing) >>= cont)
-                         <|> scTySize)
+                         <|> scTySize <|> cont (ReturnType noloc Nothing))
                           <?> "return type specifier"
     where
     scTySize = scTypeSpecifier $ \x1 -> do
@@ -917,6 +941,8 @@ scStatementAnnotation = do
     o2 isLeak = apA3 (scTok ASSERT) scExpression (scChar ';') (\x1 x2 x3 -> AssertAnn (loc x1) isLeak x2)
     o3 isLeak = apA scBaseStatement (\x1 -> EmbedAnn (loc x1) isLeak x1)
 
+scAnnotation :: (PP (SecrecM m) a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
+scAnnotation = scAnnotations' (liftM (:[]))
 
 scAnnotations0 :: (PP (SecrecM m) a,Monoid a,MonadIO m,MonadCatch m) => ScParserT m a -> ScParserT m a
 scAnnotations0 = scAnnotations' (many)

@@ -302,7 +302,7 @@ tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnot
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 tcProcedureAnn (InlineAnn l isInline) = tcAddDeps l "pann" $ do
-    addDecClass $ DecClass False isInline Map.empty Map.empty
+    addDecClass $ DecClass False isInline (Right Map.empty) (Right Map.empty)
     return $ InlineAnn (notTyped "inline" l) isInline
 
 tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter GIdentifier (Typed loc),(Bool,Var,IsVariadic))
@@ -315,7 +315,7 @@ tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
     newVariable LocalScope False isAnn v' Nothing
     return (ProcedureParameter (notTyped "tcProcedureParam" l) False s' isVariadic v',(False,(fmap typed v'),isVariadic))
 tcProcedureParam (ProcedureParameter l True s isVariadic (VarName vl vi)) = do
-    s' <- tcTypeSpec s isVariadic
+    s' <- limitExprC PureExpr $ tcTypeSpec s isVariadic
     let ty = typed $ loc s'
     vi' <- addConst LocalScope (True,True) False vi
     let v' = VarName (Typed vl ty) vi'
@@ -345,11 +345,12 @@ tcAttribute (Attribute l ty (AttributeName vl vn) szs) = do
 
 tcTemplateContext :: ProverK loc m => TemplateContext Identifier loc -> TcM m (TemplateContext GIdentifier (Typed loc))
 tcTemplateContext (TemplateContext l Nothing) = return $ TemplateContext (Typed l $ DecCtxT implicitDecCtx) Nothing
-tcTemplateContext (TemplateContext l (Just ks)) = do
+tcTemplateContext (TemplateContext l (Just ks)) = onFrees l $ do
     ks' <- mapM tcContextConstraint ks
     let ts = map (Loc (locpos l) . (\(TCstrT x) -> x) . typed . loc) ks'
+    frees <- getFrees l
     let dict = PureTDict (Graph.mkGraph (mkLNodes ts) []) emptyTSubsts mempty
-    return $ TemplateContext (Typed l $ DecCtxT $ DecCtx True dict Map.empty) (Just ks')
+    return $ TemplateContext (Typed l $ DecCtxT $ DecCtx True dict frees) (Just ks')
 
 mkLNodes :: [a] -> [LNode a]
 mkLNodes = mkLNodes' 1
@@ -358,7 +359,49 @@ mkLNodes = mkLNodes' 1
     mkLNodes i (x:xs) = (i,x) : mkLNodes (succ i) xs
 
 tcContextConstraint :: ProverK loc m => ContextConstraint Identifier loc -> TcM m (ContextConstraint GIdentifier (Typed loc))
-tcContextConstraint = undefined
+tcContextConstraint (ContextPDec l cl isLeak isAnn ck ret (ProcedureName nl n) ts ps) = do
+    ret' <- tcRetTypeSpec ret
+    let n' = ProcedureName (notTyped "tcContextConstraint" l) $ PIden $ mkVarId n
+    ts' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) ts
+    (tps,ps') <- mapAndUnzipM tcCtxPArg ps
+    st <- getCstrState
+    let st' = st { cstrExprC = cl, cstrIsLeak = isLeak, cstrIsAnn = isAnn, cstrDecK = cstrKind2DecKind ck }
+    dec <- newDecVar False Nothing
+    let k = PDec (PIden $ mkVarId n) (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
+    let kt = TCstrT $ TcK k st'
+    return $ ContextPDec (Typed l kt) cl isLeak isAnn ck ret' n' ts' ps'
+tcContextConstraint (ContextODec l cl isLeak isAnn ck ret o ts ps) = do
+    ret' <- tcRetTypeSpec ret
+    o' <- tcOp o
+    ts' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) ts
+    (tps,ps') <- mapAndUnzipM tcCtxPArg ps
+    st <- getCstrState
+    let st' = st { cstrExprC = cl, cstrIsLeak = isLeak, cstrIsAnn = isAnn, cstrDecK = cstrKind2DecKind ck }
+    dec <- newDecVar False Nothing
+    let k = PDec (OIden $ fmap typed o') (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
+    let kt = TCstrT $ TcK k st'
+    return $ ContextODec (Typed l kt) cl isLeak isAnn ck ret' o' ts' ps'
+tcContextConstraint (ContextTDec l cl (TypeName nl n) ts) = do
+    let n' = TypeName (notTyped "tcContextConstraint" l) $ TIden $ mkVarId n
+    ts' <- mapM (tcVariadicArg tcTemplateTypeArgument) ts
+    st <- getCstrState
+    let st' = st { cstrExprC = cl, cstrDecK = TKind }
+    dec <- newDecVar False Nothing
+    let k = TDec (TIden $ mkVarId n) (map (mapFst (typed . loc)) ts') dec
+    let kt = TCstrT $ TcK k st'
+    return $ ContextTDec (Typed l kt) cl n' ts'
+
+tcCtxPArg :: ProverK loc m => CtxPArg Identifier loc -> TcM m ((IsConst,Either Expr Type,IsVariadic),CtxPArg GIdentifier (Typed loc))
+tcCtxPArg (CtxExprPArg l isConst e isVariadic) = do
+    let tcConst = if isConst then withExprC PureExpr else id
+    (e',isVariadic') <- tcConst $ tcVariadicArg tcExpr (e,isVariadic)
+    let t = typed $ loc e'
+    return ((isConst,Left $ fmap typed e',isVariadic'),CtxExprPArg (Typed l t) isConst e' isVariadic')
+tcCtxPArg (CtxTypePArg l isConst t isVariadic) = do
+    let tcConst = if isConst then withExprC PureExpr else id
+    t' <- tcConst $ tcTypeSpec t isVariadic
+    let tt = typed $ loc t'
+    return ((isConst,Right tt,isVariadic),CtxTypePArg (Typed l tt) isConst t' isVariadic)
 
 tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration GIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs hctx s) = tcTemplate l $ do

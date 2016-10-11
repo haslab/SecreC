@@ -4,7 +4,7 @@ module Language.SecreC.Syntax where
 
 import Data.Traversable
 import Data.Foldable as Foldable
-import Data.Generics hiding (empty,Generic)
+import Data.Generics hiding (empty,Generic,GT)
 import Data.Bifunctor.TH
 import Data.Hashable
 import Data.Binary
@@ -645,10 +645,41 @@ instance Location loc => Located (TemplateContext iden loc) where
     loc (TemplateContext l _ ) = l
     updLoc (TemplateContext _ x) l = TemplateContext l x
 
+data ExprClass = ReadOnlyExpr | ReadWriteExpr | PureExpr
+  deriving (Read,Eq,Show,Data,Typeable,Generic)
+instance Ord ExprClass where
+    compare x y | x == y = EQ 
+    compare PureExpr _ = LT
+    compare _ PureExpr = GT
+    compare ReadOnlyExpr _ = LT
+    compare _ ReadOnlyExpr = GT
+instance Hashable ExprClass
+instance Binary ExprClass
+instance Monad m => PP m ExprClass where
+    pp ReadOnlyExpr = return $ text "readonly"
+    pp ReadWriteExpr = return $ text "readwrite"
+    pp PureExpr = return $ text "pure"
+
+data CstrKind
+    = CstrFunction
+    | CstrLemma
+    | CstrProcedure
+  deriving (Read,Show,Data,Typeable,Eq,Ord,Generic)
+instance Hashable CstrKind
+instance Binary CstrKind
+    
+instance Monad m => PP m CstrKind where
+    pp CstrFunction = return $ text "function"
+    pp CstrLemma = return $ text "lemma"
+    pp CstrProcedure = return $ text "procedure"
+
+type IsLeak = Bool
+type IsAnn = Bool
+
 data ContextConstraint iden loc
-    = ContextPDec loc (ReturnTypeSpecifier iden loc) (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
-    | ContextODec loc (ReturnTypeSpecifier iden loc) (Op iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
-    | ContextTDec loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
+    = ContextPDec loc ExprClass IsLeak IsAnn CstrKind (ReturnTypeSpecifier iden loc) (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
+    | ContextODec loc ExprClass IsLeak IsAnn CstrKind (ReturnTypeSpecifier iden loc) (Op iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
+    | ContextTDec loc ExprClass (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ContextConstraint iden loc)  
@@ -656,34 +687,40 @@ instance (Hashable iden,Hashable loc) => Hashable (ContextConstraint iden loc)
 
 instance Location loc => Located (ContextConstraint iden loc) where
     type LocOf (ContextConstraint iden loc) = loc
-    loc (ContextPDec l _ _ _ _) = l
-    loc (ContextODec l _ _ _ _) = l
-    loc (ContextTDec l _ _) = l
-    updLoc (ContextPDec _ x y z w) l = ContextPDec l x y z w
-    updLoc (ContextODec _ x y z w) l = ContextODec l x y z w
-    updLoc (ContextTDec _ x y) l = ContextTDec l x y
+    loc (ContextPDec l _ _ _ _ _ _ _ _) = l
+    loc (ContextODec l _ _ _ _ _ _ _ _) = l
+    loc (ContextTDec l _ _ _) = l
+    updLoc (ContextPDec _ x1 x2 x3 x4 x5 x6 x7 x8) l = ContextPDec l x1 x2 x3 x4 x5 x6 x7 x8
+    updLoc (ContextODec _ x1 x2 x3 x4 x5 x6 x7 x8) l = ContextODec l x1 x2 x3 x4 x5 x6 x7 x8
+    updLoc (ContextTDec _ x1 x2 x3) l = ContextTDec l x1 x2 x3
+
+instance PP m iden => PP m [ContextConstraint iden loc] where
+    pp = liftM (sepBy comma) . mapM pp
 
 instance PP m iden => PP m (ContextConstraint iden loc) where
-    pp (ContextPDec l r n ts ps) = do
+    pp (ContextPDec l cl isLeak isAnn k r n ts ps) = do
         ppr <- pp r
         ppn <- pp n
         ppts <- mapM (mapM (ppVariadicArg pp)) ts
         ppps <- mapM pp ps
-        return $ ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)
-    pp (ContextODec l r n ts ps) = do
+        return $ ppid cl <+> ppLeak isLeak (ppIsAnn isAnn (ppid k <+> ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)))
+    pp (ContextODec l cl isLeak isAnn k r n ts ps) = do
         ppr <- pp r
         ppn <- pp n
         ppts <- mapM (mapM (ppVariadicArg pp)) ts
         ppps <- mapM pp ps
-        return $ ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)
-    pp (ContextTDec l n ts) = do
+        return $ ppid cl <+> ppLeak isLeak (ppIsAnn isAnn (ppid k <+> ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)))
+    pp (ContextTDec l cl n ts) = do
         ppn <- pp n
         ppts <- mapM (ppVariadicArg pp) ts
-        return $ ppn <> abrackets (sepBy comma ppts)
+        return $ ppid cl <+> ppn <> abrackets (sepBy comma ppts)
+
+ppIsAnn True doc = text "annotation" <+> doc
+ppIsAnn False doc = doc
 
 data CtxPArg iden loc
-    = CtxConstPArg loc (Expression iden loc)
-    | CtxNormalPArg loc (TypeSpecifier iden loc) IsVariadic
+    = CtxExprPArg loc IsConst (Expression iden loc) IsVariadic
+    | CtxTypePArg loc IsConst (TypeSpecifier iden loc) IsVariadic
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (CtxPArg iden loc)  
@@ -691,14 +728,14 @@ instance (Hashable iden,Hashable loc) => Hashable (CtxPArg iden loc)
 
 instance Location loc => Located (CtxPArg iden loc) where
     type LocOf (CtxPArg iden loc) = loc
-    loc (CtxConstPArg l _) = l
-    loc (CtxNormalPArg l _ _) = l
-    updLoc (CtxConstPArg _ x) l = CtxConstPArg l x
-    updLoc (CtxNormalPArg _ x y) l = CtxNormalPArg l x y 
+    loc (CtxExprPArg l _ _ _) = l
+    loc (CtxTypePArg l _ _ _) = l
+    updLoc (CtxExprPArg _ x y z) l = CtxExprPArg l x y z
+    updLoc (CtxTypePArg _ x y z) l = CtxTypePArg l x y z
 
 instance PP m iden => PP m (CtxPArg iden loc) where
-    pp (CtxConstPArg _ e) = pp e
-    pp (CtxNormalPArg _ t isVariadic) = ppVariadicM t isVariadic
+    pp (CtxExprPArg _ isConst e isVariadic) = liftM (ppConst isConst) $ ppVariadicM e isVariadic
+    pp (CtxTypePArg _ isConst t isVariadic) = liftM (ppConst isConst) $ ppVariadicM t isVariadic
 
 data TemplateDeclaration iden loc
     = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (StructureDeclaration iden loc)

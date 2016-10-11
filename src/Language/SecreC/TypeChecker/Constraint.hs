@@ -1412,7 +1412,7 @@ classifiesCstrs l e1 ct1 x2 s2 = do
     let classify' = ProcedureName (DecT dec) $ mkVarId "classify"
     ppe1 <- pp e1
     --v1@(VarName _ (VIden vn1)) <- newTypedVar "cl" (loc e1) False $ Just $ ppe1
-    let k1 = TcK (PDec (PIden $ procedureNameId classify') Nothing [(Left e1,False)] (ComplexT ct2) dec) st
+    let k1 = TcK (PDec (PIden $ procedureNameId classify') Nothing [(False,Left e1,False)] (ComplexT ct2) dec) st
     let k2 = TcK (Unifies (loc x2) (ComplexT ct2)) st
     let k3 = TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) (bimap PIden id classify') Nothing [(e1,False)])) st
     return ([k1,k2,k3],Set.fromList [dv])
@@ -1425,7 +1425,7 @@ repeatsCstrs l e1 ct1 x2 d2 = do
     let repeat' = ProcedureName (DecT dec) $ mkVarId "repeat"
     ppe1 <- pp e1
     --v1@(VarName _ (VIden vn1)) <- newTypedVar "rp" (loc e1) False $ Just $ ppe1
-    let k1 = TcK (PDec (PIden $ procedureNameId repeat') Nothing [(Left e1,False)] (ComplexT ct2) dec) st
+    let k1 = TcK (PDec (PIden $ procedureNameId repeat') Nothing [(False,Left e1,False)] (ComplexT ct2) dec) st
     let k2 = TcK (Unifies (loc x2) (ComplexT ct2)) st
     let k3 = TcK (Assigns (IdxT $ varExpr x2) (IdxT $ ProcCallExpr (ComplexT ct2) (bimap PIden id repeat') Nothing [(e1,False)])) st
     return ([k1,k2,k3],Set.fromList [dv])
@@ -2381,10 +2381,12 @@ unIdxs (x:xs) = case (unIdx x,unIdxs xs) of
 setCSec (CType _ t d) s = CType s t d
 setCBase (CType s t _) d = CType s t d
 
-isSupportedPrint :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> [Var] -> TcM m ()
+isSupportedPrint :: (ProverK loc m) => loc -> [(IsConst,Either Expr Type,IsVariadic)] -> [Var] -> TcM m ()
 isSupportedPrint l es xs = forM_ (zip es xs) $ \(e,x) -> do
-    (dec,[(y,_)]) <- pDecCstrM l False True (PIden $ mkVarId "tostring") Nothing [e] (BaseT string)
-    assignsExprTy l x y
+    (dec,[(_,y,_)]) <- pDecCstrM l False True (PIden $ mkVarId "tostring") Nothing [e] (BaseT string)
+    case y of
+        Left ye -> assignsExprTy l x ye
+        Right yt -> unifies l yt (loc x)
     return ()
 
 unifiesCondExpression :: (ProverK loc m) => loc -> Cond -> Cond -> TcM m ()
@@ -2624,13 +2626,13 @@ checkIndex l e = do
     ie <- prove l "checkindex" $ expr2IExpr $ fmap (Typed l) e
     isValid l $ IBinOp (ILeq) (ILit $ IUint64 0) ie
 
-pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Expr,IsVariadic)] -> Type -> TcM m (DecType,[(Expr,IsVariadic)])
-pDecCstrM l isTop doCoerce pid targs es tret = do
-    (dec',es') <- pDecCstrM' l isTop doCoerce pid targs (map (mapFst Left) es) tret
-    return (dec',map (mapFst (\(Left x) -> x)) es')
+--pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Expr,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Expr,IsVariadic)])
+--pDecCstrM l isTop doCoerce pid targs es tret = do
+--    (dec',es') <- pDecCstrM' l isTop doCoerce pid targs (map (mapSnd3 Left) es) tret
+--    return (dec',map (mapSnd3 (\(Left x) -> x)) es')
 
-pDecCstrM' :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(Either Expr Type,IsVariadic)])
-pDecCstrM' l isTop doCoerce pid targs es tret = do
+pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Either Expr Type,IsVariadic)])
+pDecCstrM l isTop doCoerce pid targs es tret = do
     dec <- newDecVar False Nothing
     opts <- askOpts
     let tck = if isTop then topTcCstrM_ else tcCstrM_
@@ -2643,19 +2645,19 @@ pDecCstrM' l isTop doCoerce pid targs es tret = do
             tck l $ PDec pid targs es tret dec
             return (dec,es)
   where
-    coerceArg tck (Left e,isVariadic) = do
+    coerceArg tck (isConst,Left e,isVariadic) = do
         tx <- newTyVar True False Nothing
         ppe <- pp e
         x <- newTypedVar "parg" tx False $ Just ppe
         tck l $ Coerces e x
-        return (Left $ varExpr x,isVariadic)
-    coerceArg tck (Right t,isVariadic) = do
+        return (isConst,Left $ varExpr x,isVariadic)
+    coerceArg tck (isConst,Right t,isVariadic) = do
         tx <- newTyVar True False Nothing
         e <- exprToken t
         ppe <- pp e
         x <- newTypedVar "parg" tx False $ Just ppe
         tck l $ Coerces e x
-        return (Right tx,isVariadic)
+        return (isConst,Right tx,isVariadic)
 
 match :: Bool -> Type -> Type -> TcCstr
 match True x y = Unifies x y

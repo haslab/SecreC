@@ -125,7 +125,7 @@ tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
 tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for" $ do
     startE' <- tcAddDeps l "forinit" $ tcForInitializer startE
     whileE' <- tcAddDeps l "forguard" $ mapM (tcGuard) whileE
-    incE' <- withExprC ReadWriteE $ tcAddDeps l "forinc" $ mapM (tcExpr) incE
+    incE' <- withExprC ReadWriteExpr $ tcAddDeps l "forinc" $ mapM (tcExpr) incE
     ann' <- mapM tcLoopAnn ann
     (bodyS',t') <- tcLocal l "tcStmt for body" $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' ann' bodyS',t')
@@ -135,12 +135,12 @@ tcStmt ret (WhileStatement l condE ann bodyS) = do
     (bodyS',t') <- tcLocal l "tcStmt while body" $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped "tcStmt" l) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
-    argsE' <- withExprC ReadOnlyE $ mapM (tcVariadicArg (tcExpr)) argsE
+    argsE' <- withExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr)) argsE
     xs <- forM argsE' $ \argE' -> do
         tx <- newTyVar True False Nothing
         pparg <- ppVariadicArg pp argE'
         newTypedVar "print" tx False $ Just pparg
-    topTcCstrM_ l $ SupportedPrint (map (mapFst (fmap typed)) argsE') xs
+    topTcCstrM_ l $ SupportedPrint (map (\(x,y) -> (False,Left $ fmap typed x,y)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
@@ -171,7 +171,7 @@ tcStmt ret (ReturnStatement l Nothing) = do
     let ret = ReturnStatement (Typed l t) Nothing
     return (ret,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
-    e' <- withExprC ReadWriteE $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr e
     let et' = typed $ loc e'
     ppe <- pp e
     x <- newTypedVar "ret" ret False $ Just ppe
@@ -187,7 +187,7 @@ tcStmt ret (BreakStatement l) = do
     let t = StmtType (Set.singleton StmtBreak)
     return (BreakStatement $ Typed l t,t)    
 tcStmt ret (ExpressionStatement l e) = do
-    e' <- withExprC ReadWriteE $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr e
     let te = typed $ loc e'
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
@@ -220,7 +220,7 @@ isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 
 tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM m (SyscallParameter GIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
-    e' <- withExprC ReadWriteE $ tcVariadicArg tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcVariadicArg tcExpr e
     let t = SysT $ SysPush $ typed $ loc $ fst e'
     return $ SyscallPush (Typed l t) e'
 tcSyscallParam (SyscallReturn l v) = do
@@ -232,14 +232,14 @@ tcSyscallParam (SyscallPushRef l v) = do
     let t = SysT $ SysRef $ typed $ loc v'
     return $ SyscallPushRef (Typed l t) v'
 tcSyscallParam (SyscallPushCRef l e) = do
-    e' <- withExprC ReadWriteE $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr e
     let t = SysT $ SysCRef $ typed $ loc e'
     return $ SyscallPushCRef (Typed l t) e'
 
 tcForInitializer :: (ProverK loc m) => ForInitializer Identifier loc -> TcM m (ForInitializer GIdentifier (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing
 tcForInitializer (InitializerExpression (Just e)) = do
-    e' <- withExprC ReadWriteE $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr e
     return $ InitializerExpression $ Just e'
 tcForInitializer (InitializerVariable vd) = do
     vd' <- tcVarDecl LocalScope vd
@@ -255,7 +255,7 @@ tcVarDecl scope (VariableDeclaration l isConst isHavoc tyspec vars) = do
 tcVarInit :: (ProverK loc m) => Bool -> Bool -> Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization GIdentifier (Typed loc))
 tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- withExprC ReadWriteE $ tcDefaultInitExpr l isHavoc ty' szs' e
+    e' <- withExprC ReadWriteExpr $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     -- do not store the size, since it can change dynamically
     vn <- addConst scope (True,False) False n
@@ -266,7 +266,7 @@ tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs 
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- withExprC PureE $ tcDefaultInitExpr l isHavoc ty' szs' e
+    e' <- withExprC PureExpr $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     vn <- addConst scope (True,True) False n
     let v' = VarName (Typed vl ty') vn

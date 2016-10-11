@@ -267,24 +267,11 @@ data TcEnv = TcEnv {
     , moduleCount :: ((String,TyVarId),Int)
     , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
     , decKind :: DecKind -- if typechecking inside a declaration
-    , exprC :: ExprC -- type of expression
+    , exprC :: ExprClass -- type of expression
     , isLeak :: Bool -- if typechecking leakage expressions
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
-
-data ExprC = ReadOnlyE | ReadWriteE | PureE
-  deriving (Eq,Show,Data,Typeable,Generic)
-instance Ord ExprC where
-    compare x y | x == y = EQ 
-    compare PureE _ = LT
-    compare _ PureE = GT
-    compare ReadOnlyE _ = LT
-    compare _ ReadOnlyE = GT
-instance Hashable ExprC
-instance Binary ExprC
-instance Monad m => PP m ExprC where
-    pp = return . text . show
 
 data DecKind
     = AKind -- axiom
@@ -370,7 +357,7 @@ unionMb Nothing y = y
 unionMb x Nothing = x
 unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 
-withExprC :: Monad m => ExprC -> TcM m a -> TcM m a
+withExprC :: Monad m => ExprClass -> TcM m a -> TcM m a
 withExprC b m = do
     old <- liftM exprC State.get
     State.modify $ \env -> env { exprC = b }
@@ -378,7 +365,7 @@ withExprC b m = do
     State.modify $ \env -> env { exprC = old }
     return x
 
-limitExprC :: Monad m => ExprC -> TcM m a -> TcM m a
+limitExprC :: Monad m => ExprClass -> TcM m a -> TcM m a
 limitExprC c' m = do
     c <- getExprC
     withExprC (min c c') m
@@ -409,7 +396,7 @@ withKind k m = do
     State.modify $ \env -> env { decKind = old }
     return x
 
-getExprC :: Monad m => TcM m ExprC
+getExprC :: Monad m => TcM m ExprClass
 getExprC = liftM exprC State.get
     
 getLeak :: Monad m => TcM m Bool
@@ -464,7 +451,7 @@ filterAnns isAnn isLeak = Map.map (filterAnns1 isAnn isLeak)
 filterAnns1 :: Bool -> Bool -> (Map y EntryEnv) -> (Map y EntryEnv)
 filterAnns1 isAnn isLeak = Map.filter p
     where
-    p e@(entryType -> t@(DecT d)) = (isAnnDecClass (tyDecClass t) == isAnn) && (isLeak >= isLeakDec d)
+    p e@(entryType -> t@(DecT d)) = (isAnn >= isAnnDecClass (tyDecClass t)) && (isLeak >= isLeakDec d)
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation = withAnn True
@@ -514,7 +501,7 @@ emptyTcEnv = TcEnv
     , moduleCount = (("main",TyVarId 0),1)
     , inTemplate = False
     , decKind = FKind
-    , exprC = ReadOnlyE
+    , exprC = ReadOnlyExpr
     , isLeak = False
     , localConsts = Map.empty
     , decClass = mempty
@@ -695,7 +682,7 @@ data TcCstr
     | PDec -- ^ procedure declaration
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
-        [(Either Expr Type,IsVariadic)] -- procedure arguments
+        [(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
         Type -- return type
         DecType -- result
     | Equals Type Type -- ^ types equal
@@ -716,7 +703,7 @@ data TcCstr
     | Assigns -- assignment
         Type Type
     | SupportedPrint
-        [(Expr,IsVariadic)] -- ^ can call tostring on the argument type
+        [(IsConst,Either Expr Type,IsVariadic)] -- ^ can call tostring on the argument type
         [Var] -- resulting coerced procedure arguments
     | ProjectStruct -- ^ struct type projection
         BaseType (AttributeName GIdentifier ()) 
@@ -818,7 +805,7 @@ updCstrState f (HypK c st) = HypK c (f st)
 
 data CstrState = CstrState
     { cstrIsAnn :: Bool
-    , cstrExprC :: ExprC
+    , cstrExprC :: ExprClass
     , cstrIsLeak :: Bool
     , cstrDecK :: DecKind
     , cstrLineage :: Lineage
@@ -871,6 +858,13 @@ ppExprTy e = do
     return $ ppe <+> text "::" <+> ppl
 ppVarTy v = ppExprTy (varExpr v)
 
+instance PP m VarIdentifier => PP m [(IsConst,Either Expr Type,IsVariadic)] where
+    pp xs = liftM (parens . sepBy comma) (mapM aux xs)
+      where
+        aux (x,y,z) = do
+            y' <- eitherM ppExprTy pp y
+            return $ ppConst x $ ppVariadic y' z
+
 instance PP m VarIdentifier => PP m TcCstr where
     pp (TDec n ts x) = do
         ppn <- pp n
@@ -881,9 +875,9 @@ instance PP m VarIdentifier => PP m TcCstr where
         ppr <- pp r
         ppn <- pp n
         ppspecs <- mapM pp $ maybe [] id specs
-        ppts <- mapM (ppVariadicArg (eitherM ppExprTy pp)) ts
+        ppts <- pp ts
         ppx <- pp x
-        return $ ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> parens (sepBy comma ppts) <+> char '=' <+> ppx
+        return $ ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
     pp (Equals t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
@@ -1105,7 +1099,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         n' <- f n
         x' <- f x
         ts' <- mapM (mapM (mapFstM f)) ts
-        args' <- mapM (mapFstM f) args
+        args' <- mapM (mapFst3M f) args
         ret' <- f ret
         return $ PDec n' ts' args' ret' x'
     traverseVars f (Equals t1 t2) = do
@@ -2237,8 +2231,8 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     traverseVars f (DecClass x i y z) = do
         x' <- f x
         i' <- f i
-        y' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $ f $ Map.fromList . map (mapFst VIden) $ Map.toList y
-        z' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $ f $ Map.fromList . map (mapFst VIden) $ Map.toList z
+        y' <- traverseDecClassVars f y
+        z' <- traverseDecClassVars f z
         return (DecClass x' i' y' z')
 
 instance PP m VarIdentifier => PP m DecClass where
@@ -2250,6 +2244,14 @@ instance PP m VarIdentifier => PP m DecClass where
         ppr <- pp r
         ppw <- pp w
         return $ text "annotation procedure" <+> ppInline inline <+> ppr <+> ppw
+
+traverseDecClassVars :: (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> Either Bool (Map VarIdentifier Type) -> VarsM GIdentifier m (Either Bool (Map VarIdentifier Type))
+traverseDecClassVars f (Left x) = do
+    x' <- f x
+    return $ Left x'
+traverseDecClassVars f (Right y) = do
+    y' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $ f $ Map.fromList . map (mapFst VIden) $ Map.toList y
+    return $ Right y'
 
 ppInline True = text "inline"
 ppInline False = text "noinline"
@@ -2464,15 +2466,20 @@ data DecClass
     = DecClass
         Bool -- is an annotation
         Bool -- perform inlining
-        (Map VarIdentifier Type) -- read global variables
-        (Map VarIdentifier Type) -- written global variables
+        (Either Bool (Map VarIdentifier Type)) -- read global variables
+        (Either Bool (Map VarIdentifier Type)) -- written global variables
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Binary DecClass
 instance Hashable DecClass
 
 instance Monoid DecClass where
-    mempty = DecClass False True Map.empty Map.empty
-    mappend (DecClass x i1 r1 w1) (DecClass y i2 r2 w2) = DecClass (x || y) (i1 && i2) (Map.union r1 r2) (Map.union w1 w2)
+    mempty = DecClass False True (Left False) (Left False)
+    mappend (DecClass x i1 r1 w1) (DecClass y i2 r2 w2) = DecClass (x || y) (i1 && i2) (joinVs r1 r2) (joinVs w1 w2)
+      where
+      joinVs (Left b) (Right vs) = if Map.null vs then Left b else Right vs
+      joinVs (Right vs) (Left b) = if Map.null vs then Left b else Right vs
+      joinVs (Left b1) (Left b2) = Left $ b1 || b1
+      joinVs (Right vs1) (Right vs2) = Right $ Map.union vs1 vs2
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement

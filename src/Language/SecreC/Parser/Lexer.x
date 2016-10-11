@@ -70,6 +70,9 @@ tokens :-
 
 -- Keywords:
 <0>                     nonpublic             { lexerTokenInfo NONPUBLIC }
+<0>                     readonly             { lexerTokenInfo READONLY }
+<0>                     readwrite             { lexerTokenInfo READWRITE }
+<0>                     pure             { lexerTokenInfo PURE }
 <0>                     context             { lexerTokenInfo CONTEXT }
 <0>                     numeric             { lexerTokenInfo NUMERIC }
 <0>                     primitive             { lexerTokenInfo PRIMITIVE }

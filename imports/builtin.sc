@@ -2,52 +2,6 @@
     
 module builtin;
 
-// we support ghost equality over any type
-//@ template<domain D, type T, dim N>
-//@ function D bool operator == (D T[[N]] x,D T[[N]] y) {
-//@     __builtin("core.eq",x,y) :: D bool
-//@ } 
-
-//@ template<domain D>
-//@ function D bool operator || (D bool x,D bool y) {
-//@     __builtin("core.bor",x,y) :: D bool
-//@ }
-
-//@ template <nonpublic kind K,domain D : K,type T,dim N>
-//@ function D T[[N]] classify (public T[[N]] x) {
-//@     __builtin("core.classify",x) :: D T[[N]]
-//@ }
-
-//@ template <nonpublic kind K,domain D : K,type T,dim N>
-//@ function T[[N]] declassify (D T[[N]] x) {
-//@     __builtin("core.declassify",x) :: T[[N]]
-//@ }
-
-//@ template <domain D, type T, dim N>
-//@ function uint size (D T[[N]] x) {
-//@     __builtin("core.size",x)
-//@ }
-
-//@ template <domain D>
-//@ function D bool operator ==> (D bool x,D bool y) {
-//@     __builtin("core.implies",x,y) :: D bool
-//@ }
-
-//@ template <domain D>
-//@ function D bool operator <==> (D bool x,D bool y) {
-//@     __builtin("core.eq",x,y) :: D bool
-//@ }
-
-//@ template<domain D>
-//@ function D bool operator && (D bool x,D bool y) {
-//@     __builtin("core.band",x,y) :: D bool
-//@ }
-
-//@ template <domain D, type T, dim N>
-//@ function uint[[1]] shape (D T[[N]] arr) {
-//@     __builtin("core.shape",arr) :: uint[[1]]
-//@ }
-
 template <nonpublic kind K,domain D : K,type T,dim N>
 function D T[[N]] classify (public T[[N]] x) {
     __builtin("core.classify",x) :: D T[[N]]
@@ -86,11 +40,6 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
     cat(x,y,0)
 }
 
-//@ template <domain D,type T,dim N>
-//@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y) {
-//@     cat(x,y,0) :: D T[[N]]
-//@ }
-
 template <domain D, type T, dim N>
 function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 //@ requires n < N;
@@ -101,16 +50,6 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 
     __builtin("core.cat", x,y,n) :: D T[[N]]
 }
-
-//@ template <domain D,type T,dim N>
-//@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
-//@ requires n < N;
-//@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
-//@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
-//@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
-//@ {
-//@     __builtin("core.cat",x,y,n) :: D T[[N]]
-//@ }
 
 //this repeat is a STUB 
 template <domain D,type T,dim N>
@@ -221,11 +160,6 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 //@     __builtin("core.union",x,y) :: D multiset<T>
 //@ }
 
-//@ template<domain D, primitive type T>
-//@ function D T operator + (D T x,D T y) {
-//@     __builtin("core.add",x,y) :: D T
-//@ }
-
 template<domain D, primitive type T>
 function D T operator + (D T x,D T y) {
     __builtin("core.add",x,y) :: D T
@@ -307,11 +241,6 @@ D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 
 // greater
 
-//@ template<domain D, primitive type T>
-//@ function D bool operator > (D T x,D T y) {
-//@     __builtin("core.gt",x,y) :: D bool
-//@ } 
-
 template<domain D, primitive type T>
 function D bool operator > (D T x,D T y) {
     __builtin("core.gt",x,y) :: D bool
@@ -331,11 +260,6 @@ D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 }
 
 // smaller
-
-//@ template<domain D, primitive type T>
-//@ function D bool operator < (D T x,D T y) {
-//@     __builtin("core.lt",x,y) :: D bool
-//@ } 
 
 template<domain D, primitive type T>
 function D bool operator < (D T x,D T y) {
@@ -357,11 +281,6 @@ D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 
 // greater or equal
 
-//@ template<domain D, primitive type T>
-//@ function D bool operator >= (D T x,D T y) {
-//@     __builtin("core.ge",x,y) :: D bool
-//@ } 
-
 template<domain D, primitive type T>
 function D bool operator >= (D T x,D T y) {
     __builtin("core.ge",x,y) :: D bool
@@ -381,11 +300,6 @@ D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 }
 
 // smaller or equal
-
-//@ template<domain D, primitive type T>
-//@ function D bool operator <= (D T x,D T y) {
-//@     __builtin("core.le",x,y) :: D bool
-//@ } 
 
 template<domain D, primitive type T>
 function D bool operator <= (D T x,D T y) {
@@ -431,7 +345,7 @@ D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y)
 
 // equal
 
-template<domain D, primitive type T>
+template<domain D,type T>
 function D bool operator == (D T x,D T y) {
     __builtin("core.eq",x,y) :: D bool
 } 
@@ -467,11 +381,6 @@ template<domain D, primitive type T>
 function D bool operator != (D T x,D T y) {
     __builtin("core.neq",x,y) :: D bool
 } 
-
-//@ template<domain D, primitive type T>
-//@ function D bool operator != (D T x,D T y) {
-//@     __builtin("core.neq",x,y) :: D bool
-//@ } 
 
 // array not equal
 

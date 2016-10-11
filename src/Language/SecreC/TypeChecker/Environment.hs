@@ -43,12 +43,12 @@ import Data.Graph.Inductive.PatriciaTree as Graph
 import Data.Graph.Inductive.Query.DFS    as Graph
 
 import Control.Applicative
-import Control.Monad.State as State
-import Control.Monad.Reader as Reader
-import Control.Monad.Writer as Writer hiding ((<>))
+import Control.Monad.State as State hiding (mapAndUnzipM)
+import Control.Monad.Reader as Reader hiding (mapAndUnzipM)
+import Control.Monad.Writer as Writer hiding ((<>),mapAndUnzipM)
 import Control.Monad.Trans.RWS (RWS(..),RWST(..))
 import qualified Control.Monad.Trans.RWS as RWS
-import Control.Monad.Except
+import Control.Monad.Except hiding (mapAndUnzipM)
 
 import System.IO.Unsafe
 import Unsafe.Coerce
@@ -209,8 +209,8 @@ checkConst n@(VIden vn) = do
 
 registerVar :: Monad m => Bool -> GIdentifier -> Type -> TcM m ()
 registerVar isWrite (VIden v) t = if isWrite
-    then addDecClass (DecClass False True Map.empty (Map.singleton v t))
-    else addDecClass (DecClass False True (Map.singleton v t) Map.empty)
+    then addDecClass (DecClass False True (Right Map.empty) (Right $ Map.singleton v t))
+    else addDecClass (DecClass False True (Right $ Map.singleton v t) (Right Map.empty))
 
 checkVariable :: (ProverK loc m) => Bool -> Bool -> Bool -> Scope -> VarName VarIdentifier loc -> TcM m (VarName GIdentifier (Typed loc))
 checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
@@ -634,7 +634,7 @@ newDecCtx l (DecCtx False dict frees) doTop = do
     checkFrees l frees' (toPureCstrs $ tCstrs dict') dict'
     return $ DecCtx False (toPureTDict dict') frees'
 newDecCtx l (DecCtx True dict frees) doTop = do
-    recs <- addTCstrGraphToRec (pureCstrs dict)
+    recs <- addTCstrGraphToRec l (pureCstrs dict)
     solveTop l "newDecCtx"
     d' <- liftM (head . tDict) State.get
     let d'' = substRecs recs d'
@@ -651,11 +651,64 @@ substRecs recs = everywhere (mkT aux)
         Just d' -> DVar d'
         Nothing -> d
 
-addTCstrGraphToRec :: TCstrGraph -> TcM m (Map DecType VarIdentifier)
-addTCstrGraphToRec = undefined
+addTCstrGraphToRec :: ProverK loc m => loc -> TCstrGraph -> TcM m (Map DecType VarIdentifier)
+addTCstrGraphToRec l g = do
+    i <- newModuleTyVarId
+    foldr (aux i) (return Map.empty) (map (unLoc . snd) $ Graph.labNodes g)
+  where
+    aux i k m = do
+        xs <- addTCstrToRec l i k
+        liftM (Map.union xs) m
 
-addTCstrToRec :: TCstr -> TcM m (Map DecType VarIdentifier)
-addTCstrToRec = undefined
+addTCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TCstr -> TcM m (Map DecType VarIdentifier)
+addTCstrToRec l i (TcK k st) = addTcCstrToRec l i k st
+addTCstrToRec l i k = do
+    ppk <- pp k
+    genTcError (locpos l) $ text "addTCstrToRec" <+> ppk
+    
+addTcCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TcCstr -> CstrState -> TcM m (Map DecType VarIdentifier)
+addTcCstrToRec l i (PDec n ts ps ret (DVar v)) st = do
+    j <- newModuleTyVarId
+    let (isRead,isWrite) = case cstrExprC st of
+                                PureExpr -> (False,False)
+                                ReadOnlyExpr -> (True,False)
+                                ReadWriteExpr -> (True,True)
+    let decclass = DecClass (cstrIsAnn st) True (Left isRead) (Left isWrite)
+    (ps',substs) <- mapAndUnzipM (addPArgToRec l) ps
+    let idec = case cstrDecK st of
+                        PKind -> ProcType (locpos l) n ps' ret [] Nothing decclass
+                        LKind -> LemmaType (cstrIsLeak st) (locpos l) n ps' [] Nothing decclass
+                        FKind -> FunType (cstrIsLeak st) (locpos l) n ps' ret [] Nothing decclass
+    let hctx = implicitDecCtx { dCtxDict = emptyPureTDict { pureSubsts = mconcat substs }}
+    let dec = DecType j (Just i) [] hctx implicitDecCtx (concat ts) idec
+    env <- mkDecEnv l dec
+    addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env
+    return $ Map.singleton dec v
+addTcCstrToRec l i (TDec n ts (DVar v)) st = do
+    j <- newModuleTyVarId
+    let (isRead,isWrite) = case cstrExprC st of
+                                PureExpr -> (False,False)
+                                ReadOnlyExpr -> (True,False)
+                                ReadWriteExpr -> (True,True)
+    let decclass = DecClass (cstrIsAnn st) True (Left isRead) (Left isWrite)
+    let idec = StructType (locpos l) n Nothing decclass
+    let dec = DecType j (Just i) [] implicitDecCtx implicitDecCtx ts idec
+    env <- mkDecEnv l dec
+    addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env
+    return $ Map.singleton dec v
+addTcCstrToRec l i k st = do
+    ppk <- pp k
+    genTcError (locpos l) $ text "addTcCstrToRec" <+> ppk
+
+addPArgToRec :: ProverK loc m => loc -> (IsConst,Either Expr Type,IsVariadic) -> TcM m ((IsConst,Var,IsVariadic),TSubsts)
+addPArgToRec l (isConst,Right t,isVariadic) = do
+    v <- freshVarId "parg" Nothing
+    return ((isConst,VarName t $ VIden v,isVariadic),mempty)
+addPArgToRec l (isConst,Left e,isVariadic) = do
+    let t = loc e
+    v <- freshVarId "cparg" Nothing
+    let dict = if isConst then TSubsts (Map.singleton v (IdxT e)) else mempty
+    return ((isConst,VarName t $ VIden v,isVariadic),dict)
 
 -- | Adds a new (possibly overloaded) procedure to the environment.
 newProcedureFunction :: (ProverK loc m) => DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
@@ -938,11 +991,11 @@ splitTpltHead l hctx bctx deps vars dec = do
 --    liftIO $ putStrLn $ "splitHead " ++ ppr hgr ++ "\n|\n" ++ ppr bgr
     let headDict = PureTDict hgr emptyTSubsts (tRec d)
     let bodyDict = PureTDict bgr emptyTSubsts mempty
-    hctx' <- tcNew (locpos l) "split" $ do
+    hctx' <- tcNew (locpos l) "split" $ onFrees l $ do
         addHeadTDict l "split" =<< fromPureTDict headDict
         addFrees hfrees
         newDecCtx l hctx False
-    bctx' <- tcNew (locpos l) "split" $ do
+    bctx' <- tcNew (locpos l) "split" $ onFrees l $ do
         addHeadTDict l "split" =<< fromPureTDict bodyDict
         addFrees bfrees
         newDecCtx l bctx False
@@ -958,7 +1011,7 @@ splitTpltHead l hctx bctx deps vars dec = do
     
 checkFrees :: (Vars GIdentifier (TcM m) x,ProverK loc m,PP (TcM m) d) => loc -> Frees -> x -> d -> TcM m ()
 checkFrees l frees x dict = do
-    freevars <- usedVs x
+    freevars <- usedVs' x
     forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Set.member v freevars) $ do
         ppv <- pp v
         ppd <- pp dict
@@ -1899,7 +1952,10 @@ usedVs' :: (ProverK Position m,Vars GIdentifier (TcM m) x) => x -> TcM m (Set Va
 usedVs' x = do
     vs <- usedVs x
     ss <- getTSubsts (noloc::Position)
-    return $ Set.difference vs (Map.keysSet $ unTSubsts ss)
+    vvs <- forM (Set.toList vs) $ \v -> case Map.lookup v (unTSubsts ss) of
+        Nothing -> return $ Set.singleton v
+        Just t -> usedVs' t
+    return $ Set.unions vvs
 
 priorityTCstr :: VarsGTcM m => TCstr -> TCstr -> TcM m Ordering
 priorityTCstr (TcK c1 _) (TcK c2 _) = priorityTcCstr c1 c2

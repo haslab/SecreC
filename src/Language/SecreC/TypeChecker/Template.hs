@@ -41,13 +41,13 @@ import Text.PrettyPrint as PP
 instance (MonadIO m) => Vars GIdentifier (TcM m) [(Bool,Var,IsVariadic)] where
     traverseVars f = mapM f
 
-instance (MonadIO m) => Vars GIdentifier (TcM m) [(Either Expr Type,IsVariadic)] where
+instance (MonadIO m) => Vars GIdentifier (TcM m) [(IsConst,Either Expr Type,IsVariadic)] where
     traverseVars f = mapM f
     
-instance PP m VarIdentifier => PP m [(Either Expr Type,IsVariadic)] where
-    pp xs = do
-        let f (x,y) = ppVariadicArg pp (x,y)
-        liftM (sepBy comma) (mapM f xs)
+--instance PP m VarIdentifier => PP m [(IsConst,Either Expr Type,IsVariadic)] where
+--    pp xs = do
+--        let f (z,x,y) = liftM (ppConst z) (ppVariadicArg pp (x,y))
+--        liftM (sepBy comma) (mapM f xs)
 
 instance PP m VarIdentifier => PP m [Either Expr Type] where
     pp xs = liftM (sepBy comma) (mapM pp xs)
@@ -88,7 +88,7 @@ decLineage (DecType i j _ _ _ _ _) = i : maybeToList j
 
 -- Procedure arguments are maybe provided with index expressions
 -- | Matches a list of template arguments against a list of template declarations
-matchTemplate :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m [EntryEnv] -> TcM m DecType
+matchTemplate :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m [EntryEnv] -> TcM m DecType
 matchTemplate l kid n targs pargs ret check = do
     entries <- liftM sortEntries check
     debugTc $ do
@@ -166,7 +166,7 @@ mkInvocationDec l dec@(DecType i Nothing targs hdict bdict specs d) targs' = do
     let specs' = map (,False) ts'
     return $ DecType j (Just (i)) [] hdict bdict specs' d
 
-resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryInst] -> TcM m DecType
+resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryInst] -> TcM m DecType
 resolveTemplateEntries l kid n targs pargs ret [inst] = do
     resolveTemplateEntry False l kid n targs pargs ret inst
 resolveTemplateEntries l kid n targs pargs ret insts = do
@@ -182,7 +182,7 @@ resolveTemplateEntries l kid n targs pargs ret insts = do
     choice' <- choice False (last insts)
     multipleSubstitutions l kid SolveAll (n,targs,pargs,ret) (choices'++[choice'])
 
-resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m DecType
+resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m DecType
 resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,bodyDict,frees,delfrees,solved) = do
     debugTc $ do
         ppn <- ppr n
@@ -236,10 +236,11 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
         otherwise -> do
             let tycl@(DecClass isAnn isInline rs ws) = tyDecClass $ DecT decrec
             exprC <- getExprC
+            let isEmpty = either not Map.null
             case exprC of
-                PureE -> unless (Map.null rs && Map.null ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
-                ReadOnlyE -> unless (Map.null ws) $ genTcError (locpos p) $ text "procedure not read-only" <+> def
-                ReadWriteE -> return ()
+                PureExpr -> unless (isEmpty rs && isEmpty ws) $ genTcError (locpos p) $ text "procedure not pure" <+> def
+                ReadOnlyExpr -> unless (isEmpty ws) $ genTcError (locpos p) $ text "procedure not read-only" <+> def
+                ReadWriteExpr -> return ()
             addDecClass tycl
     return decrec
 
@@ -271,16 +272,16 @@ removeTemplate l (DVar v@(varIdRead -> True)) = resolveDVar l v >>= removeTempla
 variadicFrees :: Frees -> Frees
 variadicFrees = Map.filter (\b -> b)
 
-ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
+ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
 ppTpltAppM l pid args es ret = do
     ss <- getTSubsts l
     pid' <- substFromTSubsts "ppTplt" l ss False Map.empty pid
     args' <- mapM (mapM (mapFstM (substFromTSubsts "ppTplt" l ss False Map.empty))) args
-    es' <- mapM (mapM (mapFstM (substFromTSubsts "ppTplt" l ss False Map.empty))) es
+    es' <- mapM (mapM (mapSnd3M (substFromTSubsts "ppTplt" l ss False Map.empty))) es
     ret' <- substFromTSubsts "ppTplt" l ss False Map.empty ret
     ppTpltApp pid' args' es' ret'
 
-ppTpltApp :: ProverK Position m => TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
+ppTpltApp :: ProverK Position m => TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
 ppTpltApp (TIden n) args Nothing Nothing = do
     ppn <- pp n
     ppargs <- mapM (ppVariadicArg pp) $ concat $ args
@@ -409,7 +410,7 @@ comparesDecIds d1 d2 = return $ Comparison d1 d2 EQ EQ -- do nothing
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
-instantiateTemplateEntries :: (ProverK loc m) => Set ModuleTyVarId -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryEnv] -> TcM m ([Either (EntryEnv,SecrecError) EntryInst],Set ModuleTyVarId)
+instantiateTemplateEntries :: (ProverK loc m) => Set ModuleTyVarId -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryEnv] -> TcM m ([Either (EntryEnv,SecrecError) EntryInst],Set ModuleTyVarId)
 instantiateTemplateEntries valids l kid n targs pargs ret [] = return ([],Set.empty)
 instantiateTemplateEntries valids l kid n targs pargs ret (e:es) = do
     let d = unDecT (entryType e)
@@ -527,16 +528,16 @@ matchPArg l isConst v2 (Left e) = do
         then unifiesExprTy l True v2 e
         else tcCstrM_ l $ Unifies (loc v2) (loc e)
 
-expandPArgExpr :: (ProverK loc m) => loc -> (Either Expr Type,IsVariadic) -> TcM m [Either Expr Type]
-expandPArgExpr l ((Left e,False)) = return [Left e]
-expandPArgExpr l (Left e,True) = do
+expandPArgExpr :: (ProverK loc m) => loc -> (IsConst,Either Expr Type,IsVariadic) -> TcM m [Either Expr Type]
+expandPArgExpr l (_,Left e,False) = return [Left e]
+expandPArgExpr l (_,Left e,True) = do
     es <- expandVariadicExpr l False (e,True)
     return $ map Left es
-expandPArgExpr l (Right t,True) = do
+expandPArgExpr l (_,Right t,True) = do
     ts <- expandVariadicType l (t,True)
     return $ map (Right) ts
 
-matchProcedureArgs :: (ProverK loc m) => loc -> [(Either Expr Type,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m ()
+matchProcedureArgs :: (ProverK loc m) => loc -> [(IsConst,Either Expr Type,IsVariadic)] -> [(Bool,Var,IsVariadic)] -> TcM m ()
 matchProcedureArgs l lhs rhs = do
     (_,ks) <- tcWithCstrs l "coerce proc args" $ do
         -- expand passed expressions
@@ -565,8 +566,8 @@ checkRecursiveDec l d@(DecType _ isRec _ _ _ _ _) = do
             let did = fromJustNote "checkRecursiveDec" $ decTypeId d
             return $ List.elem did lin
 
-instantiateTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(Either Expr Type,IsVariadic)] -> Maybe Type -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) EntryInst)
-instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = limitExprC ReadOnlyE $ newErrorM $ liftM mapErr $ withFrees p $ do
+instantiateTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryEnv -> TcM m (Either (EntryEnv,SecrecError) EntryInst)
+instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = limitExprC ReadOnlyExpr $ newErrorM $ liftM mapErr $ withFrees p $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
             isRec <- checkRecursiveDec l d
@@ -723,7 +724,7 @@ tpltTyVars (Just xs) = Set.fromList $ map (varNameId . fromJust . typeToVarName 
 --addDecDicts :: DecType -> PureTDict -> PureTDict -> DecType
 --addDecDicts (DecType i isRec vars hd bd specs ss) hd' bd' = DecType i isRec vars hd' bd' specs ss
 
-templateTDict :: (ProverK Position m) => ExprC -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
+templateTDict :: (ProverK Position m) => ExprClass -> EntryEnv -> TcM m (EntryEnv,TDict,TDict,TCstrGraph)
 templateTDict exprC e = case entryType e of
     DecT (DecType i isRec vars (DecCtx his hd hfrees) (DecCtx bis d bfrees) specs ss) -> do
         hd' <- fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }

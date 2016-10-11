@@ -335,15 +335,39 @@ mapFst f (x,y) = (f x,y)
 mapSnd :: (c -> b) -> (a,c) -> (a,b)
 mapSnd f (x,y) = (x,f y)
 
+mapFst3 :: (a -> b) -> (a,c,x) -> (b,c,x)
+mapFst3 f (x,y,z) = (f x,y,z)
+
+mapSnd3 :: (c -> b) -> (a,c,x) -> (a,b,x)
+mapSnd3 f (x,y,z) = (x,f y,z)
+
+mapThr3 :: (c -> d) -> (a,b,c) -> (a,b,d)
+mapThr3 f (x,y,z) = (x,y,f z)
+
 mapFstM :: Monad m => (a -> m b) -> (a,c) -> m (b,c)
 mapFstM f (x,y) = do
     x' <- f x
     return (x',y)
 
+mapFst3M :: Monad m => (a -> m b) -> (a,c,x) -> m (b,c,x)
+mapFst3M f (x,y,z) = do
+    x' <- f x
+    return (x',y,z)
+
 mapSndM :: Monad m => (c -> m b) -> (a,c) -> m (a,b)
 mapSndM f (x,y) = do
     y' <- f y
     return (x,y')
+
+mapSnd3M :: Monad m => (c -> m b) -> (a,c,x) -> m (a,b,x)
+mapSnd3M f (x,y,z) = do
+    y' <- f y
+    return (x,y',z)
+
+mapThr3M :: Monad m => (c -> m d) -> (a,b,c) -> m (a,b,d)
+mapThr3M f (x,y,z) = do
+    z' <- f z
+    return (x,y,z')
 
 fmapFst :: (Functor t) => (a -> b) -> t (a,c) -> t (b,c)
 fmapFst f = fmap (\(a,c) -> (,c) $ f a)
@@ -686,3 +710,5 @@ eitherM f g (Left x) = f x
 eitherM f g (Right y) = g y
 
 
+unLeft (Left x) = x
+unRight (Right y) = y

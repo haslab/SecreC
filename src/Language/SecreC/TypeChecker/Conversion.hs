@@ -90,28 +90,41 @@ decCtx2TemplateContext l dec@(DecCtx True d _) = liftM (TemplateContext (Typed l
     tcCstr2Context l k@(TDec (TIden n) ts x) st = do
         let tn' = TypeName (Typed l $ DecT x) $ TIden n
         ts' <- mapM (mapFstM (type2TemplateTypeArgument l)) ts
-        return $ ContextTDec (Typed l $ TCstrT $ TcK k st) tn' ts'
+        return $ ContextTDec (Typed l $ TCstrT $ TcK k st) (cstrExprC st) tn' ts'
     tcCstr2Context l k@(PDec (PIden n) ts args ret x) st = do
         ret' <- type2ReturnTypeSpecifier l ret
         let pn' = ProcedureName (Typed l $ DecT x) $ PIden n
         ts' <- mapM (mapM (mapFstM (type2TemplateTypeArgument l))) ts
         args' <- mapM (decPArg2CtxPArg l) args
-        return $ ContextPDec (Typed l $ TCstrT $ TcK k st) ret' pn' ts' args'
+        let Just kind = decKind2CstrKind $ cstrDecK st
+        return $ ContextPDec (Typed l $ TCstrT $ TcK k st) (cstrExprC st) (cstrIsLeak st) (cstrIsAnn st) kind ret' pn' ts' args'
     tcCstr2Context l k@(PDec (OIden o) ts args ret _) st = do
         ret' <- type2ReturnTypeSpecifier l ret
         let o' = fmap (Typed l) o
         ts' <- mapM (mapM (mapFstM (type2TemplateTypeArgument l))) ts
         args' <- mapM (decPArg2CtxPArg l) args
-        return $ ContextODec (Typed l $ TCstrT $ TcK k st) ret' o' ts' args'
+        let Just kind = decKind2CstrKind $ cstrDecK st
+        return $ ContextODec (Typed l $ TCstrT $ TcK k st) (cstrExprC st) (cstrIsLeak st) (cstrIsAnn st) kind ret' o' ts' args'
     tcCstr2Context l k st = do
         ppk <- pp k
         genError (locpos l) $ text "tcCstr2Context:" <+> ppk
 
-decPArg2CtxPArg :: ConversionK loc m => loc -> (Either Expr Type,IsVariadic) -> m (CtxPArg GIdentifier (Typed loc))
-decPArg2CtxPArg l (Left e,False) = return $ CtxConstPArg (Typed l $ loc e) (fmap (Typed l) e)
-decPArg2CtxPArg l (Right t,isVariadic) = do
+decKind2CstrKind :: DecKind -> Maybe CstrKind
+decKind2CstrKind PKind = Just CstrProcedure
+decKind2CstrKind FKind = Just CstrFunction
+decKind2CstrKind LKind = Just CstrLemma
+decKind2CstrKind k = Nothing
+
+cstrKind2DecKind :: CstrKind -> DecKind
+cstrKind2DecKind CstrProcedure = PKind
+cstrKind2DecKind CstrFunction = FKind
+cstrKind2DecKind CstrLemma = LKind
+
+decPArg2CtxPArg :: ConversionK loc m => loc -> (IsConst,Either Expr Type,IsVariadic) -> m (CtxPArg GIdentifier (Typed loc))
+decPArg2CtxPArg l (isConst,Left e,isVariadic) = return $ CtxExprPArg (Typed l $ loc e) isConst (fmap (Typed l) e) isVariadic
+decPArg2CtxPArg l (isConst,Right t,isVariadic) = do
     t' <- type2TypeSpecifierNonVoid l t
-    return $ CtxNormalPArg (Typed l $ tyOf t) t' isVariadic
+    return $ CtxTypePArg (Typed l $ tyOf t) isConst t' isVariadic
 
 dec2LemmaDecl :: ConversionK loc m => loc -> DecType -> m (LemmaDeclaration GIdentifier (Typed loc)) 
 dec2LemmaDecl l dec@(DecType _ _ targs hctx bctx _ (LemmaType isLeak p pn pargs anns body _)) = do

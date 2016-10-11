@@ -228,27 +228,27 @@ simplifyTemplateContext (TemplateContext l c) = do
     return (ss,TemplateContext l c')
 
 simplifyContextConstraint :: SimplifyK loc m => Bool -> SimplifyM loc m (ContextConstraint GIdentifier (Typed loc))
-simplifyContextConstraint isExpr (ContextPDec l ret n targs pargs) = do
+simplifyContextConstraint isExpr (ContextPDec l cl isLeak isAnn ck ret n targs pargs) = do
     (ss1,ret') <- simplifyReturnTypeSpecifier isExpr ret
     (ss2,targs') <- simplifyMaybe (simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr))) targs
     (ss3,pargs') <- simplifyList (simplifyCtxPArg isExpr) pargs
-    return (ss1++ss2++ss3,ContextPDec l ret' n targs' pargs')
-simplifyContextConstraint isExpr (ContextODec l ret n targs pargs) = do
+    return (ss1++ss2++ss3,ContextPDec l cl isLeak isAnn ck ret' n targs' pargs')
+simplifyContextConstraint isExpr (ContextODec l cl isLeak isAnn ck ret n targs pargs) = do
     (ss1,ret') <- simplifyReturnTypeSpecifier isExpr ret
     (ss2,targs') <- simplifyMaybe (simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr))) targs
     (ss3,pargs') <- simplifyList (simplifyCtxPArg isExpr) pargs
-    return (ss1++ss2++ss3,ContextODec l ret' n targs' pargs')
-simplifyContextConstraint isExpr (ContextTDec l n targs) = do
+    return (ss1++ss2++ss3,ContextODec l cl isLeak isAnn ck ret' n targs' pargs')
+simplifyContextConstraint isExpr (ContextTDec l cl n targs) = do
     (ss1,targs') <- simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr)) targs
-    return (ss1,ContextTDec l n targs')
+    return (ss1,ContextTDec l cl n targs')
 
 simplifyCtxPArg :: SimplifyK loc m => Bool -> SimplifyM loc m (CtxPArg GIdentifier (Typed loc))
-simplifyCtxPArg isExpr (CtxConstPArg l e) = do
+simplifyCtxPArg isExpr (CtxExprPArg l isConst e isVariadic) = do
     (ss,e') <- simplifyNonVoidExpression isExpr e
-    return (ss,CtxConstPArg l e')
-simplifyCtxPArg isExpr (CtxNormalPArg l t isVariadic) = do
+    return (ss,CtxExprPArg l isConst e' isVariadic)
+simplifyCtxPArg isExpr (CtxTypePArg l isConst t isVariadic) = do
     (ss,t') <- simplifyTypeSpecifier isExpr t
-    return (ss,CtxNormalPArg l t' isVariadic)
+    return (ss,CtxTypePArg l isConst t' isVariadic)
 
 simplifyVariableDeclaration :: SimplifyK loc m => VariableDeclaration GIdentifier (Typed loc) -> TcM m [Statement GIdentifier (Typed loc)]
 simplifyVariableDeclaration (VariableDeclaration l isConst isHavoc t vs) = do

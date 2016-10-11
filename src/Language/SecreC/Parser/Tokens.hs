@@ -41,6 +41,9 @@ data Token
     = STR_IDENTIFIER String
     | STR_FRAGMENT String
     | CHAR Char
+    | PURE
+    | READONLY
+    | READWRITE
     | ASSERT
     | LEMMA
     | CONST
@@ -256,6 +259,9 @@ instance Monad m => PP m Token where
     pp INLINE =                 return $ text "inline"
     pp NOINLINE =               return $ text "noinline"
     pp LEMMA =                  return $ text "lemma"
+    pp PURE =                   return $ text "pure"
+    pp READONLY =               return $ text "readonly"
+    pp READWRITE =              return $ text "readwrite"
     pp (ANNOTATION anns) =      return $ text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]

@@ -454,8 +454,8 @@ decToDafny l dec = do
 decClassToDafny :: DafnyK m => DecClass -> DafnyM m Doc
 decClassToDafny (DecClass _ _ rs ws) = do
     let ppVar (v,t) = varToDafny $ VarName (Typed noloc t) $ VIden v
-    prs <- mapM ppVar $ Map.toList rs
-    pws <- mapM ppVar $ Map.toList ws
+    prs <- mapM ppVar $ either (const []) Map.toList rs
+    pws <- mapM ppVar $ either (const []) Map.toList ws
     let pr = if null prs then empty else text "reads" <+> sepBy space prs
     let pw = if null pws then empty else text "modifies" <+> sepBy space pws
     return $ pr $+$ pw
