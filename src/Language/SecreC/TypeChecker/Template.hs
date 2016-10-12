@@ -108,9 +108,7 @@ matchTemplate l kid n targs pargs ret check = do
             isLeak <- getLeak
             kind <- getKind
             tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure (ppid isAnn <+> ppid isLeak <+> ppid kind <+> def) defs
-        [inst] -> do
-            dec <- resolveTemplateEntry False l kid n targs pargs ret inst
-            return dec
+        [inst] -> liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
         -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
         otherwise -> if backtrack opts
             then do
@@ -126,7 +124,7 @@ matchTemplate l kid n targs pargs ret check = do
             else do
                 (inst:insts) <- sortByM (\x y -> compareTemplateDecls def l False n x y >>= uncurry (appendOrdering l)) oks
                 mapM_ discardMatchingEntry insts
-                resolveTemplateEntry False l kid n targs pargs ret inst
+                liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
 
 -- sort the templates, filtering out greater templates that do not rely on coercions
 compMins :: Monad m => (a -> a -> m (Ordering,Ordering)) -> [a] -> [a] -> m [a]
@@ -168,7 +166,7 @@ mkInvocationDec l dec@(DecType i Nothing targs hdict bdict specs d) targs' = do
 
 resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryInst] -> TcM m DecType
 resolveTemplateEntries l kid n targs pargs ret [inst] = do
-    resolveTemplateEntry False l kid n targs pargs ret inst
+    liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
 resolveTemplateEntries l kid n targs pargs ret insts = do
     debugTc $ do
         ppkid <- ppr kid
@@ -177,12 +175,14 @@ resolveTemplateEntries l kid n targs pargs ret insts = do
     let choice refresh inst@(e,_,_,_,_,frees,_,_) = do
         ppkid <- pp kid
         pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
-        return $ ((resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid),(return,PP.empty),(return,PP.empty),Map.keysSet frees)
+        let match = (resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid)
+        let post (dec,heads) = return (heads,dec)
+        return $ (match,(return,PP.empty),(post,PP.empty),Map.keysSet frees)
     choices' <- mapM (choice True) (init insts)
     choice' <- choice False (last insts)
     multipleSubstitutions l kid SolveAll (n,targs,pargs,ret) (choices'++[choice'])
 
-resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m DecType
+resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m (DecType,Set LocIOCstr)
 resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,bodyDict,frees,delfrees,solved) = do
     debugTc $ do
         ppn <- ppr n
@@ -221,16 +221,10 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
         liftIO $ putStrLn $ "resolveTplt "
             ++ show (isTemplateDecType olddec) ++ show (decIsRec olddec)
             ++ " " ++ ppdid ++ " : " ++ show (sepBy comma pplineage)
-    if solveHead
-        then do
-            (_,headSubsts) <- tcProveTop p "resolve head" $ do
-                addHeadTDictDirty p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p headDict
-            addHeadTDict p "resolveTemplateEntry" headSubsts
-            addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p bodyDict
-        else do
-            addHeadTDictDirty p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p headDict
-            addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p $ bodyDict
-            linkDependentCstrs p headDict bodyDict
+    addHeadTDictDirty p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p headDict
+    let headCstrs = Set.fromList $ map (snd) $ Graph.labNodes $ tCstrs headDict
+    addHeadTDict p "resolveTemplateEntry" $ templateCstrs (did : lineage) rec def p $ bodyDict
+    linkDependentCstrs p headDict bodyDict
     case n of
         TIden _ -> return ()
         otherwise -> do
@@ -242,7 +236,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
                 ReadOnlyExpr -> unless (isEmpty ws) $ genTcError (locpos p) $ text "procedure not read-only" <+> def
                 ReadWriteExpr -> return ()
             addDecClass tycl
-    return decrec
+    return (decrec,headCstrs)
 
 templateCstrs :: Location loc => Lineage -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
 templateCstrs lineage rec doc p d = d { tCstrs = Graph.nmap upd (tCstrs d), tRec = tRec d `mappend` rec }
@@ -801,7 +795,7 @@ localTemplateType (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (l::loc) et = c
         (hctx',ss1,ssBounds1) <- localDecCtx ss ssBounds l hctx
         (args',ss2,ssBounds2) <- uniqueTyVars l ss1 ssBounds1 args
         specials' <- substProxy "localTplt" ss2 False ssBounds2 specials
-        (bctx',ss3,ssBounds3) <- localDecCtx ss2 ssBounds2 l hctx
+        (bctx',ss3,ssBounds3) <- localDecCtx ss2 ssBounds2 l bctx
         (body',ss4,ssBounds4) <- localTemplateInnerType ss3 ssBounds3 l body
         return (DecType tpltid isrec args' hctx' bctx' (zip specials' isVariadics2) body',ss4,ssBounds4)
 
@@ -811,7 +805,7 @@ localDecCtx (ss::SubstsProxy GIdentifier (TcM m)) ssBounds l (DecCtx is dict fre
     let ss' :: SubstsProxy GIdentifier (TcM m)
         ss' = substsProxyFromList freelst `appendSubstsProxy` ss
     let ssBounds' = ssBounds `Map.union` Map.fromList freelst
-    dict' <- substProxy "localTplt" ss False ssBounds' dict
+    dict' <- substProxy "localTplt" ss' False ssBounds' dict
     return (DecCtx is dict' (Map.mapKeys unVIden $ Map.fromList $ frees'),ss',ssBounds')
 
 localTemplateInnerType :: (ProverK loc m) => SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> loc -> InnerDecType -> TcM m (InnerDecType,SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)

@@ -387,9 +387,12 @@ solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolv
 -- * Throwing Constraints
 
 tCstrM_ :: ProverK loc m => loc -> TCstr -> TcM m ()
-tCstrM_ l (TcK c st) = withCstrState l st $ tcCstrM_ l c
-tCstrM_ l (CheckK c st) = withCstrState l st $ checkCstrM_ l Set.empty c
-tCstrM_ l (HypK c st) = withCstrState l st $ hypCstrM_ l c
+tCstrM_ l k = tCstrM l k >> return ()
+
+tCstrM :: ProverK loc m => loc -> TCstr -> TcM m (Maybe IOCstr)
+tCstrM l (TcK c st) = withCstrState l st $ tcCstrM l c
+tCstrM l (CheckK c st) = withCstrState l st $ checkCstrM l Set.empty c
+tCstrM l (HypK c st) = withCstrState l st $ hypCstrM l c
 
 checkCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
 checkCstrM_ l deps k = checkCstrM l deps k >> return ()
@@ -576,7 +579,11 @@ resolveTcCstr l mode kid k = do
         let mkSubst (x,y,z) = do
             ppx <- pp x
             ppy <- pp y
-            return ((mapM_ (tCstrM_ l) x,ppx),(\b -> mapM_ (tCstrM_ l) y,ppy),(const $ return (),PP.empty),z)
+            let match = mapM_ (tCstrM_ l) x
+            let post () = do
+                cs <- mapM (tCstrM l) y
+                return (Set.fromList $ map (Loc $ locpos l) $ catMaybes cs,())
+            return ((match,ppx),(return,PP.empty),(post,ppy),z)
         s' <- mapM mkSubst s
         multipleSubstitutions l kid SolveGlobal v s'
     resolveTcCstr' kid (MatchTypeDimension t d) = matchTypeDimension l t d
@@ -767,7 +774,7 @@ relatedCstrs l kids vs filter = do
     filtered <- (filter $ reachableVarGr (Map.intersection st $ Map.fromSet (const "msubsts") vs) vgr)
     return $ Set.difference filtered dependents
     
-multipleSubstitutions :: (ProverK loc m,Vars GIdentifier (TcM m) a) => loc -> Int -> SolveScope -> a -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> TcM m d
+multipleSubstitutions :: (ProverK loc m,Vars GIdentifier (TcM m) a) => loc -> Int -> SolveScope -> a -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier)] -> TcM m d
 multipleSubstitutions l kid scope bv ss = do
     opts <- askOpts
     bvs <- liftM (videns . Map.keysSet) $ fvs bv -- variables bound by the multiple substitutions
@@ -794,7 +801,7 @@ multipleSubstitutions l kid scope bv ss = do
                 Left y -> matchBody l kid scope cs y >>= \d -> removes >> return d
                 Right errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
     
-matchAll :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)] -> (((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m x) -> [(Doc,SecrecError)] -> TcM m (Either x [(Doc,SecrecError)])
+matchAll :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier)] -> (((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier) -> TcM m x) -> [(Doc,SecrecError)] -> TcM m (Either x [(Doc,SecrecError)])
 matchAll l kid scope cs [] match errs = return $ Right errs
 matchAll l kid scope cs (x:xs) match errs = catchError
     -- match and solve all remaining constraints
@@ -808,12 +815,12 @@ matchAll l kid scope cs (x:xs) match errs = catchError
         --throwError e
     )
 
-matchOne :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
+matchOne :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier) -> TcM m d
 matchOne l kid scope cs (match,deps,post,frees) = do
     res <- matchHead l kid scope cs (match,deps,post,frees)
     matchBody l kid scope cs res
 
-matchHead :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier)
+matchHead :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier) -> TcM m ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier)
 matchHead l kid scope cs (match,deps,post,frees) = do
 --    forSetM_ cs $ \(Loc _ iok) -> liftIO $ readIdRef (kStatus iok) >>= \st -> case st of
 --            Erroneous _ -> writeIdRef (kStatus iok) Unevaluated
@@ -825,19 +832,23 @@ matchHead l kid scope cs (match,deps,post,frees) = do
     (b,ks) <- proveWithMode l ("matchOneHead"++show kid) (mode { solveScope = scope }) $ tcWithCstrs l ("matchOneHead"++show kid) (fst match)
     return ((b,ks),deps,post,frees)
 
-matchBody :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m d,Doc),Set VarIdentifier) -> TcM m d
+matchBody :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc),Set VarIdentifier) -> TcM m d
 matchBody l kid scope cs ((b,ks),deps,post,_) = do
     debugTc $ do
         ppl <- ppr l
         liftIO $ putStrLn $ ppl ++ " trying to match "++show kid
     mode <- defaultSolveMode
+    
+    -- solve dependencies
     c <- proveWithMode l ("matchOneHead"++show kid) (mode { solveScope = scope }) $ withDependencies ks ((fst deps) b)
     
-    -- solve all other dependencies
-    --liftIO $ putStrLn $ "matchOne solved head" ++ show kid ++ " " ++ ppr match
-    solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True, solveScope = scope }) cs
+    -- prepare body
+    (cs',d) <- withDependencies ks ((fst post) c)
+    
+    -- solve body and all other dependencies
+    solveSelectionWith l ("matchone"++show kid) (mode { solveFail = FirstFail True, solveScope = scope }) $ Set.union cs cs'
     debugTc $ liftIO $ putStrLn $ "matchOne solved " ++ show kid
-    (fst post) c
+    return d
 
 tryCstr :: (ProverK loc m) => loc -> TcM m a -> TcM m (Either SecrecError a)
 tryCstr l m = (liftM Right $ prove l "tryCstr" $ m) `catchError` (return . Left)

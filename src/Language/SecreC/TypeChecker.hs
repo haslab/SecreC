@@ -457,7 +457,7 @@ tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
         Nothing -> do -- domain variable of any kind
             if inTplt
                 then do
-                    (KVar kv kc) <- newKindVar "k" Nothing True Nothing
+                    (KVar kv kc) <- newKindVar "kNoWrite" Nothing True Nothing
                     let k = KVar kv{ varIdWrite = False } kc
                     topTcCstrM_ l $ Resolve $ KindT k
                     return (Nothing,KindT k)

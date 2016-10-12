@@ -345,6 +345,11 @@ D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y)
 
 // equal
 
+//@ template<domain D,type T,dim N>
+//@ function D bool operator == (D T[[N]] x,D T[[N]] y) {
+//@     __builtin("core.eq",x,y) :: D bool
+//@ } 
+
 template<domain D,type T>
 function D bool operator == (D T x,D T y) {
     __builtin("core.eq",x,y) :: D bool
