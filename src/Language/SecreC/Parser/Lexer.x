@@ -160,6 +160,7 @@ tokens :-
 <0>                     ==\>                   { lexerTokenInfo IMPLIES_OP }
 <0>                     \<==\>                   { lexerTokenInfo EQUIV_OP }
 <0>                     "..."                { lexerTokenInfo VARIADIC }
+<0>                     \<\~                { lexerTokenInfo COERCE }
 <0>                     \+=                   { lexerTokenInfo ADD_ASSIGN }
 <0>                     &=                   { lexerTokenInfo AND_ASSIGN }
 <0>                     \-\-                   { lexerTokenInfo DEC_OP }

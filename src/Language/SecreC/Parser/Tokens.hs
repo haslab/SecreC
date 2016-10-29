@@ -44,6 +44,7 @@ data Token
     | PURE
     | READONLY
     | READWRITE
+    | COERCE
     | ASSERT
     | LEMMA
     | CONST
@@ -152,6 +153,7 @@ data Token
   deriving (Show,Read,Data,Typeable,Eq,Ord)
 
 instance Monad m => PP m Token where
+    pp COERCE           =       return $ text "<~"
     pp (STR_FRAGMENT s) =       return $ text s
     pp (CONST) =                return $ text "const"
     pp (STR_IDENTIFIER s) =     return $ text s
@@ -265,7 +267,7 @@ instance Monad m => PP m Token where
     pp (ANNOTATION anns) =      return $ text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
 
 isAnnotation :: String -> Maybe [String]
-isAnnotation s = if ok then Just (map (tail . dropWhile (/='@')) toks) else Nothing
+isAnnotation s = if ok then Just (map (takeWhile (/='@') . tail . dropWhile (/='@')) toks) else Nothing
     where
     toks = lines s
     ok = not (List.null toks) && and (map (maybe False (=="@") . headMay . words) toks)

@@ -38,6 +38,7 @@ import Data.Binary
 import Data.Hashable
 import Data.Typeable
 import Data.Data
+import Data.List
 import Data.List.Split (splitOn)
 import Data.Version (showVersion)
 
@@ -69,23 +70,21 @@ type PPParserT u m a = ParsecT [Char] u m a
 runPP :: (MonadIO m) => FilePath -> SecrecM m PPArgs
 runPP file = do
     str <- liftIO $ readFile file
-    mb <- runParserT parsePPArgs () file str 
+    mapM (parsePP file) (filter (isPrefixOf "#") $ lines str)
+
+parsePP :: MonadIO m => FilePath -> String -> SecrecM m PPArg
+parsePP file str = do
+    mb <- runParserT parsePPArg () file str
     case mb of
         Left err -> throwError $ ParserError $ PreProcessorException $ show err
         Right x -> return x
-
-anyLine :: MonadIO m => PPParserT u m String
-anyLine = manyTill anyChar newline
-
-parsePPArgs :: MonadIO m => PPParserT u m PPArgs
-parsePPArgs = liftM catMaybes $ sepBy (liftM Just parsePPArg <|> (anyLine >> return Nothing)) newline
 
 parsePPArg :: MonadIO m => PPParserT u m PPArg
 parsePPArg = do
     char '#'
     string "OPTIONS_SECREC"
     spaces
-    str <- anyLine
+    str <- many anyChar
     o <- cmdArgsRunPP ppMode (words str)
     return $ SecrecOpts $ processOpts o
 
@@ -97,6 +96,9 @@ cmdArgsRunPP m xs = do
             Left err -> unexpected $ show err
             Right x -> return x
     liftIO $ cmdArgsApply args
+
+instance Monad m => PP m BacktrackOpt where
+    pp = return . text . show
 
 instance Monad m => PP m Options where
     pp opts = do
@@ -174,7 +176,7 @@ optionsDecl  = Opts {
     
     -- Typechecker
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"
-    , backtrack   = backtrack defaultOptions &= help "Allows ambiguities arising from implicit coercions, and solves them by trying multiple options" &= groupname "Verification:Typechecker"
+    , backtrack   = backtrack defaultOptions &= help "Control ambiguities arising from implicit coercions" &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
@@ -199,7 +201,7 @@ processOpts opts = opts
     , typeCheck = typeCheck opts || verify opts
     , checkAssertions = if verify opts then False else checkAssertions opts
     , simplify = if verify opts then True else simplify opts
-    , backtrack = if implicitCoercions opts then backtrack opts else False
+    , backtrack = if implicitCoercions opts then backtrack opts else None
     }
 
 parsePaths :: [FilePath] -> [FilePath]

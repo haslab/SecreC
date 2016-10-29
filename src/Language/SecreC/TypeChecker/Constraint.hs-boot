@@ -20,7 +20,7 @@ import Control.Monad.IO.Class
 import Data.Data
 import Data.Set
 
-isZeroIdxExpr :: ProverK loc m => loc -> Expr -> TcM m ()
+isZeroIdxExpr :: ProverK loc m => loc -> Expr -> TcM m (Either SecrecError Bool)
 
 solveHypotheses :: (ProverK loc m) => loc -> TcM m [IExpr]
 
@@ -55,10 +55,10 @@ constraintList :: (ProverK loc m,VarsG (TcM m) [a],VarsG (TcM m) [b]) =>
     -> (a -> b -> TcM m x) -> loc -> [a] -> [b] -> TcM m [x]
 
 data Comparison m where
-    Comparison :: VarsG m a => a -> a -> Ordering -> Ordering -> Comparison m
+    Comparison :: VarsG m a => a -> a -> Ordering -> Ordering -> Bool -> Comparison m
   deriving (Typeable)
 
-compOrdering :: Comparison m -> (Ordering,Ordering)
+compOrdering :: Comparison m -> (Ordering,Ordering,Bool)
 
 appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (TcM m) -> TcM m (Comparison (TcM m))
 
@@ -66,17 +66,13 @@ appendComparisons :: (ProverK loc m) => loc -> [Comparison (TcM m)] -> TcM m (Co
 
 constraintError :: (ProverK loc m,VarsG (TcM m) a,VarsG (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> TcM m Doc) -> b -> (b -> TcM m Doc) -> Maybe SecrecError -> TcM m res
 
-unifiesCondExpression :: (ProverK loc m) => loc -> Cond -> Cond -> TcM m ()
-
-unifiesSizes :: (ProverK loc m) => loc -> Maybe [(Expr,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> TcM m ()
-
 tryCstrBool :: (ProverK loc m) => loc -> TcM m a -> TcM m Bool
 
 tryCstrMaybe :: (ProverK loc m) => loc -> TcM m a -> TcM m (Maybe a)
 
-comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
+comparesExpr :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m (Comparison (TcM m))
 
-unifiesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
+unifiesExpr :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 
 unifiesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m ()
 
@@ -126,7 +122,7 @@ tryResolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe DecTyp
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 
-unifiesExprTy :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m ()
+unifiesExprTy :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
@@ -134,3 +130,7 @@ equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index GIdentifier Type] -> TcM m Expr
 
 tryTcError :: Monad m => TcM m a -> TcM m (Either SecrecError a)
+
+tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
+
+tcCoerces :: ProverK loc m => loc -> Bool -> Expr -> Type -> TcM m Expr

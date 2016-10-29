@@ -32,11 +32,18 @@ import Data.Set as Set
 import Data.List as List
 
 import Text.PrettyPrint
+import qualified Text.ParserCombinators.ReadPrec as Read
 
 import System.IO
 import System.Exit
 
 import GHC.Generics (Generic)
+
+data BacktrackOpt = None | Try | Full
+    deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
+        
+instance Binary BacktrackOpt
+instance Hashable BacktrackOpt
 
 -- | SecreC options
 data Options
@@ -55,7 +62,7 @@ data Options
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitCoercions      :: Bool
-        , backtrack              :: Bool
+        , backtrack              :: BacktrackOpt
         , printOutput           :: Bool
         , debug :: Bool
         , writeSCI              :: Bool
@@ -87,7 +94,7 @@ instance Monoid Options where
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitCoercions = implicitCoercions x && implicitCoercions y
-        , backtrack = backtrack x && backtrack y
+        , backtrack = backtrack x `min` backtrack y
         , printOutput = printOutput x || printOutput y
         , debug = debug x || debug y
         , writeSCI = writeSCI x && writeSCI y
@@ -116,7 +123,7 @@ defaultOptions = Opts
     , constraintStackSize = 100
     , evalTimeOut = 5
     , implicitCoercions = True
-    , backtrack = True
+    , backtrack = Full
     , printOutput = False
     , debug = False
     , writeSCI = True

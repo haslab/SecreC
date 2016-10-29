@@ -121,10 +121,10 @@ cstrKind2DecKind CstrFunction = FKind
 cstrKind2DecKind CstrLemma = LKind
 
 decPArg2CtxPArg :: ConversionK loc m => loc -> (IsConst,Either Expr Type,IsVariadic) -> m (CtxPArg GIdentifier (Typed loc))
-decPArg2CtxPArg l (isConst,Left e,isVariadic) = return $ CtxExprPArg (Typed l $ loc e) isConst (fmap (Typed l) e) isVariadic
+decPArg2CtxPArg l (isConst,Left e,isVariadic) = return $ CtxExprPArg (Typed l $ IdxT e) isConst (fmap (Typed l) e) isVariadic
 decPArg2CtxPArg l (isConst,Right t,isVariadic) = do
     t' <- type2TypeSpecifierNonVoid l t
-    return $ CtxTypePArg (Typed l $ tyOf t) isConst t' isVariadic
+    return $ CtxTypePArg (Typed l t) isConst t' isVariadic
 
 dec2LemmaDecl :: ConversionK loc m => loc -> DecType -> m (LemmaDeclaration GIdentifier (Typed loc)) 
 dec2LemmaDecl l dec@(DecType _ _ targs hctx bctx _ (LemmaType isLeak p pn pargs anns body _)) = do

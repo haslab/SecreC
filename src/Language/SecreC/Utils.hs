@@ -131,28 +131,6 @@ unionGr x y = insEdges (labEdges x ++ labEdges y) $ insNodes (labNodes x ++ labN
 differenceGr :: Gr a b -> Gr a b -> Gr a b
 differenceGr x y = Graph.nfilter (\x -> not $ elem x ys) x
     where ys = nodes y
-
-ppGrM :: Monad m => (a -> m Doc) -> (b -> m Doc) -> Gr a b -> m Doc
-ppGrM ppA ppB gr = liftM vcat $ mapM ppNode $ grToList gr
-    where
-    ppNode (froms,k,v,tos) = do
-        vDoc <- ppA v
-        tosDoc <- liftM (sepBy comma) $ do
-            xs <- mapM ppFrom froms
-            ys <- mapM ppTo tos
-            return (xs++ys)
-        return $ vDoc $+$ nest 4 tosDoc
-    ppTo (tolbl,toid) = do
-        tolblDoc <- ppB tolbl
-        toDoc <- pp toid
-        return $ text "-" <> tolblDoc <> text "->" <+> toDoc
-    ppFrom (fromlbl,fromid) = do
-        fromlblDoc <- ppB fromlbl
-        fromDoc <- pp fromid
-        return $ fromDoc <+> text "-" <> fromlblDoc <> text "->"
-
-instance (PP m a,PP m b) => PP m (Gr a b) where
-    pp = ppGrM pp pp
         
 instance (Ord a,Ord b) => Ord (Gr a b) where
     compare x y = compare (OrdGr x) (OrdGr y)
@@ -712,3 +690,26 @@ eitherM f g (Right y) = g y
 
 unLeft (Left x) = x
 unRight (Right y) = y
+
+ppGrM :: Monad m => (a -> m Doc) -> (b -> m Doc) -> Gr a b -> m Doc
+ppGrM ppA ppB gr = liftM vcat $ mapM ppNode $ grToList gr
+    where
+    ppNode (froms,k,v,tos) = do
+        ppk <- pp k
+        vDoc <- ppA v
+        tosDoc <- liftM (sepBy comma) $ do
+            xs <- mapM ppFrom froms
+            ys <- mapM ppTo tos
+            return (xs++ys)
+        return $ ppk <+> vDoc $+$ nest 4 tosDoc
+    ppTo (tolbl,toid) = do
+        tolblDoc <- ppB tolbl
+        toDoc <- pp toid
+        return $ text "-" <> tolblDoc <> text "->" <+> toDoc
+    ppFrom (fromlbl,fromid) = do
+        fromlblDoc <- ppB fromlbl
+        fromDoc <- pp fromid
+        return $ fromDoc <+> text "-" <> fromlblDoc <> text "->"
+
+instance (PP m a,PP m b) => PP m (Gr a b) where
+    pp = ppGrM pp pp

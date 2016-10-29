@@ -32,3 +32,9 @@ simplifyStmts :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [
 simplifyInnerDecType :: SimplifyK Position m => InnerDecType -> TcM m InnerDecType
 
 trySimplify :: SimplifyK Position m => (a -> TcM m a) -> (a -> TcM m a)
+
+simplifyNonVoidExpression :: Bool -> SimplifyT loc m Expression
+
+inlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m Expr
+
+tryInlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)

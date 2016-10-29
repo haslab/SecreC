@@ -30,6 +30,7 @@ import System.IO
 
 import Safe
 
+import Data.List as List
 import qualified Data.Foldable as Foldable
 import Data.Maybe
 import qualified Data.Set as Set
@@ -103,9 +104,12 @@ scTokWith f = tokenPrim pprid next f
     next p t ts = updatePosString (positionToSourcePos $ tLoc t) (pprid t)
 
 scChar :: (Monad m,MonadCatch m) => Char -> ScParserT m TokenInfo
-scChar c = scTokPred (p . tSymb)
+scChar c = scOneOf [c]
+
+scOneOf :: (Monad m,MonadCatch m) => [Char] -> ScParserT m TokenInfo
+scOneOf str = scTokPred (p . tSymb)
     where
-    p (CHAR c') = c == c'
+    p (CHAR c) = List.elem c str
     p _ = False
 
 scParens :: (Monad m,MonadCatch m) => ScParserT m a -> ScParserT m a
@@ -167,6 +171,15 @@ scMany1 :: ScParserT m a -> ScParserT m [a]
 scMany1 p = do
     x <- p
     xs <- scMany p
+    return (x:xs)
+
+scSepBy :: ScParserT m a -> ScParserT m sep -> ScParserT m [a]
+scSepBy p sep = scSepBy1 p sep <||> return []
+
+scSepBy1 :: ScParserT m a -> ScParserT m sep -> ScParserT m [a]
+scSepBy1 p sep = do
+    x <- p
+    xs <- scMany (sep >> p)
     return (x:xs)
 
 scMaybeCont :: ScParserT m a -> (Maybe a -> ScParserT m b) -> ScParserT m b
@@ -403,25 +416,39 @@ scTemplateDeclaration = (do
 scTemplateContext :: (MonadIO m,MonadCatch m) => ScParserT m (TemplateContext Identifier Position)
 scTemplateContext = apA scMb (\x1 -> TemplateContext (maybe noloc (maybe noloc loc . headMay) x1) x1) <?> "template context"
     where
-    scMb = optionMaybe (scTok CONTEXT *> scABrackets (liftM concat $ Text.Parsec.sepBy scContextConstraint (scChar ',')))
+    scMb = optionMaybe (scTok CONTEXT *> scABrackets (liftM concat $ scSepBy scContextConstraint (scChar ',')))
 
 scContextConstraint :: (MonadIO m,MonadCatch m) => ScParserT m [ContextConstraint Identifier Position]
-scContextConstraint = liftM (:[]) (scContextConstraint') <|> scAnnotations1 (many1 (scContextConstraint' <* scChar ','))
-    
+scContextConstraint = (scAnnotations1 $ scSepBy1 scContextConstraint' (scChar ','))
+                 <||> (liftM (:[]) scContextConstraint')
 
 scContextConstraint' :: (MonadIO m,MonadCatch m) => ScParserT m (ContextConstraint Identifier Position)  
-scContextConstraint' = scContextTDec <|> scContextPODec
+scContextConstraint' = scExprClass' $ \cl -> scContextTDec cl <|> scContextPODec cl
   where
-    scContextTDec = apA4 scExprClass (scTok TYPE) scTypeId (scABrackets scTemplateTypeArguments) (\cl x0 x1 x2 -> ContextTDec (loc x0) cl x1 x2)
-    scContextPODec = do
-        cl <- scExprClass
-        isLeak <- scLeak
-        isAnn <- getState
-        ck <- scCstrKind
-        scReturnTypeSpecifier $ \x1 -> scP cl isLeak isAnn ck x1 <||> scO cl isLeak isAnn ck x1
+    scContextTDec cl = apA3 (scTok TYPE) scTypeId (scABrackets scTemplateTypeArguments) (\x0 x1 x2 -> ContextTDec (loc x0) cl x1 x2)
+    scContextPODec cl = do
+            scLeak' $ \isLeak -> do
+                isAnn <- getState
+                scCstrKind' $ \ck -> do
+                    scReturnTypeSpecifier $ \x1 -> scP cl isLeak isAnn ck x1 <||> scO cl isLeak isAnn ck x1
       where
-        scP cl isLeak isAnn ck x1 = apA3 scProcedureId (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextPDec (loc x1) cl isLeak isAnn ck x1 x2 x3 x4)
-        scO cl isLeak isAnn ck x1 = apA3 scOp (optionMaybe $ scABrackets scTemplateTypeArguments) scCtxPArgs (\x2 x3 x4 -> ContextODec (loc x1) cl isLeak isAnn ck x1 x2 x3 x4)
+        scP cl isLeak isAnn ck x1 = do
+            x2 <- scProcedureId
+            x3 <- optionMaybe (scABrackets scTemplateTypeArguments)
+            x4 <- scCtxPArgs
+            (cl',ck') <- checkCtx isAnn (Left x2) cl ck
+            return $ ContextPDec (loc x1) cl' isLeak isAnn ck' x1 x2 x3 x4
+        scO cl isLeak isAnn ck x1 = do
+            x2 <- scOpCoerce
+            x3 <- optionMaybe (scABrackets scTemplateTypeArguments)
+            x4 <- scCtxPArgs
+            (cl',ck') <- checkCtx isAnn (Right x2) cl ck
+            return $ ContextODec (loc x1) cl' isLeak isAnn ck' x1 x2 x3 x4
+
+checkCtx :: (MonadIO m,MonadCatch m) => Bool -> Either (ProcedureName Identifier Position) (Op Identifier Position) -> ExprClass -> CstrKind -> ScParserT m (ExprClass,CstrKind)
+checkCtx True op cl ck = return (min ReadOnlyExpr cl,CstrFunction)
+checkCtx isAnn (Right (isCoerceOp -> True)) cl ck = return (PureExpr,CstrFunction)
+checkCtx isAnn op cl ck = return (cl,ck)
 
 scExprClass :: (MonadIO m,MonadCatch m) => ScParserT m ExprClass
 scExprClass = apA (scTok READONLY) (const ReadOnlyExpr)
@@ -429,19 +456,34 @@ scExprClass = apA (scTok READONLY) (const ReadOnlyExpr)
           <|> apA (scTok PURE) (const PureExpr)
           <|> return ReadWriteExpr
           
+scExprClass' :: (MonadIO m,MonadCatch m) => (ExprClass -> ScParserT m a) -> ScParserT m a
+scExprClass' cont = scTok READONLY *> cont ReadOnlyExpr
+              <||> scTok READWRITE *> cont ReadWriteExpr
+              <||> scTok PURE *> cont PureExpr
+              <||> cont ReadWriteExpr
+          
 scCstrKind :: (MonadIO m,MonadCatch m) => ScParserT m CstrKind
 scCstrKind = apA (scTok FUNCTION) (const CstrFunction)
          <|> apA (scTok LEMMA) (const CstrLemma)
          <|> return CstrProcedure
 
+scCstrKind' :: (MonadIO m,MonadCatch m) => (CstrKind -> ScParserT m a) -> ScParserT m a
+scCstrKind' cont = scTok FUNCTION *> cont CstrFunction
+              <||> scTok LEMMA *> cont CstrLemma
+              <||> cont CstrProcedure
+
 scCtxPArgs :: (MonadIO m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
-scCtxPArgs = scParens $ Text.Parsec.sepBy scCtxPArg (scChar ',')
+scCtxPArgs = scParens $ scSepBy scCtxPArg (scChar ',')
+
+scCtxOArgs :: (MonadIO m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
+scCtxOArgs = liftM (:[]) scCtxPArg <||> scCtxPArgs
 
 scCtxPArg :: (MonadIO m,MonadCatch m) => ScParserT m (CtxPArg Identifier Position)
 scCtxPArg = do
     x1 <- scConst
-    scType x1 <|> scExpr x1
+    (scVar x1 <* lookAhead (scOneOf ",)")) <||> scType x1 <||> scExpr x1
   where
+    scVar x1 = apA2 scTemplateArgId scVariadic (\x2 x3 -> CtxVarPArg (loc x2) x1 x2 x3)
     scType x1 = scTypeSpecifier (\x2 -> apA scVariadic (\x3 -> CtxTypePArg (loc x2) x1 x2 x3))
     scExpr x1 = apA2 scExpression scVariadic (\x2 x3 -> CtxExprPArg (loc x2) x1 x2 x3)
 
@@ -522,6 +564,9 @@ scFunctionDeclaration = do
     
 scProcedureParameterList :: (Monad m,MonadCatch m) => ScParserT m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"
+
+scOpCoerce :: (Monad m,MonadCatch m) => ScParserT m (Op Identifier Position)
+scOpCoerce = (apA (scTok COERCE) (OpCoerce . loc)) <|> scOp
 
 scOp :: (Monad m,MonadCatch m) => ScParserT m (Op Identifier Position)
 scOp = (apA (scChar '+') (OpAdd . loc)
@@ -658,7 +703,13 @@ scExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Pos
 scExpression = scAssignmentExpression <?> "expression"
 
 scVariadicExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position,IsVariadic)
-scVariadicExpression  = apA2 scExpression scVariadic (,)
+scVariadicExpression  = scExpression >>= \x1 -> scVariadic >>= \x2 -> if x2
+    then apA (optionMaybe scExpression) (scVari x1 x2)
+    else return (x1,x2)
+  where
+    scVari x1 x2 x3 = case x3 of
+        Nothing -> (x1,x2)
+        Just e3 -> (ToVArrayExpr (loc x1) x1 e3,x2)
 
 scAssignmentExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scAssignmentExpression = (apA3 scLvalue op scAssignmentExpression (\x1 x2 x3 -> BinaryAssign (loc x1) x1 x2 x3)
@@ -809,6 +860,7 @@ scUnaryExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifie
 scUnaryExpression = liftM unaryLitExpr (apA2 (scChar '~') scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpInv (loc x1)) x2)
                 <|> apA2 (scChar '!') scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpNot (loc x1)) x2)
                 <|> apA2 (scChar '-') scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpSub (loc x1)) x2)
+                <|> apA2 (scTok COERCE) scCastExpression (\x1 x2 -> UnaryExpr (loc x1) (OpCoerce (loc x1)) x2)
                 <|> scPostfixExpression) <?> "unary expression"
 
 scPostfixExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
@@ -927,7 +979,7 @@ scLeak :: (MonadIO m,MonadCatch m) => ScParserT m Bool
 scLeak = liftM isJust $ optionMaybe (scTok LEAKAGE)
 
 scLeak' :: (MonadIO m,MonadCatch m) => (Bool -> ScParserT m a) -> ScParserT m a
-scLeak' f = scMaybeCont (optionMaybe $ scTok LEAKAGE) (f . isJust)
+scLeak' f = scMaybeCont (scTok LEAKAGE) (f . isJust)
 
 scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnnotation Identifier Position]
 scStatementAnnotations = scAnnotations1 $ many1 scStatementAnnotation

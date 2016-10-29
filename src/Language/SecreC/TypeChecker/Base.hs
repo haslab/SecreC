@@ -90,6 +90,14 @@ haltFail (FirstFail h) = h
 haltFail (AllFail h) = h
 haltFail NoFail = False
 
+mkHaltFailMode :: SolveMode -> SolveMode
+mkHaltFailMode m = m { solveFail = mkHaltFail (solveFail m) }
+
+mkHaltFail :: SolveFail -> SolveFail
+mkHaltFail (FirstFail _) = FirstFail True
+mkHaltFail (AllFail _) = AllFail True
+mkHaltFail NoFail = NoFail
+
 data SolveScope
     = SolveAll -- solve all constraints
     | SolveGlobal -- solve all but delayable constraints
@@ -265,13 +273,15 @@ data TcEnv = TcEnv {
     , solveToCache :: Bool -- solve constraints to the cache or global state
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: ((String,TyVarId),Int)
-    , inTemplate :: Bool -- if typechecking inside a template, global constraints are delayed
+    , inTemplate :: Maybe [TemplateTok] -- if typechecking inside a template, global constraints are delayed
     , decKind :: DecKind -- if typechecking inside a declaration
     , exprC :: ExprClass -- type of expression
     , isLeak :: Bool -- if typechecking leakage expressions
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
+
+type TemplateTok = Var
 
 data DecKind
     = AKind -- axiom
@@ -498,8 +508,8 @@ emptyTcEnv = TcEnv
     , cstrCache = Map.empty
     , solveToCache = False
     , lineage = []
-    , moduleCount = (("main",TyVarId 0),1)
-    , inTemplate = False
+    , moduleCount = (("builtins",TyVarId (-1)),1)
+    , inTemplate = Nothing
     , decKind = FKind
     , exprC = ReadOnlyExpr
     , isLeak = False
@@ -534,8 +544,8 @@ varNameToType (VarName (VAType b sz) (VIden n)) = VArrayT $ VAVar n b sz
 varNameToType (VarName t n) | typeClass "varNameToType" t == TypeC = IdxT (RVariablePExpr t $ VarName t n)
 varNameToType v = error $ "varNameToType " ++ show v
 
-condVarNameToType :: Constrained Var -> Type
-condVarNameToType (Constrained v c) = constrainedType (varNameToType v) c
+--condVarNameToType :: Constrained Var -> Type
+--condVarNameToType (Constrained v c) = constrainedType (varNameToType v) c
 
 typeToVarName :: Type -> Maybe Var
 typeToVarName (KindT (KVar n b)) = Just $ VarName (KType b) $ VIden n
@@ -639,7 +649,41 @@ execTcM m arr env = do
     return (x,env')
 
 runTcM :: (MonadIO m) => TcM m a -> SecrecM m a
-runTcM m = liftM fst $ RWS.evalRWST (unTcM m) (0,SecrecErrArr id) emptyTcEnv
+runTcM m = liftM fst $ RWS.evalRWST (unTcM m') (0,SecrecErrArr id) emptyTcEnv
+    where
+    m' = do
+        -- add default coercion declaration
+        dec <- coercesDec
+        let Just (g,tid) = decTypeId dec
+        modifyModuleEnv $ \env -> env { functions = Map.insert g (Map.singleton tid $ EntryEnv noloc $ DecT dec) $ functions env }
+        -- run computation
+        m
+
+coercesDec :: MonadIO m => TcM m DecType
+coercesDec = do
+    i <- newModuleTyVarId
+    let k1 = KVar ((mkVarId "K1") { varIdRead = True, varIdWrite = True }) Nothing
+    let k2 = KVar ((mkVarId "K2") { varIdRead = True, varIdWrite = True }) Nothing
+    let d1 = SVar ((mkVarId "D1") { varIdRead = True, varIdWrite = True }) k1
+    let d2 = SVar ((mkVarId "D2") { varIdRead = True, varIdWrite = True }) k2
+    let t1 = BVar ((mkVarId "T1") { varIdRead = True, varIdWrite = True }) Nothing
+    let t2 = BVar ((mkVarId "T1") { varIdRead = True, varIdWrite = True }) Nothing
+    let n1 = varExpr $ VarName (BaseT index) $ VIden $ (mkVarId "N1") { varIdRead = True, varIdWrite = True }
+    let n2 = varExpr $ VarName (BaseT index) $ VIden $ (mkVarId "N2") { varIdRead = True, varIdWrite = True }
+    let ts = [(Constrained (tyToVar $ KindT k1) Nothing,False),(Constrained (tyToVar $ KindT k2) Nothing,False),(Constrained (tyToVar $ SecT d1) Nothing,False),(Constrained (tyToVar $ SecT d2) Nothing,False),(Constrained (tyToVar $ BaseT t1) Nothing,False),(Constrained (tyToVar $ BaseT t2) Nothing,False),(Constrained (tyToVar $ IdxT n1) Nothing,False),(Constrained (tyToVar $ IdxT n2) Nothing,False)]
+    let e = VarName (ComplexT $ CType d1 t1 n1) $ VIden $ (mkVarId "e") { varIdWrite = False }
+    let ret = ComplexT $ CType d2 t2 n2
+    let x = VarName ret $ VIden $ mkVarId "x"
+    st <- getCstrState
+    let kst = CstrState False PureExpr False FKind (cstrLineage st) (cstrErr st)
+    let k = TcK (Coerces (varExpr e) x) kst
+    let g = Graph.mkGraph [(0,Loc noloc k)] []
+    let ctx = DecCtx False (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
+    let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) mempty
+    debugTc $ do
+        ppd <- ppr dec
+        liftIO $ putStrLn $ "added base coercion dec " ++ ppd
+    return dec
 
 -- flips errors whenever typechecking is expected to fail
 failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
@@ -685,7 +729,8 @@ data TcCstr
         [(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
         Type -- return type
         DecType -- result
-    | Equals Type Type -- ^ types equal
+    | Equals
+        Type Type -- ^ types equal
     | Coerces -- ^ types coercible
         Expr
         Var
@@ -1098,8 +1143,8 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     traverseVars f (PDec n ts args ret x) = do
         n' <- f n
         x' <- f x
-        ts' <- mapM (mapM (mapFstM f)) ts
-        args' <- mapM (mapFst3M f) args
+        ts' <- mapM (mapM f) ts
+        args' <- mapM f args
         ret' <- f ret
         return $ PDec n' ts' args' ret' x'
     traverseVars f (Equals t1 t2) = do
@@ -1452,7 +1497,9 @@ ppVarId opts v = case varIdPretty v of
     Just s -> if debug opts
         then do
             pv <- ppVarId' v
-            return $ pv <> char '#' <> s
+            let pread = if varIdRead v then "Read" else "NoRead"
+            let pwrite = if varIdWrite v then "Write" else "NoWrite"
+            return $ pv <> char '#' <> text pread <> text pwrite <> char '#' <> s
         else return s
     Nothing -> ppVarId' v
   where
@@ -1606,10 +1653,20 @@ instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifi
         dict' <- f dict
         return $ DecCtx has' dict' frees'
 
+data DecTypeK = DecTypeRec ModuleTyVarId | DecTypeCtx | DecTypeOriginal
+  deriving (Typeable,Show,Data,Generic,Eq,Ord)
+instance Binary DecTypeK
+instance Hashable DecTypeK
+
+instance Monad m => PP m DecTypeK where
+    pp DecTypeCtx = return $ text "context"
+    pp DecTypeOriginal = return $ text "original"
+    pp (DecTypeRec i) = return $ text "recursive" <+> ppid i
+
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
         ModuleTyVarId -- ^ unique template declaration id
-        (Maybe (ModuleTyVarId)) -- is a specialized invocation = Just (original)
+        DecTypeK
         [(Constrained Var,IsVariadic)] -- ^ template variables
         DecCtx -- ^ header
         DecCtx -- ^ body
@@ -1675,13 +1732,13 @@ isFunInnerDecType :: InnerDecType -> Bool
 isFunInnerDecType (FunType {}) = True
 isFunInnerDecType _ = False
 
-isNonRecursiveDecType :: DecType -> Bool
-isNonRecursiveDecType (DecType i _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
-    where
-    aux :: DecType -> Bool
-    aux (DecType _ (Just (j)) _ _ _ _ _) = i == j
-    aux d = False
-isNonRecursiveDecType d = False
+--isNonRecursiveDecType :: DecType -> Bool
+--isNonRecursiveDecType (DecType i _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
+--    where
+--    aux :: DecType -> Bool
+--    aux (DecType _ (Just (j)) _ _ _ _ _) = i == j
+--    aux d = False
+--isNonRecursiveDecType d = False
 
 instance Binary DecType
 instance Hashable DecType
@@ -1784,7 +1841,7 @@ data Type
     | SysT SysType
     | VArrayT VArrayType -- for variadic array types
     | IdxT Expr -- for index expressions
-    | CondType Type Cond -- a type with an invariant
+--    | CondType Type Cond -- a type with an invariant
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
   
 instance Binary Type
@@ -1818,12 +1875,12 @@ tyOf (BaseT b) = BType $ baseDataClass b
 tyOf (DecT _) = DType
 tyOf (VArrayT (VAVal ts b)) = VAType b (indexExpr $ toEnum $ length ts)
 tyOf (VArrayT (VAVar v b sz)) = VAType b sz
-tyOf (CondType t _) = tyOf t
+--tyOf (CondType t _) = tyOf t
 tyOf t = error $ "unknown type for " ++ show t
 
-constrainedType :: Type -> Maybe Cond -> Type
-constrainedType t Nothing = t
-constrainedType t (Just c) = CondType t c
+--constrainedType :: Type -> Maybe Cond -> Type
+--constrainedType t Nothing = t
+--constrainedType t (Just c) = CondType t c
 
 ppOf a b = a <+> text "::" <+> b
 ppTyped (a,b) = do
@@ -1838,12 +1895,12 @@ instance PP m VarIdentifier => PP m VArrayType where
     pp (VAVal ts b) = do
         ppts <- mapM pp ts
         ppb <- pp b
-        return $ brackets $ sepBy comma ppts <+> text "::" <+> ppb <> text "[[1]]"
+        return $ brackets $ sepBy comma ppts <+> text "::" <+> ppb <> text "..." <> PP.int (length ts)
     pp (VAVar v b sz) = do
         ppv <- pp v
         ppb <- pp b
         ppsz <- pp sz
-        return $ parens (ppv <+> text "::" <+> ppb <> text "[[1]]" <> parens ppsz)
+        return $ parens (ppv <+> text "::" <+> ppb <> text "..." <> parens ppsz)
 
 instance PP m VarIdentifier => PP m SecType where
     pp Public = return $ text "public"
@@ -2050,7 +2107,7 @@ instance PP m VarIdentifier => PP m Type where
     pp (SysT s) = pp s
     pp (IdxT e) = pp e
     pp (VArrayT a) = pp a
-    pp (CondType t c) = ppConstrained pp (Constrained t $ Just c)
+--    pp (CondType t c) = ppConstrained pp (Constrained t $ Just c)
 
 isVATy :: Type -> Bool
 isVATy (VAType {}) = True
@@ -2083,7 +2140,7 @@ instance PP m VarIdentifier => PP m TypeClass where
     pp (VArrayC t) = liftM (text "array" <+>) (pp t)
 
 typeClass :: String -> Type -> TypeClass
-typeClass msg (CondType t _) = typeClass msg t
+--typeClass msg (CondType t _) = typeClass msg t
 typeClass msg (TType b) = TypeStarC
 typeClass msg (VAType b _) = VArrayStarC (typeClass msg b)
 typeClass msg (BType c) = TypeStarC
@@ -2133,6 +2190,10 @@ dimCType (CType s b d) = d
 dimCType x = error $ "baseCType: " ++ show x
 
 unComplexT (ComplexT ct) = ct
+
+isVoidType :: Type -> Bool
+isVoidType (ComplexT Void) = True
+isVoidType _ = False
 
 isBoolType :: Type -> Bool
 isBoolType (BaseT b) = isBoolBaseType b
@@ -2208,7 +2269,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         VIden v' <- f (VIden v::GIdentifier)
         k' <- inRHS $ f k
         return $ SVar v' k'
-    substL (SVar v _) | varIdRead v = return $ Just $ VIden v
+    substL (SVar v _) = return $ Just $ VIden v
     substL e = return $ Nothing
 
 instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m [TCstr] where
@@ -2268,9 +2329,16 @@ instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifi
 instance PP m VarIdentifier => PP m [Var] where
     pp = liftM (sepBy comma) . mapM ppVarTy
 
+instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecTypeK where
+    traverseVars f (DecTypeRec i) = do
+        i' <- f i
+        return $ DecTypeRec i'
+    traverseVars f DecTypeOriginal = return DecTypeOriginal
+    traverseVars f DecTypeCtx = return DecTypeCtx
+
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
     traverseVars f (DecType tid isRec vs hctx bctx spes t) = do
-        isRec' <- mapM f isRec
+        isRec' <- f isRec
         varsBlock $ do
             vs' <- inLHS False $ mapM f vs
             hctx' <- f hctx
@@ -2281,7 +2349,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     traverseVars f (DVar v) = do
         VIden v' <- f (VIden v::GIdentifier)
         return $ DVar v'
-    substL (DVar v) | varIdRead v = return $ Just $ VIden v
+    substL (DVar v) = return $ Just $ VIden v
     substL _ = return Nothing
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m InnerDecType where
@@ -2335,7 +2403,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         VIden v' <- f (VIden v::GIdentifier)
         c' <- inRHS $ f c
         return $ BVar v' c'
-    substL (BVar v _) | varIdRead v = return $ Just $ VIden v
+    substL (BVar v _) = return $ Just $ VIden v
     substL e = return Nothing
  
 instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m VArrayType where
@@ -2348,7 +2416,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         b' <- inRHS $ f b
         sz' <- inRHS $ f sz
         return $ VAVar v' b' sz'
-    substL (VAVar v _ _) | varIdRead v = return $ Just $ VIden v
+    substL (VAVar v _ _) = return $ Just $ VIden v
     substL e = return Nothing
  
 instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ComplexType where
@@ -2362,7 +2430,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         b' <- inRHS $ f b
         return $ CVar v' b'
     traverseVars f Void = return Void
-    substL (CVar v b) | varIdRead v = return $ Just $ VIden v
+    substL (CVar v b) = return $ Just $ VIden v
     substL e = return Nothing
 
 instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SysType where
@@ -2386,7 +2454,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         VIden k' <- f (VIden k::GIdentifier)
         b' <- f b
         return $ KVar k' b'
-    substL (KVar v _) | varIdRead v = return $ Just $ VIden v
+    substL (KVar v _) = return $ Just $ VIden v
     substL e = return Nothing
 
 instance PP m VarIdentifier => PP m KindType where
@@ -2449,10 +2517,10 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     traverseVars f (VArrayT a) = do
         a' <- f a
         return $ VArrayT a'
-    traverseVars f (CondType t c) = do
-        t' <- f t
-        c' <- f c
-        return $ CondType t' c'
+--    traverseVars f (CondType t c) = do
+--        t' <- f t
+--        c' <- f c
+--        return $ CondType t' c'
     --substL (BaseT (BVar v)) = return $ Just v
     --substL (SecT (SVar v _)) = return $ Just v
     --substL (ComplexT (CVar v)) = return $ Just v
@@ -2588,6 +2656,9 @@ hashModuleTyVarId = hashWithSalt 0 . modTyId
 
 instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m ModuleTyVarId where
     traverseVars f x = return x
+
+decTypeK :: DecType -> DecTypeK
+decTypeK (DecType i isRec _ _ _ _ _) = isRec
 
 decTypeTyVarId :: DecType -> Maybe ModuleTyVarId
 decTypeTyVarId (DecType i _ _ _ _ _ _) = Just i
@@ -2758,16 +2829,16 @@ instance (Location t,Vars GIdentifier m t,GenVar VarIdentifier m,MonadIO m,PP m 
         isLHS <- getLHS
         if isJust isLHS then addBV funit n else addFV funit n
     substL (OIden v) = return $ Just $ OIden $ funit v
-    substL (VIden v) | varIdRead v = return $ Just $ VIden v
-    substL (PIden v) | varIdRead v = return $ Just $ PIden v
-    substL (TIden v) | varIdRead v = return $ Just $ TIden v
+    substL (VIden v) = return $ Just $ VIden v
+    substL (PIden v) = return $ Just $ PIden v
+    substL (TIden v) = return $ Just $ TIden v
     substL v = return Nothing
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do
         isLHS <- getLHS
         if isJust isLHS then addBV id n else addFV id n
-    substL v | varIdRead v = return $ Just v
+    substL v = return $ Just v
     substL v = return Nothing
 
 -- filter the constraints that depend on a set of variables

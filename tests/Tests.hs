@@ -17,7 +17,7 @@ import Test.Hspec.Contrib.HUnit (fromHUnitTest)
 import Test.Hspec.Core.Runner (hspecWith, Config(..),defaultConfig)
 
 -- Configs
-fastfail = False
+fastfail = True
 timelimit = 3 * 60
 
 buildTestTree :: IO Test

@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
+{-# LANGUAGE ScopedTypeVariables, TupleSections, FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
 
 -- We delay resolution of all possible constraints inside the  body of templates, even those that do not depend on template variables, to better match C++ templates that are only typechecked on full instantiation.
 
@@ -27,6 +27,7 @@ import Language.SecreC.Prover.Expression
 import Language.SecreC.Transformation.Simplify
 
 import Prelude hiding (mapM)
+import Safe
 
 import Data.UnixTime
 import Data.Bifunctor
@@ -63,6 +64,7 @@ tcModuleFile (Right sci) = do
 
 tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc) -> TcM m (PPArgs,Module GIdentifier (Typed loc))
 tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
+    --debugTc $ liftIO $ putStrLn $ "typechecking args ..." ++ show ppargs
     x' <- tcModule x
     menv <- State.gets (snd . moduleEnv)
     TcM $ lift $ writeModuleSCI ppargs menv x
@@ -71,6 +73,7 @@ tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
 tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module GIdentifier (Typed loc))
 tcModule m@(Module l name prog) = failTcM l $ do
     opts' <- TcM $ State.lift Reader.ask
+    --debugTc $ liftIO $ putStrLn $ "typechecking ..." ++ show opts'
     when (debugTypechecker opts') $ do
         ppm <- ppr (moduleId $ fmap locpos m)
         liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppm ++ "...")
@@ -80,6 +83,7 @@ tcModule m@(Module l name prog) = failTcM l $ do
         , moduleEnv = let (x,y) = moduleEnv env in (x `mappend` y,mempty)
         }
     liftIO resetTyVarId
+    -- typecheck the program
     prog' <- tcProgram prog
     -- substitute the module's environment with the module's dictionary
     --ss <- getTSubsts
@@ -116,7 +120,8 @@ tcGlobalDeclaration (GlobalStructure l sd) = tcGlobal l $ do
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
 tcGlobalDeclaration (GlobalTemplate l td) = tcGlobal l $ do
     td' <- tcTemplateDecl td
-    return $ GlobalTemplate (notTyped "tcGlobalDeclaration" l) td'
+    let res = GlobalTemplate (notTyped "tcGlobalDeclaration" l) td'
+    return res
 tcGlobalDeclaration (GlobalAnnotations l ann) = do
     ann' <- mapM tcGlobalAnn ann
     return $ GlobalAnnotations (notTyped "tcGlobalAnnotation" l) ann'
@@ -160,8 +165,11 @@ tcKindDecl (Kind l k) = do
 tcKindName :: ProverK loc m => KindName Identifier loc -> TcM m (KindName GIdentifier (Typed loc))
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType $ Just NonPublicClass)) $ TIden $ mkVarId kn
 
+noCoercions :: Monad m => TcM m a -> TcM m a
+noCoercions = localOptsTcM (\opts -> opts { implicitCoercions = False })
+
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))
-tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak isLeak $ do
+tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = noCoercions $ withKind AKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -196,7 +204,7 @@ tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx a
 tcFunctionDecl :: (ProverK loc m) => DecCtx -> (DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
                 -> FunctionDeclaration Identifier loc -> TcM m (TemplateContext GIdentifier (Typed loc),FunctionDeclaration GIdentifier (Typed loc))
 tcFunctionDecl hctx' addOp _ (OperatorFunDeclaration l isLeak ret op ps bctx ann s) = withKind FKind $ withLeak isLeak $ do
-    (ps',ret',vars',bctx',top,tret,vret) <- tcAddDeps l "tcProcedureDecl" $ do
+    (ps',ret',vars',bctx',top,tret,vret) <- tcAddDeps l "tcFunctionDecl" $ do
         top <- tcOp op
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         bctx' <- tcTemplateContext bctx
@@ -219,7 +227,7 @@ tcFunctionDecl hctx' addOp _ (OperatorFunDeclaration l isLeak ret op ps bctx ann
     op'' <- addOp hctx' bdecctx hdeps op'
     dec2FunDecl l $ unDecT $ typed $ loc op''
 tcFunctionDecl hctx' _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn) ps bctx ann s) = withKind FKind $ withLeak isLeak $ do
-    (ps',ret',vars',bctx',tret,vret) <- tcAddDeps l "tcProcedureDecl" $ do
+    (ps',ret',vars',bctx',tret,vret) <- tcAddDeps l "tcFunctionDecl" $ do
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         bctx' <- tcTemplateContext bctx
         ret' <- tcTypeSpec ret False
@@ -309,7 +317,7 @@ tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM 
 tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic
     let ty = typed $ loc s'
-    vi' <- addConst LocalScope (True,False) False vi
+    vi' <- addConst LocalScope (True,isVariadic) False vi
     let v' = VarName (Typed vl ty) vi'
     isAnn <- getAnn
     newVariable LocalScope False isAnn v' Nothing
@@ -353,10 +361,7 @@ tcTemplateContext (TemplateContext l (Just ks)) = onFrees l $ do
     return $ TemplateContext (Typed l $ DecCtxT $ DecCtx True dict frees) (Just ks')
 
 mkLNodes :: [a] -> [LNode a]
-mkLNodes = mkLNodes' 1
-    where
-    mkLNodes' i [] = []
-    mkLNodes i (x:xs) = (i,x) : mkLNodes (succ i) xs
+mkLNodes = zip [1..]
 
 tcContextConstraint :: ProverK loc m => ContextConstraint Identifier loc -> TcM m (ContextConstraint GIdentifier (Typed loc))
 tcContextConstraint (ContextPDec l cl isLeak isAnn ck ret (ProcedureName nl n) ts ps) = do
@@ -396,41 +401,62 @@ tcCtxPArg (CtxExprPArg l isConst e isVariadic) = do
     let tcConst = if isConst then withExprC PureExpr else id
     (e',isVariadic') <- tcConst $ tcVariadicArg tcExpr (e,isVariadic)
     let t = typed $ loc e'
-    return ((isConst,Left $ fmap typed e',isVariadic'),CtxExprPArg (Typed l t) isConst e' isVariadic')
+    return ((isConst,Left $ fmap typed e',isVariadic'),CtxExprPArg (Typed l $ IdxT $ fmap typed e') isConst e' isVariadic')
 tcCtxPArg (CtxTypePArg l isConst t isVariadic) = do
     let tcConst = if isConst then withExprC PureExpr else id
     t' <- tcConst $ tcTypeSpec t isVariadic
     let tt = typed $ loc t'
     return ((isConst,Right tt,isVariadic),CtxTypePArg (Typed l tt) isConst t' isVariadic)
+tcCtxPArg (CtxVarPArg l isConst v isVariadic) = do
+    let tcConst = if isConst then withExprC PureExpr else id
+    v'@(TemplateArgName vl' vn') <- tcConst $ do
+        isAnn <- getAnn
+        isLeak <- getLeak
+        checkTemplateArg isAnn isLeak (bimap mkVarId id v)
+    let varn' = VarName vl' vn'
+    let vart' = typed vl'
+    let v'' = case typeClass "tcCtxParg" vart' of
+                ExprC TypeC -> Left $ varExpr $ fromJustNote "tcCtxPArg" $ typeToVarName vart'
+                VArrayC TypeC -> Left $ varExpr $ fromJustNote "tcCtxPArg" $ typeToVarName vart'
+                otherwise -> Right vart'
+    return ((isConst,v'',isVariadic),CtxVarPArg (Typed l $ either IdxT id v'') isConst v' isVariadic)
 
 tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration GIdentifier (Typed loc))
 tcTemplateDecl (TemplateStructureDeclaration l targs hctx s) = tcTemplate l $ do
-    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = toList tvars
-    hctx' <- tcTemplateContext hctx
+    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl struct" $ do
+        (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+        let tvars' = toList tvars
+        hctx' <- tcTemplateContext hctx
+        return (targs',tvars',hctx')
     let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
     (hctx'',s') <- tcStructureDecl hdecctx (addTemplateStruct tvars') s
     return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' hctx'' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs hctx tspecials s) = tcTemplate l $ do
-    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = toList tvars
-    hctx' <- tcTemplateContext hctx
-    tspecials' <- tcAddDeps l "tcTemplateDecl" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
+    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl structs" $ do
+        (targs',tvars) <-  mapAndUnzipM tcTemplateQuantifier targs
+        let tvars' = toList tvars
+        hctx' <- tcTemplateContext hctx
+        return (targs',tvars',hctx')
+    tspecials' <- tcAddDeps l "tcTemplateDecl structs specs" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
     let tspecs = map (mapFst (typed . loc)) tspecials'
     let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
     (hctx'',s') <- tcStructureDecl hdecctx (addTemplateStructSpecialization tvars' tspecs) s
     return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' hctx'' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs hctx p) = tcTemplate l $ do
-    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = toList tvars
-    hctx' <- tcTemplateContext hctx
+    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl proc" $ do
+        (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+        let tvars' = toList tvars
+        hctx' <- tcTemplateContext hctx
+        return (targs',tvars',hctx')
     let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
     (hctx'',p') <- tcProcedureDecl hdecctx (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' hctx'' p'
 tcTemplateDecl (TemplateFunctionDeclaration l targs hctx p) = tcTemplate l $ do
-    (targs',tvars) <- tcAddDeps l "tcTemplateDecl" $ mapAndUnzipM tcTemplateQuantifier targs
-    let tvars' = toList tvars
-    hctx' <- tcTemplateContext hctx
+    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl fun" $ do
+        (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
+        let tvars' = toList tvars
+        hctx' <- tcTemplateContext hctx
+        return (targs',tvars',hctx')
     let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
     (hctx'',p') <- tcFunctionDecl hdecctx (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
     return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' hctx'' p'
@@ -441,11 +467,13 @@ tcTemplateQuantifier (KindQuantifier l kClass isVariadic (KindName dl dn)) = do
     inTplt <- State.gets inTemplate
     let t = KType kClass
     t' <- mkVariadicTyArray isVariadic t
-    vdn <- addConst LocalScope (inTplt,False) False dn
+    vdn <- addConst LocalScope (False,False) False dn
     let v' = KindName (Typed dl t') vdn
     isAnn <- getAnn
     newKindVariable isAnn LocalScope v'
-    return (KindQuantifier (notTyped "tcTemplateQuantifier" l) kClass isVariadic v',(Constrained (VarName t' vdn) Nothing,isVariadic))
+    let vn = VarName t' vdn
+    addTpltTok l vn
+    return (KindQuantifier (notTyped "tcTemplateQuantifier" l) kClass isVariadic v',(Constrained vn Nothing,isVariadic))
 tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
     inTplt <- State.gets inTemplate
     isAnn <- getAnn
@@ -454,52 +482,54 @@ tcTemplateQuantifier (DomainQuantifier l isVariadic (DomainName dl dn) mbk) = do
             let vk = bimap mkVarId id k
             vk' <- checkKind isAnn vk
             return (Just vk',typed $ loc vk')
-        Nothing -> do -- domain variable of any kind
-            if inTplt
-                then do
-                    (KVar kv kc) <- newKindVar "kNoWrite" Nothing True Nothing
-                    let k = KVar kv{ varIdWrite = False } kc
-                    topTcCstrM_ l $ Resolve $ KindT k
-                    return (Nothing,KindT k)
-                else do
-                    k <- kindToken Nothing
-                    return (Nothing,KindT k)
+        Nothing -> do
+            k <- kindToken Nothing
+            addTpltTok l $ fromJustNote "tcTemplateKind" $ typeToVarName $ KindT k
+            return (Nothing,KindT k)
     t' <- mkVariadicTyArray isVariadic t
-    vdn <- addConst LocalScope (inTplt,False) False dn
+    vdn <- addConst LocalScope (False,False) False dn
     let v' = DomainName (Typed dl t') vdn
     newDomainVariable isAnn LocalScope v'
-    return (DomainQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' mbk',(Constrained (VarName t' vdn) Nothing,isVariadic))
+    let vn = VarName t' vdn
+    addTpltTok l vn
+    return (DomainQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' mbk',(Constrained vn Nothing,isVariadic))
 tcTemplateQuantifier (DimensionQuantifier l isVariadic (VarName dl dn) c) = do
     inTplt <- State.gets inTemplate
     let t = BaseT index -- variable is a dimension
     t' <- mkVariadicTyArray isVariadic t
-    vdn <- addConst LocalScope (inTplt,False) False dn
+    vdn <- addConst LocalScope (False,False) False dn
     let tl = Typed dl t'
     let v' = VarName tl vdn
     isAnn <- getAnn
     newVariable LocalScope True isAnn v' Nothing
+    let vn = VarName t' vdn
+    addTpltTok l vn
     (c',cstrsc) <- tcWithCstrs l "tcTemplateQuantifier" $ mapM tcIndexCond c
     case c' of
         Nothing -> return ()
-        Just x -> tryAddHypothesis l LocalScope cstrsc $ HypCondition $ fmap typed x
-    return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' c',(Constrained (VarName t' vdn) $ fmap (fmap typed) c',isVariadic))
+        Just x -> tryAddHypothesis l "tcTemplateQuantifier dim cond" LocalScope (const True) cstrsc $ HypCondition $ fmap typed x
+    return (DimensionQuantifier (notTyped "tcTemplateQuantifier" l) isVariadic v' c',(Constrained vn $ fmap (fmap typed) c',isVariadic))
 tcTemplateQuantifier (DataQuantifier l dClass isVariadic (TypeName tl tn)) = do
     inTplt <- State.gets inTemplate
     let t = BType dClass -- variable of any base type
     t' <- mkVariadicTyArray isVariadic t
-    vtn <- addConst LocalScope (inTplt,False) False tn
+    vtn <- addConst LocalScope (False,False) False tn
     let v' = TypeName (Typed tl t') vtn
     isAnn <- getAnn
     isLeak <- getLeak
     newTypeVariable isAnn isLeak LocalScope v'
-    return (DataQuantifier (notTyped "tcTemplateQuantifier" l) dClass isVariadic v',(Constrained (VarName t' vtn) Nothing,isVariadic))
+    let vn = VarName t' vtn
+    addTpltTok l vn
+    return (DataQuantifier (notTyped "tcTemplateQuantifier" l) dClass isVariadic v',(Constrained vn Nothing,isVariadic))
 
+-- we don't allow backtracking inside templates, because there are more than two options, e.g., public domain, private domain, and token domain.
 tcTemplate :: (ProverK loc m) => loc -> TcM m a -> TcM m a
-tcTemplate l m = do
-    State.modify $ \env -> env { inTemplate = True }
+tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $ -} do
+    oldst <- State.get
+    State.modify $ \env -> env { inTemplate = Just [] }
     x <- m
     updateHeadTDict l "tcTemplate" $ \_ -> return ((),emptyTDict)
-    State.modify $ \env -> env { inTemplate = False }
+    State.modify $ \env -> env { inTemplate = inTemplate oldst }
     return x
 
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
@@ -508,8 +538,12 @@ tcGlobal l m = do
     State.modify $ \e -> e { decClass = mempty }
     newDict l "tcGlobal"
     x <- m
+    --debugTc $ liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l)
     solveTop l "tcGlobal"
     dict <- top . tDict =<< State.get
+    --debugTc $ do
+    --    pprd <- ppr dict
+    --    liftIO $ putStrLn $ "substituting tcGlobal " ++ pprid (locpos l) ++ "\n" ++ pprd
     x' <- substFromTDict "tcGlobal" l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = mempty, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = [], moduleCount = let ((m,TyVarId j),i) = moduleCount e in ((m,TyVarId $ succ j),i) }

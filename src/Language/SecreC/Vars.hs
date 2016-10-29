@@ -338,6 +338,7 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (FunctionDeclaration iden loc) where
     traverseVars f (OperatorFunDeclaration isLeak l t o args ctx anns e) = do
+        isLeak' <- f isLeak
         l' <- f l
         t' <- f t
         o' <- f o
@@ -346,8 +347,9 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden
             ctx' <- f ctx
             anns' <- mapM f anns
             e' <- f e
-            return $ OperatorFunDeclaration isLeak l' t' o' args' ctx' anns' e'
+            return $ OperatorFunDeclaration isLeak' l' t' o' args' ctx' anns' e'
     traverseVars f (FunDeclaration isLeak l t n args ctx anns e) = do
+        isLeak' <- f isLeak
         l' <- f l
         t' <- f t
         n' <- inLHS True $ f n
@@ -356,7 +358,7 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden
             ctx' <- f ctx
             anns' <- mapM f anns
             e' <- f e
-            return $ FunDeclaration isLeak l' t' n' args' ctx' anns' e'
+            return $ FunDeclaration isLeak' l' t' n' args' ctx' anns' e'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (AxiomDeclaration iden loc) where
     traverseVars f (AxiomDeclaration isLeak l qs args anns) = do
@@ -369,6 +371,8 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (LemmaDeclaration iden loc) where
     traverseVars f (LemmaDeclaration isLeak n l qs ctx args bctx anns body) = do
+        isLeak' <- f isLeak
+        n' <- f n
         l' <- f l
         qs' <- inLHS False $ mapM f qs
         ctx' <- f ctx
@@ -377,14 +381,15 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden
             bctx' <- f bctx
             anns' <- mapM f anns
             body' <- mapM f body
-            return $ LemmaDeclaration isLeak n l' qs' ctx' args' bctx' anns' body'
+            return $ LemmaDeclaration isLeak' n' l' qs' ctx' args' bctx' anns' body'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l isConst t isVariadic v) = do
         l' <- f l
+        isConst' <- f isConst
         t' <- f t
         v' <- inLHS False $ f v
-        return $ ProcedureParameter l' isConst t' isVariadic v'
+        return $ ProcedureParameter l' isConst' t' isVariadic v'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ReturnTypeSpecifier iden loc) where
     traverseVars f (ReturnType l mb) = do
@@ -648,6 +653,11 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         l' <- f l
         e' <- f e
         return $ ToMultisetExpr l' e'
+    traverseVars f (ToVArrayExpr l e i) = do
+        l' <- f l
+        e' <- f e
+        i' <- f i
+        return $ ToVArrayExpr l' e' i'
     traverseVars f (RVariablePExpr l v) = do
         l' <- inRHS $ f l
         v' <- f v
@@ -739,7 +749,8 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         return $ PrimitiveTemplateTypeArgument l' p'
     traverseVars f (ExprTemplateTypeArgument l i) = do
         l' <- f l
-        return $ ExprTemplateTypeArgument l' i
+        i' <- f i
+        return $ ExprTemplateTypeArgument l' i'
     traverseVars f (PublicTemplateTypeArgument l) = do
         l' <- f l
         return $ PublicTemplateTypeArgument l'
@@ -758,9 +769,11 @@ instance (GenVar iden m,Vars iden2 m iden,Vars iden2 m loc,IsScVar m iden2) => V
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (VariableDeclaration iden loc) where
     traverseVars f (VariableDeclaration l isConst isHavoc t is) = do
         l' <- f l
+        isConst' <- f isConst
+        isHavoc' <- f isHavoc
         t' <- f t
         is' <- mapM f is
-        return $ VariableDeclaration l' isConst isHavoc t' is'
+        return $ VariableDeclaration l' isConst' isHavoc' t' is'
     
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (VariableInitialization iden loc) where
     traverseVars f (VariableInitialization l v sz e) = do
@@ -868,14 +881,20 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         t' <- f t
         b' <- f b
         return $ CtxTypePArg l' isConst' t' b'
+    traverseVars f (CtxVarPArg l isConst t b) = do
+        l' <- f l
+        isConst' <- f isConst
+        t' <- f t
+        b' <- f b
+        return $ CtxVarPArg l' isConst' t' b'
 
 instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m ExprClass where
-    traverseVars f = f
+    traverseVars f = return
 instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m CstrKind where
-    traverseVars f = f
+    traverseVars f = return
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ContextConstraint iden loc) where
-    traverseVars f (ContextPDec l cl isLeak isAnn k r n ts ps) = do
+    traverseVars f kc@(ContextPDec l cl isLeak isAnn k r n ts ps) = do
         l' <- f l
         cl' <- f cl
         isLeak' <- f isLeak
@@ -885,7 +904,7 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         n' <- f n
         ts' <- mapM (mapM f) ts
         ps' <- mapM f ps
-        return $ ContextPDec l cl' isLeak' isAnn' k' r' n' ts' ps'
+        return $ ContextPDec l' cl' isLeak' isAnn' k' r' n' ts' ps'
     traverseVars f (ContextODec l cl isLeak isAnn k r n ts ps) = do
         l' <- f l
         cl' <- f cl
@@ -896,13 +915,13 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         n' <- f n
         ts' <- mapM (mapM f) ts
         ps' <- mapM f ps
-        return $ ContextODec l cl' isLeak' isAnn' k' r' n' ts' ps'
+        return $ ContextODec l' cl' isLeak' isAnn' k' r' n' ts' ps'
     traverseVars f (ContextTDec l cl n ts) = do
         l' <- f l
         cl' <- f cl
         n' <- f n
         ts' <- mapM f ts
-        return $ ContextTDec l cl' n' ts'
+        return $ ContextTDec l' cl' n' ts'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateDeclaration iden loc) where
     traverseVars f (TemplateStructureDeclaration l qs ctx s) = do
@@ -910,7 +929,7 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         qs' <- mapM f qs
         ctx' <- f ctx
         s' <- f s
-        return $ TemplateStructureDeclaration l qs' ctx' s'
+        return $ TemplateStructureDeclaration l' qs' ctx' s'
     traverseVars f (TemplateStructureSpecialization l qs ctx specs s) = do
         l' <- f l
         qs' <- mapM f qs
@@ -1034,36 +1053,46 @@ instance (GenVar iden2 m,IsScVar m iden2,MonadIO m) => Vars iden2 m SecrecError 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (LoopAnnotation iden loc) where
     traverseVars f (DecreasesAnn l isFree e) = do
         l' <- f l
+        isFree' <- f isFree
         e' <- f e
-        return $ DecreasesAnn l' isFree e'
+        return $ DecreasesAnn l' isFree' e'
     traverseVars f (InvariantAnn l isFree isLeak e) = do
         l' <- f l
+        isFree' <- f isFree
+        isLeak' <- f isLeak
         e' <- f e
-        return $ InvariantAnn l' isFree isLeak e'
+        return $ InvariantAnn l' isFree' isLeak' e'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (StatementAnnotation iden loc) where
     traverseVars f (AssertAnn l isLeak e) = do
         l' <- f l
+        isLeak' <- f isLeak
         e' <- f e
-        return $ AssertAnn l' isLeak e'
+        return $ AssertAnn l' isLeak' e'
     traverseVars f (AssumeAnn l isLeak e) = do
         l' <- f l
+        isLeak' <- f isLeak
         e' <- f e
-        return $ AssumeAnn l' isLeak e'
+        return $ AssumeAnn l' isLeak' e'
     traverseVars f (EmbedAnn l isLeak e) = do
         l' <- f l
+        isLeak' <- f isLeak
         e' <- f e
-        return $ EmbedAnn l' isLeak e'
+        return $ EmbedAnn l' isLeak' e'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (ProcedureAnnotation iden loc) where
     traverseVars f (RequiresAnn l isFree isLeak e) = do
         l' <- f l
+        isFree' <- f isFree
+        isLeak' <- f isLeak
         e' <- f e
-        return $ RequiresAnn l' isFree isLeak e'
+        return $ RequiresAnn l' isFree' isLeak' e'
     traverseVars f (EnsuresAnn l isFree isLeak e) = do
         l' <- f l
+        isFree' <- f isFree
+        isLeak' <- f isLeak
         e' <- f e
-        return $ EnsuresAnn l' isFree isLeak e'
+        return $ EnsuresAnn l' isFree' isLeak' e'
     traverseVars f (PDecreasesAnn l e) = do
         l' <- f l
         e' <- f e

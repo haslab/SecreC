@@ -153,7 +153,7 @@ tcStmt ret (AssertStatement l argE) = do
     (argE',cstrsargE) <- tcWithCstrs l "assert" $ tcGuard argE
     opts <- askOpts
     when (checkAssertions opts) $ topCheckCstrM_ l cstrsargE $ CheckAssertion $ fmap typed argE'
-    tryAddHypothesis l LocalScope cstrsargE $ HypCondition $ fmap typed argE'
+    tryAddHypothesis l "tcStmt assert" LocalScope checkAssertions cstrsargE $ HypCondition $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
 tcStmt ret (SyscallStatement l n args) = do
@@ -174,10 +174,9 @@ tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- withExprC ReadWriteExpr $ tcExpr e
     let et' = typed $ loc e'
     ppe <- pp e
-    x <- newTypedVar "ret" ret False $ Just ppe
-    topTcCstrM_ l $ Coerces (fmap typed e') x
+    x <- tcCoerces l True (fmap typed e') ret
     let t = StmtType (Set.singleton $ StmtReturn)
-    let ex = fmap (Typed l) $ RVariablePExpr ret x
+    let ex = fmap (Typed l) x
     let ret = ReturnStatement (Typed l t) (Just ex)
     return (ret,t)
 tcStmt ret (ContinueStatement l) = do

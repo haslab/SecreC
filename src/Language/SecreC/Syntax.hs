@@ -721,6 +721,7 @@ ppIsAnn False doc = doc
 data CtxPArg iden loc
     = CtxExprPArg loc IsConst (Expression iden loc) IsVariadic
     | CtxTypePArg loc IsConst (TypeSpecifier iden loc) IsVariadic
+    | CtxVarPArg loc IsConst (TemplateArgName iden loc) IsVariadic -- for ambiguous cases when a variable can be either an expression or a type
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (CtxPArg iden loc)  
@@ -730,12 +731,15 @@ instance Location loc => Located (CtxPArg iden loc) where
     type LocOf (CtxPArg iden loc) = loc
     loc (CtxExprPArg l _ _ _) = l
     loc (CtxTypePArg l _ _ _) = l
+    loc (CtxVarPArg l _ _ _) = l
     updLoc (CtxExprPArg _ x y z) l = CtxExprPArg l x y z
     updLoc (CtxTypePArg _ x y z) l = CtxTypePArg l x y z
+    updLoc (CtxVarPArg _ x y z) l = CtxVarPArg l x y z
 
 instance PP m iden => PP m (CtxPArg iden loc) where
     pp (CtxExprPArg _ isConst e isVariadic) = liftM (ppConst isConst) $ ppVariadicM e isVariadic
     pp (CtxTypePArg _ isConst t isVariadic) = liftM (ppConst isConst) $ ppVariadicM t isVariadic
+    pp (CtxVarPArg _ isConst t isVariadic) = liftM (ppConst isConst) $ ppVariadicM t isVariadic
 
 data TemplateDeclaration iden loc
     = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (StructureDeclaration iden loc)
@@ -1087,11 +1091,16 @@ data Op iden loc
     | OpInv      loc
     | OpImplies  loc
     | OpEquiv    loc
+    | OpCoerce    loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Op iden loc)
 
 instance (Hashable iden,Hashable loc) => Hashable (Op iden loc)
+
+isCoerceOp :: Op iden loc -> Bool
+isCoerceOp (OpCoerce _) = True
+isCoerceOp _ = False
 
 isBoolOp :: Op iden loc -> Bool
 isBoolOp (OpLor _) = True
@@ -1139,6 +1148,7 @@ instance PP m iden => PP m (Op iden loc) where
     pp (OpInv l) =      return $ text "~"
     pp (OpImplies l) =  return $ text "==>"
     pp (OpEquiv l) =    return $ text "<==>"
+    pp (OpCoerce l) =   return $ text "<~"
   
 instance Location loc => Located (Op iden loc) where
     type LocOf (Op iden loc) = loc
@@ -1165,6 +1175,7 @@ instance Location loc => Located (Op iden loc) where
     loc (OpInv l)  = l
     loc (OpImplies l)  = l
     loc (OpEquiv l)  = l
+    loc (OpCoerce l) = l
     updLoc (OpAdd  _) l = OpAdd  l
     updLoc (OpBand _) l = OpBand l
     updLoc (OpBor  _) l = OpBor  l
@@ -1188,6 +1199,7 @@ instance Location loc => Located (Op iden loc) where
     updLoc (OpInv  _) l = OpInv  l
     updLoc (OpImplies  _) l = OpImplies  l
     updLoc (OpEquiv  _) l = OpEquiv  l
+    updLoc (OpCoerce _) l = OpCoerce l
   
 -- Statements: 
 
@@ -1419,6 +1431,7 @@ data Expression iden loc
     | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
     | BuiltinExpr loc String [(Expression iden loc,IsVariadic)]
     | ToMultisetExpr loc (Expression iden loc)
+    | ToVArrayExpr loc (Expression iden loc) (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Expression iden loc)  
@@ -1428,6 +1441,7 @@ instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
     loc (BuiltinExpr l _ _) = l
     loc (ToMultisetExpr l _) = l
+    loc (ToVArrayExpr l _ _) = l
     loc (MultisetConstructorPExpr l _) = l
     loc (BinaryAssign l _ _ _) = l
     loc (LeakExpr l _) = l
@@ -1451,6 +1465,7 @@ instance Location loc => Located (Expression iden loc) where
     loc (QuantifiedExpr l _ _ _) = l
     updLoc (BuiltinExpr _ n x) l = BuiltinExpr l n x
     updLoc (ToMultisetExpr _ x) l = ToMultisetExpr l x
+    updLoc (ToVArrayExpr _ x y) l = ToVArrayExpr l x y
     updLoc (MultisetConstructorPExpr _ x) l = MultisetConstructorPExpr l x
     updLoc (LeakExpr _ x) l = LeakExpr l x
     updLoc (BinaryAssign _ x y z) l = BinaryAssign l x y z
@@ -1494,6 +1509,10 @@ instance PP m iden => PP m (Expression iden loc) where
     pp (ToMultisetExpr l e) = do
         ppe <- pp e
         return $ text "multiset" <> parens ppe
+    pp (ToVArrayExpr l e i) = do
+        ppe <- pp e
+        ppi <- pp i
+        return $ parens ppe <> text "..." <> parens ppi
     pp (MultisetConstructorPExpr l es) = do
         ppes <- mapM pp es
         return $ text "multiset" <> braces (sepBy comma ppes)

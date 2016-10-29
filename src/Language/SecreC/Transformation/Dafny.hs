@@ -70,6 +70,13 @@ dafnyIdModuleTyVarId (LId _ tid _) = tid
 dafnyIdModuleTyVarId (SId _ tid) = tid
 dafnyIdModuleTyVarId (AId tid isLeak) = tid
 
+putDafnyIdModuleTyVarId :: ModuleTyVarId -> DafnyId -> DafnyId
+putDafnyIdModuleTyVarId tid (PId po _) = PId po tid
+putDafnyIdModuleTyVarId tid (FId po _ b) = FId po tid b
+putDafnyIdModuleTyVarId tid (LId g _ b) = LId g tid b
+putDafnyIdModuleTyVarId tid (SId g _) = SId g tid
+putDafnyIdModuleTyVarId tid (AId _ isLeak) = AId tid isLeak
+
 dafnyIdModule :: DafnyId -> Identifier
 dafnyIdModule = fst . modTyName . dafnyIdModuleTyVarId
 
@@ -166,36 +173,42 @@ collectDafnyIds = everything Set.union (mkQ Set.empty aux)
     aux = Set.fromList . maybeToList . decDafnyId
 
 decDafnyTypes :: DecType -> [Type]
-decDafnyTypes d@(DecType tid isRec _ _ _ _ _) = if isJust isRec then map (unConstrained . fst) (decTypeArgs d) else []
+decDafnyTypes d@(DecType tid (DecTypeRec _) _ _ _ _ _) = map (unConstrained . fst) (decTypeArgs d)
+decDafnyTypes d = []
 
 -- (base id,instance id,base arguments)
 decDafnyIds :: DecType -> Maybe (DafnyId,DafnyId,[Type])
 decDafnyIds d@(DecType tid isRec _ _ _ _ (ProcType _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = pIdenToDafnyId pn tid
-    (bid) = maybe (did) (\(tid) -> pIdenToDafnyId pn tid) isRec
+    bid = decDafnyRecId did isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ (FunType isLeak _ pn _ _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = fIdenToDafnyId pn tid isLeak
-    (bid) = maybe (did) ((\(tid) -> fIdenToDafnyId pn tid isLeak)) isRec
+    bid = decDafnyRecId did isRec 
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ (StructType _ sn _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = SId sn tid
-    (bid) = maybe (did) (\(tid) -> SId sn tid) isRec
+    bid = decDafnyRecId did isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ (AxiomType isLeak _ _ _ _)) = Just (did,bid,ts)
     where
     did = AId tid isLeak
-    (bid) = maybe (did) (\(tid) -> AId tid isLeak) isRec
+    bid = decDafnyRecId did isRec
     ts = decDafnyTypes d
 decDafnyIds d@(DecType tid isRec _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not (isTemplateDecType d) = Just (bid,did,ts)
     where
     did = LId (funit pn) tid isLeak
-    (bid) = maybe (did) ((\(tid) -> LId (funit pn) tid isLeak)) isRec
+    bid = decDafnyRecId did isRec
     ts = decDafnyTypes d
 decDafnyIds dec = Nothing
+
+decDafnyRecId bid isRec = case isRec of
+    DecTypeOriginal -> bid
+    DecTypeCtx -> bid
+    DecTypeRec j -> putDafnyIdModuleTyVarId j bid
 
 decDafnyId :: DecType -> Maybe DafnyId
 decDafnyId d = fmap snd3 $ decDafnyIds d

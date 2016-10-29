@@ -5,7 +5,7 @@ module Language.SecreC.Pretty where
 import Text.PrettyPrint
 import Text.Ordinal
 
-import Data.Foldable
+import Data.Foldable as Foldable
 import Data.Binary
 import Data.Int
 import Data.Word
