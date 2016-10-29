@@ -39,11 +39,31 @@ import System.Exit
 
 import GHC.Generics (Generic)
 
-data BacktrackOpt = None | Try | Full
+data BacktrackOpt = NoneB | TryB | FullB
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
-        
 instance Binary BacktrackOpt
 instance Hashable BacktrackOpt
+
+instance Monad m => PP m BacktrackOpt where
+    pp NoneB = return $ text "noneb"
+    pp TryB = return $ text "tryb"
+    pp FullB = return $ text "fullb"
+
+data CoercionOpt = OffC | DefaultsC | OnC | ExtendedC
+    deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
+instance Binary CoercionOpt
+instance Hashable CoercionOpt
+
+instance Monad m => PP m CoercionOpt where
+    pp OffC = return $ text "offc"
+    pp DefaultsC = return $ text "defaultsc"
+    pp OnC = return $ text "onc"
+    pp ExtendedC = return $ text "extendedc"
+
+appendCoercionOpt :: CoercionOpt -> CoercionOpt -> CoercionOpt
+appendCoercionOpt ExtendedC _ = ExtendedC
+appendCoercionOpt _ ExtendedC = ExtendedC
+appendCoercionOpt x y = min x y
 
 -- | SecreC options
 data Options
@@ -61,7 +81,7 @@ data Options
         , debugVerification           :: Bool
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
-        , implicitCoercions      :: Bool
+        , implicitCoercions      :: CoercionOpt
         , backtrack              :: BacktrackOpt
         , printOutput           :: Bool
         , debug :: Bool
@@ -72,6 +92,7 @@ data Options
         , checkAssertions       :: Bool
         , forceRecomp           :: Bool
         , entryPoints           :: [String]
+        , defaults              :: Bool
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
@@ -93,7 +114,7 @@ instance Monoid Options where
         , debugVerification = debugVerification x || debugVerification y
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
-        , implicitCoercions = implicitCoercions x && implicitCoercions y
+        , implicitCoercions = implicitCoercions x `appendCoercionOpt` implicitCoercions y
         , backtrack = backtrack x `min` backtrack y
         , printOutput = printOutput x || printOutput y
         , debug = debug x || debug y
@@ -104,6 +125,7 @@ instance Monoid Options where
         , checkAssertions = checkAssertions x || checkAssertions y
         , forceRecomp = forceRecomp x || forceRecomp y
         , entryPoints = entryPoints x ++ entryPoints y
+        , defaults = defaults x && defaults y
         }
 
 defaultOptions :: Options
@@ -122,8 +144,8 @@ defaultOptions = Opts
     , debugVerification = False
     , constraintStackSize = 100
     , evalTimeOut = 5
-    , implicitCoercions = True
-    , backtrack = Full
+    , implicitCoercions = OnC
+    , backtrack = FullB
     , printOutput = False
     , debug = False
     , writeSCI = True
@@ -132,6 +154,7 @@ defaultOptions = Opts
     , externalSMT = True
     , checkAssertions = False
     , forceRecomp = False
+    , defaults = True
     }
 
 newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Map Position (Set SecrecWarning)) }

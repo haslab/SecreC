@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 module axioms;
 
 //@ axiom <domain D,type T> (D T[[1]] xs)

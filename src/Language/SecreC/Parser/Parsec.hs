@@ -475,17 +475,14 @@ scCstrKind' cont = scTok FUNCTION *> cont CstrFunction
 scCtxPArgs :: (MonadIO m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
 scCtxPArgs = scParens $ scSepBy scCtxPArg (scChar ',')
 
-scCtxOArgs :: (MonadIO m,MonadCatch m) => ScParserT m [CtxPArg Identifier Position]
-scCtxOArgs = liftM (:[]) scCtxPArg <||> scCtxPArgs
-
 scCtxPArg :: (MonadIO m,MonadCatch m) => ScParserT m (CtxPArg Identifier Position)
 scCtxPArg = do
     x1 <- scConst
-    (scVar x1 <* lookAhead (scOneOf ",)")) <||> scType x1 <||> scExpr x1
+    (scVar x1 <* lookAhead (scOneOf ",)")) <||> (scType x1 <* lookAhead (scOneOf ",)")) <||> (scExpr x1 <* lookAhead (scOneOf ",)"))
   where
     scVar x1 = apA2 scTemplateArgId scVariadic (\x2 x3 -> CtxVarPArg (loc x2) x1 x2 x3)
     scType x1 = scTypeSpecifier (\x2 -> apA scVariadic (\x3 -> CtxTypePArg (loc x2) x1 x2 x3))
-    scExpr x1 = apA2 scExpression scVariadic (\x2 x3 -> CtxExprPArg (loc x2) x1 x2 x3)
+    scExpr x1 = apA scVariadicExpression (\(x2,isVariadic) -> CtxExprPArg (loc x2) x1 x2 isVariadic)
 
 scTemplateQuantifiers :: (Monad m,MonadCatch m) => ScParserT m [TemplateQuantifier Identifier Position]
 scTemplateQuantifiers = (Text.Parsec.sepBy scTemplateQuantifier (scChar ',')) <?> "template quantifiers"

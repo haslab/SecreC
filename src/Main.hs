@@ -130,7 +130,9 @@ typecheck modules = flushTcWarnings $ do
     let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ modules) <+> text str <> char '.'
     if (typeCheck opts)
         then do
-            modules' <- mapM defaultModuleFile modules
+            modules' <- if defaults opts
+                then mapM defaultModuleFile modules
+                else return modules
             debugTc $ do
                 x <- mapM (\(Left (x,y,z)) -> pp z) $ filter (either (const True) (const False)) modules'
                 liftIO $ putStrLn $ show $ text "defaults" <+> vcat x

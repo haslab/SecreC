@@ -107,6 +107,7 @@ matchTemplate l kid n targs pargs ret check = do
     let errs = lefts instances
     def <- ppTpltAppM l n targs pargs ret
     opts <- askOpts
+    st <- getCstrState
     case oks of
         [] -> do
             defs <- forM errs $ \(e,err) -> do
@@ -119,7 +120,7 @@ matchTemplate l kid n targs pargs ret check = do
         [inst] -> liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
         -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
         otherwise -> case backtrack opts of
-            None -> do
+            NoneB -> do
                 let aux x y = do
                     (o1,o2,ko) <- compareTemplateDecls def l False n x y
                     appendOrdering l o1 o2
@@ -127,7 +128,7 @@ matchTemplate l kid n targs pargs ret check = do
                 mapM_ discardMatchingEntry insts
                 liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
             back -> do
-                (insts,ko) <- compMins (compareTemplateDecls def l (implicitCoercions opts) n) [] False oks
+                (insts,ko) <- compMins (compareTemplateDecls def l (checkCoercion (implicitCoercions opts) st) n) [] False oks
                 case back of
                     kFull -> return ()
                     kTry -> unless (length insts <= 1) $ tcError (locpos l) $ Halt $ GenTcError (text "did not try to match ambiguous template") Nothing
@@ -269,13 +270,13 @@ variadicDecCtx (DecCtx is d fs) = DecCtx is d $ variadicFrees fs
 -- removes type arguments from a template declaration, as a step of instantiation
 removeTemplate :: (ProverK loc m) => loc -> DecType -> TcM m (DecType,[(Constrained Var,IsVariadic)])
 removeTemplate l t@(DecType i isRec targs hctx bctx specs d@(ProcType {})) = do
-    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) [] d,targs)
+    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) specs d,targs)
 removeTemplate l t@(DecType i isRec targs hctx bctx specs d@(FunType {})) = do
-    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) [] d,targs)
+    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) specs d,targs)
 removeTemplate l t@(DecType i isRec targs hctx bctx specs d@(LemmaType {})) = do
-    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) [] d,targs)
+    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) specs d,targs)
 removeTemplate l t@(DecType i isRec targs hctx bctx specs d@(AxiomType {})) = do
-    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) [] d,targs)
+    return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) specs d,targs)
 removeTemplate l t@(DecType i isRec targs hctx bctx [] d@(StructType {})) = do
     let specs' = map (mapFst (varNameToType . unConstrained)) targs
     return (DecType i isRec [] (variadicDecCtx hctx) (variadicDecCtx bctx) specs' d,targs)

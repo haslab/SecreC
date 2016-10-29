@@ -1,39 +1,251 @@
-#OPTIONS_SECREC --implicitcoercions=false
-    
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 module builtin;
 
-import primitives;
-
-// array equal
-
-template <domain D, type T>
+template <nonpublic kind K,domain D : K,type T,dim N>
 context<>
-D bool[[1]] operator == (D T[[1]] x,D T[[1]] y)
-context< D bool == (D T, D T) >
-//@ requires size(x) == size(y);
+function D T[[N]] classify (public T[[N]] x)
+context<>
 {
-
-    D bool[[1]] ret (size(x));
-    for (uint i = 0; i < size(x); i=i+1) {
-        ret[i] = x[i] == y[i];
-    }
-    return ret;
+    __builtin("core.classify",x) :: D T[[N]]
 }
 
-template <domain D, type T, dim N { N > 0 } >
+template <nonpublic kind K,domain D : K,type T,dim N>
 context<>
-D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
-context< D bool[[N-1]] == (D T[[N-1]], D T[[N-1]]) >
-//@ requires shape(x) == shape(y);
+function T[[N]] declassify (D T[[N]] x)
+context<>
 {
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] == y[i];
-    }
-    return ret;
+    __builtin("core.declassify",x) :: T[[N]]
 }
 
-// not equal
+template <domain D, type T, dim N>
+context<>
+function uint size (D T[[N]] x)
+context<>
+{
+    __builtin("core.size",x) :: uint
+}
+
+//this repeat is a STUB 
+template <domain D,type T,dim N>
+context<>
+function D T[[N]] repeat (D T x)
+context<>
+{
+    __builtin("core.repeat",x) :: D T [[N]]
+}
+
+template <domain D,type T>
+context<>
+function D T[[size...(szs)]] repeat (D T x, uint... szs)
+context<>
+{
+    __builtin("core.repeat",x,szs...) :: D T [[size...(szs)]]
+}
+
+template <domain D, type T, dim N>
+context<>
+function uint[[1]] shape (D T[[N]] arr)
+context<>
+{
+    __builtin("core.shape",arr) :: uint[[1]]
+}
+
+// strlen
+
+template <domain D>
+context<>
+function D uint strlen (D string str)
+context<>
+{
+    __builtin("core.strlen",str) :: D uint
+}
+
+// tostring
+
+template <domain D,type T>
+context<>
+function D string tostring (D T x)
+context<>
+{
+    __builtin("core.tostring",x) :: D string
+}
+
+// addition
+
+//@ template<domain D,type T>
+//@ context<>
+//@ function D multiset<T> operator + (D multiset<T> x, D multiset<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.union",x,y) :: D multiset<T>
+//@ }
+
+template<domain D, primitive type T>
+context<>
+function D T operator + (D T x,D T y)
+context<>
+{
+    __builtin("core.add",x,y) :: D T
+}
+
+// variadic index sum
+function uint sum()
+context<>
+{ 0 }
+
+template <>
+function uint sum (uint n, uint... ns)
+{
+    n + sum(ns...)
+}
+
+// subtraction
+
+template <domain D, numeric type T>
+context<>
+function D T operator - (D T x)
+context<>
+{
+    __builtin("core.neg",x) :: D T
+} 
+
+template <domain D,numeric type T>
+context<>
+function D T operator - (D T x,D T y)
+context<>
+{
+    __builtin("core.sub",x,y) :: D T
+}
+
+template<domain D, numeric type T>
+context<>
+function D T operator * (D T x,D T y)
+context<>
+{
+    __builtin("core.mul",x,y) :: D T
+} 
+
+// variadic index product
+function uint product()
+context<>
+{ 1 }
+
+template <>
+function uint product (uint n, uint... ns)
+{
+    n * product(ns...)
+}
+
+// division
+
+template<domain D, numeric type T>
+context<>
+function D T operator / (D T x,D T y)
+context<>
+{
+    __builtin("core.div",x,y) :: D T
+} 
+
+// modulo
+
+template<domain D, numeric type T>
+context<>
+function D T operator % (D T x,D T y)
+context<>
+{
+    __builtin("core.mod",x,y) :: D T
+}
+
+// greater
+
+template<domain D, primitive type T>
+context<>
+function D bool operator > (D T x,D T y)
+context<>
+{
+    __builtin("core.gt",x,y) :: D bool
+}
+
+// smaller
+
+template<domain D, primitive type T>
+context<>
+function D bool operator < (D T x,D T y)
+context<>
+{
+    __builtin("core.lt",x,y) :: D bool
+}
+
+// greater or equal
+
+template<domain D, primitive type T>
+context<>
+function D bool operator >= (D T x,D T y)
+context<>
+{
+    __builtin("core.ge",x,y) :: D bool
+} 
+
+// smaller or equal
+
+template<domain D, primitive type T>
+context<>
+function D bool operator <= (D T x,D T y)
+context<>
+{
+    __builtin("core.le",x,y) :: D bool
+} 
+
+//@ template<domain D,type T>
+//@ context<>
+//@ function D bool operator <= (D multiset<T> x, D multiset<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.subset",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
+//@ context<>
+//@ function D bool in (D T x, D multiset<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.in",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
+//@ context<>
+//@ function D bool in (D T x, D T[[1]] y)
+//@ context<>
+//@ {
+//@     __builtin("core.in",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
+//@ context<>
+//@ function D bool operator >= (D multiset<T> x, D multiset<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.subset",y,x) :: D bool
+//@ }
+
+// equality
+
+template<domain D,type T>
+context<>
+function D bool operator == (D T x,D T y)
+context<>
+{
+    __builtin("core.eq",x,y) :: D bool
+}
+
+//@ template<domain D,type T,dim N>
+//@ context<>
+//@ function D bool operator == (D T[[N]] x,D T[[N]] y)
+//@ context<>
+//@ {
+//@     __builtin("core.eq",x,y) :: D bool
+//@ } 
 
 template<domain D, primitive type T>
 context<>
@@ -43,19 +255,47 @@ context<>
     __builtin("core.neq",x,y) :: D bool
 } 
 
-// array not equal
+// logical operators
 
-template <domain D, type T, dim N { N > 0 } >
+template <domain D>
 context<>
-D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
-context< D bool[[N-1]] != (D T[[N-1]], D T[[N-1]]) >
-//@ requires shape(x) == shape(y);
+function D bool operator ==> (D bool x,D bool y)
+context<>
 {
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] != y[i];
-    }
-    return ret;
+    __builtin("core.implies",x,y) :: D bool
+}
+
+template <domain D>
+context<>
+function D bool operator <==> (D bool x,D bool y)
+context<>
+{
+    __builtin("core.eq",x,y) :: D bool
+}
+
+template <domain D>
+context<>
+function D bool operator && (D bool x,D bool y)
+context<>
+{
+    __builtin("core.band",x,y) :: D bool
+}
+
+template <domain D>
+context<>
+function D bool operator || (D bool x,D bool y)
+context<>
+{
+    __builtin("core.bor",x,y) :: D bool
+}
+
+template <domain D, type T, dim N>
+context<>
+function D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
+context< /*@ uint sum(ns...) @*/ >
+//@ requires sum(ns...) == size(arr);
+{
+    __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
 }
 
 function bool operator ! (bool x)
@@ -63,21 +303,6 @@ context<>
 {
     (x==false)
 }
-
-template <domain D,dim N { N > 0 }>
-context<>
-D bool[[N]] operator ! (D bool[[N]] x)
-context< D bool[[N-1]] ! (D bool[[N-1]]) >
-{
-    
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = !x[i];
-    }
-    return ret;
-}
-
-// casts
 
 template<domain D>
 context<>
@@ -108,41 +333,196 @@ context<>
     __builtin("core.cast",x) :: D T2
 }
 
-// array casts
-template <domain D, dim N { N > 0 }, type X, type Y>
+// array operations
+
+template <domain D, type T, dim N { N > 0 } >
 context<>
-D Y[[N]] operator (Y) (D X[[N]] x)
-context<>
+D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
 {
-    D Y[[N]] ret (shape(x)...);
+    D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = (Y) x[i];
+        ret[i] = x[i] == y[i];
     }
     return ret;
 }
 
-// variadic index sum
-function uint sum()
+template <domain D, type T, dim N { N > 0 } >
 context<>
-{ 0 }
-
-template <>
-context<>
-function uint sum (uint n, uint... ns)
-context<>
+D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
 {
-    n + sum(ns...)
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] != y[i];
+    }
+    return ret;
 }
 
-// reshape
-
-template <domain D, type T, dim N>
+template <domain D, type T, dim N { N > 0 } >
 context<>
-function D T[[size...(ns)]] reshape (D T[[N]] arr, const uint... ns)
-context<>
-//@ requires sum(ns...) == size(arr);
+D bool[[N]] operator ! (D bool[[N]] x)
 {
-    __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = !x[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] && y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] || y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D T [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] + y[i];
+    }
+    return ret;
+}
+
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D T [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] - y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D T[[N]] operator - (D T[[N]] x)
+{
+    D T [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = -x[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D T [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] * y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] >= y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] <= y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] > y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D bool [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] < y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D T [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] / y[i];
+    }
+    return ret;
+}
+
+template <domain D, type T, dim N { N > 0 } >
+context<>
+D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
+//@ requires shape(x) == shape(y);
+{
+    D T [[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = x[i] % y[i];
+    }
+    return ret;
+}
+
+template <domain D, dim N { N > 0 }, type X, type Y>
+context<>
+D Y[[N]] operator (Y) (D X[[N]] x)
+{
+    D Y[[N]] ret (shape(x)...N);
+    for (uint i = 0; i < shape(x)[0]; i=i+1) {
+        ret[i] = (Y) x[i];
+    }
+    return ret;
 }
 
 //cat
@@ -166,179 +546,4 @@ function D T[[N]] cat (D T[[N]] x, D T[[N]] y)
 context<>
 {
     cat(x,y,0)
-}
-
-template <domain D, dim N { N > 0 }>
-context<>
-D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D bool[[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] && y[i];
-    }
-    return ret;
-}
-
-template <domain D, dim N { N > 0 } >
-context<>
-D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] || y[i];
-    }
-    return ret;
-}
-
-// unary array subtraction
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D T[[N]] operator - (D T[[N]] x)
-context<>
-{
-    D T [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = - x[i];
-    }
-    return ret;
-}
-
-// array subtraction
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D T [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] - y[i];
-    }
-    return ret;
-}
-
-// array addition
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D T [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] + y[i];
-    }
-    return ret;
-}
-
-// array multiplication
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D T [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] * y[i];
-    }
-    return ret;
-}
-
-// array division
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D T [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] / y[i];
-    }
-    return ret;
-}
-
-// array modulo
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D T [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] % y[i];
-    }
-    return ret;
-}
-
-// array greater
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] > y[i];
-    }
-    return ret;
-}
-
-// array smaller
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] < y[i];
-    }
-    return ret;
-}
-
-// array greater or equal
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] >= y[i];
-    }
-    return ret;
-}
-
-// array greater
-
-template <domain D, type T, dim N { N > 0 } >
-context<>
-D bool[[N]] operator <= (D T[[N]] x, D T[[N]] y)
-context<>
-//@ requires shape(x) == shape(y);
-{
-    D bool [[N]] ret (shape(x)...);
-    for (uint i = 0; i < shape(x)[0]; i=i+1) {
-        ret[i] = x[i] <= y[i];
-    }
-    return ret;
 }

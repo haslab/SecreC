@@ -165,11 +165,8 @@ tcKindDecl (Kind l k) = do
 tcKindName :: ProverK loc m => KindName Identifier loc -> TcM m (KindName GIdentifier (Typed loc))
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType $ Just NonPublicClass)) $ TIden $ mkVarId kn
 
-noCoercions :: Monad m => TcM m a -> TcM m a
-noCoercions = localOptsTcM (\opts -> opts { implicitCoercions = False })
-
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))
-tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = noCoercions $ withKind AKind $ withLeak isLeak $ do
+tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -372,7 +369,7 @@ tcContextConstraint (ContextPDec l cl isLeak isAnn ck ret (ProcedureName nl n) t
     st <- getCstrState
     let st' = st { cstrExprC = cl, cstrIsLeak = isLeak, cstrIsAnn = isAnn, cstrDecK = cstrKind2DecKind ck }
     dec <- newDecVar False Nothing
-    let k = PDec (PIden $ mkVarId n) (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
+    let k = PDec False (PIden $ mkVarId n) (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
     let kt = TCstrT $ TcK k st'
     return $ ContextPDec (Typed l kt) cl isLeak isAnn ck ret' n' ts' ps'
 tcContextConstraint (ContextODec l cl isLeak isAnn ck ret o ts ps) = do
@@ -383,7 +380,7 @@ tcContextConstraint (ContextODec l cl isLeak isAnn ck ret o ts ps) = do
     st <- getCstrState
     let st' = st { cstrExprC = cl, cstrIsLeak = isLeak, cstrIsAnn = isAnn, cstrDecK = cstrKind2DecKind ck }
     dec <- newDecVar False Nothing
-    let k = PDec (OIden $ fmap typed o') (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
+    let k = PDec False (OIden $ fmap typed o') (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
     let kt = TCstrT $ TcK k st'
     return $ ContextODec (Typed l kt) cl isLeak isAnn ck ret' o' ts' ps'
 tcContextConstraint (ContextTDec l cl (TypeName nl n) ts) = do
@@ -392,7 +389,7 @@ tcContextConstraint (ContextTDec l cl (TypeName nl n) ts) = do
     st <- getCstrState
     let st' = st { cstrExprC = cl, cstrDecK = TKind }
     dec <- newDecVar False Nothing
-    let k = TDec (TIden $ mkVarId n) (map (mapFst (typed . loc)) ts') dec
+    let k = TDec False (TIden $ mkVarId n) (map (mapFst (typed . loc)) ts') dec
     let kt = TCstrT $ TcK k st'
     return $ ContextTDec (Typed l kt) cl n' ts'
 
@@ -412,7 +409,7 @@ tcCtxPArg (CtxVarPArg l isConst v isVariadic) = do
     v'@(TemplateArgName vl' vn') <- tcConst $ do
         isAnn <- getAnn
         isLeak <- getLeak
-        checkTemplateArg isAnn isLeak (bimap mkVarId id v)
+        checkTemplateArg (const True) isAnn isLeak (bimap mkVarId id v)
     let varn' = VarName vl' vn'
     let vart' = typed vl'
     let v'' = case typeClass "tcCtxParg" vart' of

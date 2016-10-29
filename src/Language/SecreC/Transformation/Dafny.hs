@@ -146,7 +146,7 @@ duplicateUnderscores (x:xs) = x : duplicateUnderscores xs
 
 loadAxioms :: DafnyK m => DafnyM m ()
 loadAxioms = do
-    env <- lift $ getModuleField True False id
+    env <- lift $ getModuleField False id
     let as = map (\(mid,e) -> unDecT $ entryType e) $ Map.toList $ axioms env
     mapM_ (\d -> loadDafnyDec (decPos d) d) as
 
@@ -159,7 +159,7 @@ entryPointsTypedModuleFile (Left (_,_,m)) = return $ Set.toList $ collectDafnyId
 entryPointsTypedModuleFile (Right sci) = do
     let env = sciEnv sci
     let decE = decDafnyId . unDecT . entryType
-    let filterEntries = filterAnns False False
+    let filterEntries = filterAnns False False (const True)
     let ps = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ procedures env
     let fs = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ functions env
     let ls = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ lemmas env
@@ -237,7 +237,7 @@ printDafnyModule mn xs imports = do
 resolveEntryPoint :: ProverK Position m => Identifier -> TcM m (Maybe DafnyId)
 resolveEntryPoint n = do
     let n' = mkVarId n
-    env <- getModuleField True False id
+    env <- getModuleField False id
     case Map.lookup (PIden n') (procedures env) of
         Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
         Nothing -> case Map.lookup (TIden n') (structs env) of
@@ -333,7 +333,7 @@ newEntry l dec (bid,did,ts) = do
 
 lookupDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m EntryEnv
 lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
-    ss <- lift $ getModuleField True False structs
+    ss <- lift $ getModuleField False structs
     case Map.lookup sn ss of
         Nothing -> do
             ppdid <- lift $ pp did
@@ -344,14 +344,14 @@ lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find struct" <+> ppdid
 lookupDafnyId l did@(AId tid@(ModuleTyVarId m _) isLeak) = do
-    as <- lift $ getModuleField True False axioms
+    as <- lift $ getModuleField False axioms
     case Map.lookup tid as of
         Just e -> return e
         Nothing -> do
             ppdid <- lift $ pp did
             genError l $ text "lookupDafnyId: can't find axiom" <+> ppdid
 lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
-    ss <- lift $ getModuleField True False procedures
+    ss <- lift $ getModuleField False procedures
     case Map.lookup pn ss of
         Nothing -> do
             ppdid <- lift $ pp did
@@ -362,7 +362,7 @@ lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find procedure" <+> ppdid
 lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getModuleField True False lemmas
+    ss <- lift $ getModuleField False lemmas
     case Map.lookup pn ss of
         Nothing -> do
             ppdid <- lift $ pp did
@@ -373,7 +373,7 @@ lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
                 ppdid <- lift $ pp did
                 genError l $ text "lookupDafnyId: can't find lemma" <+> ppdid
 lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getModuleField True False functions
+    ss <- lift $ getModuleField False functions
     case Map.lookup pn ss of
         Nothing -> do
             ppdid <- lift $ pp did

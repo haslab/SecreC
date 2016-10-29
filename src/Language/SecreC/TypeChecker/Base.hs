@@ -277,6 +277,7 @@ data TcEnv = TcEnv {
     , decKind :: DecKind -- if typechecking inside a declaration
     , exprC :: ExprClass -- type of expression
     , isLeak :: Bool -- if typechecking leakage expressions
+    , isDef :: Bool -- if typechecking variable initializations
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
     }
@@ -418,15 +419,19 @@ getLineage = State.gets lineage
 getKind :: Monad m => TcM m (DecKind)
 getKind = State.gets decKind
 
+getDef :: Monad m => TcM m (Bool)
+getDef = State.gets isDef
+
 getCstrState :: Monad m => TcM m CstrState
 getCstrState = do
     isAnn <- getAnn
+    isDef <- getDef
     exprC <- getExprC
     lineage <- getLineage
     isLeak <- getLeak
     kind <- getKind
     err <- Reader.ask
-    return $ CstrState isAnn exprC isLeak kind lineage err
+    return $ CstrState isAnn isDef exprC isLeak kind lineage err
     
 getAnn :: Monad m => TcM m Bool
 getAnn = liftM (isAnnDecClass . decClass) State.get
@@ -455,13 +460,16 @@ remIDecBody d@(StructType sl sid atts cl) = StructType sl sid Nothing cl
 remIDecBody d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs cl
 remIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns Nothing cl
 
-filterAnns :: Bool -> Bool -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
-filterAnns isAnn isLeak = Map.map (filterAnns1 isAnn isLeak)
+filterAnns :: Bool -> Bool -> (DecTypeK -> Bool) -> Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
+filterAnns isAnn isLeak decK = Map.map (filterAnns1 isAnn isLeak decK)
 
-filterAnns1 :: Bool -> Bool -> (Map y EntryEnv) -> (Map y EntryEnv)
-filterAnns1 isAnn isLeak = Map.filter p
+filterAnns1 :: Bool -> Bool -> (DecTypeK -> Bool) -> (Map y EntryEnv) -> (Map y EntryEnv)
+filterAnns1 isAnn isLeak decK = Map.filter p
     where
-    p e@(entryType -> t@(DecT d)) = (isAnn >= isAnnDecClass (tyDecClass t)) && (isLeak >= isLeakDec d)
+    p e@(entryType -> t@(DecT d)) =
+        (isAnn >= isAnnDecClass (tyDecClass t))
+        && (isLeak >= isLeakDec d)
+        && (decK $ decTypeKind d)
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation = withAnn True
@@ -472,6 +480,14 @@ withAnn b m = do
     State.modify $ \env -> env { decClass = chgAnnDecClass b (decClass env) }
     x <- m
     State.modify $ \env -> env { decClass = chgAnnDecClass isAnn (decClass env) }
+    return x
+
+withDef :: Monad m => Bool -> TcM m a -> TcM m a
+withDef b m = do
+    o <- liftM isDef State.get
+    State.modify $ \env -> env { isDef = b }
+    x <- m
+    State.modify $ \env -> env { isDef = o }
     return x
 
 chgAnnDecClass :: Bool -> DecClass -> DecClass
@@ -516,6 +532,7 @@ emptyTcEnv = TcEnv
     , localConsts = Map.empty
     , decClass = mempty
     , moduleEnv = (mempty,mempty)
+    , isDef = False
     }
 
 data EntryEnv = EntryEnv {
@@ -675,7 +692,7 @@ coercesDec = do
     let ret = ComplexT $ CType d2 t2 n2
     let x = VarName ret $ VIden $ mkVarId "x"
     st <- getCstrState
-    let kst = CstrState False PureExpr False FKind (cstrLineage st) (cstrErr st)
+    let kst = CstrState False False PureExpr False FKind (cstrLineage st) (cstrErr st)
     let k = TcK (Coerces (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
     let ctx = DecCtx False (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
@@ -684,6 +701,13 @@ coercesDec = do
         ppd <- ppr dec
         liftIO $ putStrLn $ "added base coercion dec " ++ ppd
     return dec
+
+checkCoercion :: CoercionOpt -> CstrState -> Bool
+checkCoercion c st@(cstrDecK -> AKind) = False
+checkCoercion OffC st = False
+checkCoercion DefaultsC st = cstrIsDef st
+checkCoercion OnC st = not $ cstrIsAnn st
+checkCoercion ExtendedC st = True
 
 -- flips errors whenever typechecking is expected to fail
 failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
@@ -720,10 +744,12 @@ isGlobalTcCstr _ = False
 -- | A template constraint with a result type
 data TcCstr
     = TDec -- ^ type template declaration
+        Bool -- check only context
         SIdentifier -- template name
         [(Type,IsVariadic)] -- template arguments
         DecType -- resulting type
     | PDec -- ^ procedure declaration
+        Bool -- check only context
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
         [(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
@@ -734,12 +760,7 @@ data TcCstr
     | Coerces -- ^ types coercible
         Expr
         Var
-    | CoercesSecDimSizes
-        Expr -- source expression
-        Var -- target variable where to store the resulting expression
     | CoercesN -- ^ multidirectional coercion
-        [(Expr,Var)]
-    | CoercesNSecDimSizes
         [(Expr,Var)]
     | CoercesLit -- coerce a literal expression into a specific type
         Expr -- literal expression with the base type given at the top-level
@@ -758,6 +779,7 @@ data TcCstr
         Type -- result
     | IsReturnStmt (Set StmtClass) -- ^ is return statement
     | MultipleSubstitutions
+        (Maybe Bool) -- optional testKO
         [Type] -- bound variable
         [([TCstr],[TCstr],Set VarIdentifier)] -- mapping from multiple matching conditions to their dependencies and free variables
     | MatchTypeDimension
@@ -781,7 +803,6 @@ instance Hashable TcCstr
 isTrivialTcCstr :: TcCstr -> Bool
 isTrivialTcCstr (Equals t1 t2) = t1 == t2
 isTrivialTcCstr (Coerces e v) = e == varExpr v
-isTrivialTcCstr (CoercesSecDimSizes e v) = e == varExpr v
 isTrivialTcCstr (Unifies t1 t2) = t1 == t2
 isTrivialTcCstr (Assigns t1 t2) = t1 == t2
 isTrivialTcCstr (IsValid c) = c == trueExpr
@@ -850,6 +871,7 @@ updCstrState f (HypK c st) = HypK c (f st)
 
 data CstrState = CstrState
     { cstrIsAnn :: Bool
+    , cstrIsDef :: Bool
     , cstrExprC :: ExprClass
     , cstrIsLeak :: Bool
     , cstrDecK :: DecKind
@@ -859,7 +881,7 @@ data CstrState = CstrState
   deriving (Data,Typeable,Show,Generic)
 instance Binary CstrState
 instance Hashable CstrState where
-    hashWithSalt i (CstrState isAnn expr isLeak dec line err) = i `hashWithSalt` isAnn `hashWithSalt` expr `hashWithSalt` isLeak `hashWithSalt` dec `hashWithSalt` line `hashWithSalt` err
+    hashWithSalt i (CstrState isAnn isDef expr isLeak dec line err) = i `hashWithSalt` isAnn `hashWithSalt` isDef `hashWithSalt` expr `hashWithSalt` isLeak `hashWithSalt` dec `hashWithSalt` line `hashWithSalt` err
 
 data TCstr
     = TcK
@@ -911,18 +933,20 @@ instance PP m VarIdentifier => PP m [(IsConst,Either Expr Type,IsVariadic)] wher
             return $ ppConst x $ ppVariadic y' z
 
 instance PP m VarIdentifier => PP m TcCstr where
-    pp (TDec n ts x) = do
+    pp (TDec k n ts x) = do
+        ppk <- pp k
         ppn <- pp n
         ppts <- (mapM pp ts) 
         ppx <- pp x
-        return $ text "tdec" <+> ppn <+> sepBy space ppts <+> char '=' <+> ppx
-    pp (PDec n specs ts r x) = do
+        return $ text "tdec" <+> ppk <+> ppn <+> sepBy space ppts <+> char '=' <+> ppx
+    pp (PDec k n specs ts r x) = do
+        ppk <- pp k
         ppr <- pp r
         ppn <- pp n
         ppspecs <- mapM pp $ maybe [] id specs
         ppts <- pp ts
         ppx <- pp x
-        return $ ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
+        return $ ppk <+> ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
     pp (Equals t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
@@ -931,14 +955,6 @@ instance PP m VarIdentifier => PP m TcCstr where
         pp1 <- ppExprTy e1
         pp2 <- ppVarTy v2
         return $ text "coerces" <+> pp1 <+> pp2
-    pp (CoercesSecDimSizes e1 v2) = do
-        pp1 <- ppExprTy e1
-        pp2 <- ppVarTy v2
-        return $ text "coercessecdimsizes" <+> pp1 <+> pp2
-    pp (CoercesNSecDimSizes exs) = do
-        pp1 <- (mapM (ppExprTy . fst) exs)
-        pp2 <- (mapM (ppVarTy . snd) exs)
-        return $ text "coerces2secdimsizes" <+> sepBy comma pp1 <+> char '=' <+> sepBy comma pp2
     pp (CoercesLit e) = do
         ppe <- ppExprTy e
         return $ text "coerceslit" <+> ppe
@@ -968,7 +984,8 @@ instance PP m VarIdentifier => PP m TcCstr where
         pp2 <- mapM pp as
         pp3 <- pp x
         return $ pp1 <> brackets (sepBy comma pp2) <+> char '=' <+> pp3
-    pp (MultipleSubstitutions v s) = do
+    pp (MultipleSubstitutions ko v s) = do
+        ppko <- pp ko
         pp1 <- pp v
         let f2 (x,y,z) = do
             ppx <- pp x
@@ -976,7 +993,7 @@ instance PP m VarIdentifier => PP m TcCstr where
             ppz <- pp z
             return $ ppx $+$ nest 4 (text "=>" $+$ ppy <+> text ":" <+> ppz)
         pp2 <- (mapM f2 s)
-        return $ text "multiplesubstitutions" <+> pp1 <+> vcat pp2
+        return $ text "multiplesubstitutions" <+> ppko <+> pp1 <+> vcat pp2
     pp (MatchTypeDimension d sz) = do
         pp1 <- pp d
         pp2 <- pp sz
@@ -1135,18 +1152,20 @@ indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
 indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
     
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCstr where
-    traverseVars f (TDec n args x) = do
+    traverseVars f (TDec k n args x) = do
+        k' <- f k
         n' <- f n
         args' <- mapM f args
         x' <- f x
-        return $ TDec n' args' x'
-    traverseVars f (PDec n ts args ret x) = do
+        return $ TDec k' n' args' x'
+    traverseVars f (PDec k n ts args ret x) = do
+        k' <- f k
         n' <- f n
         x' <- f x
         ts' <- mapM (mapM f) ts
         args' <- mapM f args
         ret' <- f ret
-        return $ PDec n' ts' args' ret' x'
+        return $ PDec k' n' ts' args' ret' x'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
@@ -1155,16 +1174,9 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         e1' <- f e1
         v2' <- inLHS False $ f v2
         return $ Coerces e1' v2'
-    traverseVars f (CoercesSecDimSizes e1 e2) = do
-        e1' <- f e1
-        e2' <- inLHS False $ f e2
-        return $ CoercesSecDimSizes e1' e2'
     traverseVars f (CoercesN exs) = do
         exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- inLHS False $ f y; return (x',y') }) exs
         return $ CoercesN exs'
-    traverseVars f (CoercesNSecDimSizes exs) = do
-        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- inLHS False $ f y; return (x',y') }) exs
-        return $ CoercesNSecDimSizes exs'
     traverseVars f (CoercesLit e) = do
         e' <- f e
         return $ CoercesLit e'
@@ -1190,10 +1202,11 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         is' <- mapM f is
         x' <- f x
         return $ ProjectMatrix t' is' x'
-    traverseVars f (MultipleSubstitutions v ss) = do
+    traverseVars f (MultipleSubstitutions ko v ss) = do
+        ko' <- f ko
         v' <- f v
         ss' <- mapM (liftM (\(x,y,z) -> (x,y,mapSet unVIden z)) . f . (\(x,y,z) -> (x,y,mapSet VIden z))) ss
-        return $ MultipleSubstitutions v' ss'
+        return $ MultipleSubstitutions ko' v' ss'
     traverseVars f (MatchTypeDimension t d) = do
         t' <- f t
         d' <- f d
@@ -1662,6 +1675,10 @@ instance Monad m => PP m DecTypeK where
     pp DecTypeCtx = return $ text "context"
     pp DecTypeOriginal = return $ text "original"
     pp (DecTypeRec i) = return $ text "recursive" <+> ppid i
+
+decTypeKind :: DecType -> DecTypeK
+decTypeKind (DecType _ k _ _ _ _ _) = k
+decTypeKind (DVar v) = error $ "decTypeKind: " ++ show v
 
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
@@ -2807,7 +2824,7 @@ localOpts :: Monad m => (Options -> Options) -> TcM m a -> TcM m a
 localOpts f (TcM m) = TcM $ RWS.mapRWST (SecrecM . Reader.local f . unSecrecM) m
 
 withoutImplicitClassify :: Monad m => TcM m a -> TcM m a
-withoutImplicitClassify m = localOpts (\opts -> opts { implicitCoercions = False }) m
+withoutImplicitClassify m = localOpts (\opts -> opts { implicitCoercions = OffC }) m
 
 instance MonadIO m => GenVar VarIdentifier (TcM m) where
     genVar v = freshVarId (varIdBase v) (varIdPretty v)

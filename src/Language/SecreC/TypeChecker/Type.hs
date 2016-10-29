@@ -219,7 +219,7 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     let ts = map (mapFst (typed . loc)) args'
     let vn@(TypeName _ vnn) = bimap (TIden . mkVarId) id n
     dec <- newDecVar False Nothing
-    topTcCstrM_ l $ TDec vnn ts dec
+    topTcCstrM_ l $ TDec False vnn ts dec
     let ret = TApp vnn ts dec
     let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
@@ -242,7 +242,7 @@ tcTemplateTypeArgument :: (ProverK loc m) => TemplateTypeArgument Identifier loc
 tcTemplateTypeArgument (GenericTemplateTypeArgument l n) = do
     isAnn <- getAnn
     isLeak <- getLeak
-    n' <- checkTemplateArg isAnn isLeak (bimap mkVarId id n)
+    n' <- checkTemplateArg (const True) isAnn isLeak (bimap mkVarId id n)
     let t = typed $ loc n'
     return $ GenericTemplateTypeArgument (Typed l t) n'
 tcTemplateTypeArgument (TemplateTemplateTypeArgument l n args) = do
@@ -380,7 +380,7 @@ projectSize p t i (Just x) y1 y2 = do
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
 structBody l d@(DecType _ DecTypeOriginal _ _ _ _ b) = return b
 structBody l d@(DecType j (DecTypeRec i) _ _ _ _ (StructType sl sid _ cl)) = do
-    (DecType _ isRec _ _ _ _ s@(StructType {})) <- checkStruct l True (isAnnDecClass cl) (isLeakDec d) sid j
+    (DecType _ isRec _ _ _ _ s@(StructType {})) <- checkStruct l True (const True) (isAnnDecClass cl) (isLeakDec d) sid j
     return s        
 structBody l (DVar v@(varIdRead -> True)) = resolveDVar l v >>= structBody l
 --structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
@@ -632,7 +632,7 @@ defaultBaseExpr l s b@(MSet _) = return $ MultisetConstructorPExpr (ComplexT $ C
 defaultBaseExpr l Public b@(TApp (TIden sn) targs sdec) = do
 --    StructType _ _ (Just atts) cl <- structBody l dec
     let ct = BaseT b
-    (pdec,[]) <- pDecCstrM l False False (PIden sn) (Just targs) [] ct
+    (pdec,[]) <- pDecCstrM l False False False (PIden sn) (Just targs) [] ct
     targs' <- mapM (\(x,y) -> liftM ((,y) . fmap typed) $ type2TemplateTypeArgument l x) targs
     let targs'' = if null targs' then Nothing else Just targs'
     return $ ProcCallExpr ct (fmap (const $ DecT pdec) $ ProcedureName () (TIden sn)) targs'' []

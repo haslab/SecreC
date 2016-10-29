@@ -19,6 +19,7 @@ import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
 import Language.SecreC.Prover.Base
 import Language.SecreC.TypeChecker.Conversion
 
+import qualified Data.Generics as Generics
 import Data.IORef
 import Data.Hashable
 import Data.Either
@@ -193,6 +194,16 @@ withDeps GlobalScope m = do
     State.modify $ \env -> env { localDeps = l, globalDeps = g }
     return x
 
+noLocalDeps :: MonadIO m => TcM m a -> TcM m (a,Set LocIOCstr)
+noLocalDeps m = do
+    env <- State.get
+    let l = localDeps env
+    State.modify $ \env -> env { localDeps = Set.empty }
+    x <- m
+    newl <- State.gets localDeps
+    State.modify $ \env -> env { localDeps = l }
+    return (x,newl)
+
 getConsts :: Monad m => TcM m (Map Identifier GIdentifier)
 getConsts = do
     env <- State.get
@@ -322,7 +333,7 @@ newDomainVariable isAnn scope (DomainName (Typed l t) (VIden n)) = do
 newTypeVariable :: (ProverK loc m) => Bool -> Bool -> Scope -> TypeName GIdentifier (Typed loc) -> TcM m ()
 newTypeVariable isAnn isLeak scope (TypeName (Typed l t) (VIden n)) = do
     removeFree n
-    ss <- getStructs False False isAnn isLeak
+    ss <- getStructs False (const True) isAnn isLeak
     case Map.lookup (VIden n) ss of
         Just (es) -> do
             ppn <- pp n
@@ -400,12 +411,12 @@ checkDomain isAnn (DomainName l n) = do
                     tcError (locpos l) $ NotDefinedDomain (ppn)
     return $ DomainName (Typed l t) n'
 
-checkStruct :: ProverK loc m => loc -> Bool -> Bool -> Bool -> SIdentifier -> ModuleTyVarId -> TcM m DecType
-checkStruct l withBody isAnn isLeak sid mid = do
+checkStruct :: ProverK loc m => loc -> Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> SIdentifier -> ModuleTyVarId -> TcM m DecType
+checkStruct l withBody decK isAnn isLeak sid mid = do
     pp1 <- pp sid
     pp2 <- pp mid
     debugTc $ liftIO $ putStrLn $ show $ text "checkStruct:" <+> pp1 <+> pp2
-    ss <- getStructs withBody isAnn isLeak False
+    ss <- getStructs withBody decK isAnn isLeak
     case Map.lookup sid ss of
         Just es -> case Map.lookup mid es of
             Just e -> typeToDecType l (entryType e)
@@ -418,9 +429,9 @@ checkStruct l withBody isAnn isLeak sid mid = do
         
 -- | Checks if a type exists in scope
 -- Searches for both user-defined types and type variables
-checkType :: (ProverK loc m) => Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
-checkType isAnn isLeak (TypeName l n) = do
-    ss <- getStructs False isAnn isLeak True
+checkType :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
+checkType decK isAnn isLeak (TypeName l n) = do
+    ss <- getStructs False decK isAnn isLeak
     case Map.lookup (TIden n) ss of
         Just (es) -> return (Map.elems es)
         Nothing -> do
@@ -447,7 +458,7 @@ checkTypeName isAnn tn@(TypeName l n) = do
         Just tn' -> return tn'
         Nothing -> do
             dec <- newDecVar False Nothing
-            topTcCstrM_ l $ TDec (TIden n) [] dec
+            topTcCstrM_ l $ TDec False (TIden n) [] dec
             let ret = BaseT $ TApp (TIden n) [] dec
             return $ TypeName (Typed l ret) (TIden n)
 
@@ -482,9 +493,9 @@ checkTypeName isAnn tn@(TypeName l n) = do
 
 -- | Checks if a variable argument of a template exists in scope
 -- The argument can be a (user-defined or variable) type, a (user-defined or variable) domain or a dimension variable
-checkTemplateArg :: (ProverK loc m) => Bool -> Bool -> TemplateArgName VarIdentifier loc -> TcM m (TemplateArgName GIdentifier (Typed loc))
-checkTemplateArg isAnn isLeak (TemplateArgName l n) = do
-    ss <- getStructs False True isAnn isLeak
+checkTemplateArg :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> TemplateArgName VarIdentifier loc -> TcM m (TemplateArgName GIdentifier (Typed loc))
+checkTemplateArg decK isAnn isLeak (TemplateArgName l n) = do
+    ss <- getStructs False decK isAnn isLeak
     ds <- getDomains
     vs <- liftM (envVariables isAnn) State.get
     vn <- checkConst $ VIden n
@@ -587,17 +598,17 @@ isOpCastIden (OIden op) = isOpCast op
 isOpCastIden n = Nothing
   
  -- | Checks that an operator exists.
-checkOperator :: (ProverK loc m) => Bool -> Bool -> DecKind -> Op GIdentifier loc -> TcM m [EntryEnv]
-checkOperator isAnn isLeak k op@(OpCast l t) = do
+checkOperator :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> Op GIdentifier loc -> TcM m [EntryEnv]
+checkOperator decK isAnn isLeak k op@(OpCast l t) = do
     addGDependencies $ OIden $ funit op
-    ps <- getEntries l True isAnn isLeak k
+    ps <- getEntries l decK isAnn isLeak k
     -- select all cast declarations
     let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCastIden k) ps
     return casts
-checkOperator isAnn isLeak k op = do
+checkOperator decK isAnn isLeak k op = do
     let cop = funit op
     addGDependencies $ OIden cop
-    ps <- getEntries (loc op) True isAnn isLeak k
+    ps <- getEntries (loc op) decK isAnn isLeak k
     case Map.lookup (OIden cop) ps of
         Nothing -> do
             pp1 <- pp op
@@ -673,7 +684,7 @@ addTCstrToRec l i k = do
     genTcError (locpos l) $ text "addTCstrToRec" <+> ppk
     
 addTcCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TcCstr -> CstrState -> TcM m (Map DecType VarIdentifier)
-addTcCstrToRec l i (PDec n ts ps ret (DVar v)) st = do
+addTcCstrToRec l i (PDec dk n ts ps ret (DVar v)) st = do
     j <- newModuleTyVarId
     let (isRead,isWrite) = case cstrExprC st of
                                 PureExpr -> (False,False)
@@ -690,7 +701,7 @@ addTcCstrToRec l i (PDec n ts ps ret (DVar v)) st = do
     env <- mkDecEnv l dec
     addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env
     return $ Map.singleton dec v
-addTcCstrToRec l i (TDec n ts (DVar v)) st = do
+addTcCstrToRec l i (TDec dk n ts (DVar v)) st = do
     j <- newModuleTyVarId
     let (isRead,isWrite) = case cstrExprC st of
                                 PureExpr -> (False,False)
@@ -790,10 +801,10 @@ newLemma vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     return $ ProcedureName (Typed l dt') n
     
  -- | Checks that a procedure exists.
-checkProcedureFunctionLemma :: (ProverK loc m) => Bool -> Bool -> DecKind -> ProcedureName GIdentifier loc -> TcM m [EntryEnv]
-checkProcedureFunctionLemma isAnn isLeak k pn@(ProcedureName l n) = do
+checkProcedureFunctionLemma :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> ProcedureName GIdentifier loc -> TcM m [EntryEnv]
+checkProcedureFunctionLemma decK isAnn isLeak k pn@(ProcedureName l n) = do
     addGDependencies n
-    ps <- getEntries l True isAnn isLeak k
+    ps <- getEntries l decK isAnn isLeak k
     case Map.lookup n ps of
         Nothing -> do
             pp1 <- pp isAnn
@@ -803,7 +814,7 @@ checkProcedureFunctionLemma isAnn isLeak k pn@(ProcedureName l n) = do
             tcError (locpos l) $ Halt $ NotDefinedProcedure (pp1 <+> pp2 <+> pp3 <+> pp4)
         Just es -> return $ Map.elems es
 
-getEntries :: (ProverK loc m) => loc -> Bool -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getEntries :: (ProverK loc m) => loc -> (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
 getEntries l onlyRecs isAnn isLeak (FKind) = getFunctions False onlyRecs isAnn isLeak
 getEntries l onlyRecs isAnn isLeak (TKind) = getFunctions False onlyRecs isAnn isLeak
 getEntries l onlyRecs isAnn isLeak (AKind) = getFunctions False onlyRecs isAnn isLeak
@@ -1048,7 +1059,7 @@ addTemplateStruct vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
-    ss <- getStructs False False (tyIsAnn dt') (isLeakType dt')
+    ss <- getStructs False (const True) (tyIsAnn dt') (isLeakType dt')
     case Map.lookup n ss of
         Just es -> do
             ppn <- pp n
@@ -1085,7 +1096,7 @@ newStruct bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     d' <- substFromTDict "newStruct head" l recdict False Map.empty d
     let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
-    ss <- getStructs False False (tyIsAnn recdt) (isLeakType recdt)
+    ss <- getStructs False (const True) (tyIsAnn recdt) (isLeakType recdt)
     case Map.lookup n ss of
         Just es -> do
             ppn <- pp n
@@ -1825,11 +1836,12 @@ getOpensSet = do
 withCstrState :: (Location loc,MonadIO m) => loc -> CstrState -> TcM m a -> TcM m a
 withCstrState l st m =
     withAnn (cstrIsAnn st) $
-        withExprC (cstrExprC st) $
-            withLeak (cstrIsLeak st) $
-                withKind (cstrDecK st) $
-                    withLineage (cstrLineage st) $
-                        addErrorM'' l (cstrErr st) m
+        withDef (cstrIsDef st) $
+            withExprC (cstrExprC st) $
+                withLeak (cstrIsLeak st) $
+                    withKind (cstrDecK st) $
+                        withLineage (cstrLineage st) $
+                            addErrorM'' l (cstrErr st) m
 
 withLineage :: MonadIO m => Lineage -> TcM m a -> TcM m a
 withLineage new m = do
@@ -2039,8 +2051,8 @@ isDelayableCstr k = everything orM (mkQ (return False) mk) k
         return (is1 || isResolveTcCstr x)
 
 isMultipleSubstsTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
-isMultipleSubstsTcCstr (MultipleSubstitutions _ [k]) = return False
-isMultipleSubstsTcCstr (MultipleSubstitutions ts _) = do
+isMultipleSubstsTcCstr (MultipleSubstitutions _ _ [k]) = return False
+isMultipleSubstsTcCstr (MultipleSubstitutions _ ts _) = do
     xs <- usedVs' ts
     if Set.null xs then return False else return True
 isMultipleSubstsTcCstr _ = return False
@@ -2079,13 +2091,16 @@ priorityTcCstr' (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
 priorityTcCstr' c1 c2 = return $ compare c1 c2
 
 priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
-priorityMultipleSubsts c1@(MultipleSubstitutions vs1 _) c2@(MultipleSubstitutions vs2 _) = do
+priorityMultipleSubsts c1@(MultipleSubstitutions ko1 vs1 _) c2@(MultipleSubstitutions ko2 vs2 _) = do
     x1 <- usedVs vs1
     x2 <- usedVs vs2
     case compare (Set.size x1) (Set.size x2) of
         LT -> return LT
         GT -> return GT
-        EQ -> return $ compare c1 c2
+        EQ -> case (ko1,ko2) of
+            (Just False,_) -> return LT
+            (_,Just False) -> return GT
+            otherwise -> return $ compare c1 c2
 
 cstrScope :: VarsGTcM m => TCstr -> TcM m SolveScope
 cstrScope k = do
@@ -2096,39 +2111,39 @@ cstrScope k = do
             then return SolveGlobal
             else return SolveLocal
 
-getModuleField :: (ProverK Position m) => Bool -> Bool -> (ModuleTcEnv -> x) -> TcM m x
-getModuleField withBody onlyRecs f = do
+getStructs :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs withBody decK isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody structs
+getKinds :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
+getKinds = getModuleField True kinds
+getGlobalVars :: ProverK Position m => TcM m (Map GIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
+getGlobalVars = getModuleField True globalVars
+getGlobalConsts :: ProverK Position m => TcM m (Map Identifier GIdentifier)
+getGlobalConsts = getModuleField True globalConsts
+getDomains :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
+getDomains = getModuleField True domains
+getProcedures :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getProcedures withBody decK isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody procedures
+getFunctions :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getFunctions withBody decK isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody functions
+getLemmas :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
+getLemmas withBody decK isAnn isLeak = do
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody lemmas
+getAxioms :: ProverK Position m => (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms decK isAnn isLeak = liftM (filterAnns1 isAnn isLeak decK) $ getModuleField True axioms
+
+getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> x) -> TcM m x
+getModuleField withBody f = do
     (x,y) <- State.gets moduleEnv
-    z <- getRecs withBody onlyRecs
+    z <- getRecs withBody
     let xyz = mappend x (mappend y z)
     return $ f xyz
 
-getStructs :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs structs
-getKinds :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
-getKinds = getModuleField True False kinds
-getGlobalVars :: ProverK Position m => TcM m (Map GIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
-getGlobalVars = getModuleField True False globalVars
-getGlobalConsts :: ProverK Position m => TcM m (Map Identifier GIdentifier)
-getGlobalConsts = getModuleField True False globalConsts
-getDomains :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
-getDomains = getModuleField True False domains
-getProcedures :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getProcedures withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs procedures
-getFunctions :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getFunctions withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs functions
-getLemmas :: ProverK Position m => Bool -> Bool -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
-getLemmas withBody onlyRecs isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak) $ getModuleField withBody onlyRecs lemmas
-getAxioms :: ProverK Position m => Bool -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
-getAxioms onlyRecs isAnn isLeak = liftM (filterAnns1 isAnn isLeak) $ getModuleField True onlyRecs axioms
-
 -- get only the recursive declarations for the lineage
-getRecs :: ProverK Position m => Bool -> Bool -> TcM m ModuleTcEnv
-getRecs withBody onlyRecs = do
+getRecs :: ProverK Position m => Bool -> TcM m ModuleTcEnv
+getRecs withBody = do
     lineage <- getLineage
     debugTc $ do
         ppline <- liftM (sepBy comma) $ mapM pp lineage
@@ -2172,5 +2187,10 @@ isMonomorphicDec (DecType _ _ targs _ _ specs _) = do
     vs <- usedVs' (targs,specs)
     return $ Set.null vs
 
---context2Cstr :: ProverK loc m => ContextConstraint GIdentifier (Typed loc) -> TcM m (TCstr)
+isSMTError :: SecrecError -> Bool
+isSMTError = Generics.everything (||) (Generics.mkQ False aux)
+    where
+    aux :: TypecheckerErr -> Bool
+    aux (SMTException {}) = True
+    aux _ = False
 

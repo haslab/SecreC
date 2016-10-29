@@ -13,7 +13,7 @@ import qualified Language.SecreC.Pretty as PP
 import Language.SecreC.Parser.Tokens
 import Language.SecreC.Parser.Lexer
 
-import Text.PrettyPrint ((<+>),(<>),text)
+import Text.PrettyPrint ((<+>),(<>),text,($+$),Doc(..))
 import qualified Text.PrettyPrint as PP
 import Text.Parsec
 import Text.Parsec.Pos
@@ -93,12 +93,9 @@ parsePPArg = do
 cmdArgsRunPP :: MonadIO m => Mode (CmdArgs a) -> [String] -> PPParserT u m a
 cmdArgsRunPP m xs = do
     args <- case process m xs of
-            Left err -> unexpected $ show err
+            Left err -> unexpected $ "Error parsing pre-processor options " ++ show xs ++": " ++ show err
             Right x -> return x
     liftIO $ cmdArgsApply args
-
-instance Monad m => PP m BacktrackOpt where
-    pp = return . text . show
 
 instance Monad m => PP m Options where
     pp opts = do
@@ -126,6 +123,7 @@ instance Monad m => PP m Options where
         pp22 <- pp (checkAssertions opts)
         pp23 <- pp (forceRecomp opts)
         pp24 <- (mapM pp $ entryPoints opts)
+        pp25 <- pp (defaults opts)
         return $ PP.sepBy PP.space pp1
             <+> text "--outputs=" <> PP.sepBy (PP.char ':') pp2
             <+> text "--paths=" <> PP.sepBy (PP.char ':') pp3
@@ -150,6 +148,22 @@ instance Monad m => PP m Options where
             <+> text "--checkassertions" <> pp22
             <+> text "--forcerecomp" <> pp23
             <+> text "--entrypoints" <> PP.sepBy (PP.char ':') pp24
+            <+> text "--defaults" <> pp25
+
+coercionMsg :: Doc
+coercionMsg = PP.text "Controls implicit coercions" $+$ PP.nest 4 (
+        PP.text "offc" <+> PP.char '=' <+> PP.text "No implicit coercions"
+    $+$ PP.text "defaultsc" <+> PP.char '=' <+> PP.text "Only for default declarations"
+    $+$ PP.text "onc" <+> PP.char '=' <+> PP.text "For regular code (Default)"
+    $+$ PP.text "extendedc" <+> PP.char '=' <+> PP.text "For regular code and annotations"
+    )
+
+backtrackMsg :: Doc
+backtrackMsg = PP.text "Control ambiguities arising from implicit coercions" $+$ PP.nest 4 (
+        PP.text "noneb" <+> PP.char '=' <+> PP.text "Do not allow ambiguities"
+    $+$ PP.text "tryb" <+> PP.char '=' <+> PP.text "Try first option (not exhaustive)"
+    $+$ PP.text "fullb" <+> PP.char '=' <+> PP.text "Backtrack and try all options (Default)"
+    )
 
 optionsDecl  :: Options
 optionsDecl  = Opts { 
@@ -175,8 +189,9 @@ optionsDecl  = Opts {
     , debugVerification   = debugVerification defaultOptions &= help "Print verification result to stderr" &= groupname "Debugging"
     
     -- Typechecker
-    , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help "Enables implicit coercions" &= groupname "Verification:Typechecker"
-    , backtrack   = backtrack defaultOptions &= help "Control ambiguities arising from implicit coercions" &= groupname "Verification:Typechecker"
+    , defaults   = defaults defaultOptions &= help "Generate default variable initializations" &= groupname "Verification:Typechecker"
+    , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help (show coercionMsg) &= groupname "Verification:Typechecker"
+    , backtrack   = backtrack defaultOptions &= help (show backtrackMsg) &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
@@ -201,7 +216,7 @@ processOpts opts = opts
     , typeCheck = typeCheck opts || verify opts
     , checkAssertions = if verify opts then False else checkAssertions opts
     , simplify = if verify opts then True else simplify opts
-    , backtrack = if implicitCoercions opts then backtrack opts else None
+    , backtrack = if (implicitCoercions opts > OffC) then backtrack opts else NoneB
     }
 
 parsePaths :: [FilePath] -> [FilePath]
