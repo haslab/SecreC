@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 bool [[1]] sieve (uint n) {
   bool [[1]] s (n) = true;

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
     uint [[1]] a (1), b (1);
     a[0] = b[0] = 1;

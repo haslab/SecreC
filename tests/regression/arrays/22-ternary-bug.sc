@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 import stdlib;
 
 // \todo causes "double free or corruption" on pop_frame

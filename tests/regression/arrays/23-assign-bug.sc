@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
   int [[1]] arr (5) = 0;
   arr = 1;

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 kind additive3p;
 domain private additive3p;
 

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
     uint [[1]] x (10);
     x[0] = 0;

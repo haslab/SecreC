@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
   uint s = 10;
   int [[1]] t (s) = 1;

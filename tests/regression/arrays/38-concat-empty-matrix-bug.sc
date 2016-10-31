@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 void main () {
   int [[2]] m2 (5, 0);

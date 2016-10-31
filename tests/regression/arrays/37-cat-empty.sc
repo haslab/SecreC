@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 // cat(empty, x) == x == cat(x, empty)
 void main () {

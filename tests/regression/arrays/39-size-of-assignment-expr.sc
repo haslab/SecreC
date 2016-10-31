@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
   int [[1]] arr (10);
   assert (size (arr[1:9] = 1) == 8);

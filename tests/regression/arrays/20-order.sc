@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 bool all (bool [[1]] arr) {
   for (uint i = 0; i < size(arr); ++ i)

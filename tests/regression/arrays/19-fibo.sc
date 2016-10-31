@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 uint [[1]] fibo (uint n) {
   assert (n > 0);

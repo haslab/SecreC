@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 bool all (bool [[2]] arr) {
   uint n = size(arr);
   bool [[1]] flat = reshape(arr, n);

@@ -1,3 +1,0 @@
-[submodule "stdlib"]
-	path = imports/stdlib
-	url = https://github.com/sharemind-sdk/stdlib

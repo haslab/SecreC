@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 // prefix and postfix increment and decrement checks for arrays
 
 bool all (bool [[1]] arr) {

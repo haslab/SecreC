@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 kind additive3pp;
 domain sharemind_test_pd additive3pp;
 

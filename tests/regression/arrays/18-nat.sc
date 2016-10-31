@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 uint [[1]] nat (uint n) {
   uint [[1]] out (n) = 1;
   if (n == 1) return out;

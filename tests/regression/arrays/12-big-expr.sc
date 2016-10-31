@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=false
+#OPTIONS_SECREC --implicitcoercions=offc
 
 void main () {
   int [[1]] a (10) = repeat(1,10);

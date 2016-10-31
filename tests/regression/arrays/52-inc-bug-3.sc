@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
     int [[2]] arr (2, 2);
     int[[1]] brr = (++ arr [0,:]);
