@@ -588,14 +588,14 @@ resolveTcCstr l mode kid k = do
     resolveTcCstr' kid (IsValid c) = do
         x <- ppM l c
         addErrorM l (TypecheckerError (locpos l) . IndexConditionNotValid x) $ do
-            ic <- prove l "resolve isValid" $ expr2IExpr $ fmap (Typed l) c
+            ic <- prove l "resolve isValid" $ expr2SimpleIExpr $ fmap (Typed l) c
             isValid l ic
     resolveTcCstr' kid (NotEqual e1 e2) = do
         x <- ppM l e1
         y <- ppM l e2
         addErrorM l (TypecheckerError (locpos l) . IndexConditionNotValid (x <+> text "!=" <+> y)) $ do
-            i1 <- prove l "resolve notEqual" $ expr2IExpr $ fmap (Typed l) e1
-            i2 <- prove l "resolve notEqual" $ expr2IExpr $ fmap (Typed l) e2
+            i1 <- prove l "resolve notEqual" $ expr2SimpleIExpr $ fmap (Typed l) e1
+            i2 <- prove l "resolve notEqual" $ expr2SimpleIExpr $ fmap (Typed l) e2
             isValid l $ IBinOp INeq i1 i2
     resolveTcCstr' kid (IsPublic b t) = do
         isPublic l b t
@@ -648,11 +648,11 @@ resolveHypCstr l mode hyp = do
             newErrorM $ addErrorM l (TypecheckerError (locpos l) . FailAddHypothesis (pph)) $ orWarn $ resolveHypCstr' hyp
         else liftM Just $ resolveHypCstr' hyp
   where
-    resolveHypCstr' (HypCondition c) = expr2IExpr $ fmap (Typed l) c
-    resolveHypCstr' (HypNotCondition c) = liftM (IUnOp INot) $ expr2IExpr $ fmap (Typed l) c
+    resolveHypCstr' (HypCondition c) = expr2SimpleIExpr $ fmap (Typed l) c
+    resolveHypCstr' (HypNotCondition c) = liftM (IUnOp INot) $ expr2SimpleIExpr $ fmap (Typed l) c
     resolveHypCstr' (HypEqual e1 e2) = do
-        i1 <- expr2IExpr $ fmap (Typed l) e1
-        i2 <- expr2IExpr $ fmap (Typed l) e2
+        i1 <- expr2SimpleIExpr $ fmap (Typed l) e1
+        i2 <- expr2SimpleIExpr $ fmap (Typed l) e2
         return $ IBinOp (IEq) i1 i2
     
 resolveCheckCstr :: (ProverK loc m) => loc -> SolveMode -> CheckCstr -> TcM m ()
@@ -1502,49 +1502,49 @@ decToken :: MonadIO m => TcM m DecType
 decToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "dtok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "dtok" mn (Just i) False False Nothing
     return $ DVar v
 
 kindToken :: MonadIO m => Maybe KindClass -> TcM m KindType
 kindToken cl = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "ktok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "ktok" mn (Just i) False False Nothing
     return $ KVar v cl
 
 secToken :: MonadIO m => KindType -> TcM m SecType
 secToken k = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "stok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "stok" mn (Just i) False False Nothing
     return $ SVar v k
     
 baseToken :: MonadIO m => Maybe DataClass -> TcM m BaseType
 baseToken cl = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "btok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "btok" mn (Just i) False False Nothing
     return $ BVar v cl
 
 arrayToken :: MonadIO m => Type -> Expr -> TcM m VArrayType
 arrayToken b sz = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "atok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "atok" mn (Just i) False False Nothing
     return $ VAVar v b sz
 
 complexToken :: MonadIO m => TcM m ComplexType
 complexToken = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "ctok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "ctok" mn (Just i) False False Nothing
     return $ CVar v False
 
 exprToken :: MonadIO m => Type -> TcM m Expr
 exprToken t = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v = VarIdentifier "etok" (Just mn) (Just i) False False Nothing
+    let v = VarIdentifier "etok" mn (Just i) False False Nothing
     return $ RVariablePExpr t (VarName t $ VIden v)
 
 exprTypeToken :: MonadIO m => TcM m Expr
@@ -1815,11 +1815,15 @@ comparesList l isLattice a@(x:xs) b@(y:ys) = do
 comparesList l isLattice xs ys = constraintError (ComparisonException "type") l xs pp ys pp Nothing
     
 appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (TcM m) -> TcM m (Comparison (TcM m))
+appendComparison l c1@(Comparison x1 x2 EQ EQ b1) c2@(Comparison y1 y2 o3 o4 b2) = do
+    return $ Comparison y1 y2 o3 o4 (b1 || b2)
+appendComparison l c1@(Comparison x1 x2 o1 o2 b1) c2@(Comparison y1 y2 EQ EQ b2) = do
+    return $ Comparison x1 x2 o1 o2 (b1 || b2)
 appendComparison l c1@(Comparison x1 x2 o1 o2 b1) c2@(Comparison y1 y2 o3 o4 b2) = do
     o1' <- appendOrdering l o1 o3
     o2' <- appendOrdering l o2 o4
     appendOrdering l o1' o1'
-    return $ Comparison y1 y2 o1' o2' (b1 || b2)
+    return $ Comparison (x1,y1) (x2,y2) o1' o2' (b1 || b2)
 
 appendOrdering :: ProverK loc m => loc -> Ordering -> Ordering -> TcM m Ordering
 appendOrdering l EQ y = return y
@@ -2032,8 +2036,8 @@ unifiesKind l = readable2 unifiesKind' l
         (priv2',k1') <- matchKindClass l priv2 k1
         addSubstM l (SubstMode CheckS True) (VarName (KType priv2') $ VIden v2) (KindT k1')
     unifiesKind' t1 t2 = do
-        pp1 <- return $ text $ show t1
-        pp2 <- return $ text $ show t2
+        pp1 <- pp t1
+        pp2 <- pp t2
         addErrorM l
             (TypecheckerError (locpos l) . (UnificationException "kind type") (pp1) (pp2) . Just)
             (equalsKind l t1 t2)
@@ -2227,7 +2231,7 @@ expandVariadicExpr = expandVariadicExpr' True
         case t of
             VAType b sz -> if isConst
                 then do
-                    sz' <- evaluateIndexExpr l sz
+                    sz' <- fullyEvaluateIndexExpr l sz
                     vs <- forM [0..pred (fromEnum sz')] $ \i -> newTypedVar ("vex"++show i) b False Nothing
                     let evs = map varExpr vs
                     tcCstrM_ l $ Unifies (IdxT e) (IdxT $ ArrayConstructorPExpr t evs)
@@ -2258,7 +2262,7 @@ expandVariadicType l (t,False) = case tyOf t of
 expandVariadicType l (VArrayT (VAVal ts _),True) = return ts
 expandVariadicType l (t@(VArrayT a),True) = do
     let tt = tyOf t
-    sz <- evaluateIndexExpr l =<< typeSize l tt
+    sz <- fullyEvaluateIndexExpr l =<< typeSize l tt
     b <- typeBase l tt
     vs <- forM [0..pred (fromEnum sz)] $ \i -> newVarOf ("varr"++show i) b False Nothing
     tcCstrM_ l $ Unifies t (VArrayT $ VAVal vs b)
@@ -2439,7 +2443,7 @@ isSupportedPrint l es xs = forM_ (zip es xs) $ \(e,x) -> do
 
 --satisfiesCondExpressions :: (ProverK loc m) => loc -> [Cond] -> TcM m ()
 --satisfiesCondExpressions l is = do
---    cs <- prove l "satisfiesCondExpressions" $ mapM (expr2IExpr . fmap (Typed l)) is
+--    cs <- prove l "satisfiesCondExpressions" $ mapM (expr2SimpleIExpr . fmap (Typed l)) is
 --    isValid l $ iAnd cs
 
 assignsExpr :: ProverK loc m => loc -> Var -> Expr -> TcM m ()
@@ -2496,12 +2500,12 @@ tryVArraySizeExpr l e = return Nothing
 projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index GIdentifier Type] -> TcM m Expr
 projectArrayExpr l e [] = return e
 projectArrayExpr l (ArrayConstructorPExpr t es) (IndexInt _ ie:s) = do
-    i <- liftM fromEnum $ evaluateIndexExpr l ie
+    i <- liftM fromEnum $ fullyEvaluateIndexExpr l ie
     checkIdx l i es
     projectArrayExpr l (es !! i) s
 projectArrayExpr l (ArrayConstructorPExpr t es) (IndexSlice _ il iu:s) = do
-    il' <- liftM fromEnum $ evaluateIndexExpr l $ maybe (indexExpr $ toEnum 0) id il
-    iu' <- liftM fromEnum $ evaluateIndexExpr l $ maybe (indexExpr $ toEnum $ length es) id iu
+    il' <- liftM fromEnum $ fullyEvaluateIndexExpr l $ maybe (indexExpr $ toEnum 0) id il
+    iu' <- liftM fromEnum $ fullyEvaluateIndexExpr l $ maybe (indexExpr $ toEnum $ length es) id iu
     checkIdx l il' es
     checkIdx l iu' es
     projectArrayExpr l (ArrayConstructorPExpr (chgArraySize (length es) t) $ drop il' $ take iu' es) s
@@ -2530,10 +2534,10 @@ tryExpandArrayExpr l e@(loc -> t) = tryTcErrorMaybe $ do
     b <- typeBase l t
     dim <- typeDim l t
     ppe <- pp e
-    idim <- prove l ("tryExpandArrayExpr " ++ show ppe) $ expr2IExpr $ fmap (Typed l) dim
+    idim <- prove l ("tryExpandArrayExpr " ++ show ppe) $ expr2SimpleIExpr $ fmap (Typed l) dim
     idim <- isValid l (IBinOp IEq idim $ ILit $ IUint64 1)
     sz <- typeSize l t
-    nsz <- evaluateIndexExpr l sz
+    nsz <- fullyEvaluateIndexExpr l sz
     es <- forM [0..pred (fromEnum nsz)] $ \i -> do
         let w = indexExpr $ toEnum i
         return $ PostIndexExpr b e $ WrapNe $ IndexInt (loc w) w
@@ -2579,8 +2583,8 @@ equalsExpr l e1 e2 = do
     sameExpr e1 e2 = do
         pp1 <- ppr e1
         pp2 <- ppr e2
-        i1 <- prove l ("equalsExpr1 " ++ pp1) $ expr2IExpr $ fmap (Typed l) e1
-        i2 <- prove l ("equalsExpr2 " ++ pp2) $ expr2IExpr $ fmap (Typed l) e2
+        i1 <- prove l ("equalsExpr1 " ++ pp1) $ expr2SimpleIExpr $ fmap (Typed l) e1
+        i2 <- prove l ("equalsExpr2 " ++ pp2) $ expr2SimpleIExpr $ fmap (Typed l) e2
         unless (i1 == i2) $ isValid l (IBinOp (IEq) i1 i2)
 --    equalsExpr' e1 e2 | not doStatic = do
 --        eq <- eqExprs l False e1 e2
@@ -2640,7 +2644,7 @@ comparesExpr l e1 e2 = do
         return (Comparison e1 e2 GT EQ False)
     comparesExpr' e1 e2@(getReadableVar -> Just (VarName t2 n2)) = do
         addValueM l (SubstMode NoCheckS False) (VarName t2 $ VIden n2) e1
-        return (Comparison e1 e2 GT EQ False)
+        return (Comparison e1 e2 LT EQ False)
     comparesExpr' e1 e2 = do
         tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)
         return (Comparison e1 e2 EQ EQ False)
@@ -2698,20 +2702,20 @@ constraintList err f l xs ys = constraintError err l xs pp ys pp Nothing
 
 checkAssertion :: (ProverK loc m) => loc -> Expr -> TcM m ()
 checkAssertion l e = do
-    ic <- prove l "checkassertion" $ expr2IExpr $ fmap (Typed l) e
+    ic <- prove l "checkassertion" $ expr2SimpleIExpr $ fmap (Typed l) e
     isValid l ic
     
 checkEqual :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 checkEqual l e1 e2 = do
     (i1,i2) <- prove l "checkequal" $ do
-        i1 <- expr2IExpr $ fmap (Typed l) e1
-        i2 <- expr2IExpr $ fmap (Typed l) e2
+        i1 <- expr2SimpleIExpr $ fmap (Typed l) e1
+        i2 <- expr2SimpleIExpr $ fmap (Typed l) e2
         return (i1,i2)
     isValid l $ IBinOp (IEq) i1 i2
 
 checkIndex :: (ProverK loc m,SMTK loc) => loc -> Expr -> TcM m ()
 checkIndex l e = do
-    ie <- prove l "checkindex" $ expr2IExpr $ fmap (Typed l) e
+    ie <- prove l "checkindex" $ expr2SimpleIExpr $ fmap (Typed l) e
     isValid l $ IBinOp (ILeq) (ILit $ IUint64 0) ie
 
 pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Either Expr Type,IsVariadic)])
@@ -2766,7 +2770,7 @@ cSecM l Void = genTcError (locpos l) $ text "no security type for void"
 isZeroIdxExpr :: ProverK loc m => loc -> Expr -> TcM m (Either SecrecError Bool)
 isZeroIdxExpr l e = do
     ppe <- pp e
-    i <- prove l ("isZeroIdxExpr " ++ show ppe) $ expr2IExpr $ fmap (Typed l) e
+    i <- prove l ("isZeroIdxExpr " ++ show ppe) $ expr2SimpleIExpr $ fmap (Typed l) e
     mb <- tryTcError $ isValid l (IBinOp IEq i $ ILit $ IUint64 0)
     case mb of
         Right () -> return $ Right True

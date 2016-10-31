@@ -323,20 +323,20 @@ simplifyExpression :: SimplifyK loc m => Bool -> Expression GIdentifier (Typed l
 simplifyExpression isExpr (ProcCallExpr l n@(loc -> Typed pl pt) ts es) = do
     (ss,ts') <- simplifyMaybe (simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr))) ts
     (ss',es') <- simplifyVariadicExpressions isExpr es
-    mb <- inlineProcCall isExpr (unTyped l) (fmap (const $ NoType "simpleProc") $ procedureNameId n) pt es'
+    mb <- inlineProcCall True isExpr (unTyped l) (fmap (const $ NoType "simpleProc") $ procedureNameId n) pt es'
     case mb of
         Right t' -> return (ss++ss',Just $ ProcCallExpr l (updLoc n $ Typed pl t') ts' es')
         Left (ss'',res) -> return (ss++ss'++ss'',res)
 simplifyExpression isExpr e@(BinaryExpr l e1 o@(loc -> Typed ol ot) e2) = do
     (ss1,e1') <- simplifyNonVoidExpression isExpr e1
     (ss2,e2') <- simplifyNonVoidExpression isExpr e2
-    mb <- inlineProcCall isExpr (unTyped l) (OIden $ fmap typed o) ot [(e1',False),(e2',False)]
+    mb <- inlineProcCall True isExpr (unTyped l) (OIden $ fmap typed o) ot [(e1',False),(e2',False)]
     case mb of
         Right t' -> return (ss1++ss2,Just $ BinaryExpr l e1' (updLoc o $ Typed ol t') e2')
         Left (ss3,res) -> return (ss1++ss2++ss3,res)
 simplifyExpression isExpr (UnaryExpr l o@(loc -> Typed ol ot) e) = do
     (ss,e') <- simplifyNonVoidExpression isExpr e
-    mb <- inlineProcCall isExpr (unTyped l) (OIden $ fmap typed o) ot [(e',False)]
+    mb <- inlineProcCall True isExpr (unTyped l) (OIden $ fmap typed o) ot [(e',False)]
     case mb of
         Right t' -> return (ss,Just $ UnaryExpr l (updLoc o $ Typed ol t') e')
         Left (ss',res) -> return (ss++ss',res)
@@ -462,7 +462,7 @@ bindProcArg True l (True,v,False) (e:es) = do
     let tl = notTyped "bind" l
     return (es,[],Map.singleton (varNameId v) e)
 bindProcArg isExpr l (_,v,True) es = do
-    sz <- evaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
+    sz <- fullyEvaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
     let (es1,es2) = splitAt (fromEnum sz) es
     return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed l $ loc v) es1)
 
@@ -499,12 +499,18 @@ procAnn' isPost l1 (EmbedAnn l isLeak s) = do
     as <- stmtAnns s
     concatMapM (procAnn' isPost (l1 || isLeak)) as
 
-splitProcAnns :: [ProcedureAnnotation iden loc] -> ([StatementAnnotation iden loc],[StatementAnnotation iden loc])
-splitProcAnns [] = ([],[])
-splitProcAnns (RequiresAnn p isFree isLeak e:xs) = let (l,r) = splitProcAnns xs in (k p isLeak e:l,r)
-    where k = if isFree then AssumeAnn else AssertAnn
-splitProcAnns (EnsuresAnn p isFree isLeak e:xs) = let (l,r) = splitProcAnns xs in (l,k p isLeak e:r)
-    where k = if isFree then AssumeAnn else AssertAnn
+splitProcAnns :: ProverK loc m => [ProcedureAnnotation iden loc] -> TcM m ([StatementAnnotation iden loc],[StatementAnnotation iden loc])
+splitProcAnns [] = return ([],[])
+splitProcAnns (RequiresAnn p isFree isLeak e:xs) = do
+    (l,r) <- splitProcAnns xs
+    let k = if isFree then AssumeAnn else AssertAnn
+    return (k p isLeak e:l,r)
+splitProcAnns (EnsuresAnn p isFree isLeak e:xs) = do
+    (l,r) <- splitProcAnns xs
+    let k = if isFree then AssumeAnn else AssertAnn
+    return (l,k p isLeak e:r)
+splitProcAnns (InlineAnn {}:xs) = splitProcAnns xs
+splitProcAnns (PDecreasesAnn {}:xs) = splitProcAnns xs
 
 simplifyStatementAnns :: SimplifyK loc m => Bool -> [StatementAnnotation GIdentifier (Typed loc)] -> TcM m [Statement GIdentifier (Typed loc)]
 simplifyStatementAnns isExpr = liftM concat . mapM (simplifyStatementAnn isExpr)
@@ -566,7 +572,7 @@ loopAnn2StmtAnn (InvariantAnn l False isLeak e) = AssertAnn l isLeak e
 
 tryInlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)
 tryInlineUnaryExpr l ue@(UnaryExpr ret o e) = do
-    mb <- inlineProcCall True l (OIden o) (loc o) [(fmap (Typed l) e,False)]
+    mb <- inlineProcCall True True l (OIden o) (loc o) [(fmap (Typed l) e,False)]
     case mb of
         Left (_,Just e) -> do
             return $ Just $ fmap typed e
@@ -583,13 +589,52 @@ inlineUnaryExpr l ue@(UnaryExpr ret o e) = do
             ppd <- pp (loc o)
             tcError (locpos l) $ Halt $ GenTcError (text "cannot inline unary expression" <+> ppue <+> ppd) Nothing
 
---readable1 :: (ToVariable x var,ProverK loc m) => (x -> TcM m b) -> loc -> x -> TcM m b
+tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> TcM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))
+tryInlineLemmaCall l (ProcCallExpr _ (ProcedureName (Typed _ (DecT dec)) (PIden n)) targs args) | decTyKind dec == LKind = do
+    let dec' = chgDecInline True dec
+    mb <- inlineProcCall False False l (PIden n) (DecT dec') args
+    case mb of
+        Left (ss,Nothing) -> do
+            anns <- stmtsAnns ss
+            case lemmaDecBody dec of
+                Nothing -> return $ Just (Nothing,anns)
+                Just _ -> return $ Just (Just dec,anns)
+        otherwise -> return Nothing
+tryInlineLemmaCall l e = return Nothing
 
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
-inlineProcCall :: SimplifyK loc m => Bool -> loc -> PIdentifier -> Type -> [(Expression GIdentifier (Typed loc),IsVariadic)] -> TcM m (Either ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc))) Type)
-inlineProcCall isExpr l n t@(DecT d) es = readable1 inlineProcCall' l d
+inlineProcCall :: SimplifyK loc m => Bool -> Bool -> loc -> PIdentifier -> Type -> [(Expression GIdentifier (Typed loc),IsVariadic)] -> TcM m (Either ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc))) Type)
+inlineProcCall withBody isExpr l n t@(DecT d) es = readable1 inlineProcCall' l d
     where
+    inlineProcCall' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just body) c)) | withBody && not isExpr && isInlineDecClass c = do
+        debugTc $ do
+            ppn <- ppr n
+            ppes <- ppr es
+            ppt <- ppr t
+            liftIO $ putStrLn $ "inlineLemmaFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
+        es' <- concatMapM unfoldVariadicExpr es
+        (decls,substs) <- bindProcArgs False l args es'
+        ann' <- subst "inlineLemmaCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
+        body' <- subst "inlineLemmaCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
+        (reqs,ens) <- splitProcAnns ann'
+        reqs' <- simplifyStatementAnns True reqs
+        ss <- simplifyStatements Nothing body'
+        ens' <- simplifyStatementAnns True ens
+        return $ Left (compoundStmts l (decls++reqs'++ss++ens'),Nothing)
+    inlineProcCall' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann _ c)) | not withBody && not isExpr && isInlineDecClass c = do
+        debugTc $ do
+            ppn <- ppr n
+            ppes <- ppr es
+            ppt <- ppr t
+            liftIO $ putStrLn $ "inlineLemmaFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
+        es' <- concatMapM unfoldVariadicExpr es
+        ([],substs) <- bindProcArgs True l args es'
+        ann' <- subst "inlineLemmaCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
+        (reqs,ens) <- splitProcAnns ann'
+        reqs' <- simplifyStatementAnns True reqs
+        ens' <- simplifyStatementAnns True ens
+        return $ Left (compoundStmts l (reqs'++ens'),Nothing)
     inlineProcCall' (DecType _ _ _ _ _ _ (ProcType _ _ args ret ann (Just body) c)) | not isExpr && isInlineDecClass c = do
         debugTc $ do
             ppn <- ppr n
@@ -598,15 +643,15 @@ inlineProcCall isExpr l n t@(DecT d) es = readable1 inlineProcCall' l d
             liftIO $ putStrLn $ "inlineProcFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
         es' <- concatMapM unfoldVariadicExpr es
         (decls,substs) <- bindProcArgs False l args es'
-        ann' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
-        body' <- subst "inlineProcCall" (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
+        ann' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
+        body' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
         mb <- type2TypeSpecifier l ret
         case mb of
             Just t -> do
                 res <- liftM (VarName (Typed l ret)) $ genVar (VIden $ mkVarId "res" :: GIdentifier)
                 let ssres = Map.singleton (VIden $ mkVarId "\\result" :: GIdentifier) (varExpr res)
-                ann'' <- subst "inlineProcCall" (substsFromMap ssres) False Map.empty ann'
-                let (reqs,ens) = splitProcAnns ann''
+                ann'' <- subst "inlineProcCall" dontStop (substsFromMap ssres) False Map.empty ann'
+                (reqs,ens) <- splitProcAnns ann''
                 (ss1,t') <- simplifyTypeSpecifier False t
                 let tl = notTyped "inline" l
                 let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
@@ -615,7 +660,7 @@ inlineProcCall isExpr l n t@(DecT d) es = readable1 inlineProcCall' l d
                 ens' <- simplifyStatementAnns True ens
                 return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++ens'),Just $ varExpr res)
             Nothing -> do
-                let (reqs,ens) = splitProcAnns ann'
+                (reqs,ens) <- splitProcAnns ann'
                 reqs' <- simplifyStatementAnns True reqs
                 ss <- simplifyStatements Nothing body'
                 ens' <- simplifyStatementAnns True ens
@@ -630,10 +675,10 @@ inlineProcCall isExpr l n t@(DecT d) es = readable1 inlineProcCall' l d
         (decls,substs) <- bindProcArgs False l args es'
         res <- liftM (VarName (Typed l ret)) $ genVar (VIden $ mkVarId "res")
         let ssres = Map.singleton (VIden $ mkVarId "\\result") (varExpr res)
-        ann' <- subst "inlineFunFalse" (substsFromMap $ Map.union substs ssres) False Map.empty $ map (fmap (fmap (updpos l))) ann
-        body' <- subst "inlineFunFalse" (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
+        ann' <- subst "inlineFunFalse" dontStop (substsFromMap $ Map.union substs ssres) False Map.empty $ map (fmap (fmap (updpos l))) ann
+        body' <- subst "inlineFunFalse" dontStop (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
         t <- type2TypeSpecifierNonVoid l ret
-        let (reqs,ens) = splitProcAnns ann'
+        (reqs,ens) <- splitProcAnns ann'
         (ss1,t') <- simplifyTypeSpecifier False t
         let tl = notTyped "inline" l
         let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
@@ -650,12 +695,12 @@ inlineProcCall isExpr l n t@(DecT d) es = readable1 inlineProcCall' l d
             liftIO $ putStrLn $ "inlineFunTrue " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
         es' <- concatMapM unfoldVariadicExpr es
         (decls,substs) <- bindProcArgs True l args es'
-        body' <- subst "inlineFunTrue" (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
+        body' <- subst "inlineFunTrue" dontStop (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
         (ss,Just body'') <- simplifyExpression True body'
         let ssret = Map.singleton (VIden $ mkVarId "\\result") body''
-        ann' <- subst "inlineFunTrue" (substsFromMap $ Map.union substs ssret) False Map.empty $ map (fmap (fmap (updpos l))) ann
+        ann' <- subst "inlineFunTrue" dontStop (substsFromMap $ Map.union substs ssret) False Map.empty $ map (fmap (fmap (updpos l))) ann
         t <- type2TypeSpecifierNonVoid l ret
-        let (reqs,ens) = splitProcAnns ann'
+        (reqs,ens) <- splitProcAnns ann'
         (ss1,t') <- simplifyTypeSpecifier True t
         let tl = notTyped "inline" l
         reqs' <- simplifyStatementAnns True reqs >>= stmtsAnns

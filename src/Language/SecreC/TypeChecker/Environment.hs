@@ -131,12 +131,12 @@ getVarsPred isAnn LocalScope f = do
 addVar :: (ProverK loc m) => loc -> Scope -> GIdentifier -> Maybe Expr -> Bool -> Bool -> EntryEnv -> TcM m ()
 addVar l GlobalScope n v isConst isAnn e = do
     dict <- liftM (head . tDict) State.get
-    e' <- substFromTDict "addVar" l dict False Map.empty e
+    e' <- substFromTDict "addVar" dontStop l dict False Map.empty e
     case v of
         Nothing -> modifyModuleEnv $ \env -> env { globalVars = Map.insert n (Nothing,(isConst,isAnn,e')) (globalVars env) }
         Just val -> do
             unifies l (loc val) (entryType e')
-            val' <- substFromTDict "addVar" l dict False Map.empty val
+            val' <- substFromTDict "addVar" dontStop l dict False Map.empty val
             modifyModuleEnv $ \env -> env { globalVars = Map.insert n (Just val',(isConst,isAnn,e')) (globalVars env) }
 addVar l LocalScope n v isConst isAnn e = do
     modify $ \env -> env { localVars = Map.insert n (isConst,isAnn,e) (localVars env) }
@@ -220,8 +220,8 @@ checkConst n@(VIden vn) = do
 
 registerVar :: Monad m => Bool -> GIdentifier -> Type -> TcM m ()
 registerVar isWrite (VIden v) t = if isWrite
-    then addDecClass (DecClass False True (Right Map.empty) (Right $ Map.singleton v t))
-    else addDecClass (DecClass False True (Right $ Map.singleton v t) (Right Map.empty))
+    then chgDecClassM $ addDecClassVars (Right Map.empty) (Right $ Map.singleton v t)
+    else chgDecClassM $ addDecClassVars (Right $ Map.singleton v t) (Right Map.empty)
 
 checkVariable :: (ProverK loc m) => Bool -> Bool -> Bool -> Scope -> VarName VarIdentifier loc -> TcM m (VarName GIdentifier (Typed loc))
 checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
@@ -575,7 +575,7 @@ newOperator bctx hdeps op = do
     addHeadTDict l "newOp" recdict
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
-    d' <- substFromTDict "newOp head" l recdict False Map.empty d
+    d' <- substFromTDict "newOp head" dontStop l recdict False Map.empty d
     let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
@@ -584,7 +584,7 @@ newOperator bctx hdeps op = do
     let did = fromJustNote "newOperator" (decTypeId $ unDecT recdt)
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
     dict <- liftM (head . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" l dict True Map.empty d'
+    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" dontStop l dict True Map.empty d'
     let td = DecT $ DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
 --    noNormalFreesM e
@@ -648,8 +648,10 @@ newDecCtx l msg (DecCtx False dict frees) doTop = do
     if doTop then solveTop l ("newDecCtx "++msg) else solve l ("newDecCtx "++msg)
     dict' <- liftM (head . tDict) State.get
     frees' <- getFrees l
-    checkFrees l frees' (toPureCstrs $ tCstrs dict') dict'
-    return $ DecCtx False (toPureTDict dict') frees'
+    let ks = toPureCstrs $ tCstrs dict'
+    let recs = if doTop then mempty else (tRec dict')
+    checkFrees l frees' ks dict'
+    return $ DecCtx False (PureTDict ks emptyTSubsts recs) frees'
 newDecCtx l msg (DecCtx True dict frees) doTop = do
     recs <- addTCstrGraphToRec l (pureCstrs dict)
     solveTop l ("newDecCtx "++msg)
@@ -738,7 +740,7 @@ newProcedureFunction bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     addHeadTDict l "newProcedureFunction" recdict
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
-    d' <- substFromTDict "newProc head" l recdict False Map.empty d
+    d' <- substFromTDict "newProc head" dontStop l recdict False Map.empty d
     let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
@@ -753,7 +755,7 @@ newProcedureFunction bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let did = fromJustNote "newProcedureFunction" (decTypeId $ unDecT recdt)
     bctx' <- addLineage did $ newDecCtx l "newProcedureFunction" bctx True
     dict <- liftM (head . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" l dict True Map.empty d'
+    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" dontStop l dict True Map.empty d'
     let dt = DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
@@ -763,20 +765,20 @@ newProcedureFunction bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
   
-newAxiom :: ProverK loc m => loc -> [(Constrained Var,IsVariadic)] -> DecCtx -> Deps -> InnerDecType -> TcM m DecType
-newAxiom l tvars bctx hdeps d = do
+newAxiom :: ProverK loc m => loc -> [(Constrained Var,IsVariadic)] -> Deps -> InnerDecType -> TcM m DecType
+newAxiom l tvars hdeps d = do
     -- prove the head constraints first
     (_,recdict) <- tcProve l "newAxiom head" $ addHeadTFlatCstrs l "newAxiom head" hdeps
     addHeadTDict l "newAxiom" recdict
     i <- newModuleTyVarId
     frees <- getFrees l
-    d' <- substFromTDict "newAxiom head" l recdict False Map.empty d
+    d' <- substFromTDict "newAxiom head" dontStop l recdict False Map.empty d
     
     doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
-    bctx' <- newDecCtx l "newAxiom" bctx True
+    bctx' <- newDecCtx l "newAxiom" (DecCtx True emptyPureTDict Map.empty) True
 --    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (head . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" l dict True Map.empty d'
+    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" dontStop l dict True Map.empty d'
     let dt = DecType i DecTypeOriginal tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
@@ -829,8 +831,8 @@ getEntries l onlyRecs isAnn isLeak (PKind) = do
     return $ Map.unionWith Map.union (Map.unionWith Map.union xs zs) ys
 --getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
 
-addDecClass :: Monad m => DecClass -> TcM m ()
-addDecClass cl = State.modify $ \env -> env { decClass = mappend cl $ decClass env }
+chgDecClassM :: Monad m => (DecClass -> DecClass) -> TcM m ()
+chgDecClassM fcl = State.modify $ \env -> env { decClass = fcl $ decClass env }
 
 entryLens :: (GIdentifier,ModuleTyVarId) -> DecKind -> Lns TcEnv [Maybe (Map ModuleTyVarId EntryEnv)]
 entryLens (dn,i) k = Lns get put
@@ -1034,10 +1036,10 @@ splitTpltHead l hctx bctx deps vars dec = do
         wvars' <- chgVarId chg (mapSet VIden wvars :: Set GIdentifier)
         pps' <- ppr wvars'
         liftIO $ putStrLn $ "writeTpltVars: " ++ pps ++ " --> " ++ pps'
-    vars' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty vars >>= chgVarId chg
-    dec' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty dec >>= chgVarId chg
-    hctx'' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty hctx' >>= chgVarId chg
-    bctx'' <- substFromTSubsts "splitHead" l hbsubsts False Map.empty bctx' >>= chgVarId chg
+    vars' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty vars >>= chgVarId chg
+    dec' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty dec >>= chgVarId chg
+    hctx'' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty hctx' >>= chgVarId chg
+    bctx'' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty bctx' >>= chgVarId chg
         
     return (hctx'',bctx'',(vars',dec'))
     
@@ -1093,7 +1095,7 @@ newStruct bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
-    d' <- substFromTDict "newStruct head" l recdict False Map.empty d
+    d' <- substFromTDict "newStruct head" dontStop l recdict False Map.empty d
     let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructs False (const True) (tyIsAnn recdt) (isLeakType recdt)
@@ -1110,7 +1112,7 @@ newStruct bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             bctx' <- addLineage did $ newDecCtx l "newStruct" bctx True
             dict <- liftM (head . tDict) State.get
             --i <- newModuleTyVarId
-            d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" (locpos l) dict True Map.empty d'
+            d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" dontStop (locpos l) dict True Map.empty d'
             let dt = DecT $ DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
             let e = EntryEnv (locpos l) dt
             debugTc $ do
@@ -1192,7 +1194,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
             NoCheckS -> return t
             otherwise -> do
                 substs <- getTSubsts l
-                substFromTSubsts "addSubst" l substs False Map.empty t
+                substFromTSubsts "addSubst" dontStop l substs False Map.empty t
         case substCheck mode of
             NoCheckS -> add l (substDirty mode) t'
             otherwise -> do
@@ -1587,7 +1589,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
   where
     addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
     addSubst l mode (ss,ks) (v,t) = do
-        t' <- substFromTSubsts "appendTSubsts" l ss False Map.empty t
+        t' <- substFromTSubsts "appendTSubsts" dontStop l ss False Map.empty t
         vs <- usedVs t'
         if (Set.member v vs)
             then do
@@ -1603,8 +1605,8 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
                 when (substDirty mode) $ dirtyGDependencies (locpos l) $ VIden v
                 return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
 
-substFromTSubsts :: (PP (TcM m) loc,Typeable loc,VarsGTcM m,Location loc,VarsG (TcM m) a) => String -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
-substFromTSubsts msg l tys doBounds ssBounds = substProxy msg (substsProxyFromTSubsts l tys) doBounds ssBounds
+substFromTSubsts :: (PP (TcM m) loc,Typeable loc,VarsGTcM m,Location loc,VarsG (TcM m) a) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
+substFromTSubsts msg stop l tys doBounds ssBounds = substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds
     
 substsProxyFromTSubsts :: (PP (TcM m) loc,Location loc,Typeable loc,Monad m) => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
@@ -1713,13 +1715,13 @@ newIOCstr c = do
             liftM (IOCstr c) $ liftIO $ newIdRef mn Unevaluated
         Just (IOCstr _ st) -> return $ IOCstr c st
 
-substFromTDict :: (Vars GIdentifier (TcM m) a,ProverK loc m) => String -> loc -> TDict -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
-substFromTDict msg l dict doBounds ssBounds = substFromTSubsts msg l (tSubsts dict) doBounds ssBounds
+substFromTDict :: (Vars GIdentifier (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TDict -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
+substFromTDict msg stop l dict doBounds ssBounds = substFromTSubsts msg stop l (tSubsts dict) doBounds ssBounds
     
 specializeM :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> a -> TcM m a
 specializeM l a = do
     ss <- getTSubsts l
-    substFromTSubsts "specialize" l ss False Map.empty a
+    substFromTSubsts "specialize" dontStop l ss False Map.empty a
 
 ppM :: (Vars GIdentifier (TcM m) a,PP (TcM m) a,ProverK loc m) => loc -> a -> TcM m Doc
 ppM l a = pp =<< specializeM l a
@@ -1798,14 +1800,14 @@ onlyLeak l doc m = do
 --nonTok v = varIdTok v == False
 tokVar v = v { varIdRead = False, varIdWrite = False }
 
-getDecClass :: MonadIO m => Maybe GIdentifier -> TcM m DecClass
-getDecClass Nothing = State.gets decClass
-getDecClass (Just gid) = do
-    opts <- askOpts
-    cl@(DecClass isAnn isInline rs ws) <- State.gets decClass
-    let es = entryPoints opts
-    isEntry <- liftM or $ mapM (\e -> liftM (e ==) $ gIdenBase gid) es
-    return $ DecClass isAnn (if isEntry then False else isInline) rs ws
+getDecClass :: MonadIO m => TcM m DecClass
+getDecClass = State.gets decClass
+--getDecClass (Just gid) = do
+--    opts <- askOpts
+--    cl@(DecClass isAnn isInline rs ws) <- State.gets decClass
+--    let es = entryPoints opts
+--    isEntry <- liftM or $ mapM (\e -> liftM (e ==) $ gIdenBase gid) es
+--    return $ DecClass isAnn (if isEntry then False else isInline) rs ws
 
 
 checkLeak :: ProverK loc m => loc -> Bool -> TcM m a -> TcM m (Bool,a)
@@ -2194,3 +2196,50 @@ isSMTError = Generics.everything (||) (Generics.mkQ False aux)
     aux (SMTException {}) = True
     aux _ = False
 
+defaultInline :: Monad m => TcM m a -> TcM m a
+defaultInline m = do
+    k <- State.gets decKind
+    let inline = case k of
+                    PKind -> False
+                    FKind -> True
+                    LKind -> False
+                    AKind -> False
+                    TKind -> False
+    withInline inline m
+
+decClassAnn :: DecClass -> Bool
+decClassAnn (DecClass isAnn _ _ _) = isAnn
+
+withInline :: Monad m => Bool -> TcM m a -> TcM m a
+withInline k m = do
+    DecClass isAnn isInline ls rs <- liftM decClass State.get
+    State.modify $ \env -> env { decClass = DecClass isAnn k ls rs }
+    x <- m
+    State.modify $ \env -> env { decClass = let (DecClass isAnn' _ ls' rs') = decClass env in DecClass isAnn' isInline ls' rs' }
+    return x
+
+chgDecClass :: (DecClass -> DecClass) -> DecType -> DecType
+chgDecClass f (DecType x1 x2 x3 x4 x5 x6 cl) = DecType x1 x2 x3 x4 x5 x6 (chgIDecClass f cl)
+
+chgDecClassInline :: Bool -> DecClass -> DecClass
+chgDecClassInline b (DecClass isAnn _ ls rs) = DecClass isAnn b ls rs
+
+chgDecInline :: Bool -> DecType -> DecType
+chgDecInline b = chgDecClass (chgDecClassInline b)
+
+chgIDecClass :: (DecClass -> DecClass) -> InnerDecType -> InnerDecType
+chgIDecClass f d@(ProcType pl n pargs pret panns body cl) = ProcType pl n pargs pret panns body (f cl)
+chgIDecClass f d@(FunType isLeak pl n pargs pret panns body cl) = FunType isLeak pl n pargs pret panns body (f cl)
+chgIDecClass f d@(StructType sl sid atts cl) = StructType sl sid atts (f cl)
+chgIDecClass f d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs (f cl)
+chgIDecClass f d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns body (f cl)
+
+lemmaDecBody :: DecType -> Maybe [Statement GIdentifier (Typed Position)]
+lemmaDecBody (DecType _ _ _ _ _ _ (LemmaType _ _ _ _ _ b _)) = b
+lemmaDecBody t = error $ "lemmaDecBody: " ++ show t
+
+stopOnDecType :: StopProxy m
+stopOnDecType = StopProxy $ \proxy x -> case proxy of
+    (eq (typeRep :: TypeOf DecType) -> EqT) -> return True
+    otherwise -> return False
+  where eq x proxy = eqTypeOf x (typeOfProxy proxy)

@@ -38,3 +38,5 @@ simplifyNonVoidExpression :: Bool -> SimplifyT loc m Expression
 inlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m Expr
 
 tryInlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)
+
+tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> TcM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))

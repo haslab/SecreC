@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 module cut;
 

@@ -1,7 +1,7 @@
 {-# LANGUAGE GADTs, ViewPatterns, ConstraintKinds, FlexibleContexts #-}
 
 module Language.SecreC.Prover.Expression (
-    expr2IExpr
+    expr2IExpr, expr2SimpleIExpr
     ) where
 
 import Language.SecreC.Syntax
@@ -11,6 +11,7 @@ import Language.SecreC.Pretty
 import Language.SecreC.Utils
 import Language.SecreC.Prover.Base
 import Language.SecreC.TypeChecker.Base
+import Language.SecreC.Vars
 import Language.SecreC.TypeChecker.Environment hiding (addVar)
 import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
 import {-# SOURCE #-} Language.SecreC.Prover.Semantics
@@ -54,11 +55,14 @@ localExprM m = do
     merge (e,Nothing) (e',Nothing) = (mergeE e e',Nothing)
     mergeE x y = maybe x Just y
 
+expr2SimpleIExpr :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> TcM m IExpr
+expr2SimpleIExpr e = expr2IExpr e >>= evalIExpr (unTyped $ loc e)
+
 expr2IExpr :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> TcM m IExpr
 expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
     substs <- lift $ getTSubsts l
-    subste <- lift $ substFromTSubsts "simplify" l substs False Map.empty e
+    subste <- lift $ substFromTSubsts "simplify" dontStop l substs False Map.empty e
     (ss',mbe') <- lift $ simplifyExpression False subste
     stmts2Prover ss'
     case mbe' of
@@ -116,7 +120,7 @@ corecall2Prover l "gt"    [e1,e2] = return $ IBinOp IGt e1 e2
 corecall2Prover l "lt"    [e1,e2] = return $ IBinOp ILt e1 e2
 corecall2Prover l "implies"    [e1,e2] = return $ IBinOp IImplies e1 e2
 corecall2Prover l "size"        [e]     = do
-    dim <- lift $ typeDim l (iExprTy e) >>= evaluateIndexExpr l
+    dim <- lift $ typeDim l (iExprTy e) >>= fullyEvaluateIndexExpr l
     case dim of
         0 -> return $ ILit $ IUint64 1
         otherwise -> return $ ISize e

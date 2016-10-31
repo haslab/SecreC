@@ -159,12 +159,12 @@ checkAny check = do
 
 checkEvalOrSMT :: ProverK loc m => loc -> IExpr -> (SMTConfig -> TcM m ()) -> TcM m ()
 checkEvalOrSMT l ie check = do
-    res <- catchError (liftM Right $ evalIExpr l ie) (return . Left)
+    res <- catchError (liftM Right $ fullEvalIExpr l ie) (return . Left)
     case res of
         Left err -> checkAny check
         Right (IBool True) -> return ()
         Right (IBool False) -> genTcError (UnhelpfulPos "evalIExpr") $ text "false"
         Right ilit -> do
             ppilit <- pp ilit
-            genTcError (UnhelpfulPos "evalIExpr") $ text "not a boolean prover expression" <+> ppilit
+            genTcError (UnhelpfulPos "evalIExpr") $ text "not a static boolean prover expression" <+> ppilit
 

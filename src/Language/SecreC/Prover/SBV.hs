@@ -108,7 +108,7 @@ iIdx2SBV :: SMTK loc => loc -> Bool -> Var -> TcSBV SBVal
 iIdx2SBV l True v@(VarName t (VIden n@(varIdRead -> True))) = do
     mb <- lift $ tryResolveEVar l n t
     case mb of
-        Just e -> lift (expr2IExpr e) >>= iExpr2SBV l
+        Just e -> lift (expr2SimpleIExpr e) >>= iExpr2SBV l
         Nothing -> iIdx2SBV l False v
 iIdx2SBV l r v@(VarName t (VIden n)) = do
     (inHyp,sbvs) <- State.get

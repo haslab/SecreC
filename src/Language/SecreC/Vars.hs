@@ -32,6 +32,12 @@ import Control.Monad.IO.Class
 import Control.Monad.State (StateT(..),State(..),execState,evalState)
 import qualified Control.Monad.State as State
 
+type Stop m = forall a . (IsScVar m a) => a -> m Bool
+newtype StopProxy m = StopProxy { unStopProxy :: forall a . (IsScVar m a) => Proxy a -> a -> m Bool }
+
+dontStop :: StopProxy m
+dontStop = StopProxy $ \_ x -> return False
+
 type Substs iden m = forall b . (GenVar iden m,IsScVar m iden,IsScVar m b) => iden -> m (Maybe b)
 newtype SubstsProxy iden m = SubstsProxy { unSubstsProxy :: forall b . (GenVar iden m,IsScVar m iden,IsScVar m b) => Proxy b -> iden -> m (Maybe b) }
 
@@ -65,8 +71,8 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
             EqT -> return iden
             NeqT -> return a
     
-    substVarsM :: Vars iden m iden => Substs iden m -> a -> VarsM iden m a
-    substVarsM f x = do
+    substVarsM :: Vars iden m iden => StopProxy m -> Substs iden m -> a -> VarsM iden m a
+    substVarsM stp@(StopProxy stop) f x = do
         mbiden <- State.lift $ substL x
         x' <- case mbiden of -- try to substitute first
             Nothing -> return x
@@ -86,19 +92,22 @@ class (GenVar iden m,IsScVar m iden,MonadIO m,IsScVar m a) => Vars iden m a wher
                             Nothing -> return x
                             Just s -> do
                                 --liftIO $ putStrLn $ "substituted " ++ ppr v ++ " --> " ++ ppr s
-                                s' <- substVarsM f s -- go recursively in case of substitution
+                                s' <- substVarsM stp f s -- go recursively in case of substitution
                                 return s'
-        traverseVars (substVarsM f) x' -- descend into children
+        ko <- State.lift $ stop Proxy x'
+        if ko
+            then return x'
+            else traverseVars (substVarsM stp f) x' -- descend into children
     
-    subst :: Vars iden m iden => String -> Substs iden m -> Bool -> Map iden iden -> a -> m a
-    subst msg f substBounds ss x = do
+    subst :: Vars iden m iden => String -> StopProxy m -> Substs iden m -> Bool -> Map iden iden -> a -> m a
+    subst msg stop f substBounds ss x = do
         --liftIO $ putStrLn $ "subst " ++ show msg
-        x <- State.evalStateT (substVarsM f x) (Nothing,False,(substBounds,ss),Map.empty,Map.empty)
+        x <- State.evalStateT (substVarsM stop f x) (Nothing,False,(substBounds,ss),Map.empty,Map.empty)
         --liftIO $ putStrLn $ "unSubsts " ++ show msg
         return x
     
-    substProxy :: Vars iden m iden => String -> SubstsProxy iden m -> Bool -> Map iden iden -> a -> m a
-    substProxy msg (SubstsProxy f) substBounds ss x = subst msg (f Proxy) substBounds ss x
+    substProxy :: Vars iden m iden => String -> StopProxy m -> SubstsProxy iden m -> Bool -> Map iden iden -> a -> m a
+    substProxy msg stop (SubstsProxy f) substBounds ss x = subst msg stop (f Proxy) substBounds ss x
         
     fvs :: a -> m (Map iden Bool)
     fvs a = do

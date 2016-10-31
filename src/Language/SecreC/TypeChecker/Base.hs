@@ -272,7 +272,7 @@ data TcEnv = TcEnv {
     , cstrCache :: CstrCache -- cache for constraints
     , solveToCache :: Bool -- solve constraints to the cache or global state
     , lineage :: Lineage -- lineage of the constraint being processed
-    , moduleCount :: ((String,TyVarId),Int)
+    , moduleCount :: (Maybe (String,TyVarId),Int)
     , inTemplate :: Maybe [TemplateTok] -- if typechecking inside a template, global constraints are delayed
     , decKind :: DecKind -- if typechecking inside a declaration
     , exprC :: ExprClass -- type of expression
@@ -524,13 +524,13 @@ emptyTcEnv = TcEnv
     , cstrCache = Map.empty
     , solveToCache = False
     , lineage = []
-    , moduleCount = (("builtins",TyVarId (-1)),1)
+    , moduleCount = (Nothing,0)
     , inTemplate = Nothing
     , decKind = FKind
     , exprC = ReadOnlyExpr
     , isLeak = False
     , localConsts = Map.empty
-    , decClass = mempty
+    , decClass = DecClass False False (Left False) (Left False)
     , moduleEnv = (mempty,mempty)
     , isDef = False
     }
@@ -674,6 +674,7 @@ runTcM m = liftM fst $ RWS.evalRWST (unTcM m') (0,SecrecErrArr id) emptyTcEnv
         let Just (g,tid) = decTypeId dec
         modifyModuleEnv $ \env -> env { functions = Map.insert g (Map.singleton tid $ EntryEnv noloc $ DecT dec) $ functions env }
         -- run computation
+        State.modify $ \env -> env { moduleCount = mapSnd succ (moduleCount env) }
         m
 
 coercesDec :: MonadIO m => TcM m DecType
@@ -696,7 +697,7 @@ coercesDec = do
     let k = TcK (Coerces (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
     let ctx = DecCtx False (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
-    let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) mempty
+    let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
     debugTc $ do
         ppd <- ppr dec
         liftIO $ putStrLn $ "added base coercion dec " ++ ppd
@@ -1393,14 +1394,14 @@ instance (Vars GIdentifier m loc,Vars GIdentifier m a) => Vars GIdentifier m (Lo
 newModuleTyVarId :: MonadIO m => TcM m ModuleTyVarId
 newModuleTyVarId = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
-    return $ ModuleTyVarId mn i
+    m <- State.gets (fst . moduleCount)
+    return $ ModuleTyVarId m i
 
 freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 freshVarId n doc = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
-    let v' = VarIdentifier n (Just mn) (Just i) True True doc
+    let v' = VarIdentifier n mn (Just i) True True doc
     return v'
 
 freeVarId :: MonadIO m => Identifier -> Bool -> Maybe Doc -> TcM m VarIdentifier
@@ -1506,16 +1507,10 @@ instance PP Identity VarIdentifier where
     pp v = ppVarId defaultOptions v
 
 ppVarId :: Monad m => Options -> VarIdentifier -> m Doc
-ppVarId opts v = case varIdPretty v of
-    Just s -> if debug opts
-        then do
-            pv <- ppVarId' v
-            let pread = if varIdRead v then "Read" else "NoRead"
-            let pwrite = if varIdWrite v then "Write" else "NoWrite"
-            return $ pv <> char '#' <> text pread <> text pwrite <> char '#' <> s
-        else return s
-    Nothing -> ppVarId' v
+ppVarId opts v = liftM (ppPretty . ppRWs) (ppVarId' v)
   where
+    pread = if varIdRead v then "Read" else "NoRead"
+    pwrite = if varIdWrite v then "Write" else "NoWrite"
     f (x,blk) = do
         pp1 <- pp blk
         return $ text x <> char '.' <> pp1 <> char '.'
@@ -1526,6 +1521,14 @@ ppVarId opts v = case varIdPretty v of
         ppo <- ppOpt m f
         ppi <- pp i
         return $ ppo <> text n <> char '_' <> ppi
+    ppRWs x = if debug opts
+        then x <> char '#' <> text pread <> text pwrite
+        else x
+    ppPretty x = case varIdPretty v of
+        Just s -> if debug opts
+            then x <> char '#' <> s
+            else s
+        Nothing -> x
 
 newtype TyVarId = TyVarId Integer deriving (Eq,Ord,Data,Generic)
 instance Show TyVarId where
@@ -1943,11 +1946,12 @@ instance PP m VarIdentifier => PP m DecType where
         pp6 <- pp n
         pp7 <- mapM pp specs
         pp8 <- ppOpt atts (liftM (braces . vcat) . mapM ppAtt)
+        pp9 <- pp cl
         return $ pp1 <+> pp2
             $+$ pp3 $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
-            $+$ text "struct" <+> pp6 <> abrackets (sepBy comma pp7) <+> pp8
-    pp (DecType did isrec vars hctx bctx specs body@(ProcType _ n args ret ann stmts _)) = do
+            $+$ text "struct" <+> pp6 <> abrackets (sepBy comma pp7) <+> pp8 $+$ pp9
+    pp (DecType did isrec vars hctx bctx specs body@(ProcType _ n args ret ann stmts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp3 <- pp hctx
@@ -1959,6 +1963,7 @@ instance PP m VarIdentifier => PP m DecType where
         pp8 <- mapM ppConstArg args
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
+        ppcl <- pp cl
         return $ pp1 <+> pp2
             $+$ pp3
             $+$ pp4
@@ -1966,7 +1971,8 @@ instance PP m VarIdentifier => PP m DecType where
             $+$ pp6 <+> prefixOp (isOIden' n) pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10
-    pp (DecType did isrec vars hctx bctx specs body@(FunType isLeak _ n args ret ann stmts _)) = do
+            $+$ ppcl
+    pp (DecType did isrec vars hctx bctx specs body@(FunType isLeak _ n args ret ann stmts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp3 <- pp hctx
@@ -1978,14 +1984,16 @@ instance PP m VarIdentifier => PP m DecType where
         pp8 <- mapM ppConstArg args
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
+        ppcl  <- pp cl
         return $ ppLeak isLeak (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
             $+$ pp6 <+> prefixOp (isOIden' n) pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
-            $+$ pp10)
-    pp (DecType did isrec vars hctx bctx specs body@(AxiomType isLeak _ args ann _)) = do
+            $+$ pp10
+            $+$ ppcl)
+    pp (DecType did isrec vars hctx bctx specs body@(AxiomType isLeak _ args ann cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp3 <- pp hctx
@@ -1994,12 +2002,13 @@ instance PP m VarIdentifier => PP m DecType where
         pp50 <- mapM pp specs
         pp6 <- mapM ppConstArg args
         pp7 <- pp ann
+        ppcl <- pp cl
         return $ ppLeak isLeak (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "axiom" <> abrackets (sepBy comma pp5) <> abrackets (sepBy comma pp50)
-            <+> parens (sepBy comma $ pp6) $+$ pp7)
-    pp (DecType did isrec vars hctx bctx specs body@(LemmaType isLeak _ n args ann stmts _)) = do
+            <+> parens (sepBy comma $ pp6) $+$ pp7 $+$ ppcl)
+    pp (DecType did isrec vars hctx bctx specs body@(LemmaType isLeak _ n args ann stmts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
         pp3 <- pp hctx
@@ -2010,13 +2019,14 @@ instance PP m VarIdentifier => PP m DecType where
         pp7 <- mapM ppConstArg args
         pp8 <- pp ann
         pp9 <- ppOpt stmts (liftM braces . pp)
+        ppcl <- pp cl
         return $ ppLeak isLeak (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "lemma" <+> pp5 <+> abrackets (sepBy comma pp6) <> abrackets (sepBy comma pp60)
             <+> parens (sepBy comma pp7)
             $+$ pp8
-            $+$ pp9)
+            $+$ pp9 $+$ ppcl)
     pp (DVar v) = pp v
     pp d = error $ "pp: " ++ show d
 
@@ -2317,11 +2327,11 @@ instance PP m VarIdentifier => PP m DecClass where
     pp (DecClass False inline r w) = do
         ppr <- pp r
         ppw <- pp w
-        return $ text "procedure" <+> ppInline inline <+> ppr <+> ppw
+        return $ ppInline inline <+> ppr <+> ppw
     pp (DecClass True inline r w) = do
         ppr <- pp r
         ppw <- pp w
-        return $ text "annotation procedure" <+> ppInline inline <+> ppr <+> ppw
+        return $ text "annotation" <+> ppInline inline <+> ppr <+> ppw
 
 traverseDecClassVars :: (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> Either Bool (Map VarIdentifier Type) -> VarsM GIdentifier m (Either Bool (Map VarIdentifier Type))
 traverseDecClassVars f (Left x) = do
@@ -2557,9 +2567,8 @@ data DecClass
 instance Binary DecClass
 instance Hashable DecClass
 
-instance Monoid DecClass where
-    mempty = DecClass False True (Left False) (Left False)
-    mappend (DecClass x i1 r1 w1) (DecClass y i2 r2 w2) = DecClass (x || y) (i1 && i2) (joinVs r1 r2) (joinVs w1 w2)
+addDecClassVars :: (Either Bool (Map VarIdentifier Type)) -> (Either Bool (Map VarIdentifier Type)) -> DecClass -> DecClass
+addDecClassVars r2 w2 (DecClass isAnn isInline r1 w1) = DecClass isAnn isInline (joinVs r1 r2) (joinVs w1 w2)
       where
       joinVs (Left b) (Right vs) = if Map.null vs then Left b else Right vs
       joinVs (Right vs) (Left b) = if Map.null vs then Left b else Right vs
@@ -2655,16 +2664,20 @@ isPublicSecType Public = True
 isPublicSecType _ = False
 
 data ModuleTyVarId = ModuleTyVarId
-    { modTyName :: (Identifier,TyVarId)
+    { modTyName :: Maybe (Identifier,TyVarId)
     , modTyId :: TyVarId
     }
   deriving (Eq,Ord,Data,Generic,Show)
 instance Monad m => PP m ModuleTyVarId where
-    pp (ModuleTyVarId (m,blk) i) = do
-        ppm <- pp m
-        ppblk <- pp blk
-        ppi <- pp i
-        return $ ppm <> char '.' <> ppblk <> char '.' <> ppi
+    pp (ModuleTyVarId name i) = case name of
+        Just (m,blk) -> do
+            ppm <- pp m
+            ppblk <- pp blk
+            ppi <- pp i
+            return $ ppm <> char '.' <> ppblk <> char '.' <> ppi
+        Nothing -> do
+            ppi <- pp i
+            return $ text "BUILTIN" <> char '.' <> ppi
 instance Binary ModuleTyVarId
 instance Hashable ModuleTyVarId
 

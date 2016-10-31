@@ -254,7 +254,7 @@ tcVarDecl scope (VariableDeclaration l isConst isHavoc tyspec vars) = do
 tcVarInit :: (ProverK loc m) => Bool -> Bool -> Scope -> Type -> VariableInitialization Identifier loc -> TcM m (VariableInitialization GIdentifier (Typed loc))
 tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- withDef True $ withExprC ReadWriteExpr $ tcDefaultInitExpr l isHavoc ty' szs' e
+    e' <- withExprC ReadWriteExpr $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     -- do not store the size, since it can change dynamically
     vn <- addConst scope (True,False) False n
@@ -265,7 +265,7 @@ tcVarInit False isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs 
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e) = do
     (ty',szs') <- tcTypeSizes l ty szs
-    e' <- withDef True $ withExprC PureExpr $ tcDefaultInitExpr l isHavoc ty' szs' e
+    e' <- withExprC PureExpr $ tcDefaultInitExpr l isHavoc ty' szs' e
     -- add the array size to the type
     vn <- addConst scope (True,True) False n
     let v' = VarName (Typed vl ty') vn
@@ -275,10 +275,10 @@ tcVarInit True isHavoc scope ty (VariableInitialization l v@(VarName vl n) szs e
     return (VariableInitialization (notTyped "tcVarInit" l) v' szs' e')
 
 tcDefaultInitExpr :: ProverK loc m => loc -> IsHavoc -> Type -> Maybe (Sizes GIdentifier (Typed loc)) -> Maybe (Expression Identifier loc) -> TcM m (Maybe (Expression GIdentifier (Typed loc)))
-tcDefaultInitExpr l isHavoc ty szs (Just e) = do
+tcDefaultInitExpr l isHavoc ty szs (Just e) = withDef False $ do
     liftM Just $ tcExprTy ty e
 tcDefaultInitExpr l True ty szs Nothing = return Nothing
-tcDefaultInitExpr l False ty szs Nothing = liftM Just $ do
+tcDefaultInitExpr l False ty szs Nothing = liftM Just $ withDef True $ do
     x <- liftM varExpr $ newTypedVar "def" ty False Nothing
     let szsl = case szs of
                 Nothing -> Nothing

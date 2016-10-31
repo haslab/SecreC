@@ -9,3 +9,5 @@ import Language.SecreC.TypeChecker.Base
 import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
 
 expr2IExpr :: ProverK loc m => Expression GIdentifier (Typed loc) -> TcM m IExpr
+
+expr2SimpleIExpr :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> TcM m IExpr

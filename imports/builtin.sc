@@ -339,6 +339,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -351,6 +352,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -362,6 +364,7 @@ D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
 template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator ! (D bool[[N]] x)
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -374,6 +377,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -386,6 +390,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -398,6 +403,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -411,6 +417,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -422,6 +429,7 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 template <domain D, type T, dim N { N > 0 } >
 context<>
 D T[[N]] operator - (D T[[N]] x)
+//@ inline;
 {
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -434,6 +442,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -446,6 +455,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -458,6 +468,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -470,6 +481,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -482,6 +494,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -494,6 +507,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -506,6 +520,7 @@ template <domain D, type T, dim N { N > 0 } >
 context<>
 D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
+//@ inline;
 {
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
@@ -517,6 +532,7 @@ D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 template <domain D, dim N { N > 0 }, type X, type Y>
 context<>
 D Y[[N]] operator (Y) (D X[[N]] x)
+//@ inline;
 {
     D Y[[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {

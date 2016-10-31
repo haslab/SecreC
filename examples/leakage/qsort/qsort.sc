@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 module qsort;
 
@@ -12,6 +13,7 @@ domain private privatek;
 
 //@ template <domain D,type T>
 //@ leakage function bool lcomparison (D T[[1]] xs,D T x)
+//@ context<>
 //@ noinline;
 //@ {
 //@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
@@ -19,23 +21,27 @@ domain private privatek;
 
 //@ template <domain D,type T>
 //@ leakage function bool lcomparisons (D T[[1]] xs)
+//@ context<>
 //@ noinline;
 //@ {
 //@     forall uint i,uint j ; (0 <= i && i < size(xs) && 0 <= j && j < size(xs)) ==> public(xs[i] <= xs[j])
 //@ }
 
 //@ leakage lemma lcomparisons_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys)
+//@ context<>
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires lcomparisons(xs);
 //@ ensures lcomparisons(ys);
-
+ 
 //@ leakage lemma lcomparison_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys, D T z)
+//@ context<>
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires in(z,xs);
 //@ requires lcomparisons(xs);
 //@ ensures lcomparison(ys,z);
 
 //@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
+//@ context<>
 //@ requires size(xs) > 1;
 //@ ensures xs == cat({xs[0]},xs[1:]);
 
@@ -47,7 +53,9 @@ struct partition_result {
 }
 
 // append an element to the end of an array. everything is pass-by-value
-private uint[[1]] snoc (private uint[[1]] xs, private uint x) {
+private uint[[1]] snoc (private uint[[1]] xs, private uint x)
+//@ inline;
+{
     return cat (xs, {x});
 }
 
@@ -63,8 +71,7 @@ partition_result partition (private uint[[1]] xs, private uint p)
     //@ invariant multiset(xs[:i]) == multiset(ls) + multiset(rs);
     {
         private uint y = xs[i];
-        // XXX public branching!
-        if (declassify (y <= p)) ls = snoc (ls, y);
+        if (declassify (y <= p)) ls = snoc(ls,y);
         else rs = snoc (rs, y);
     }
 

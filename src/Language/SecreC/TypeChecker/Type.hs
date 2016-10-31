@@ -326,7 +326,7 @@ projectMatrixType l t rngs = do
 
 projectSizes :: (ProverK loc m) => loc -> Type -> Word64 -> [ArrayProj] -> TcM m (Word64,Maybe [Expr])
 projectSizes p t i ys = do
-    n <- evaluateIndexExpr p =<< typeDim p t
+    n <- fullyEvaluateIndexExpr p =<< typeDim p t
     szs <- typeSizes p t
     ppt <- pp t
     ppys <- liftM (sepBy comma) $ mapM pp ys
@@ -577,7 +577,7 @@ defaultExpr l t@(ComplexT (CVar v c)) szs = do
     c <- resolveCVar l v c
     defaultExpr l (ComplexT c) szs
 defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
-    mbd <- tryTcError $ addErrorM l (TypecheckerError (locpos l) . GenTcError (text "defaultExpr dimension") . Just) $ evaluateIndexExpr l d
+    mbd <- tryTcError $ addErrorM l (TypecheckerError (locpos l) . GenTcError (text "defaultExpr dimension") . Just) $ fullyEvaluateIndexExpr l d
     case mbd of
         Right 0 -> addErrorM l (TypecheckerError (locpos l) . GenTcError (text "dimension == 0") . Just) $ defaultBaseExpr l s b
         Right n -> do

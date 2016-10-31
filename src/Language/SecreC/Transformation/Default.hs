@@ -65,7 +65,8 @@ defaultConstructor targs (StructureDeclaration l (TypeName tl tn) (TemplateConte
     let ty = TypeSpecifier l Nothing (TemplateSpecifier l (TypeName tl tn) targs) Nothing
     let ret = ReturnType l $ Just ty
     body <- defaultConstructorBody l ty atts
-    return $ ProcedureDeclaration l ret (ProcedureName tl tn) [] (TemplateContext cl Nothing) [] body 
+    let inline = InlineAnn l True
+    return $ ProcedureDeclaration l ret (ProcedureName tl tn) [] (TemplateContext cl Nothing) [inline] body 
     
 defaultConstructorBody :: DefaultK m => Position -> TypeSpecifier Identifier Position -> [Attribute Identifier Position] -> DefaultM m [Statement Identifier Position]
 defaultConstructorBody l ty atts = do

@@ -38,16 +38,16 @@ import Control.Monad.Trans.Control
 
 -- * Exports
 
-evaluateIndexExpr :: (ProverK loc m) => loc -> Expr -> TcM m Word64
-evaluateIndexExpr l e = do
-    IUint64 w <- evaluateExpr l $ fmap (Typed l) e
+fullyEvaluateIndexExpr :: (ProverK loc m) => loc -> Expr -> TcM m Word64
+fullyEvaluateIndexExpr l e = do
+    IUint64 w <- fullyEvaluateExpr l $ fmap (Typed l) e
     return w
 
-evaluateExpr :: (ProverK loc m) => loc -> Expression GIdentifier (Typed loc) -> TcM m ILit
-evaluateExpr l e = evaluate l (text "evaluateExpr") (evalIExpr l =<< expr2IExpr e)
+fullyEvaluateExpr :: (ProverK loc m) => loc -> Expression GIdentifier (Typed loc) -> TcM m ILit
+fullyEvaluateExpr l e = evaluate l (text "evaluateExpr") (fullEvalIExpr l =<< expr2IExpr e)
 
-evaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
-evaluateIExpr l e = evaluate l (text "evaluateExpr") (evalIExpr l e)
+fullyEvaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
+fullyEvaluateIExpr l e = evaluate l (text "evaluateExpr") (fullEvalIExpr l e)
 
 ---- * Internal declarations
 
@@ -65,15 +65,22 @@ evaluate l doc m = do
             State.put env'
             TcM (lift $ Writer.tell warns) >> return x
 
-evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
-evalIExpr l (ILit lit) = return lit
+fullEvalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
+fullEvalIExpr l e = do
+    i <- evalIExpr l e
+    case i of
+        ILit lit -> return lit
+        otherwise -> do
+            ppi <- pp i
+            tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) (text "cannot fully evaluate index expression" <+> ppi) Nothing
+
+evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m IExpr
+evalIExpr l (ILit lit) = return $ ILit lit
 evalIExpr l (IIdx v@(VarName t (VIden n@(varIdRead -> True)))) = do
     mb <- tryResolveEVar l n t
     case mb of
-        Nothing -> do
-            ppv <- pp v
-            tcError (locpos l) $ Halt $ StaticEvalError (text "evalIExpr") $ Just $ GenericError (locpos l) (text "variable binding for" <+> ppv <+> text "not found") Nothing
-        Just e -> expr2IExpr e >>= evalIExpr l
+        Nothing -> return $ IIdx v
+        Just e -> expr2SimpleIExpr e >>= evalIExpr l
 evalIExpr l (IBinOp o e1 e2) = do
     e1' <- evalIExpr l e1
     e2' <- evalIExpr l e2
@@ -84,47 +91,56 @@ evalIExpr l (IUnOp o e1) = do
 evalIExpr l (ICond c e1 e2) = do
    c' <- evalIExpr l c
    case c' of
-       IBool True -> evalIExpr l e1
-       IBool False -> evalIExpr l e2
-evalIExpr l (ISize (IArr _ xs)) = do
-    let sz = fromInteger $ toInteger $ sum $ List.map length xs
-    return $ IUint64 sz
-evalIExpr l (IShape (IArr _ xs)) = do
-    let szs = List.map (fromInteger . toInteger . length) xs
-    return $ ILitArr index [List.map (IUint64) szs]
-evalIExpr l e = do
-    ppe <- pp e
-    genTcError (locpos l) $ text "evalIExpr: unsupported" <+> ppe
+       ILit (IBool True) -> evalIExpr l e1
+       ILit (IBool False) -> evalIExpr l e2
+       c' -> do
+           e1' <- evalIExpr l e1
+           e2' <- evalIExpr l e2
+           return $ ICond c' e1' e2'
+evalIExpr l (ISize e) = do
+    e' <- evalIExpr l e
+    case e' of
+        (IArr _ xs) -> do
+            let sz = fromInteger $ toInteger $ sum $ List.map length xs
+            return $ ILit $ IUint64 sz
+        otherwise -> return $ ISize e'
+evalIExpr l (IShape e) = do
+    e' <- evalIExpr l e
+    case e' of
+        IArr _ xs -> do
+            let szs = List.map (fromInteger . toInteger . length) xs
+            return $ ILit $ ILitArr index [List.map (IUint64) szs]
+        otherwise -> return $ IShape e'
+evalIExpr l e = return e
 
-evalIBinOp :: ProverK loc m => loc -> IBOp -> ILit -> ILit -> TcM m ILit
-evalIBinOp l IAnd (IBool b1) (IBool b2) = return $ IBool $ b1 && b2
-evalIBinOp l IOr (IBool b1) (IBool b2) = return $ IBool $ b1 || b2
-evalIBinOp l IImplies (IBool b1) (IBool b2) = return $ IBool $ b1 <= b2
-evalIBinOp l IXor (IBool b1) (IBool b2) = return $ IBool $ (b1 || b2) && not (b1 && b2)
-evalIBinOp l (ILeq) e1 e2 = return $ IBool $ ordILit (<=) e1 e2
-evalIBinOp l (ILt) e1 e2 = return $ IBool $ ordILit (<) e1 e2
-evalIBinOp l (IGeq) e1 e2 = return $ IBool $ ordILit (>=) e1 e2
-evalIBinOp l (IGt) e1 e2 = return $ IBool $ ordILit (>) e1 e2
-evalIBinOp l (IEq) e1 e2 = return $ IBool $ ordILit (==) e1 e2
-evalIBinOp l (IPlus) e1 e2 = return $ numILit (+) e1 e2
-evalIBinOp l (IMinus) e1 e2 = return $ numILit (-) e1 e2
-evalIBinOp l (ITimes) e1 e2 = return $ numILit (*) e1 e2
-evalIBinOp l (IPower) e1 e2 = return $ integralILit (^) e1 e2
-evalIBinOp l (IDiv) e1 e2 = return $ integralILit div e1 e2
-evalIBinOp l (IMod) e1 e2 = return $ integralILit mod e1 e2
-evalIBinOp l op e1 e2 = do
-    pp1 <- pp op
-    pp2 <- pp e1
-    pp3 <- pp e2
-    genTcError (locpos l) $ text "evalIBinOp: unsupported" <+> pp1 <+> pp2 <+> pp3
+boolILit :: IExpr -> Maybe Bool
+boolILit (ILit (IBool b)) = Just b
+boolILit e = Nothing
 
-evalIUnOp :: ProverK loc m => loc -> IUOp -> ILit -> TcM m ILit
-evalIUnOp l INot (IBool b) = return $ IBool $ not b
-evalIUnOp l INeg i = return $ numILit (\x y -> -x) i (error "evalIUnOp INed")
-evalIUnOp l op e1 = do
-    pp1 <- pp op
-    pp2 <- pp e1
-    genTcError (locpos l) $ text "evalIUnOp: unsupported" <+> pp1 <+> pp2
+evalIBinOp :: ProverK loc m => loc -> IBOp -> IExpr -> IExpr -> TcM m IExpr
+evalIBinOp l IAnd (boolILit -> Just b1) (boolILit -> Just b2) = return $ ILit $ IBool $ b1 && b2
+evalIBinOp l IOr (boolILit -> Just b1) (boolILit -> Just b2) = return $ ILit $ IBool $ b1 || b2
+evalIBinOp l IImplies (boolILit -> Just False) b2 = return $ ILit $ IBool True
+evalIBinOp l IImplies b1 (boolILit -> Just False) = return $ ILit $ IBool False
+evalIBinOp l IImplies (boolILit -> Just b1) (boolILit -> Just b2) = return $ILit $ IBool $ b1 <= b2
+evalIBinOp l IXor (boolILit -> Just b1) (boolILit -> Just b2) = return $ ILit $ IBool $  (b1 || b2) && not (b1 && b2)
+evalIBinOp l (ILeq) (ILit e1) (ILit e2) = return $ ILit $ IBool $ ordILit (<=) e1 e2
+evalIBinOp l (ILt) (ILit e1) (ILit e2) = return $ ILit $ IBool $ ordILit (<) e1 e2
+evalIBinOp l (IGeq) (ILit e1) (ILit e2) = return $ ILit $ IBool $ ordILit (>=) e1 e2
+evalIBinOp l (IGt) (ILit e1) (ILit e2) = return $ ILit $ IBool $ ordILit (>) e1 e2
+evalIBinOp l (IEq) (ILit e1) (ILit e2) = return $ ILit $ IBool $ ordILit (==) e1 e2
+evalIBinOp l (IPlus) (ILit e1) (ILit e2) = return $ ILit $ numILit (+) e1 e2
+evalIBinOp l (IMinus) (ILit e1) (ILit e2) = return $ ILit $ numILit (-) e1 e2
+evalIBinOp l (ITimes) (ILit e1) (ILit e2) = return $ ILit $ numILit (*) e1 e2
+evalIBinOp l (IPower) (ILit e1) (ILit e2) = return $ ILit $ integralILit (^) e1 e2
+evalIBinOp l (IDiv) (ILit e1) (ILit e2) = return $ ILit $ integralILit div e1 e2
+evalIBinOp l (IMod) (ILit e1) (ILit e2) = return $ ILit $ integralILit mod e1 e2
+evalIBinOp l op e1 e2 = return $ IBinOp op e1 e2
+
+evalIUnOp :: ProverK loc m => loc -> IUOp -> IExpr -> TcM m IExpr
+evalIUnOp l INot (boolILit -> Just b) = return $ ILit $ IBool $ not b
+evalIUnOp l INeg (ILit i) = return $ ILit $ numILit (\x y -> -x) i (error "evalIUnOp INed")
+evalIUnOp l op e1 = return $ IUnOp op e1
 
 numILit :: (forall a . Num a => a -> a -> a) -> ILit -> ILit -> ILit
 numILit f (IInt8 i1)    (IInt8 i2)    = IInt8 $ f i1 i2

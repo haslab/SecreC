@@ -35,6 +35,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
+import Control.Monad.State (StateT(..))
 
 import Text.PrettyPrint as PP
 
@@ -256,7 +257,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,targs',headDict,b
                 PureExpr -> unless (isEmpty rs && isEmpty ws) $ genTcError (locpos p) $ text "procedure" <+> ppdecrec <+> text "not pure" <+> def
                 ReadOnlyExpr -> unless (isEmpty ws) $ genTcError (locpos p) $ text "procedure" <+> ppdecrec <+> text "not read-only" <+> def
                 ReadWriteExpr -> return ()
-            addDecClass tycl
+            chgDecClassM $ addDecClassVars rs ws
     return (decrec,headCstrs)
 
 templateCstrs :: Location loc => Lineage -> ModuleTcEnv -> Doc -> loc -> TDict -> TDict
@@ -290,10 +291,10 @@ variadicFrees = Map.filter (\b -> b)
 ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
 ppTpltAppM l pid args es ret = do
     ss <- getTSubsts l
-    pid' <- substFromTSubsts "ppTplt" l ss False Map.empty pid
-    args' <- mapM (mapM (mapFstM (substFromTSubsts "ppTplt" l ss False Map.empty))) args
-    es' <- mapM (mapM (mapSnd3M (substFromTSubsts "ppTplt" l ss False Map.empty))) es
-    ret' <- substFromTSubsts "ppTplt" l ss False Map.empty ret
+    pid' <- substFromTSubsts "ppTplt" dontStop l ss False Map.empty pid
+    args' <- mapM (mapM (mapFstM (substFromTSubsts "ppTplt" dontStop l ss False Map.empty))) args
+    es' <- mapM (mapM (mapSnd3M (substFromTSubsts "ppTplt" dontStop l ss False Map.empty))) es
+    ret' <- substFromTSubsts "ppTplt" dontStop l ss False Map.empty ret
     ppTpltApp pid' args' es' ret'
 
 ppTpltApp :: ProverK Position m => TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
@@ -369,9 +370,9 @@ compareTwice l x x' y y' cmp1 cmp2 = do
             --    ppo' <- ppr o'
             --    liftIO $ putStrLn $ "comparing after " ++ ppo'
             case compOrdering o' of
-                (EQ,isLat',ko') -> do -- the initial non-coercion comparison is the one to choose from
+                (ord',isLat',ko') -> do -- the initial non-coercion comparison is the one to choose from
                     appendComparison l o o' -- the pre and post comparisons should be consistent
-                    return $ Comparison x y ord (minOrd isLat isLat') (min ko ko')
+                    return $ Comparison x y (min ord ord') (minOrd isLat isLat') (min ko ko')
                 otherwise -> do
                     ppo <- ppr o
                     ppo' <- ppr $ compOrdering o'
@@ -521,21 +522,35 @@ matchVariadicPArgs l xs ys = do
 
 matchBasePArgs :: ProverK loc m => loc -> [(Bool,Expr,IsVariadic)] -> [(Either Expr Type,IsVariadic)] -> TcM m [([(Bool,Expr,IsVariadic)],[(Either Expr Type,IsVariadic)])]
 matchBasePArgs l [] [] = return []
+matchBasePArgs l (x:xs) (y:ys) | not (thr3 x) && not (snd y) = do
+    matchBasePArg l x y
+    xys <- matchBasePArgs l xs ys
+    return $ ([x],[y]) : xys
 matchBasePArgs l xs ys = do
-    (ys',ys'') <- flip spanM ys $ \y -> maybe (return False) (\x -> matchBasePArg l x y) (headMay xs)
-    (xs',xs'') <- flip spanM xs $ \x -> maybe (return False) (matchBasePArg l x) (headMay ys)
+    (ys',ys'') <- checkHead thr3 xs $ spanRight ys xs
+    (xs',xs'') <- checkHead snd ys $ spanLeft xs ys
     when (List.null xs' && List.null ys') $ do
         ppxs <- pp $ map (\(x,y,z) -> (y,z)) xs
         ppys <- liftM (sepBy comma) $ mapM (ppVariadicArg (either ppExprTy pp)) ys
-        genTcError (locpos l) $ text "Procedure arguments do not match" <+> ppxs <+> ppys
+        genTcError (locpos l) $ text "Procedure arguments do not match" <+> ppxs <+> text " with " <+> ppys
     xys <- matchBasePArgs l xs'' ys''
     return $ (xs',ys') : xys
+  where
+    spanLeft xs ys = flip spanM xs $ \x -> maybe (return False) (tryMatchBasePArg l x) (headMay ys)
+    spanRight ys xs = flip spanM ys $ \y -> maybe (return False) (\x -> tryMatchBasePArg l x y) (headMay xs)
+    checkHead isV (z:zs) m = if isV z then m else do
+        (ls,rs) <- m
+        return (take 1 ls,drop 1 ls ++ rs)
+    checkHead f [] m = return ([],[])
 
-matchBasePArg :: ProverK loc m => loc -> (Bool,Expr,IsVariadic) -> (Either Expr Type,IsVariadic) -> TcM m Bool
+tryMatchBasePArg :: ProverK loc m => loc -> (Bool,Expr,IsVariadic) -> (Either Expr Type,IsVariadic) -> TcM m Bool
+tryMatchBasePArg l le re = liftM isJust $ tryCstrMaybe l $ matchBasePArg l le re
+
+matchBasePArg :: ProverK loc m => loc -> (Bool,Expr,IsVariadic) -> (Either Expr Type,IsVariadic) -> TcM m ()
 matchBasePArg l le re = do
     lb <- lBase l le
     rb <- rBase l re
-    liftM isJust $ tryCstrMaybe l $ tcCstrM_ l $ Unifies lb rb
+    tcCstrM_ l $ Unifies lb rb
   where
     lBase :: ProverK loc m => loc -> (Bool,Expr,IsVariadic) -> TcM m Type
     lBase l (isConst,e,False) = return $ loc e
@@ -748,9 +763,9 @@ instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = lim
                         --removeIOCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
                         (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
-                        hgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty hgr'
-                        bgr'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty bgr'
-                        recs'' <- substFromTSubsts "instantiate tplt" l subst' False Map.empty recs'
+                        hgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty hgr'
+                        bgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty bgr'
+                        recs'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty recs'
                         hgr1 <- fromPureCstrs hgr''
                         bgr1 <- fromPureCstrs bgr''
                         let headDict = (TDict hgr1 Set.empty subst' recs'')
@@ -763,7 +778,7 @@ instantiateTemplateEntry p kid n targs pargs ret e@(EntryEnv l t@(DecT d)) = lim
                             ppn <- ppr n
                             liftIO $ putStrLn $ "remainder " ++ pprid kid ++ " " ++ ppn ++" " ++ show (decTypeTyVarId $ unDecT $ entryType e) ++ " " ++ show pph ++"\n"++ show ppb
                         dec1 <- typeToDecType l (entryType e')
-                        (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" l subst' False Map.empty
+                        (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty
                         --let dec3 = addDecDicts dec2 headPureDict bodyPureDict
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
                         return $ Right (e,e' { entryType = DecT dec2 },map (mapFst (varNameToType . unConstrained)) targs',headDict,bodyDict,cache)
@@ -875,7 +890,7 @@ localTemplateWith l e a = case entryType e of
             ppl <- ppr l
             ppt <- ppr t
             liftIO $ putStrLn $ "localTemplate: " ++ ppl ++ "\n" ++ ppt
-        (t',ss,ssBounds) <- localTemplateType emptySubstsProxy Map.empty (entryLoc e) t
+        (t',(ss,ssBounds)) <- State.runStateT (localTemplateType (entryLoc e) t) (emptySubstsProxy,Map.empty)
         debugTc $ do
             ppl <- ppr l
             ppbounds <- ppr ssBounds
@@ -884,120 +899,123 @@ localTemplateWith l e a = case entryType e of
             ppl <- ppr l
             ppt' <- ppr t'
             liftIO $ putStrLn $ "localTemplate': " ++ ppl ++ "\n" ++ ppt'
-        a' <- substProxy "localTplt" ss False ssBounds a
+        a' <- substProxy "localTplt" dontStop ss False ssBounds a
         debugTc $ do
             ppl <- ppr l
             ppa' <- ppr a'
             liftIO $ putStrLn $ "localTemplateReturn: " ++ ppl ++ ppa'
         return (EntryEnv (entryLoc e) $ DecT t',a')
 
-localTemplateType :: (ProverK loc m) => SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> loc -> DecType -> TcM m (DecType,SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
-localTemplateType (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (l::loc) et = case et of
+type LocalM m = StateT (SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier) (TcM m)
+
+localTemplateType :: (ProverK loc m) => loc -> DecType -> LocalM m DecType
+localTemplateType (l::loc) et = case et of
     DecType tpltid isrec args hctx bctx (unzip -> (specials,isVariadics2)) body -> do
-        (hctx',ss1,ssBounds1) <- localDecCtx ss ssBounds l hctx
-        (args',ss2,ssBounds2) <- uniqueTyVars l ss1 ssBounds1 args
-        specials' <- substProxy "localTplt" ss2 False ssBounds2 specials
-        (bctx',body',ss3,ssBounds3) <- localTemplateInnerType ss2 ssBounds2 l bctx body
-        return (DecType tpltid isrec args' hctx' bctx' (zip specials' isVariadics2) body',ss3,ssBounds3)
+        (hctx') <- localDecCtx l hctx
+        (args') <- uniqueTyVars l args
+        specials' <- substLocalM specials
+        (bctx',body') <- localTemplateInnerType l bctx body
+        return (DecType tpltid isrec args' hctx' bctx' (zip specials' isVariadics2) body')
 
-localDecCtx :: ProverK loc m => SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> loc -> DecCtx -> TcM m (DecCtx,SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
-localDecCtx (ss::SubstsProxy GIdentifier (TcM m)) ssBounds l (DecCtx is dict frees) = do
-    (frees',freelst) <- Utils.mapAndUnzipM freeVar $ Map.toList $ Map.mapKeys VIden frees
-    let ss' :: SubstsProxy GIdentifier (TcM m)
-        ss' = substsProxyFromList freelst `appendSubstsProxy` ss
-    let ssBounds' = ssBounds `Map.union` Map.fromList freelst
-    dict' <- substProxy "localTplt" ss' False ssBounds' dict
-    return (DecCtx is dict' (Map.mapKeys unVIden $ Map.fromList $ frees'),ss',ssBounds')
+localDecCtx :: ProverK loc m => loc -> DecCtx -> LocalM m DecCtx
+localDecCtx l (DecCtx is dict frees) = do
+    (frees',freelst) <- lift $ Utils.mapAndUnzipM freeVar $ Map.toList $ Map.mapKeys VIden frees
+    addLocalM (substsProxyFromList freelst,Map.fromList freelst)
+    dict' <- substLocalM dict
+    return (DecCtx is dict' (Map.mapKeys unVIden $ Map.fromList $ frees'))
 
-localTemplateInnerType :: (ProverK loc m) => SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> loc -> DecCtx -> InnerDecType -> TcM m (DecCtx,InnerDecType,SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
-localTemplateInnerType (ss0::SubstsProxy GIdentifier (TcM m)) ssBounds (l::loc) bctx et = case et of
+localTemplateInnerType :: (ProverK loc m) => loc -> DecCtx -> InnerDecType -> LocalM m (DecCtx,InnerDecType)
+localTemplateInnerType (l::loc) bctx et = case et of
     ProcType p pid args ret ann stmts c -> do
-        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
-        pid' <- substProxy "localTplt" ss False ssBounds1 pid
-        ret' <- substProxy "localTplt" ss False ssBounds1 ret
-        (bctx',ss1,ssBounds2) <- localDecCtx ss ssBounds1 l bctx
-        ann' <- substProxy "localTplt" ss1 False ssBounds2 ann
-        stmts' <- substProxy "localTplt" ss1 False ssBounds2 stmts
-        c' <- substProxy "localTplt" ss1 False ssBounds2 c
-        return (bctx',ProcType p pid' args' ret' ann' stmts' c',ss1,ssBounds2)
+        (args') <- uniqueProcVars l args
+        pid' <- substLocalM pid
+        ret' <- substLocalM ret
+        (bctx') <- localDecCtx l bctx
+        ann' <- substLocalM ann
+        stmts' <- substLocalM stmts
+        c' <- substLocalM c
+        return (bctx',ProcType p pid' args' ret' ann' stmts' c')
     FunType isLeak p pid args ret ann stmts c -> do
-        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
-        pid' <- substProxy "localTplt" ss False ssBounds1 pid
-        ret' <- substProxy "localTplt" ss False ssBounds1 ret
-        (bctx',ss1,ssBounds2) <- localDecCtx ss ssBounds1 l bctx
-        ann' <- substProxy "localTplt" ss1 False ssBounds2 ann
-        stmts' <- substProxy "localTplt" ss1 False ssBounds2 stmts
-        c' <- substProxy "localTplt" ss1 False ssBounds2 c
-        return (bctx',FunType isLeak p pid' args' ret' ann' stmts' c',ss1,ssBounds2)
+        (args') <- uniqueProcVars l args
+        pid' <- substLocalM pid
+        ret' <- substLocalM ret
+        (bctx') <- localDecCtx l bctx
+        ann' <- substLocalM ann
+        stmts' <- substLocalM stmts
+        c' <- substLocalM c
+        return (bctx',FunType isLeak p pid' args' ret' ann' stmts' c')
     AxiomType isLeak p args ann c -> do
-        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
-        (bctx',ss1,ssBounds2) <- localDecCtx ss ssBounds1 l bctx
-        ann' <- substProxy "localTplt" ss1 False ssBounds2 ann
-        c' <- substProxy "localTplt" ss1 False ssBounds2 c
-        return (bctx',AxiomType isLeak p args' ann' c',ss1,ssBounds2)
+        (args') <- uniqueProcVars l args
+        (bctx') <- localDecCtx l bctx
+        ann' <- substLocalM ann
+        c' <- substLocalM c
+        return (bctx',AxiomType isLeak p args' ann' c')
     LemmaType isLeak p pid args ann stmts c -> do
-        (args',ss,ssBounds1) <- uniqueProcVars l ss0 ssBounds args
-        pid' <- substProxy "localTplt" ss False ssBounds1 pid
-        (bctx',ss1,ssBounds2) <- localDecCtx ss ssBounds1 l bctx
-        ann' <- substProxy "localTplt" ss1 False ssBounds2 ann
-        stmts' <- substProxy "localTplt" ss1 False ssBounds2 stmts
-        c' <- substProxy "localTplt" ss1 False ssBounds2 c
-        return (bctx',LemmaType isLeak p pid' args' ann' stmts' c',ss1,ssBounds2)
+        (args') <- uniqueProcVars l args
+        pid' <- substLocalM pid
+        (bctx') <- localDecCtx l bctx
+        ann' <- substLocalM ann
+        stmts' <- substLocalM stmts
+        c' <- substLocalM c
+        return (bctx',LemmaType isLeak p pid' args' ann' stmts' c')
     StructType p sid atts c -> do
-        sid' <- substProxy "localTplt" ss0 False ssBounds sid
-        (bctx',ss,ssBounds1) <- localDecCtx ss0 ssBounds l bctx
-        atts' <- substProxy "localTplt" ss False ssBounds1 atts
-        c' <- substProxy "localTplt" ss False ssBounds1 c
-        return (bctx',StructType p sid' atts' c',ss,ssBounds1)
+        sid' <- substLocalM sid
+        (bctx') <- localDecCtx l bctx
+        atts' <- substLocalM atts
+        c' <- substLocalM c
+        return (bctx',StructType p sid' atts' c')
        
 freeVar :: ProverK Position m => (GIdentifier,IsVariadic) -> TcM m ((GIdentifier,IsVariadic),(GIdentifier,GIdentifier))
 freeVar (VIden v,isVariadic) = do
     ModuleTyVarId mn j <- newModuleTyVarId
-    let v' = v { varIdUniq = Just j, varIdModule = Just mn }
+    let v' = v { varIdUniq = Just j, varIdModule = mn }
     --addFree v'
     return ((VIden v',isVariadic),(VIden v,VIden v'))
     
-uniqueTyVar :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> (Constrained Var,IsVariadic) -> TcM m ((Constrained Var,IsVariadic),SubstsProxy GIdentifier (TcM m), Map GIdentifier GIdentifier)
-uniqueTyVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (Constrained i@(VarName t (VIden v@(varIdRead -> True))) c,isVariadic) = do
-    v' <- freshVarId (varIdBase v) Nothing
-    t' <- substProxy "localTplt" ss False ssBounds t
-    let i' = VarName t' $ VIden v'
-    let ss' :: SubstsProxy GIdentifier (TcM m)
-        ss' = substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i')) `appendSubstsProxy` ss
-    let ssBounds' :: Map GIdentifier GIdentifier
-        ssBounds' = Map.insert (VIden v) (VIden v') ssBounds
-    c' <- substProxy "localTplt" ss' False ssBounds c
-    return ((Constrained i' c',isVariadic),ss',ssBounds')
-uniqueTyVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (i,isVariadic) = return ((i,isVariadic),ss,ssBounds)
+uniqueTyVar :: ProverK loc m => loc -> (Constrained Var,IsVariadic) -> LocalM m (Constrained Var,IsVariadic)
+uniqueTyVar (l::loc) (Constrained i c,isVariadic) = do
+    i' <- uniqueVar l i
+    c' <- substLocalM c
+    return (Constrained i' c',isVariadic)
+uniqueTyVar (l::loc) (i,isVariadic) = return (i,isVariadic)
 
-uniqueTyVars :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> [(Constrained Var,IsVariadic)] -> TcM m ([(Constrained Var,IsVariadic)],SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
-uniqueTyVars l ss ssBounds [] = return ([],ss,ssBounds)
-uniqueTyVars l ss ssBounds (x:xs) = do
-    (x',ss',ssBounds') <- uniqueTyVar l ss ssBounds x
-    (xs',ss'',ssBounds'') <- uniqueTyVars l ss' ssBounds' xs
-    return (x' : xs',ss'',ssBounds'')
-    
-uniqueProcVar :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> (Bool,Var,IsVariadic) -> TcM m ((Bool,Var,IsVariadic),SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
+uniqueVar :: ProverK loc m => loc -> Var -> LocalM m Var
+uniqueVar l i@(VarName t (VIden v@(varIdRead -> True))) = do
+    v' <- lift $ freshVarId (varIdBase v) Nothing
+    t' <- uniqueTy l t
+    let i' = VarName t' $ VIden v'
+    addLocalM (substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i')),Map.singleton (VIden v) (VIden v'))
+    return i'
+uniqueVar l i = return i
+
+uniqueTy :: ProverK loc m => loc -> Type -> LocalM m Type
+uniqueTy l (typeToVarName -> Just v) = liftM varNameToType $ uniqueVar l v
+uniqueTy l t = return t
+
+uniqueTyVars :: ProverK loc m => loc -> [(Constrained Var,IsVariadic)] -> LocalM m [(Constrained Var,IsVariadic)]
+uniqueTyVars l xs = mapM (uniqueTyVar l) xs
+
+uniqueProcVar :: ProverK loc m => loc -> (Bool,Var,IsVariadic) -> LocalM m (Bool,Var,IsVariadic)
 -- refresh const variables
-uniqueProcVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (isConst,i@(VarName t (VIden v@(varIdRead -> True))),isVariadic) = do
-    v' <- freshVarId (varIdBase v) Nothing
-    t' <- substProxy "localTplt" ss False ssBounds t
+uniqueProcVar (l::loc) (isConst,i@(VarName t (VIden v@(varIdRead -> True))),isVariadic) = do
+    v' <- lift $ freshVarId (varIdBase v) Nothing
+    t' <- substLocalM t
     let i' = VarName t' $ VIden v'
-    let ss' :: SubstsProxy GIdentifier (TcM m)
-        ss' = substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i')) `appendSubstsProxy` ss
     let doConst = isConst || isVariadic
-    let ssBounds' :: Map GIdentifier GIdentifier
-        ssBounds' = if doConst then Map.insert (VIden v) (VIden v') ssBounds else ssBounds
-    return ((isConst,i',isVariadic),ss',ssBounds')
-uniqueProcVar (l::loc) (ss::SubstsProxy GIdentifier (TcM m)) ssBounds (isConst,i,isVariadic) = return ((isConst,i,isVariadic),ss,ssBounds)
+    addLocalM (substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i')),if doConst then Map.singleton (VIden v) (VIden v') else Map.empty)
+    return (isConst,i',isVariadic)
+uniqueProcVar (l::loc) (isConst,i,isVariadic) = return (isConst,i,isVariadic)
 
-uniqueProcVars :: ProverK loc m => loc -> SubstsProxy GIdentifier (TcM m) -> Map GIdentifier GIdentifier -> [(Bool,Var,IsVariadic)] -> TcM m ([(Bool,Var,IsVariadic)],SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier)
-uniqueProcVars l ss ssBounds [] = return ([],ss,ssBounds)
-uniqueProcVars l ss ssBounds (x:xs) = do
-    (x',ss',ssBounds') <- uniqueProcVar l ss ssBounds x
-    (xs',ss'',ssBounds'') <- uniqueProcVars l ss' ssBounds' xs
-    return (x' : xs',ss'',ssBounds'')
+uniqueProcVars :: ProverK loc m => loc -> [(Bool,Var,IsVariadic)] -> LocalM m [(Bool,Var,IsVariadic)]
+uniqueProcVars l xs = mapM (uniqueProcVar l) xs
 
+addLocalM :: ProverK Position m => (SubstsProxy GIdentifier (TcM m),Map GIdentifier GIdentifier) -> LocalM m ()
+addLocalM (ss,ssBounds) = State.modify $ \(x,y) -> (ss `appendSubstsProxy` x,Map.union ssBounds y)
+
+substLocalM :: (Vars GIdentifier (TcM m) a,ProverK Position m) => a -> LocalM m a
+substLocalM x = do
+    (ss,ssBounds) <- State.get
+    lift $ substProxy "localTplt" dontStop ss False ssBounds x
 
 
 
