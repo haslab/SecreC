@@ -1,0 +1,3 @@
+[submodule "stdlib"]
+	path = imports/stdlib
+	url = https://github.com/hpacheco/stdlib
