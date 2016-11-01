@@ -147,8 +147,8 @@ tcTypeName tn@(TypeName l n) = do
     isAnn <- getAnn
     checkTypeName isAnn (TypeName l n')
 
-tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM m (TypeSpecifier GIdentifier (Typed loc))
-tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
+tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> Bool -> TcM m (TypeSpecifier GIdentifier (Typed loc))
+tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic isTok = do
     (sec',tsec) <- tcMbSecType sec 
     (dta') <- tcDatatypeSpec dta
     let tdta = typed $ loc dta'
@@ -160,23 +160,23 @@ tcTypeSpec (TypeSpecifier l sec dta dim) isVariadic = do
         pptsec <- pp tsec
         pptdta <- pp tdta
         tcMbDimtypeSpec l (pptsec <+> pptdta) dim
-    t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic
+    t <- buildTypeSpec l tsec tdta (fmap typed tdim) isVariadic isTok
     return (TypeSpecifier (Typed l t) sec' dta' dim')
     
-buildTypeSpec :: (ProverK loc m) => loc -> Type -> Type -> Expr -> IsVariadic -> TcM m Type
-buildTypeSpec l tsec tdta tdim True = do
+buildTypeSpec :: (ProverK loc m) => loc -> Type -> Type -> Expr -> IsVariadic -> Bool -> TcM m Type
+buildTypeSpec l tsec tdta tdim True isTok = do
     tsecs <- if isVATy (tyOf tsec) then expandVariadicType l (tsec,True) else return [tsec]
     tdtas <- if isVATy (tyOf tdta) then expandVariadicType l (tdta,True) else return [tdta]
     tdims <- if isVATy (loc tdim) then expandVariadicExpr l False (tdim,True) else return [tdim]
     tzips <- zipCTypeArgs l tsecs tdtas tdims
-    ts <- forM tzips $ \(s,b,dim) -> buildTypeSpec l s b dim False
+    ts <- forM tzips $ \(s,b,dim) -> buildTypeSpec l s b dim False isTok
     case ts of
         [t] -> do
-            sz@(RVariablePExpr _ n) <- newSizeVar True Nothing
+            sz@(RVariablePExpr _ n) <- if isTok then sizeToken else newSizeVar True Nothing
 --            removeFree $ varNameId n
             return $ VAType t sz
         otherwise -> return $ VArrayT $ VAVal ts (TType True)
-buildTypeSpec l tsec tdta dim False = do
+buildTypeSpec l tsec tdta dim False isTok = do
     ts <- typeToSecType l tsec
     td <- typeToBaseType l tdta
     dim' <- tcExprTy' (BaseT index) $ fmap (Typed l) dim
@@ -276,7 +276,7 @@ tcRetTypeSpec (ReturnType l Nothing) = do
     let t = Void
     return $ ReturnType (Typed l $ ComplexT Void) Nothing
 tcRetTypeSpec (ReturnType l (Just t)) = do
-    t' <- tcTypeSpec t False
+    t' <- tcTypeSpec t False False
     let ty = typed $ loc t'
     return (ReturnType (Typed l ty) (Just t'))
 
@@ -379,9 +379,10 @@ projectSize p t i (Just x) y1 y2 = do
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
 structBody l d@(DecType _ DecTypeOriginal _ _ _ _ b) = return b
+structBody l d@(DecType _ DecTypeCtx _ _ _ _ b) = return b
 structBody l d@(DecType j (DecTypeRec i) _ _ _ _ (StructType sl sid _ cl)) = do
-    (DecType _ isRec _ _ _ _ s@(StructType {})) <- checkStruct l True (const True) (isAnnDecClass cl) (isLeakDec d) sid j
-    return s        
+    DecType _ _ _ _ _ _ s <- checkStruct l True (const True) (isAnnDecClass cl) (isLeakDec d) sid j
+    return s
 structBody l (DVar v@(varIdRead -> True)) = resolveDVar l v >>= structBody l
 --structBody l d = genTcError (locpos l) $ text "structBody" <+> pp d
 
@@ -592,11 +593,11 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
                             reshapeExpr l False arr ns (ComplexT ct)
                 Just ns -> addErrorM l (TypecheckerError (locpos l) . GenTcError (text "static unknown dimension with sizes") . Just) $ do 
                     bdef <- defaultBaseExpr l s b
-                    sz1 <- multiplyIndexVariadicExprs l False ns
-                    rep <- repeatExpr l False bdef (Just sz1) ct1
                     case n of
-                        1 -> return rep
-                        otherwise -> reshapeExpr l False rep ns (ComplexT ct)
+                        1 -> do
+                            sz1 <- multiplyIndexVariadicExprs l False ns
+                            repeatExpr l False bdef (Just sz1) ct1
+                        otherwise -> reshapeExpr l False bdef ns (ComplexT ct)
         Left err -> do
             let ct1 = CType s b $ indexExpr 1
             case szs of
@@ -608,9 +609,9 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
                     reshapeExpr l False arr [(ns,True)] (ComplexT ct)
                 Just ns -> addErrorM l (TypecheckerError (locpos l) . GenTcError (text "unknown dimension with sizes") . Just) $ do
                     bdef <- defaultBaseExpr l s b
-                    sz1 <- multiplyIndexVariadicExprs l False ns
-                    rep <- repeatExpr l False bdef (Just sz1) ct1
-                    reshapeExpr l False rep ns (ComplexT ct)
+                    --sz1 <- multiplyIndexVariadicExprs l False ns
+                    --rep <- repeatExpr l False bdef (Just sz1) ct1
+                    reshapeExpr l False bdef ns (ComplexT ct)
             --ppt <- pp t
             --throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to generate default value for type" <+> ppt) (Just err)
 defaultExpr l t szs = do

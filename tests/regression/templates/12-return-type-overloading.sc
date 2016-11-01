@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=onc
+
 kind a3p;
 
 domain private a3p;

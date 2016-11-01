@@ -188,9 +188,9 @@ tcStmt ret (BreakStatement l) = do
 tcStmt ret (ExpressionStatement l e) = do
     e' <- withExprC ReadWriteExpr $ tcExpr e
     let te = typed $ loc e'
-    case e of
-        BinaryAssign {} -> return ()
-        otherwise -> topTcCstrM_ l $ Unifies te (ComplexT Void)
+    --case e of
+    --    BinaryAssign {} -> return ()
+    --    otherwise -> topTcCstrM_ l $ Unifies te (ComplexT Void)
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
 tcStmt ret (AnnStatement l ann) = do
@@ -249,7 +249,7 @@ tcForInitializer (InitializerVariable vd) = do
 
 tcVarDecl :: (ProverK loc m) => Scope -> VariableDeclaration Identifier loc -> TcM m (VariableDeclaration GIdentifier (Typed loc))
 tcVarDecl scope (VariableDeclaration l isConst isHavoc tyspec vars) = do
-    (tyspec') <- tcTypeSpec tyspec False
+    (tyspec') <- tcTypeSpec tyspec False False
     let ty = typed $ loc tyspec'
     (vars') <- mapM (tcVarInit isConst isHavoc scope ty) vars
     return (VariableDeclaration (notTyped "tcVarDecl" l) isConst True tyspec' vars')

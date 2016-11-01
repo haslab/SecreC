@@ -259,7 +259,14 @@ context<>
     __builtin("core.bor",x,y) :: D bool
 }
 
-template <domain D, type T, dim N>
+template <domain D, type T >
+function D T[[size...(ns)]] reshape (D T val, uint... ns)
+context<>
+{
+    __builtin("core.reshape",val,ns...) :: D T[[size...(ns)]]
+}
+
+template <domain D, type T, dim N { N > 0 } >
 function D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint sum(ns...) @*/ >
 //@ requires sum(ns...) == size(arr);

@@ -134,3 +134,5 @@ tryTcError :: Monad m => TcM m a -> TcM m (Either SecrecError a)
 tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
 
 tcCoerces :: ProverK loc m => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM m Expr
+
+sizeToken :: MonadIO m => TcM m Expr

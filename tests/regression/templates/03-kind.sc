@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 kind a3p;
 

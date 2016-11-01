@@ -25,7 +25,7 @@ typeToKindType :: (ProverK loc m) => loc -> Type -> TcM m KindType
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 
-tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> TcM m (TypeSpecifier GIdentifier (Typed loc))
+tcTypeSpec :: (ProverK loc m) => TypeSpecifier Identifier loc -> IsVariadic -> Bool -> TcM m (TypeSpecifier GIdentifier (Typed loc))
 
 tcSecType :: (ProverK loc m) => SecTypeSpecifier Identifier loc -> TcM m (SecTypeSpecifier GIdentifier (Typed loc))
 

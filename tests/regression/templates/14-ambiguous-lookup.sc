@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --fail=true
+#OPTIONS_SECREC --fail --implicitcoercions=defaultsc
 
 kind test;
 

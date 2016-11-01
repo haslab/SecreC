@@ -1,4 +1,6 @@
 
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 kind a3p;
 domain private a3p;
 

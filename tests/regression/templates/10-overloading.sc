@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 kind a3p;
 
 template <domain dom : a3p>

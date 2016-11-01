@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 template <domain dom>
 void do_nothing1 (dom int x) { }
 

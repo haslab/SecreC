@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 template <domain dom>
 bool even (dom int n) {

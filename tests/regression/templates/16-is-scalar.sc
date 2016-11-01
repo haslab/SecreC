@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=onc
 
 bool isScalar (uint scalar) { return true; }
 

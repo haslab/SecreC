@@ -171,6 +171,9 @@ solveCstrs l msg mode = do
           liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
         doc <- ppTSubsts =<< getTSubsts l
         liftIO $ putStrLn $ show doc
+        frees <- getFrees l
+        ppfrees <- ppr frees
+        liftIO $ putStrLn $ "frees: " ++ ppfrees
     gr <- liftM (tCstrs . head . tDict) State.get
     if (Graph.isEmpty gr)
         then do
@@ -459,9 +462,15 @@ newTCstr l k = do
     if isGlobal
         then return (Just iok)
         else catchError
-            (defaultSolveMode >>= \mode -> solveNewCstr_ l mode iok >> return Nothing)
+            (defaultSolveMode >>= \mode -> do
+                solveNewCstr_ l mode iok
+                debugTc $ liftIO $ putStrLn $ "success newTCstr: " ++ pprid (ioCstrId iok)
+                return Nothing
+            )
             (\e -> if (isHaltError e)
-                then return (Just iok)
+                then do
+                    debugTc $ liftIO $ putStrLn $ "halted newTCstr: " ++ pprid (ioCstrId iok)
+                    return (Just iok)
                 else do
                     debugTc $ liftIO $ putStrLn $ "failed newTCstr: " ++ pprid (ioCstrId iok)
                     throwError e
@@ -810,7 +819,7 @@ multipleSubstitutions l kid scope bv testKO ss = do
     --liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
     let removes = do
         let fs = Set.unions $ map fou4 ss
-        forM_ fs removeFree
+        forM_ fs $ removeFree ("multipleSubstitutions "++show kid)
     case backtrack opts of
         FullB -> do
             ok <- newErrorM $ matchAll l kid scope cs ss (matchOne l kid scope cs) []
@@ -1290,11 +1299,15 @@ coercesDimSizes l bvs e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> Compl
   where
     doMulti = isNothing bvs
     coercesDimSizes' d1 d2 = do
-        opts <- askOpts
-        st <- getCstrState
-        mb1 <- isZeroIdxExpr l d1
-        mb2 <- isZeroIdxExpr l d2
-        coercesDimSizes'' opts st d1 mb1 d2 mb2
+        mb <- tryTcError $ equalsExpr l d1 d2
+        case mb of
+            Right () -> assignsExprTy l x2 e1
+            otherwise -> do
+                opts <- askOpts
+                st <- getCstrState
+                mb1 <- isZeroIdxExpr l d1
+                mb2 <- isZeroIdxExpr l d2
+                coercesDimSizes'' opts st d1 mb1 d2 mb2
     
     coercesDimSizes'' opts st d1 (Right True) d2 (Right True) = assignsExprTy l x2 e1
     coercesDimSizes'' opts st d1 (Right False) d2 (Right False) = assignsExprTy l x2 e1
@@ -1359,14 +1372,15 @@ coercesSec l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = do
 
 coercesSec' :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> ComplexType -> Var -> SecType -> TcM m ()
 coercesSec' l bvs e1 ct1@(cSec -> Just s1) x2 s2 = do
-    opts <- askOpts
-    st <- getCstrState
-    readable2 (coercesSec'' opts st) l s1 s2
+    mb <- tryTcError $ equals l (SecT s1) (SecT s2)
+    case mb of
+        Right () -> assignsExprTy l x2 e1
+        otherwise -> do
+            opts <- askOpts
+            st <- getCstrState
+            readable2 (coercesSec'' opts st) l s1 s2
   where
     doMulti = isNothing bvs
-    coercesSec'' opts st (SVar v1 k1) (SVar v2 k2) | v1 == v2 = do
-        unifiesKind l k1 k2
-        assignsExprTy l x2 e1
     coercesSec'' opts st Public Public = do
         assignsExprTy l x2 e1
     coercesSec'' opts st s1@Public s2@(SVar v PublicK) = do
@@ -1579,6 +1593,14 @@ exprToken t = do
     i <- liftIO newTyVarId
     mn <- State.gets (fst . moduleCount)
     let v = VarIdentifier "etok" mn (Just i) False False Nothing
+    return $ RVariablePExpr t (VarName t $ VIden v)
+
+sizeToken :: MonadIO m => TcM m Expr
+sizeToken = do
+    let t = BaseT index
+    i <- liftIO newTyVarId
+    mn <- State.gets (fst . moduleCount)
+    let v = VarIdentifier "sztok" mn (Just i) False False Nothing
     return $ RVariablePExpr t (VarName t $ VIden v)
 
 exprTypeToken :: MonadIO m => TcM m Expr
@@ -2788,13 +2810,13 @@ pDecCstrM l isTop isCtx doCoerce pid targs es tret = do
   where
     coerceArg isTop (isConst,Left e,isVariadic) = do
         tx <- newTyVar True False Nothing
-        vtx <- mkVariadicTyArray isVariadic tx
+        vtx <- mkVariadicTyArray isVariadic False tx
         ppe <- pp e
         x <- tcCoerces l isTop Nothing e vtx
         return (isConst,Left x,isVariadic)
     coerceArg isTop (isConst,Right t,isVariadic) = do
         tx <- newTyVar True False Nothing
-        vtx <- mkVariadicTyArray isVariadic tx
+        vtx <- mkVariadicTyArray isVariadic False tx
         e <- exprToken t
         ppe <- pp e
         x <- tcCoerces l isTop Nothing e vtx

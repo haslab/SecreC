@@ -1162,10 +1162,10 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     traverseVars f (Coerces bvs e1 v2) = do
         bvs' <- f bvs
         e1' <- f e1
-        v2' <- inLHS False $ f v2
+        v2' <- {-inLHS False $ -}f v2
         return $ Coerces bvs' e1' v2'
     traverseVars f (CoercesN exs) = do
-        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- inLHS False $ f y; return (x',y') }) exs
+        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- {-inLHS False $ -}f y; return (x',y') }) exs
         return $ CoercesN exs'
     traverseVars f (CoercesLit e) = do
         e' <- f e
@@ -1393,26 +1393,30 @@ freshVarId n doc = do
     let v' = VarIdentifier n mn (Just i) True True doc
     return v'
 
-freeVarId :: MonadIO m => Identifier -> Bool -> Maybe Doc -> TcM m VarIdentifier
-freeVarId n isVariadic doc = do
+freeVarId :: MonadIO m => String -> Identifier -> Bool -> Maybe Doc -> TcM m VarIdentifier
+freeVarId msg n isVariadic doc = do
     v <- freshVarId n doc
-    addFree v isVariadic
+    addFree (msg++" freeVarId") v isVariadic
     return v
 
 type Frees = Map VarIdentifier IsVariadic
 
-addFree :: MonadIO m => VarIdentifier -> Bool -> TcM m ()
-addFree n isVariadic = do
+addFree :: MonadIO m => String -> VarIdentifier -> Bool -> TcM m ()
+addFree msg n isVariadic = do
     debugTc $ do
         ppn <- ppr n
-        liftIO $ putStrLn $ "addFree " ++ ppn ++ " " ++ pprid isVariadic
+--        olds <- State.gets localFrees
+--        ppolds <- ppr olds
+        liftIO $ putStrLn $ "addFree " ++ msg ++ " " ++ ppn ++ " " ++ pprid isVariadic -- ++ " to " ++ ppolds
     State.modify $ \env -> env { localFrees = Map.insert n isVariadic (localFrees env) }
 
-removeFree :: MonadIO m => VarIdentifier -> TcM m ()
-removeFree n = do
+removeFree :: MonadIO m => String -> VarIdentifier -> TcM m ()
+removeFree msg n = do
     debugTc $ do
         ppn <- ppr n
-        liftIO $ putStrLn $ "removeFree " ++ ppn
+--        olds <- State.gets localFrees
+--        ppolds <- ppr olds
+        liftIO $ putStrLn $ "removeFree " ++ msg ++ " " ++ ppn -- ++ " from " ++ ppolds
     State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
 
 instance PP m VarIdentifier => PP m TDict where
@@ -1644,9 +1648,9 @@ implicitDecCtx :: DecCtx
 implicitDecCtx = DecCtx False emptyPureTDict Map.empty
 
 explicitDecCtx :: DecCtx
-explicitDecCtx = DecCtx False emptyPureTDict Map.empty
+explicitDecCtx = DecCtx True emptyPureTDict Map.empty
 
-ppContext hasCtx = if hasCtx then text "context" else PP.empty
+ppContext hasCtx = if hasCtx then text "context" else text "implicit"
 
 instance PP m VarIdentifier => PP m DecCtx where
     pp (DecCtx has dict frees) = do
@@ -1727,6 +1731,13 @@ data InnerDecType
         DecClass -- the type of lemma
         
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
+
+iDecArgs :: InnerDecType -> [(Bool,Var,IsVariadic)]
+iDecArgs (LemmaType _ _ _ as _ _ _) = as
+iDecArgs (AxiomType _ _ as _ _) = as
+iDecArgs (StructType {}) = []
+iDecArgs (FunType _ _ _ as _ _ _ _) = as
+iDecArgs (ProcType _ _ as _ _ _ _) = as
 
 isTemplateDecType :: DecType -> Bool
 isTemplateDecType (DecType _ _ ts _ _ specs _) = not (null ts)

@@ -1,8 +1,0 @@
-Algorithm:
-Multiplying two secret shared values using Beaver triples.
-
-Dafny:
-I am not sure how to express the randomness of the beaver triples, and possible values computed from them, in terms of leakage...
-
-EasyCrypt:
-Show that, for a uniformly random value a and a constant value x, x - a is also uniformly random.

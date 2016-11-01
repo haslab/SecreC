@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 kind test;
 domain private test;
 domain protected test;

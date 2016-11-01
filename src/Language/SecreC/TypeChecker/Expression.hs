@@ -104,7 +104,7 @@ tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
     return $ BinaryAssign (Typed l tpe) pe' (fmap (notTyped "equal") op) ex1
 tcExpr (QualExpr l e t) = do
     e' <- tcExpr e
-    t' <- tcTypeSpec t False
+    t' <- tcTypeSpec t False False
     let ty = typed $ loc t'
     --x <- newTypedVar "qex" ty $ Just $ pp e' -- we add the size
     topTcCstrM_ l $ Unifies (typed $ loc e') ty
@@ -185,7 +185,7 @@ tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr qu
     return $ QuantifiedExpr (Typed l $ BaseT bool) q' vs' e'
   where
     tcQVar (t,v) = do
-        t' <- tcTypeSpec t False
+        t' <- tcTypeSpec t False False
         let ty = typed $ loc t'
         let v' = bimap (VIden . mkVarId) (flip Typed ty) v
         topTcCstrM_ l $ IsPublic True $ typed $ loc v'
@@ -295,7 +295,7 @@ tcSubscript e s = do
     ((s',rngs),ks) <- tcWithCstrs l "subscript" $ mapAndUnzipM tcIndex s
     ret <- case t of
         VAType t _ -> case indexProjs (Foldable.toList s) of
-            0 -> mkVariadicTyArray True t
+            0 -> mkVariadicTyArray True False t
             otherwise -> newTyVar True False Nothing
         otherwise -> newTyVar True False Nothing
     withDependencies ks $ topTcCstrM_ l $ ProjectMatrix t (Foldable.toList rngs) ret
@@ -395,7 +395,7 @@ tcIndexCond e = tcExprTy (BaseT bool) e
 tcIndexExpr :: (ProverK loc m) => IsVariadic -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcIndexExpr isVariadic e = do
     t <- if isVariadic
-        then mkVariadicTyArray True (BaseT index)
+        then mkVariadicTyArray True False (BaseT index)
         else return (BaseT index)
     tcExprTy t e
     
