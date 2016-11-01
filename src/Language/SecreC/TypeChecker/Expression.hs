@@ -99,7 +99,7 @@ tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
     e' <- tcExpr e
     let tpe = typed $ loc pe'
     ppe' <- pp e'
-    x1 <- tcCoerces l True (fmap typed e') tpe
+    x1 <- tcCoerces l True Nothing (fmap typed e') tpe
     let ex1 = fmap (Typed l) x1
     return $ BinaryAssign (Typed l tpe) pe' (fmap (notTyped "equal") op) ex1
 tcExpr (QualExpr l e t) = do
@@ -247,7 +247,7 @@ tcExpr me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
     s <- newDomainTyVar "s" k False Nothing
     b <- newBaseTyVar Nothing False Nothing
     let varr = VAType (ComplexT $ CType s b $ indexExpr 0) (fmap typed i')
-    x <- tcCoerces l True (fmap typed e') (ComplexT $ CType s b (indexExpr 1))
+    x <- tcCoerces l True Nothing (fmap typed e') (ComplexT $ CType s b (indexExpr 1))
     return $ ToVArrayExpr (Typed l varr) (fmap (Typed l) x) i'
 tcExpr e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
@@ -327,14 +327,30 @@ tcLiteral li = do
     let t = BaseT b
     let elit = LitPExpr t $ fmap (const t) li
     topTcCstrM_ l $ CoercesLit elit
-    return $ LitPExpr (Typed l t) $ fmap (const (Typed l t)) li
+    opts <- askOpts
+    res <- --if implicitCoercions opts == DefaultsC
+        --then do
+            --k <- newKindVar "k" Nothing False Nothing
+            --s <- newDomainTyVar "s" k False Nothing
+            --n <- newIdxVar False Nothing
+            --let ct = ComplexT $ CType s b (varExpr n)
+            --withDef True $ tcCoerces l True elit ct
+        --else
+            return elit
+    return $ fmap (Typed l) res
 
 tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
 tcArrayLiteral l es = do
+    opts <- askOpts
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" Nothing False Nothing
-    s <- newDomainTyVar "s" k False Nothing
+    s <- --if implicitCoercions opts == DefaultsC
+        --then do
+            --k <- newKindVar "k" Nothing False Nothing
+            --s <- newDomainTyVar "s" k False Nothing
+            --return s
+        --else
+            return Public
     b <- newBaseTyVar Nothing False Nothing
     let t = ComplexT $ CType s b (indexExpr 1)
     let elit = ArrayConstructorPExpr t es''
@@ -392,7 +408,7 @@ tcExprTy' :: (ProverK loc m) => Type -> Expression GIdentifier (Typed loc) -> Tc
 tcExprTy' ty e' = do
     let Typed l ty' = loc e'
     ppe' <- pp e'
-    x2 <- tcCoerces l True (fmap typed e') ty
+    x2 <- tcCoerces l True Nothing (fmap typed e') ty
     return $ fmap (Typed l) x2
 
 tcSizes :: (ProverK loc m) => loc -> Sizes Identifier loc -> TcM m (Sizes GIdentifier (Typed loc))
@@ -465,7 +481,6 @@ multiplyIndexVariadicExprs l isTop es = addErrorM l (TypecheckerError (locpos l)
   where
     multiplyIndexVariadicExprs' :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> TcM m Expr
     multiplyIndexVariadicExprs' l [] = return $ indexExpr 1
-    multiplyIndexVariadicExprs' l [e] = multiplyIndexVariadicExpr l e
     multiplyIndexVariadicExprs' l [e] = multiplyIndexVariadicExpr l e
     multiplyIndexVariadicExprs' l (e:es) = do
         e' <- multiplyIndexVariadicExpr l e

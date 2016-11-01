@@ -16,8 +16,8 @@ import {-# SOURCE #-} Language.SecreC.TypeChecker.Constraint
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Expression
 import {-# SOURCE #-} Language.SecreC.TypeChecker.Template
 import {-# SOURCE #-} Language.SecreC.Transformation.Simplify
+import {-# SOURCE #-} Language.SecreC.TypeChecker.Conversion
 import Language.SecreC.Prover.Base
-import Language.SecreC.TypeChecker.Conversion
 
 import qualified Data.Generics as Generics
 import Data.IORef
@@ -103,12 +103,25 @@ getDoAll = do
     env <- State.get
     return $ isNothing (inTemplate env)
 
-withInTemplate :: (ProverK Position m) => Maybe [TemplateTok] -> TcM m a -> TcM m a
-withInTemplate b m = do
-    old <- liftM inTemplate State.get
-    State.modify $ \env -> env { inTemplate = b }
+--withInTemplate :: (ProverK Position m) => Maybe [TemplateTok] -> TcM m a -> TcM m a
+--withInTemplate b m = do
+--    old <- liftM inTemplate State.get
+--    State.modify $ \env -> env { inTemplate = b }
+--    x <- m
+--    State.modify $ \env -> env { inTemplate = old }
+--    return x
+
+chgInCtx :: Bool -> Maybe ([TemplateTok],Bool) -> Maybe ([TemplateTok],Bool)
+chgInCtx True Nothing = Just ([],True)
+chgInCtx False Nothing = Nothing
+chgInCtx b (Just (xs,_)) = Just (xs,b)
+
+withInCtx :: ProverK Position m => Bool -> TcM m a -> TcM m a
+withInCtx b m = do
+    old <- getInCtx
+    State.modify $ \env -> env { inTemplate = chgInCtx b (inTemplate env) }
     x <- m
-    State.modify $ \env -> env { inTemplate = old }
+    State.modify $ \env -> env { inTemplate = chgInCtx b (inTemplate env) }
     return x
 
 getAllVars isAnn scope = getVarsPred isAnn scope (const True)
@@ -1138,14 +1151,14 @@ getTSubsts l = do
     return $ TSubsts $ unTSubsts (tSubsts d) `Map.union` xs `Map.union` ys
 
 addTpltTok :: ProverK loc m => loc -> Var -> TcM m ()
-addTpltTok l v = State.modify $ \env -> env { inTemplate = maybe (Just [v]) (Just . (v:)) (inTemplate env) }
+addTpltTok l v = State.modify $ \env -> env { inTemplate = maybe (Just ([v],False)) (Just . mapFst (v:)) (inTemplate env) }
 
 hasAmbiguousTpltTok :: ProverK loc m => loc -> (Var -> Bool) -> TcM m Bool
 hasAmbiguousTpltTok l p = do
     mb <- State.gets inTemplate
     case mb of
         Nothing -> return False
-        Just toks -> do
+        Just (toks,_) -> do
             let toks1 = filter (\x -> p x && isAmbiguous (varNameToType x)) toks
             return $ not $ List.null toks1
 
@@ -1605,10 +1618,10 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
                 when (substDirty mode) $ dirtyGDependencies (locpos l) $ VIden v
                 return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
 
-substFromTSubsts :: (PP (TcM m) loc,Typeable loc,VarsGTcM m,Location loc,VarsG (TcM m) a) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
+substFromTSubsts :: (VarsG (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubsts msg stop l tys doBounds ssBounds = substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds
     
-substsProxyFromTSubsts :: (PP (TcM m) loc,Location loc,Typeable loc,Monad m) => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
+substsProxyFromTSubsts :: ProverK loc m => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
     case x of
         VIden v -> case Map.lookup v tys of
@@ -1691,6 +1704,11 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
 
 concatTDict :: (ProverK loc m) => loc -> SubstMode -> [TDict] -> TcM m TDict
 concatTDict l noFail = Foldable.foldlM (appendTDict l noFail) emptyTDict
+
+mergeHeadDecCtx :: ProverK loc m => loc -> DecCtx -> DecCtx -> TcM m DecCtx
+mergeHeadDecCtx l (DecCtx _ d1 f1) (DecCtx b d2 f2) = do
+    d12 <- appendPureTDict l (SubstMode NoCheckS False) d1 d2
+    return $ DecCtx b d12 (f1 `mappend` f2)
 
 appendPureTDict :: (ProverK loc m) => loc -> SubstMode -> PureTDict -> PureTDict -> TcM m PureTDict
 appendPureTDict l noFail (PureTDict u1 ss1 rec1) (PureTDict u2 ss2 rec2) = do
@@ -2042,6 +2060,27 @@ instance ToVariable VArrayType (VarIdentifier,Type,Expr) where
     fromVar (v1,b1,sz1) = VAVar v1 b1 sz1
     tryResolve l (v1,b1,sz1) = tryResolveVAVar l v1 b1 sz1
 
+-- | Does a constraint depend on global template, procedure or struct definitions?
+-- I.e., can it be overloaded?
+isGlobalCstr :: VarsGTcM m => TCstr -> TcM m Bool
+isGlobalCstr k = do
+    let b1 = isCheckCstr k
+    let b2 = isHypCstr k
+    b3 <- everything orM (mkQ (return False) isGlobalTcCstr) k
+    return (b1 || b2 || b3)
+
+isResolveTcCstr :: TcCstr -> Bool
+isResolveTcCstr (Resolve {}) = True
+isResolveTcCstr _ = False
+
+isGlobalTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
+isGlobalTcCstr (Resolve {}) = return True
+isGlobalTcCstr (TDec {}) = return True
+isGlobalTcCstr (PDec {}) = return True
+isGlobalTcCstr (SupportedPrint {}) = return True
+isGlobalTcCstr k@(Coerces {}) = isMultipleSubstsTcCstr k
+isGlobalTcCstr _ = return False
+
 isMultipleSubstsCstr :: VarsGTcM m => TCstr -> TcM m Bool
 isMultipleSubstsCstr k = everything orM (mkQ (return False) isMultipleSubstsTcCstr) k
 
@@ -2053,8 +2092,8 @@ isDelayableCstr k = everything orM (mkQ (return False) mk) k
         return (is1 || isResolveTcCstr x)
 
 isMultipleSubstsTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
-isMultipleSubstsTcCstr (MultipleSubstitutions _ _ [k]) = return False
-isMultipleSubstsTcCstr (MultipleSubstitutions _ ts _) = do
+--isMultipleSubstsTcCstr (MultipleSubstitutions _ _ [k]) = return False
+isMultipleSubstsTcCstr (Coerces ts _ _) = do
     xs <- usedVs' ts
     if Set.null xs then return False else return True
 isMultipleSubstsTcCstr _ = return False
@@ -2085,33 +2124,39 @@ priorityTcCstr k1 k2 = do
         (True,False) -> return GT
         (False,True) -> return LT
         (True,True) -> priorityMultipleSubsts k1 k2
-        (False,False) -> priorityTcCstr' k1 k2 
-priorityTcCstr' (isGlobalTcCstr -> True) (isGlobalTcCstr -> False) = return GT
-priorityTcCstr' (isGlobalTcCstr -> False) (isGlobalTcCstr -> True) = return LT
-priorityTcCstr' (isValidTcCstr -> True) (isValidTcCstr -> False) = return GT
-priorityTcCstr' (isValidTcCstr -> False) (isValidTcCstr -> True) = return LT
-priorityTcCstr' c1 c2 = return $ compare c1 c2
+        (False,False) -> do
+            isGlobal1 <- isGlobalTcCstr k1
+            isGlobal2 <- isGlobalTcCstr k2
+            case (isGlobal1,isGlobal2) of
+                (True,False) -> return GT
+                (False,True) -> return LT
+                otherwise -> do
+                    let isValid1 = isValidTcCstr k1
+                    let isValid2 = isValidTcCstr k2
+                    case (isValid1,isValid2) of
+                        (True,False) -> return GT
+                        (False,True) -> return LT
+                        otherwise -> return $ compare k1 k2
 
 priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
-priorityMultipleSubsts c1@(MultipleSubstitutions ko1 vs1 _) c2@(MultipleSubstitutions ko2 vs2 _) = do
+priorityMultipleSubsts c1@(Coerces vs1 _ _) c2@(Coerces vs2 _ _) = do
     x1 <- usedVs vs1
     x2 <- usedVs vs2
     case compare (Set.size x1) (Set.size x2) of
         LT -> return LT
         GT -> return GT
-        EQ -> case (ko1,ko2) of
-            (Just False,_) -> return LT
-            (_,Just False) -> return GT
-            otherwise -> return $ compare c1 c2
+        EQ -> return $ compare c1 c2
 
 cstrScope :: VarsGTcM m => TCstr -> TcM m SolveScope
 cstrScope k = do
     isAll <- isDelayableCstr k
     if isAll
         then return SolveAll
-        else if isGlobalCstr k
-            then return SolveGlobal
-            else return SolveLocal
+        else do
+            isGlobal <- isGlobalCstr k
+            if isGlobal
+                then return SolveGlobal
+                else return SolveLocal
 
 getStructs :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
 getStructs withBody decK isAnn isLeak = do
@@ -2243,3 +2288,7 @@ stopOnDecType = StopProxy $ \proxy x -> case proxy of
     (eq (typeRep :: TypeOf DecType) -> EqT) -> return True
     otherwise -> return False
   where eq x proxy = eqTypeOf x (typeOfProxy proxy)
+  
+
+
+

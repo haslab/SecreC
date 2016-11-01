@@ -147,26 +147,18 @@ simplifyGlobalAnn (GlobalTemplateAnn l p) = do
 simplifyGlobalAnn g = return g
 
 simplifyTemplateDeclaration :: SimplifyG loc m TemplateDeclaration
-simplifyTemplateDeclaration (TemplateProcedureDeclaration l args ctx p) = do
-    (ss0,ctx') <- simplifyTemplateContext ctx
+simplifyTemplateDeclaration (TemplateProcedureDeclaration l args p) = do
     p' <- simplifyProcedureDeclaration p
-    ctxanns <- stmtsAnns (ss0)
-    ctxanns' <- concatMapM (procAnn False) ctxanns
-    return $ TemplateProcedureDeclaration l args ctx' (addAnnsProcedureDeclaration p' ctxanns')
-simplifyTemplateDeclaration (TemplateFunctionDeclaration l args ctx p) = do
-    (ss0,ctx') <- simplifyTemplateContext ctx
+    return $ TemplateProcedureDeclaration l args (addAnnsProcedureDeclaration p' [])
+simplifyTemplateDeclaration (TemplateFunctionDeclaration l args p) = do
     p' <- simplifyFunctionDeclaration p
-    ctxanns <- stmtsAnns (ss0)
-    ctxanns' <- concatMapM (procAnn False) ctxanns
-    return $ TemplateFunctionDeclaration l args ctx' (addAnnsFunctionDeclaration p' ctxanns')
-simplifyTemplateDeclaration (TemplateStructureDeclaration l targs ctx s) = do
-    (ss0,ctx') <- simplifyTemplateContext ctx
+    return $ TemplateFunctionDeclaration l args (addAnnsFunctionDeclaration p' [])
+simplifyTemplateDeclaration (TemplateStructureDeclaration l targs s) = do
     s' <- simplifyStructureDeclaration s
-    return $ TemplateStructureDeclaration l targs ctx' s'
-simplifyTemplateDeclaration (TemplateStructureSpecialization l targs ctx tspecs s) = do
-    (ss0,ctx') <- simplifyTemplateContext ctx
+    return $ TemplateStructureDeclaration l targs s'
+simplifyTemplateDeclaration (TemplateStructureSpecialization l targs tspecs s) = do
     s' <- simplifyStructureDeclaration s
-    return $ TemplateStructureSpecialization l targs ctx' tspecs s'
+    return $ TemplateStructureSpecialization l targs tspecs s'
 
 simplifyStructureDeclaration :: SimplifyG loc m StructureDeclaration
 simplifyStructureDeclaration s = return s

@@ -38,9 +38,9 @@ defaultGlobalDecl :: DefaultK m => GlobalDeclaration Identifier Position -> m [G
 defaultGlobalDecl g@(GlobalStructure l s) = do
     g' <- liftM (GlobalProcedure l) $ evalStateT (defaultConstructor [] s) Set.empty
     return [g,g']
-defaultGlobalDecl g@(GlobalTemplate l (TemplateStructureDeclaration sl qs hctx s)) = do
+defaultGlobalDecl g@(GlobalTemplate l (TemplateStructureDeclaration sl qs s)) = do
     let targs = map templateQuantifier2Arg qs
-    g' <- liftM (GlobalTemplate l . TemplateProcedureDeclaration sl qs hctx) $ evalStateT (defaultConstructor targs s) Set.empty
+    g' <- liftM (GlobalTemplate l . TemplateProcedureDeclaration sl qs) $ evalStateT (defaultConstructor targs s) Set.empty
     return [g,g']
 defaultGlobalDecl g = return [g]
 

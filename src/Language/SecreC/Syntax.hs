@@ -742,10 +742,10 @@ instance PP m iden => PP m (CtxPArg iden loc) where
     pp (CtxVarPArg _ isConst t isVariadic) = liftM (ppConst isConst) $ ppVariadicM t isVariadic
 
 data TemplateDeclaration iden loc
-    = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (StructureDeclaration iden loc)
-    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] (TemplateContext iden loc) [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
-    | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (ProcedureDeclaration iden loc)
-    | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (TemplateContext iden loc) (FunctionDeclaration iden loc)
+    = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
+    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
+    | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
+    | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (FunctionDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TemplateDeclaration iden loc)  
@@ -753,36 +753,32 @@ instance (Hashable iden,Hashable loc) => Hashable (TemplateDeclaration iden loc)
   
 instance Location loc => Located (TemplateDeclaration iden loc) where
     type LocOf (TemplateDeclaration iden loc) = loc
-    loc (TemplateStructureDeclaration l _ _ _) = l
-    loc (TemplateStructureSpecialization l _ _ _ _) = l
-    loc (TemplateProcedureDeclaration l _ _ _) = l
-    loc (TemplateFunctionDeclaration l _ _ _) = l
-    updLoc (TemplateStructureDeclaration _ x y z) l = TemplateStructureDeclaration l x y z
-    updLoc (TemplateStructureSpecialization _ x y z w) l = TemplateStructureSpecialization l x y z w
-    updLoc (TemplateProcedureDeclaration _ x y z) l = TemplateProcedureDeclaration l x y z
-    updLoc (TemplateFunctionDeclaration _ x y z) l = TemplateFunctionDeclaration l x y z
+    loc (TemplateStructureDeclaration l _ _) = l
+    loc (TemplateStructureSpecialization l _ _ _) = l
+    loc (TemplateProcedureDeclaration l _ _) = l
+    loc (TemplateFunctionDeclaration l _ _) = l
+    updLoc (TemplateStructureDeclaration _ x y) l = TemplateStructureDeclaration l x y
+    updLoc (TemplateStructureSpecialization _ x y z) l = TemplateStructureSpecialization l x y z
+    updLoc (TemplateProcedureDeclaration _ x y) l = TemplateProcedureDeclaration l x y
+    updLoc (TemplateFunctionDeclaration _ x y) l = TemplateFunctionDeclaration l x y
   
 instance PP m iden => PP m (TemplateDeclaration iden loc) where
-    pp (TemplateStructureDeclaration _ qs ctx struct) = do
+    pp (TemplateStructureDeclaration _ qs struct) = do
         pp1 <- mapM pp qs
-        ppc <- pp ctx
         pp2 <- ppStruct Nothing struct
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
-    pp (TemplateStructureSpecialization _ qs ctx specials struct) = do
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+    pp (TemplateStructureSpecialization _ qs specials struct) = do
         pp1 <- mapM pp qs
-        ppc <- pp ctx
         pp2 <- ppStruct (Just specials) struct
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
-    pp (TemplateProcedureDeclaration _ qs ctx proc) = do
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+    pp (TemplateProcedureDeclaration _ qs proc) = do
         pp1 <- mapM pp qs
-        ppc <- pp ctx
         pp2 <- pp proc
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
-    pp (TemplateFunctionDeclaration _ qs ctx proc) = do
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
+    pp (TemplateFunctionDeclaration _ qs proc) = do
         pp1 <- mapM pp qs
-        ppc <- pp ctx
         pp2 <- pp proc
-        return $ text "template" <+> abrackets (sepBy comma pp1) <+> ppc <+> pp2
+        return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
   
 data TemplateQuantifier iden loc
     = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))

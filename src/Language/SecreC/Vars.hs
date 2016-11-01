@@ -933,31 +933,27 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         return $ ContextTDec l' cl' n' ts'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (TemplateDeclaration iden loc) where
-    traverseVars f (TemplateStructureDeclaration l qs ctx s) = do
+    traverseVars f (TemplateStructureDeclaration l qs s) = do
         l' <- f l
         qs' <- mapM f qs
-        ctx' <- f ctx
         s' <- f s
-        return $ TemplateStructureDeclaration l' qs' ctx' s'
-    traverseVars f (TemplateStructureSpecialization l qs ctx specs s) = do
+        return $ TemplateStructureDeclaration l' qs' s'
+    traverseVars f (TemplateStructureSpecialization l qs specs s) = do
         l' <- f l
         qs' <- mapM f qs
-        ctx' <- f ctx
         specs' <- mapM f specs
         s' <- f s
-        return $ TemplateStructureSpecialization l' qs' ctx' specs' s'
-    traverseVars f (TemplateProcedureDeclaration l qs ctx p) = do
+        return $ TemplateStructureSpecialization l' qs' specs' s'
+    traverseVars f (TemplateProcedureDeclaration l qs p) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
-        ctx' <- f ctx
         p' <- f p
-        return $ TemplateProcedureDeclaration l' qs' ctx' p'
-    traverseVars f (TemplateFunctionDeclaration l qs ctx p) = do
+        return $ TemplateProcedureDeclaration l' qs' p'
+    traverseVars f (TemplateFunctionDeclaration l qs p) = do
         l' <- f l
         qs' <- inLHS False $ mapM f qs
-        ctx' <- f ctx
         p' <- f p
-        return $ TemplateFunctionDeclaration l' qs' ctx' p'
+        return $ TemplateFunctionDeclaration l' qs' p'
 
 instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar m iden2) => Vars iden2 m (StructureDeclaration iden loc) where
     traverseVars f (StructureDeclaration l n ctx as) = do

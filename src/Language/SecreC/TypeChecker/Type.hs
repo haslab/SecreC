@@ -649,7 +649,7 @@ defaultBaseClassify :: ProverK loc m => loc -> SecType -> Expr -> TcM m Expr
 defaultBaseClassify l s e = addErrorM l (TypecheckerError (locpos l) . GenTcError (text "classify default base expression") . Just) $ do
     ppe <- pp e
     let tx = setTSec (loc e) s
-    x <- tcCoerces l False e tx
+    x <- tcCoerces l False Nothing e tx
     return x
 
 --defaultBaseClassify l Public e = return e

@@ -174,7 +174,7 @@ tcStmt ret (ReturnStatement l (Just e)) = do
     e' <- withExprC ReadWriteExpr $ tcExpr e
     let et' = typed $ loc e'
     ppe <- pp e
-    x <- tcCoerces l True (fmap typed e') ret
+    x <- tcCoerces l True Nothing (fmap typed e') ret
     let t = StmtType (Set.singleton $ StmtReturn)
     let ex = fmap (Typed l) x
     let ret = ReturnStatement (Typed l t) (Just ex)
@@ -188,6 +188,9 @@ tcStmt ret (BreakStatement l) = do
 tcStmt ret (ExpressionStatement l e) = do
     e' <- withExprC ReadWriteExpr $ tcExpr e
     let te = typed $ loc e'
+    case e of
+        BinaryAssign {} -> return ()
+        otherwise -> topTcCstrM_ l $ Unifies te (ComplexT Void)
     let t = StmtType (Set.singleton $ StmtFallthru)
     return (ExpressionStatement (Typed l t) e',t)
 tcStmt ret (AnnStatement l ann) = do

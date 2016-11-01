@@ -405,13 +405,12 @@ scTemplateDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (TemplateDeclar
 scTemplateDeclaration = (do
     x1 <- scTok TEMPLATE
     x3 <- scABrackets scTemplateQuantifiers
-    xc <- scTemplateContext
-    (    apA scStructure (templStruct x1 x3 xc)
-     <|> apA scFunctionDeclaration  (\x5 -> TemplateFunctionDeclaration (loc x1) x3 xc x5)
-     <|> apA scProcedureDeclaration  (\x5 -> TemplateProcedureDeclaration (loc x1) x3 xc x5))) <?> "template declaration"
+    (    apA scStructure (templStruct x1 x3)
+     <|> apA scFunctionDeclaration  (\x5 -> TemplateFunctionDeclaration (loc x1) x3 x5)
+     <|> apA scProcedureDeclaration  (\x5 -> TemplateProcedureDeclaration (loc x1) x3 x5))) <?> "template declaration"
   where
-    templStruct x1 x3 xc (Nothing,x5) = TemplateStructureDeclaration (loc x1) x3 xc x5
-    templStruct x1 x3 xc (Just x4,x5) = TemplateStructureSpecialization (loc x1) x3 xc x4 x5
+    templStruct x1 x3 (Nothing,x5) = TemplateStructureDeclaration (loc x1) x3 x5
+    templStruct x1 x3 (Just x4,x5) = TemplateStructureSpecialization (loc x1) x3 x4 x5
 
 scTemplateContext :: (MonadIO m,MonadCatch m) => ScParserT m (TemplateContext Identifier Position)
 scTemplateContext = apA scMb (\x1 -> TemplateContext (maybe noloc (maybe noloc loc . headMay) x1) x1) <?> "template context"

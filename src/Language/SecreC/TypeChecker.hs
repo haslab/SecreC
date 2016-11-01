@@ -111,13 +111,13 @@ tcGlobalDeclaration (GlobalKind l kd) = tcGlobal l $ do
     kd' <- tcKindDecl kd
     return $ GlobalKind (notTyped "tcGlobalDeclaration" l) kd'
 tcGlobalDeclaration (GlobalProcedure l pd) = tcGlobal l $ do
-    (_,pd') <- tcProcedureDecl implicitDecCtx (const newOperator) (const newProcedureFunction) pd
+    (pd') <- tcProcedureDecl (const newOperator) (const newProcedureFunction) pd
     return $ GlobalProcedure (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalFunction l pd) = tcGlobal l $ do
-    (_,pd') <- tcFunctionDecl implicitDecCtx (const newOperator) (const newProcedureFunction) pd
+    (pd') <- tcFunctionDecl (const newOperator) (const newProcedureFunction) pd
     return $ GlobalFunction (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalStructure l sd) = tcGlobal l $ do
-    (_,sd') <- tcStructureDecl implicitDecCtx (const newStruct) sd
+    (sd') <- tcStructureDecl (const newStruct) sd
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
 tcGlobalDeclaration (GlobalTemplate l td) = tcGlobal l $ do
     td' <- tcTemplateDecl td
@@ -129,13 +129,13 @@ tcGlobalDeclaration (GlobalAnnotations l ann) = do
 
 tcGlobalAnn :: ProverK loc m => GlobalAnnotation Identifier loc -> TcM m (GlobalAnnotation GIdentifier (Typed loc))
 tcGlobalAnn (GlobalFunctionAnn l proc) = tcGlobal l $ insideAnnotation $ do
-    (_,proc') <- tcFunctionDecl implicitDecCtx (const newOperator) (const newProcedureFunction) proc
+    (proc') <- tcFunctionDecl (const newOperator) (const newProcedureFunction) proc
     return $ GlobalFunctionAnn (notTyped "tcGlobalAnn" l) proc'
 tcGlobalAnn (GlobalProcedureAnn l proc) = tcGlobal l $ insideAnnotation $ do
-    (_,proc') <- tcProcedureDecl implicitDecCtx (const newOperator) (const newProcedureFunction) proc
+    (proc') <- tcProcedureDecl (const newOperator) (const newProcedureFunction) proc
     return $ GlobalProcedureAnn (notTyped "tcGlobalAnn" l) proc'
 tcGlobalAnn (GlobalStructureAnn l proc) = tcGlobal l $ insideAnnotation $ do
-    (_,proc') <- tcStructureDecl implicitDecCtx (const newStruct) proc
+    (proc') <- tcStructureDecl (const newStruct) proc
     return $ GlobalStructureAnn (notTyped "tcGlobalAnn" l) proc'
 tcGlobalAnn (GlobalTemplateAnn l proc) = tcGlobal l $ insideAnnotation $ do
     proc' <- tcTemplateDecl proc
@@ -180,7 +180,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ defaultInli
     dec2AxiomDecl l dec
 
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration GIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx ann body) = tcTemplate l $ withKind LKind $ defaultInline $ withLeak isLeak $ do
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(TemplateContext _ mb) ann body) = withInCtx (isJust mb) $ tcTemplate l $ withKind LKind $ defaultInline $ withLeak isLeak $ do
     (tvars',hctx',vars',bctx') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         hctx' <- tcTemplateContext hctx
@@ -199,9 +199,9 @@ tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx a
     lemma'' <- newLemma tvars' hdecctx bdecctx hdeps lemma'
     dec2LemmaDecl l $ unDecT $ typed $ loc lemma''
 
-tcFunctionDecl :: (ProverK loc m) => DecCtx -> (DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
-                -> FunctionDeclaration Identifier loc -> TcM m (TemplateContext GIdentifier (Typed loc),FunctionDeclaration GIdentifier (Typed loc))
-tcFunctionDecl hctx' addOp _ (OperatorFunDeclaration l isLeak ret op ps bctx ann s) = withKind FKind $ defaultInline $ withLeak isLeak $ do
+tcFunctionDecl :: (ProverK loc m) => (DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
+                -> FunctionDeclaration Identifier loc -> TcM m (FunctionDeclaration GIdentifier (Typed loc))
+tcFunctionDecl addOp _ (OperatorFunDeclaration l isLeak ret op ps bctx@(TemplateContext _ mb) ann s) = withInCtx (isJust mb) $ withKind FKind $ defaultInline $ withLeak isLeak $ do
     (ps',ret',vars',bctx',top,tret,vret) <- tcAddDeps l "tcFunctionDecl" $ do
         top <- tcOp op
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -222,9 +222,9 @@ tcFunctionDecl hctx' addOp _ (OperatorFunDeclaration l isLeak ret op ps bctx ann
     let tproc = IDecT $ FunType isLeak (locpos l) (OIden $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
     let op' = updLoc top (Typed l tproc)
     let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
-    op'' <- addOp hctx' bdecctx hdeps op'
+    op'' <- addOp explicitDecCtx bdecctx hdeps op'
     dec2FunDecl l $ unDecT $ typed $ loc op''
-tcFunctionDecl hctx' _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn) ps bctx ann s) = withKind FKind $ defaultInline $ withLeak isLeak $ do
+tcFunctionDecl _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn) ps bctx@(TemplateContext _ mb) ann s) = withInCtx (isJust mb) $ withKind FKind $ defaultInline $ withLeak isLeak $ do
     (ps',ret',vars',bctx',tret,vret) <- tcAddDeps l "tcFunctionDecl" $ do
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         bctx' <- tcTemplateContext bctx
@@ -244,12 +244,12 @@ tcFunctionDecl hctx' _ addProc (FunDeclaration l isLeak ret (ProcedureName pl pn
     let tproc = IDecT $ FunType isLeak (locpos l) (PIden $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl
     let proc' = ProcedureName (Typed pl tproc) $ PIden $ mkVarId pn
     let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
-    proc'' <- addProc hctx' bdecctx hdeps proc'
+    proc'' <- addProc explicitDecCtx bdecctx hdeps proc'
     dec2FunDecl l $ unDecT $ typed $ loc proc''
 
-tcProcedureDecl :: (ProverK loc m) => DecCtx -> (DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
-                -> ProcedureDeclaration Identifier loc -> TcM m (TemplateContext GIdentifier (Typed loc),ProcedureDeclaration GIdentifier (Typed loc))
-tcProcedureDecl hctx' addOp _ (OperatorDeclaration l ret op ps bctx ann s) = withKind PKind $ defaultInline $ do
+tcProcedureDecl :: (ProverK loc m) => (DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))) -> (DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc)))
+                -> ProcedureDeclaration Identifier loc -> TcM m (ProcedureDeclaration GIdentifier (Typed loc))
+tcProcedureDecl addOp _ (OperatorDeclaration l ret op ps bctx@(TemplateContext _ mb) ann s) = withInCtx (isJust mb) $ withKind PKind $ defaultInline $ do
     (ps',bctx',ret',vars',top,tret,vret) <- tcAddDeps l "tcProcedureDecl" $ do
         top <- tcOp op
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -271,9 +271,9 @@ tcProcedureDecl hctx' addOp _ (OperatorDeclaration l ret op ps bctx ann s) = wit
     let tproc = IDecT $ ProcType (locpos l) (OIden $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
     let op' = updLoc top (Typed l tproc)
     let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
-    op'' <- addOp hctx' bdecctx hdeps op'
+    op'' <- addOp explicitDecCtx bdecctx hdeps op'
     dec2ProcDecl l $ unDecT $ typed $ loc op''
-tcProcedureDecl hctx' _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps bctx ann s) = withKind PKind $ defaultInline $ do
+tcProcedureDecl _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn) ps bctx@(TemplateContext _ mb) ann s) = withInCtx (isJust mb) $ withKind PKind $ defaultInline $ do
     (ps',ret',vars',bctx',tret,vret) <- tcAddDeps l "tcProcedureDecl" $ do
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         bctx' <- tcTemplateContext bctx
@@ -294,7 +294,7 @@ tcProcedureDecl hctx' _ addProc (ProcedureDeclaration l ret (ProcedureName pl pn
     let tproc = IDecT $ ProcType (locpos l) (PIden $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl
     let proc' = ProcedureName (Typed pl tproc) $ PIden $ mkVarId pn
     let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
-    proc'' <- addProc hctx' bdecctx hdeps proc'
+    proc'' <- addProc explicitDecCtx bdecctx hdeps proc'
     dec2ProcDecl l $ unDecT $ typed $ loc proc''
 
 tcProcedureAnns :: ProverK loc m => [ProcedureAnnotation Identifier loc] -> TcM m [ProcedureAnnotation GIdentifier (Typed loc)]
@@ -336,9 +336,9 @@ tcProcedureParam (ProcedureParameter l True s isVariadic (VarName vl vi)) = do
     newVariable LocalScope True isAnn v' Nothing
     return (ProcedureParameter (notTyped "tcProcedureParam" l) True s' isVariadic v',(True,(fmap typed v'),isVariadic))
 
-tcStructureDecl :: (ProverK loc m) => DecCtx -> (DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc)))
-                -> StructureDeclaration Identifier loc -> TcM m (TemplateContext GIdentifier (Typed loc),StructureDeclaration GIdentifier (Typed loc))
-tcStructureDecl hctx' addStruct (StructureDeclaration l (TypeName tl tn) bctx atts) = withKind TKind $ defaultInline $ do
+tcStructureDecl :: (ProverK loc m) => (DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc)))
+                -> StructureDeclaration Identifier loc -> TcM m (StructureDeclaration GIdentifier (Typed loc))
+tcStructureDecl addStruct (StructureDeclaration l (TypeName tl tn) bctx@(TemplateContext _ mb) atts) = withInCtx (isJust mb) $ withKind TKind $ defaultInline $ do
     hdeps <- getDeps
     bctx' <- tcTemplateContext bctx
     let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
@@ -346,7 +346,7 @@ tcStructureDecl hctx' addStruct (StructureDeclaration l (TypeName tl tn) bctx at
     cl <- getDecClass
     let t = IDecT $ StructType (locpos l) (TIden $ mkVarId tn) (Just $ map (fmap typed) atts') cl
     let ty' = TypeName (Typed tl t) $ TIden $ mkVarId tn
-    ty'' <- addStruct hctx' bdecctx hdeps ty'
+    ty'' <- addStruct explicitDecCtx bdecctx hdeps ty'
     dec2StructDecl l $ unDecT $ typed $ loc ty''
 
 tcAttribute :: (ProverK loc m) => Attribute Identifier loc -> TcM m (Attribute GIdentifier (Typed loc))
@@ -427,44 +427,36 @@ tcCtxPArg (CtxVarPArg l isConst v isVariadic) = do
     return ((isConst,v'',isVariadic),CtxVarPArg (Typed l $ either IdxT id v'') isConst v' isVariadic)
 
 tcTemplateDecl :: (ProverK loc m) => TemplateDeclaration Identifier loc -> TcM m (TemplateDeclaration GIdentifier (Typed loc))
-tcTemplateDecl (TemplateStructureDeclaration l targs hctx s) = tcTemplate l $ do
-    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl struct" $ do
+tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate l $ do
+    (targs',tvars') <- tcAddDeps l "tcTemplateDecl struct" $ do
         (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
         let tvars' = toList tvars
-        hctx' <- tcTemplateContext hctx
-        return (targs',tvars',hctx')
-    let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
-    (hctx'',s') <- tcStructureDecl hdecctx (addTemplateStruct tvars') s
-    return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' hctx'' s'
-tcTemplateDecl (TemplateStructureSpecialization l targs hctx tspecials s) = tcTemplate l $ do
-    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl structs" $ do
+        return (targs',tvars')
+    s' <- tcStructureDecl (addTemplateStruct tvars') s
+    return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' s'
+tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate l $ do
+    (targs',tvars') <- tcAddDeps l "tcTemplateDecl structs" $ do
         (targs',tvars) <-  mapAndUnzipM tcTemplateQuantifier targs
         let tvars' = toList tvars
-        hctx' <- tcTemplateContext hctx
-        return (targs',tvars',hctx')
+        return (targs',tvars')
     tspecials' <- tcAddDeps l "tcTemplateDecl structs specs" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
     let tspecs = map (mapFst (typed . loc)) tspecials'
-    let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
-    (hctx'',s') <- tcStructureDecl hdecctx (addTemplateStructSpecialization tvars' tspecs) s
-    return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' hctx'' tspecials' s'
-tcTemplateDecl (TemplateProcedureDeclaration l targs hctx p) = tcTemplate l $ do
-    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl proc" $ do
+    (s') <- tcStructureDecl (addTemplateStructSpecialization tvars' tspecs) s
+    return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' tspecials' s'
+tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate l $ do
+    (targs',tvars') <- tcAddDeps l "tcTemplateDecl proc" $ do
         (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
         let tvars' = toList tvars
-        hctx' <- tcTemplateContext hctx
-        return (targs',tvars',hctx')
-    let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
-    (hctx'',p') <- tcProcedureDecl hdecctx (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
-    return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' hctx'' p'
-tcTemplateDecl (TemplateFunctionDeclaration l targs hctx p) = tcTemplate l $ do
-    (targs',tvars',hctx') <- tcAddDeps l "tcTemplateDecl fun" $ do
+        return (targs',tvars')
+    (p') <- tcProcedureDecl (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
+    return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
+tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
+    (targs',tvars') <- tcAddDeps l "tcTemplateDecl fun" $ do
         (targs',tvars) <- mapAndUnzipM tcTemplateQuantifier targs
         let tvars' = toList tvars
-        hctx' <- tcTemplateContext hctx
-        return (targs',tvars',hctx')
-    let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
-    (hctx'',p') <- tcFunctionDecl hdecctx (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
-    return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' hctx'' p'
+        return (targs',tvars')
+    (p') <- tcFunctionDecl (addTemplateOperator tvars') (addTemplateProcedureFunction tvars') p
+    return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' p'
 
 -- for axioms we create tokens instead of variables
 tcTemplateQuantifier :: (ProverK loc m) => TemplateQuantifier Identifier loc -> TcM m (TemplateQuantifier GIdentifier (Typed loc),(Constrained Var,IsVariadic))
@@ -533,7 +525,7 @@ tcTemplateQuantifier (DataQuantifier l dClass isVariadic (TypeName tl tn)) = do
 tcTemplate :: (ProverK loc m) => loc -> TcM m a -> TcM m a
 tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $ -} do
     oldst <- State.get
-    State.modify $ \env -> env { inTemplate = Just [] }
+    State.modify $ \env -> env { inTemplate = Just ([],False) }
     x <- m
     updateHeadTDict l "tcTemplate" $ \_ -> return ((),emptyTDict)
     State.modify $ \env -> env { inTemplate = inTemplate oldst }

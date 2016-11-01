@@ -544,7 +544,7 @@ matchBasePArgs l xs ys = do
     checkHead f [] m = return ([],[])
 
 tryMatchBasePArg :: ProverK loc m => loc -> (Bool,Expr,IsVariadic) -> (Either Expr Type,IsVariadic) -> TcM m Bool
-tryMatchBasePArg l le re = liftM isJust $ tryCstrMaybe l $ matchBasePArg l le re
+tryMatchBasePArg l le re = liftM isRight $ tryTcError $ matchBasePArg l le re
 
 matchBasePArg :: ProverK loc m => loc -> (Bool,Expr,IsVariadic) -> (Either Expr Type,IsVariadic) -> TcM m ()
 matchBasePArg l le re = do

@@ -273,7 +273,7 @@ data TcEnv = TcEnv {
     , solveToCache :: Bool -- solve constraints to the cache or global state
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: (Maybe (String,TyVarId),Int)
-    , inTemplate :: Maybe [TemplateTok] -- if typechecking inside a template, global constraints are delayed
+    , inTemplate :: Maybe ([TemplateTok],Bool) -- if typechecking inside a template, global constraints are delayed (templates tokens, with context flag)
     , decKind :: DecKind -- if typechecking inside a declaration
     , exprC :: ExprClass -- type of expression
     , isLeak :: Bool -- if typechecking leakage expressions
@@ -421,6 +421,9 @@ getKind = State.gets decKind
 
 getDef :: Monad m => TcM m (Bool)
 getDef = State.gets isDef
+
+getInCtx :: Monad m => TcM m Bool
+getInCtx = State.gets (maybe False snd . inTemplate)
 
 getCstrState :: Monad m => TcM m CstrState
 getCstrState = do
@@ -694,7 +697,7 @@ coercesDec = do
     let x = VarName ret $ VIden $ mkVarId "x"
     st <- getCstrState
     let kst = CstrState False False PureExpr False FKind (cstrLineage st) (cstrErr st)
-    let k = TcK (Coerces (varExpr e) x) kst
+    let k = TcK (Coerces Nothing (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
     let ctx = DecCtx False (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
     let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
@@ -725,23 +728,6 @@ failTcM l m = do
 
 type PIdentifier = GIdentifier' Type --Either VarIdentifier (Op GIdentifier Type)
 
--- | Does a constraint depend on global template, procedure or struct definitions?
--- I.e., can it be overloaded?
-isGlobalCstr :: TCstr -> Bool
-isGlobalCstr k = isCheckCstr k || isHypCstr k || everything (||) (mkQ False isGlobalTcCstr) k
-
-isResolveTcCstr :: TcCstr -> Bool
-isResolveTcCstr (Resolve {}) = True
-isResolveTcCstr _ = False
-
-isGlobalTcCstr :: TcCstr -> Bool
-isGlobalTcCstr (Resolve {}) = True
-isGlobalTcCstr (TDec {}) = True
-isGlobalTcCstr (PDec {}) = True
-isGlobalTcCstr (SupportedPrint {}) = True
-isGlobalTcCstr (MultipleSubstitutions {}) = True
-isGlobalTcCstr _ = False
-
 -- | A template constraint with a result type
 data TcCstr
     = TDec -- ^ type template declaration
@@ -759,6 +745,7 @@ data TcCstr
     | Equals
         Type Type -- ^ types equal
     | Coerces -- ^ types coercible
+        (Maybe [Type]) -- optional bound variables, to delay the coercions' evaluation until these are unbound
         Expr
         Var
     | CoercesN -- ^ multidirectional coercion
@@ -779,10 +766,10 @@ data TcCstr
         Type [ArrayProj]
         Type -- result
     | IsReturnStmt (Set StmtClass) -- ^ is return statement
-    | MultipleSubstitutions
-        (Maybe Bool) -- optional testKO
-        [Type] -- bound variable
-        [([TCstr],[TCstr],Set VarIdentifier)] -- mapping from multiple matching conditions to their dependencies and free variables
+--    | MultipleSubstitutions
+--        (Maybe Bool) -- optional testKO
+--        [Type] -- bound variable
+--        [([TCstr],[TCstr],Set VarIdentifier)] -- mapping from multiple matching conditions to their dependencies and free variables
     | MatchTypeDimension
         Expr -- type dimension
         [(Expr,IsVariadic)] -- sequence of sizes
@@ -803,7 +790,7 @@ instance Hashable TcCstr
  
 isTrivialTcCstr :: TcCstr -> Bool
 isTrivialTcCstr (Equals t1 t2) = t1 == t2
-isTrivialTcCstr (Coerces e v) = e == varExpr v
+isTrivialTcCstr (Coerces _ e v) = e == varExpr v
 isTrivialTcCstr (Unifies t1 t2) = t1 == t2
 isTrivialTcCstr (Assigns t1 t2) = t1 == t2
 isTrivialTcCstr (IsValid c) = c == trueExpr
@@ -952,10 +939,11 @@ instance PP m VarIdentifier => PP m TcCstr where
         pp1 <- pp t1
         pp2 <- pp t2
         return $ text "equals" <+> pp1 <+> pp2
-    pp (Coerces e1 v2) = do
+    pp (Coerces bvs e1 v2) = do
+        ppbvs <- pp bvs
         pp1 <- ppExprTy e1
         pp2 <- ppVarTy v2
-        return $ text "coerces" <+> pp1 <+> pp2
+        return $ text "coerces" <+> ppbvs <+> pp1 <+> pp2
     pp (CoercesLit e) = do
         ppe <- ppExprTy e
         return $ text "coerceslit" <+> ppe
@@ -985,16 +973,16 @@ instance PP m VarIdentifier => PP m TcCstr where
         pp2 <- mapM pp as
         pp3 <- pp x
         return $ pp1 <> brackets (sepBy comma pp2) <+> char '=' <+> pp3
-    pp (MultipleSubstitutions ko v s) = do
-        ppko <- pp ko
-        pp1 <- pp v
-        let f2 (x,y,z) = do
-            ppx <- pp x
-            ppy <- pp y
-            ppz <- pp z
-            return $ ppx $+$ nest 4 (text "=>" $+$ ppy <+> text ":" <+> ppz)
-        pp2 <- (mapM f2 s)
-        return $ text "multiplesubstitutions" <+> ppko <+> pp1 <+> vcat pp2
+--    pp (MultipleSubstitutions ko v s) = do
+--        ppko <- pp ko
+--        pp1 <- pp v
+--        let f2 (x,y,z) = do
+--            ppx <- pp x
+--            ppy <- pp y
+--            ppz <- pp z
+--            return $ ppx $+$ nest 4 (text "=>" $+$ ppy <+> text ":" <+> ppz)
+--        pp2 <- (mapM f2 s)
+--        return $ text "multiplesubstitutions" <+> ppko <+> pp1 <+> vcat pp2
     pp (MatchTypeDimension d sz) = do
         pp1 <- pp d
         pp2 <- pp sz
@@ -1171,10 +1159,11 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         t1' <- f t1
         t2' <- f t2
         return $ Equals t1' t2'
-    traverseVars f (Coerces e1 v2) = do
+    traverseVars f (Coerces bvs e1 v2) = do
+        bvs' <- f bvs
         e1' <- f e1
         v2' <- inLHS False $ f v2
-        return $ Coerces e1' v2'
+        return $ Coerces bvs' e1' v2'
     traverseVars f (CoercesN exs) = do
         exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- inLHS False $ f y; return (x',y') }) exs
         return $ CoercesN exs'
@@ -1203,11 +1192,11 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         is' <- mapM f is
         x' <- f x
         return $ ProjectMatrix t' is' x'
-    traverseVars f (MultipleSubstitutions ko v ss) = do
-        ko' <- f ko
-        v' <- f v
-        ss' <- mapM (liftM (\(x,y,z) -> (x,y,mapSet unVIden z)) . f . (\(x,y,z) -> (x,y,mapSet VIden z))) ss
-        return $ MultipleSubstitutions ko' v' ss'
+--    traverseVars f (MultipleSubstitutions ko v ss) = do
+--        ko' <- f ko
+--        v' <- f v
+--        ss' <- mapM (liftM (\(x,y,z) -> (x,y,mapSet unVIden z)) . f . (\(x,y,z) -> (x,y,mapSet VIden z))) ss
+--        return $ MultipleSubstitutions ko' v' ss'
     traverseVars f (MatchTypeDimension t d) = do
         t' <- f t
         d' <- f d
@@ -1653,6 +1642,9 @@ instance Hashable DecCtx
 
 implicitDecCtx :: DecCtx
 implicitDecCtx = DecCtx False emptyPureTDict Map.empty
+
+explicitDecCtx :: DecCtx
+explicitDecCtx = DecCtx False emptyPureTDict Map.empty
 
 ppContext hasCtx = if hasCtx then text "context" else PP.empty
 

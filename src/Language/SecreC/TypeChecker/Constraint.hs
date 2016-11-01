@@ -245,20 +245,22 @@ trySolveCstr mode (Loc l iok) = do
     isMul <- isMultipleSubstsCstr (kCstr iok)
     if solveScope mode < SolveAll && isMul
         then return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved multiple substitutions constraint") Nothing)]
-        else if solveScope mode < SolveGlobal && isGlobalCstr (kCstr iok)
-            then return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved global constraint") Nothing)]
-            else catchError
-                (do
-                    opens <- getOpensSet
-                    if Set.member (ioCstrId iok) opens
-                        then do
-                            debugTc $ do
-                                ppx <- ppr (ioCstrId iok)
-                                liftIO $ putStrLn $ "found opened or promoted constraint " ++ ppx
-                            return (Left False)
-                        else solveIOCstr_ l "trySolveCstr" mode iok >> return (Left True)
-                )
-                (\e -> return $ Right [(Loc l iok,e)])
+        else do
+            isGlobal <- isGlobalCstr (kCstr iok)
+            if solveScope mode < SolveGlobal && isGlobal
+                then return $ Right [(Loc l iok,TypecheckerError (locpos l) $ Halt $ GenTcError (text "Unsolved global constraint") Nothing)]
+                else catchError
+                    (do
+                        opens <- getOpensSet
+                        if Set.member (ioCstrId iok) opens
+                            then do
+                                debugTc $ do
+                                    ppx <- ppr (ioCstrId iok)
+                                    liftIO $ putStrLn $ "found opened or promoted constraint " ++ ppx
+                                return (Left False)
+                            else solveIOCstr_ l "trySolveCstr" mode iok >> return (Left True)
+                    )
+                    (\e -> return $ Right [(Loc l iok,e)])
 
 findCstr :: Monad m => LocIOCstr -> TcM m Bool
 findCstr x = do
@@ -453,11 +455,17 @@ newTCstr l k = do
     debugTc $ liftIO $ putStrLn $ "newTCstr: " ++ pprid (ioCstrId iok)
     addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
     
-    if (isGlobalCstr k)
+    isGlobal <- isGlobalCstr k
+    if isGlobal
         then return (Just iok)
         else catchError
             (defaultSolveMode >>= \mode -> solveNewCstr_ l mode iok >> return Nothing)
-            (\e -> if (isHaltError e) then return (Just iok) else throwError e)
+            (\e -> if (isHaltError e)
+                then return (Just iok)
+                else do
+                    debugTc $ liftIO $ putStrLn $ "failed newTCstr: " ++ pprid (ioCstrId iok)
+                    throwError e
+            )
                 
 resolveTCstr :: (ProverK loc m) => loc -> SolveMode -> Int -> TCstr -> TcM m ShowOrdDyn
 resolveTCstr l mode kid (TcK k st) = liftM ShowOrdDyn $ withDeps GlobalScope $ withCstrState l st $ do
@@ -523,13 +531,12 @@ resolveTcCstr l mode kid k = do
             --liftIO $ putStrLn $ "matchTemplate2 " ++ ppr o ++ " " ++ show doc
     resolveTcCstr' kid k@(Equals t1 t2) = do
         equals l t1 t2
-    resolveTcCstr' kid k@(Coerces e1 x2) = do
+    resolveTcCstr' kid k@(Coerces bvs e1 x2) = do
         opts <- askOpts
         st <- getCstrState
         ppk <- ppr k
-        debugTc $ liftIO $ putStrLn $ "resolving " ++ ppk ++ " " ++ show opts ++ " " ++ show st ++" "++ show (checkCoercion (implicitCoercions opts) st)
         if checkCoercion (implicitCoercions opts) st
-            then coerces l e1 x2
+            then coerces l bvs e1 x2
             else unifiesExpr l (varExpr x2) e1
     resolveTcCstr' kid k@(CoercesN exs) = do
         opts <- askOpts
@@ -540,7 +547,10 @@ resolveTcCstr l mode kid k = do
                 unifiesN l $ map (loc . fst) exs
                 assignsExprTys l exs
     resolveTcCstr' kid k@(CoercesLit e) = do
-        coercesLit l e
+        ppe <- ppExprTy e
+        let msg = text "Failed to coerce expression " <+> ppe
+        addErrorM l (TypecheckerError (locpos l) . GenTcError msg . Just) $ do
+            coercesLit l e
     resolveTcCstr' kid k@(Unifies t1 t2) = do
         unifies l t1 t2
     resolveTcCstr' kid k@(Assigns t1 t2) = do
@@ -570,20 +580,6 @@ resolveTcCstr l mode kid k = do
                 res <- projectMatrixType l ct rngs
                 unifies l x res
             )
-    resolveTcCstr' kid (MultipleSubstitutions ko v s) = do
-        let mkSubst (x,y,z) = do
-            ppx <- pp x
-            ppy <- pp y
-            let match = mapM_ (tCstrM_ l) x
-            let post () = do
-                cs <- mapM (tCstrM l) y
-                return (Set.fromList $ map (Loc $ locpos l) $ catMaybes cs,())
-            return ((match,ppx),(return,PP.empty),(post,ppy),z)
-        s' <- mapM mkSubst s
-        let ko' = case ko of
-                    Just b -> Left b
-                    Nothing -> Right (\cl -> any ((==cl) . typeClass "") v)
-        multipleSubstitutions l kid SolveGlobal v ko' s'
     resolveTcCstr' kid (MatchTypeDimension t d) = matchTypeDimension l t d
     resolveTcCstr' kid (IsValid c) = do
         x <- ppM l c
@@ -1125,7 +1121,7 @@ coercesNSecDimSizes l exs = do
     -- coerce each expression individually
     forM_ exs $ \(e,x) -> do
         tcCstrM_ l $ Unifies (loc x) t3
-        coercesSecDimSizes l e x
+        coercesSecDimSizes l Nothing e x
 
 maxSec :: ProverK loc m => loc -> [SecType] -> TcM m SecType
 maxSec l ss = do
@@ -1165,21 +1161,38 @@ maximumsDim l (s:ss) maxs@(max:_) = do
 tcTop_ :: ProverK l m => l -> Bool -> TcCstr -> TcM m ()
 tcTop_ l isTop = if isTop then topTcCstrM_ l else tcCstrM_ l
 
-tcCoerces :: ProverK loc m => loc -> Bool -> Expr -> Type -> TcM m Expr
-tcCoerces l isTop e t = do
+resolveMultipleSubstitutions :: ProverK loc m => loc -> Maybe Bool -> [Type] -> [([TCstr],[TCstr],Set VarIdentifier)] -> TcM m ()
+resolveMultipleSubstitutions l ko v s = do
+    kid <- State.gets (ioCstrId . fst . head . openedCstrs)
+    let mkSubst (x,y,z) = do
+        ppx <- pp x
+        ppy <- pp y
+        let match = mapM_ (tCstrM_ l) x
+        let post () = do
+            cs <- mapM (tCstrM l) y
+            return (Set.fromList $ map (Loc $ locpos l) $ catMaybes cs,())
+        return ((match,ppx),(return,PP.empty),(post,ppy),z)
+    s' <- mapM mkSubst s
+    let ko' = case ko of
+                Just b -> Left b
+                Nothing -> Right (\cl -> any ((==cl) . typeClass "") v)
+    multipleSubstitutions l kid SolveGlobal v ko' s'
+
+tcCoerces :: ProverK loc m => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM m Expr
+tcCoerces l isTop bvs e t = do
     opts <- askOpts
     st <- getCstrState
     if checkCoercion (implicitCoercions opts) st
-        then coercesE l isTop e t
+        then coercesE l isTop bvs e t
         else do
             tcTop_ l isTop $ Unifies (loc e) t
             return e
 
-coercesE :: (ProverK loc m) => loc -> Bool -> Expr -> Type -> TcM m Expr
-coercesE l isTop e1 t2 = do
+coercesE :: (ProverK loc m) => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM m Expr
+coercesE l isTop bvs e1 t2 = do
     pp1 <- pp e1
     x2 <- newTypedVar "coerces" t2 False $ Just $ pp1
-    tcTop_ l isTop $ Coerces e1 x2
+    tcTop_ l isTop $ Coerces bvs e1 x2
     return $ varExpr x2
 
 coercesPDec :: ProverK loc m => loc -> Bool -> Expr -> Var -> TcM m ()
@@ -1193,31 +1206,31 @@ coercesPDec l isTop e x = withDeps LocalScope $ do
 -- | Directed coercion, with implicit security type coercions and literal coercions
 -- applies substitutions
 -- returns a classify declaration
-coerces :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coerces l e1@(loc -> t1@(BaseT b1)) x2@(loc -> t2@(BaseT b2)) = do
+coerces :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
+coerces l bvs e1@(loc -> t1@(BaseT b1)) x2@(loc -> t2@(BaseT b2)) = do
     pp1 <- (ppExprTy e1)
     pp2 <- (ppVarTy x2)
     addErrorM l (TypecheckerError (locpos l) . (CoercionException "base type") pp1 pp2 . Just) $ do
         assignsExprTy l x2 e1
-coerces l e1@(loc -> t1@(ComplexT ct1)) x2@(loc -> t2@(ComplexT ct2)) = coercesComplex l e1 x2
-coerces l e1@(loc -> t1@(ComplexT c1)) x2@(loc -> t2@(BaseT b2)) = coercesComplex l e1 (updLoc x2 $ ComplexT $ defCType b2)
-coerces l e1@(loc -> t1@(BaseT b1)) x2@(loc -> t2@(ComplexT c2)) = coercesComplex l (updLoc e1 $ ComplexT $ defCType b1) x2
-coerces l e1@(loc -> t1) x2@(loc -> t2) | isVATy t1 || isVATy t2 = coercesArray l e1 x2
-coerces l e1 x2 = do
+coerces l bvs e1@(loc -> t1@(ComplexT ct1)) x2@(loc -> t2@(ComplexT ct2)) = coercesComplex l bvs e1 x2
+coerces l bvs e1@(loc -> t1@(ComplexT c1)) x2@(loc -> t2@(BaseT b2)) = coercesComplex l bvs e1 (updLoc x2 $ ComplexT $ defCType b2)
+coerces l bvs e1@(loc -> t1@(BaseT b1)) x2@(loc -> t2@(ComplexT c2)) = coercesComplex l bvs (updLoc e1 $ ComplexT $ defCType b1) x2
+coerces l bvs e1@(loc -> t1) x2@(loc -> t2) | isVATy t1 || isVATy t2 = coercesArray l bvs e1 x2
+coerces l bvs e1 x2 = do
     pp1 <- (ppExprTy e1)
     pp2 <- (ppVarTy x2)
     addErrorM l (TypecheckerError (locpos l) . (CoercionException "type") pp1 pp2 . Just) $ do
         assignsExprTy l x2 e1
 
-coercesArray :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesArray l e1 x2 = do
+coercesArray :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
+coercesArray l bvs e1 x2 = do
     pp1 <- (ppExprTy e1)
     pp2 <- (ppVarTy x2)
     addErrorM l (TypecheckerError (locpos l) . (CoercionException "array") pp1 pp2 . Just) $ do
         assignsExprTy l x2 e1
 
-coercesComplex :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesComplex l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = coercesComplex' l e1 ct1 x2 ct2
+coercesComplex :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
+coercesComplex l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = coercesComplex' l e1 ct1 x2 ct2
     where
     coercesComplex' l e1 t1 x2 t2 = readable2 coercesComplex'' l t1 t2
     
@@ -1231,41 +1244,51 @@ coercesComplex l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = coercesComp
         pp2 <- (ppVarTy x2)
         addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type") pp1 pp2 . Just) $ do
             tcCstrM_ l $ Unifies (BaseT t1) (BaseT t2) -- we unify base types, no coercions here
-            coercesSecDimSizes l e1 x2
+            coercesSecDimSizes l bvs e1 x2
     coercesComplex'' ct1@(getWritableVar -> Just (v1,isNotVoid1)) ct2 = do
         let is = max isNotVoid1 (isNotVoid ct2)
         if is
             then do
                 ct1' <- expandCTypeVar l v1 is
-                coercesComplex l (updLoc e1 $ ComplexT ct1') x2
+                coercesComplex l bvs (updLoc e1 $ ComplexT ct1') x2
             else constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
     coercesComplex'' ct1 (getWritableVar -> Just (v2,isNotVoid2)) = do
         let is = max isNotVoid2 (isNotVoid ct1)
         if is
             then do
                 ct2' <- expandCTypeVar l v2 is
-                coercesComplex l e1 (updLoc x2 $ ComplexT ct2')
+                coercesComplex l bvs e1 (updLoc x2 $ ComplexT ct2')
             else  constraintError (\x y err -> Halt $ CoercionException "complex type" x y err) l e1 ppExprTy x2 ppVarTy Nothing
     coercesComplex'' ct1 ct2 = constraintError (CoercionException "complex type") l e1 ppExprTy x2 ppVarTy Nothing
 
-coercesSecDimSizes :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesSecDimSizes l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = readable2 coercesSecDimSizes' l ct1 ct2
+coercesSecDimSizes :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
+coercesSecDimSizes l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT ct2) = readable2 coercesSecDimSizes' l ct1 ct2
     where
     coercesSecDimSizes' ct1@(CType s1 b1 d1) (CType s2 b2 d2) = do
         let t3 = ComplexT $ CType s1 b2 d2 -- intermediate type
         pp1 <- pp e1
         x3 <- newTypedVar "de" t3 False $ Just $ pp1
-        coercesDimSizes l (updLoc e1 $ ComplexT ct1) (updLoc x3 t3)
-        coercesSec l (varExpr x3) (updLoc x2 $ ComplexT ct2)
+        coercesDimSizes l bvs (updLoc e1 $ ComplexT ct1) (updLoc x3 t3)
+        coercesSec l bvs (varExpr x3) (updLoc x2 $ ComplexT ct2)
     coercesSecDimSizes' ct1 ct2 = constraintError (CoercionException "complex type security dimension") l e1 ppExprTy x2 ppVarTy Nothing
 
-coercesDimSizes :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT ct2@(CType s2 b2 d2)) = do
+mkChoiceDec :: ProverK loc m => loc -> Expr -> Var -> TcM m [([TCstr],[TCstr],Set VarIdentifier)]
+mkChoiceDec l e1 x2 = do
+    inCtx <- getInCtx
+    if inCtx
+        then do
+            (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
+            return [([],ks,fs)]
+        else return []
+
+coercesDimSizes :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
+coercesDimSizes l bvs e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT ct2@(CType s2 b2 d2)) = do
     pp1 <- (ppExprTy e1)
     pp2 <- (ppVarTy x2)
     addErrorM l (TypecheckerError (locpos l) . (CoercionException "complex type dimension") pp1 pp2 . Just) $ do
         readable2 coercesDimSizes' l d1 d2
   where
+    doMulti = isNothing bvs
     coercesDimSizes' d1 d2 = do
         opts <- askOpts
         st <- getCstrState
@@ -1278,65 +1301,69 @@ coercesDimSizes l e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> ComplexT 
     coercesDimSizes'' opts st d1 _ d2 (Right True) = assignsExprTy l x2 e1
     coercesDimSizes'' opts st d1 (Right False) d2 _ = assignsExprTy l x2 e1
     coercesDimSizes'' opts st d1 (Right True) d2 (Right False) = constraintError (CoercionException "complex type dimension") l e1 ppExprTy x2 ppVarTy Nothing
-    coercesDimSizes'' opts st d1 (Right True) d2 _ = do
-        -- d2 == 0
-        let choice1 = ([TcK (match (backtrack opts) (IdxT d2) (IdxT $ indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- 0 ~> d2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-        -- d2 > 0
-        let choice2 = ([TcK (NotEqual d2 (indexExpr 0)) st],ks,fs)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [IdxT d2] [choice1,choiceDec,choice2]
-    coercesDimSizes'' opts st d1 mb1 d2 (Right False) = do
-        (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-        -- d1 == 0
-        let choice1 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT $ indexExpr 0)) st],ks,fs)
-        -- d1 ~> d2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-        --d1 > 0
-        let choice2 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [IdxT d1] [choice1,choiceDec,choice2]
-    coercesDimSizes'' opts st d1 mb1 d2 mb2 = do
-        -- d1 == d2
-        (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
-        let choice0 = ([TcK (match NoneB (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- d1 ~> d2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        -- 0 --> 0
-        let choice1 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT $ indexExpr 0)) st,TcK (match (backtrack opts) (IdxT d2) (IdxT $ indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- 0 --> n
-        let choice2 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT $ indexExpr 0)) st,TcK (NotEqual d2 (indexExpr 0)) st],ks,fs)
-        -- n --> n
-        let choice3 = ([TcK (NotEqual d1 (indexExpr 0)) st,TcK (NotEqual d2 (indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [IdxT d1,IdxT d2] [choice0,choiceDec,choice1,choice2,choice3]
-    coercesDimSizes'' opts st d1 _ d2 _ | isJust (getNonWritableVar d1) || isJust (getNonWritableVar d2) = do
-        -- d1 == d2
-        let choice0 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- d1 ~> d2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        tcCstrM_ l $ MultipleSubstitutions (Just False) [IdxT d1,IdxT d2] [choice0,choiceDec]
+    coercesDimSizes'' opts st d1 (Right True) d2 _ = if doMulti
+        then tcCstrM_ l $ Coerces(Just [IdxT d2]) e1 x2
+        else do
+            -- d2 == 0
+            let choice1 = ([TcK (match (backtrack opts) (IdxT d2) (IdxT $ indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- d2 > 0
+            (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
+            let choice2 = ([TcK (NotEqual d2 (indexExpr 0)) st],ks,fs)
+            -- 0 ~> d2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [IdxT d2] ([choice1,choice2] ++ choiceDec)
+    coercesDimSizes'' opts st d1 mb1 d2 (Right False) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [IdxT d1]) e1 x2
+        else do
+            -- d1 == 0
+            (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
+            let choice1 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT $ indexExpr 0)) st],ks,fs)
+            --d1 > 0
+            let choice2 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- d1 ~> d2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [IdxT d1] ([choice1,choice2] ++ choiceDec)
+    coercesDimSizes'' opts st d1 _ d2 _ | isJust (getNonWritableVar d1) || isJust (getNonWritableVar d2) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [IdxT d1,IdxT d2]) e1 x2
+        else do
+            -- d1 == d2
+            let choice0 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- d1 ~> d2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l (Just False) [IdxT d1,IdxT d2] ([choice0] ++ choiceDec)
+    coercesDimSizes'' opts st d1 mb1 d2 mb2 = if doMulti
+        then tcCstrM_ l $ Coerces (Just [IdxT d1,IdxT d2]) e1 x2
+        else do
+            -- d1 == d2
+            (ks,fs) <- repeatsCstrs l e1 ct1 x2 d2
+            let choice0 = ([TcK (match NoneB (IdxT d1) (IdxT d2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- 0 --> 0
+            let choice1 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT $ indexExpr 0)) st,TcK (match (backtrack opts) (IdxT d2) (IdxT $ indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- 0 --> n
+            let choice2 = ([TcK (match (backtrack opts) (IdxT d1) (IdxT $ indexExpr 0)) st,TcK (NotEqual d2 (indexExpr 0)) st],ks,fs)
+            -- n --> n
+            let choice3 = ([TcK (NotEqual d1 (indexExpr 0)) st,TcK (NotEqual d2 (indexExpr 0)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- d1 ~> d2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [IdxT d1,IdxT d2] ([choice0,choice1,choice2,choice3] ++ choiceDec)
     coercesDimSizes'' opts st d1 _ d2 _ = constraintError (\x y mb -> Halt $ CoercionException "complex type dimension" x y mb) l e1 ppExprTy x2 ppVarTy Nothing
 
-coercesSec :: (ProverK loc m) => loc -> Expr -> Var -> TcM m ()
-coercesSec l e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = do
+coercesSec :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
+coercesSec l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = do
     pp1 <- (ppExprTy e1)
     pp2 <- (ppVarTy x2)
     addErrorM l (TypecheckerError (locpos l) . (CoercionException "security type") pp1 pp2 . Just) $ do
         s2 <- cSecM l t2
         opts <- askOpts
-        coercesSec' l e1 ct1 x2 s2
+        coercesSec' l bvs e1 ct1 x2 s2
 
-coercesSec' :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> SecType -> TcM m ()
-coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = do
+coercesSec' :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> ComplexType -> Var -> SecType -> TcM m ()
+coercesSec' l bvs e1 ct1@(cSec -> Just s1) x2 s2 = do
     opts <- askOpts
     st <- getCstrState
     readable2 (coercesSec'' opts st) l s1 s2
   where
+    doMulti = isNothing bvs
     coercesSec'' opts st (SVar v1 k1) (SVar v2 k2) | v1 == v2 = do
         unifiesKind l k1 k2
         assignsExprTy l x2 e1
@@ -1349,16 +1376,17 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = do
         (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
         let choice2 = TcK (IsPrivate True (SecT s2)) st
         mapM_ (tCstrM_ l) (choice2:ks)
-    coercesSec'' opts st s1@Public s2@(getWritableVar -> Just (v2,k2)) | not (isPrivateKind k2) = do
-        -- s2 = public
-        (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-        let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- public ~> s2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        -- s2 = private
-        let choice2 = ([TcK (IsPrivate (backtrack opts/=NoneB) (SecT s2)) st],ks,fs)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [SecT s2] [choice1,choiceDec,choice2]
+    coercesSec'' opts st s1@Public s2@(getWritableVar -> Just (v2,k2)) | not (isPrivateKind k2) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [SecT s2]) e1 x2
+        else do
+            -- s2 = public
+            (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
+            let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- s2 = private
+            let choice2 = ([TcK (IsPrivate (backtrack opts/=NoneB) (SecT s2)) st],ks,fs)
+            -- public ~> s2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [SecT s2] ([choice1,choice2] ++ choiceDec)
     coercesSec'' opts st s1@(SVar v _) s2@(Public) = do
         tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
         assignsExprTy l x2 e1
@@ -1367,52 +1395,58 @@ coercesSec' l e1 ct1@(cSec -> Just s1) x2 s2 = do
         assignsExprTy l x2 e1
     coercesSec'' opts st s1@(SVar v1 PublicK) s2@(Private d2 k2) = do
         unifiesSec l s1 Public
-        coercesSec' l e1 ct1 x2 s2
-    coercesSec'' opts st s1@(getWritableVar -> Just (v1,k1)) s2@(Private d2 k2) | not (isPrivateKind k1) = do
-        -- s1 = public
-        (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-        let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st],ks,fs)
-        -- s1 ~> private
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        -- s1 = private
-        let choice2 = ([TcK (match (backtrack opts) (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [SecT s1] [choice1,choiceDec,choice2]
+        coercesSec' l bvs e1 ct1 x2 s2
+    coercesSec'' opts st s1@(getWritableVar -> Just (v1,k1)) s2@(Private d2 k2) | not (isPrivateKind k1) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [SecT s1]) e1 x2
+        else do
+            -- s1 = public
+            (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
+            let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st],ks,fs)
+            -- s1 = private
+            let choice2 = ([TcK (match (backtrack opts) (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- s1 ~> private
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [SecT s1] ([choice1,choice2] ++ choiceDec)
     coercesSec'' opts st s1@(SVar v1 k1) s2@(SVar v2 k2) | v1 == v2 = do
         tcCstrM_ l $ Unifies (SecT s1) (SecT s2)
         assignsExprTy l x2 e1
-    coercesSec'' opts st s1@(getWritableVar -> Just (v1,k1)) s2@(getWritableVar -> Just (v2,k2)) = do
-        (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-        -- s1 == s2
-        let choice0 = ([TcK (match NoneB (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- s1 ~> s2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        -- public --> public
-        let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st,TcK (IsPublic (backtrack opts/=NoneB) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- public --> private
-        let choice2 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st,TcK (IsPrivate (backtrack opts/=NoneB) (SecT s2)) st],ks,fs)
-        -- private --> private
-        let choice3 = ([TcK (IsPrivate (backtrack opts/=NoneB) (SecT s1)) st,TcK (IsPrivate (backtrack opts/=NoneB) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [SecT s1,SecT s2] [choice0,choiceDec,choice1,choice2,choice3]
+    coercesSec'' opts st s1@(getWritableVar -> Just (v1,k1)) s2@(getWritableVar -> Just (v2,k2)) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [SecT s1,SecT s2]) e1 x2
+        else do
+            -- s1 == s2
+            let choice0 = ([TcK (match NoneB (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- public --> public
+            let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st,TcK (IsPublic (backtrack opts/=NoneB) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- public --> private
+            (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
+            let choice2 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st,TcK (IsPrivate (backtrack opts/=NoneB) (SecT s2)) st],ks,fs)
+            -- private --> private
+            let choice3 = ([TcK (IsPrivate (backtrack opts/=NoneB) (SecT s1)) st,TcK (IsPrivate (backtrack opts/=NoneB) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- s1 ~> s2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [SecT s1,SecT s2] ([choice0,choice1,choice2,choice3] ++ choiceDec)
     coercesSec'' opts st Public s2@(Private d2 k2) = do
         (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
         forM_ ks $ tCstrM_ l
-    coercesSec'' opts st s1 s2 | isJust (getNonWritableVar s1) || isJust (getNonWritableVar s2) = do
-        -- s1 == s2
-        let choice0 = ([TcK (match (backtrack opts) (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        -- s1 ~> s2
-        (_,(ks,fs)) <- snapCstrsM l $ coercesPDec l False e1 x2
-        let choiceDec = ([],ks,fs)
-        tcCstrM_ l $ MultipleSubstitutions (Just False) [SecT s1,SecT s2] [choice0,choiceDec]
+    coercesSec'' opts st s1 s2 | isJust (getNonWritableVar s1) || isJust (getNonWritableVar s2) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [SecT s1,SecT s2]) e1 x2
+        else do
+            -- s1 == s2
+            let choice0 = ([TcK (match (backtrack opts) (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            -- s1 ~> s2
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l (Just False) [SecT s1,SecT s2] ([choice0] ++ choiceDec)
     coercesSec'' opts st Public s2@(getVar -> Just (v2,k2)) | isPrivateKind k2 = do
         (ks,_) <- classifiesCstrs l e1 ct1 x2 s2
         forM_ ks $ tCstrM_ l
-    coercesSec'' opts st (getWritableVar -> Just (v1,k1)) s2@(getVar -> Just (v2,k2)) | not (isPrivateKind k1) = do
-        (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
-        let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st],ks,fs)
-        let choice2 = ([TcK (match (backtrack opts) (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
-        tcCstrM_ l $ MultipleSubstitutions Nothing [SecT s1] [choice1,choice2]
+    coercesSec'' opts st (getWritableVar -> Just (v1,k1)) s2@(getVar -> Just (v2,k2)) | not (isPrivateKind k1) = if doMulti
+        then tcCstrM_ l $ Coerces (Just [SecT s1]) e1 x2
+        else do
+            (ks,fs) <- classifiesCstrs l e1 ct1 x2 s2
+            let choice1 = ([TcK (IsPublic (backtrack opts/=NoneB) (SecT s1)) st],ks,fs)
+            let choice2 = ([TcK (match (backtrack opts) (SecT s1) (SecT s2)) st],[TcK (Unifies (loc x2) (loc e1)) st,TcK (Assigns (IdxT $ varExpr x2) (IdxT e1)) st],Set.empty)
+            choiceDec <- mkChoiceDec l e1 x2
+            resolveMultipleSubstitutions l Nothing [SecT s1] ([choice1,choice2] ++ choiceDec)
     coercesSec'' opts st s1 s2 = constraintError (\x y mb -> Halt $ CoercionException "security type" x y mb) l e1 ppExprTy x2 ppVarTy Nothing
 
 classifiesCstrs :: (ProverK loc m) => loc -> Expr -> ComplexType -> Var -> SecType -> TcM m ([TCstr],Set VarIdentifier)
@@ -1496,7 +1530,7 @@ coercesLitBase l (FloatLit _ f) (TyPrim (t@(primFloatBounds -> Just (min,max))))
         tcWarn (locpos l) $ LiteralOutOfRange (show f) (ppt) (show min) (show max)
 coercesLitBase l (BoolLit _ b) (TyPrim (DatatypeBool _)) = return ()
 coercesLitBase l (StringLit _ s) (TyPrim (DatatypeString _)) = return ()
-coercesLitBase l l1 t2 = constraintError (CoercionException "literal base type") l l1 pp t2 pp Nothing  
+coercesLitBase l l1 t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l l1 pp t2 pp Nothing  
 
 decToken :: MonadIO m => TcM m DecType
 decToken = do
@@ -2485,7 +2519,11 @@ unifiesExpr l e1 e2 = do
         tcCstrM_ l $ Unifies ret1 ret2
         unifiesOp l o1 o2
         tcCstrM_ l $ Unifies (IdxT e1) (IdxT e2)
-    unifiesExpr' e1 e2 = equalsExpr l e1 e2
+    unifiesExpr' e1 e2 = do
+        (_,ks) <- tcWithCstrs l "unifiesExpr'" $ tcCstrM_ l $ Unifies (loc e1) (loc e2)
+        withDeps LocalScope $ do
+            addDeps "unifies" LocalScope ks
+            tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)
 
 tryProjectExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
 tryProjectExpr l (PostIndexExpr t e s) = tryTcErrorMaybe $ do
@@ -2590,6 +2628,22 @@ equalsExpr l e1 e2 = do
 --        eq <- eqExprs l False e1 e2
 --        opts <- askOpts
 --        when (checkAssertions opts) $ getDeps >>= \deps -> checkCstrM_ l deps $ CheckAssertion eq
+
+--tryUnfoldUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)
+--tryUnfoldUnaryExpr l ue = do
+--    mb <- tryInlineUnaryExpr l ue
+--    case mb of
+--        Just e' -> return $ Just e'
+--        Nothing -> tryRemoveUnaryExpr l ue
+--tryUnfoldUnaryExpr l ue = return Nothing
+--
+--tryRemoveUnaryExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
+--tryRemoveUnaryExpr l ue@(UnaryExpr ret o e) = do
+--    mb <- tryTcError $ equals l ret (loc e)
+--    case mb of
+--        Right _ -> return e
+--        Left _ -> return Nothing
+--tryRemoveUnaryExpr l e = return Nothing
 
 equalsOp :: ProverK loc m => loc -> Op GIdentifier Type -> Op GIdentifier Type -> TcM m ()
 equalsOp l o1 o2 | funit o1 == funit o2 = tcCstrM_ l $ Equals (loc o1) (loc o2)
@@ -2736,14 +2790,14 @@ pDecCstrM l isTop isCtx doCoerce pid targs es tret = do
         tx <- newTyVar True False Nothing
         vtx <- mkVariadicTyArray isVariadic tx
         ppe <- pp e
-        x <- tcCoerces l isTop e vtx
+        x <- tcCoerces l isTop Nothing e vtx
         return (isConst,Left x,isVariadic)
     coerceArg isTop (isConst,Right t,isVariadic) = do
         tx <- newTyVar True False Nothing
         vtx <- mkVariadicTyArray isVariadic tx
         e <- exprToken t
         ppe <- pp e
-        x <- tcCoerces l isTop e vtx
+        x <- tcCoerces l isTop Nothing e vtx
         return (isConst,Right tx,isVariadic)
 
 match :: BacktrackOpt -> Type -> Type -> TcCstr

@@ -3,7 +3,6 @@
 module builtin;
 
 template <nonpublic kind K,domain D : K,type T,dim N>
-context<>
 function D T[[N]] classify (public T[[N]] x)
 context<>
 {
@@ -11,7 +10,6 @@ context<>
 }
 
 template <nonpublic kind K,domain D : K,type T,dim N>
-context<>
 function T[[N]] declassify (D T[[N]] x)
 context<>
 {
@@ -19,7 +17,6 @@ context<>
 }
 
 template <domain D, type T, dim N>
-context<>
 function uint size (D T[[N]] x)
 context<>
 {
@@ -28,7 +25,6 @@ context<>
 
 //this repeat is a STUB 
 template <domain D,type T,dim N>
-context<>
 function D T[[N]] repeat (D T x)
 context<>
 {
@@ -36,7 +32,6 @@ context<>
 }
 
 template <domain D,type T>
-context<>
 function D T[[size...(szs)]] repeat (D T x, uint... szs)
 context<>
 {
@@ -44,7 +39,6 @@ context<>
 }
 
 template <domain D, type T, dim N>
-context<>
 function uint[[1]] shape (D T[[N]] arr)
 context<>
 {
@@ -54,7 +48,6 @@ context<>
 // strlen
 
 template <domain D>
-context<>
 function D uint strlen (D string str)
 context<>
 {
@@ -64,7 +57,6 @@ context<>
 // tostring
 
 template <domain D,type T>
-context<>
 function D string tostring (D T x)
 context<>
 {
@@ -74,7 +66,6 @@ context<>
 // addition
 
 //@ template<domain D,type T>
-//@ context<>
 //@ function D multiset<T> operator + (D multiset<T> x, D multiset<T> y)
 //@ context<>
 //@ {
@@ -82,7 +73,6 @@ context<>
 //@ }
 
 template<domain D, primitive type T>
-context<>
 function D T operator + (D T x,D T y)
 context<>
 {
@@ -103,7 +93,6 @@ function uint sum (uint n, uint... ns)
 // subtraction
 
 template <domain D, numeric type T>
-context<>
 function D T operator - (D T x)
 context<>
 {
@@ -111,7 +100,6 @@ context<>
 } 
 
 template <domain D,numeric type T>
-context<>
 function D T operator - (D T x,D T y)
 context<>
 {
@@ -119,7 +107,6 @@ context<>
 }
 
 template<domain D, numeric type T>
-context<>
 function D T operator * (D T x,D T y)
 context<>
 {
@@ -140,7 +127,6 @@ function uint product (uint n, uint... ns)
 // division
 
 template<domain D, numeric type T>
-context<>
 function D T operator / (D T x,D T y)
 context<>
 {
@@ -150,7 +136,6 @@ context<>
 // modulo
 
 template<domain D, numeric type T>
-context<>
 function D T operator % (D T x,D T y)
 context<>
 {
@@ -160,7 +145,6 @@ context<>
 // greater
 
 template<domain D, primitive type T>
-context<>
 function D bool operator > (D T x,D T y)
 context<>
 {
@@ -170,7 +154,6 @@ context<>
 // smaller
 
 template<domain D, primitive type T>
-context<>
 function D bool operator < (D T x,D T y)
 context<>
 {
@@ -180,7 +163,6 @@ context<>
 // greater or equal
 
 template<domain D, primitive type T>
-context<>
 function D bool operator >= (D T x,D T y)
 context<>
 {
@@ -190,7 +172,6 @@ context<>
 // smaller or equal
 
 template<domain D, primitive type T>
-context<>
 function D bool operator <= (D T x,D T y)
 context<>
 {
@@ -198,7 +179,6 @@ context<>
 } 
 
 //@ template<domain D,type T>
-//@ context<>
 //@ function D bool operator <= (D multiset<T> x, D multiset<T> y)
 //@ context<>
 //@ {
@@ -206,7 +186,6 @@ context<>
 //@ }
 
 //@ template<domain D,type T>
-//@ context<>
 //@ function D bool in (D T x, D multiset<T> y)
 //@ context<>
 //@ {
@@ -214,7 +193,6 @@ context<>
 //@ }
 
 //@ template<domain D,type T>
-//@ context<>
 //@ function D bool in (D T x, D T[[1]] y)
 //@ context<>
 //@ {
@@ -222,7 +200,6 @@ context<>
 //@ }
 
 //@ template<domain D,type T>
-//@ context<>
 //@ function D bool operator >= (D multiset<T> x, D multiset<T> y)
 //@ context<>
 //@ {
@@ -232,7 +209,6 @@ context<>
 // equality
 
 template<domain D,type T>
-context<>
 function D bool operator == (D T x,D T y)
 context<>
 {
@@ -240,7 +216,6 @@ context<>
 }
 
 //@ template<domain D,type T,dim N>
-//@ context<>
 //@ function D bool operator == (D T[[N]] x,D T[[N]] y)
 //@ context<>
 //@ {
@@ -248,7 +223,6 @@ context<>
 //@ } 
 
 template<domain D, primitive type T>
-context<>
 function D bool operator != (D T x,D T y)
 context<>
 {
@@ -258,7 +232,6 @@ context<>
 // logical operators
 
 template <domain D>
-context<>
 function D bool operator ==> (D bool x,D bool y)
 context<>
 {
@@ -266,7 +239,6 @@ context<>
 }
 
 template <domain D>
-context<>
 function D bool operator <==> (D bool x,D bool y)
 context<>
 {
@@ -274,7 +246,6 @@ context<>
 }
 
 template <domain D>
-context<>
 function D bool operator && (D bool x,D bool y)
 context<>
 {
@@ -282,7 +253,6 @@ context<>
 }
 
 template <domain D>
-context<>
 function D bool operator || (D bool x,D bool y)
 context<>
 {
@@ -290,7 +260,6 @@ context<>
 }
 
 template <domain D, type T, dim N>
-context<>
 function D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint sum(ns...) @*/ >
 //@ requires sum(ns...) == size(arr);
@@ -305,28 +274,24 @@ context<>
 }
 
 template<domain D>
-context<>
 function D bool operator (bool) (D bool x)
 context<>
 {
     x
 }
 template <domain D,numeric type T>
-context<>
 function D bool operator (bool) (D T x)
 context<>
 {
     __builtin("core.cast",x)
 }
 template <domain D,numeric type T>
-context<>
 function D T operator (T) (D bool x)
 context<>
 {
     __builtin("core.cast",x) :: D T
 }
 template <domain D,numeric type T1, numeric type T2>
-context<>
 function D T2 operator (T2) (D T1 x)
 context<>
 {
@@ -336,7 +301,6 @@ context<>
 // array operations
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -349,7 +313,6 @@ D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -362,7 +325,6 @@ D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator ! (D bool[[N]] x)
 //@ inline;
 {
@@ -374,7 +336,6 @@ D bool[[N]] operator ! (D bool[[N]] x)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -387,7 +348,6 @@ D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -400,7 +360,6 @@ D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -414,7 +373,6 @@ D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
 
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -427,7 +385,6 @@ D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D T[[N]] operator - (D T[[N]] x)
 //@ inline;
 {
@@ -439,7 +396,6 @@ D T[[N]] operator - (D T[[N]] x)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -452,7 +408,6 @@ D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -465,7 +420,6 @@ D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -478,7 +432,6 @@ D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -491,7 +444,6 @@ D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -504,7 +456,6 @@ D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -517,7 +468,6 @@ D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, type T, dim N { N > 0 } >
-context<>
 D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) == shape(y);
 //@ inline;
@@ -530,7 +480,6 @@ D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
 }
 
 template <domain D, dim N { N > 0 }, type X, type Y>
-context<>
 D Y[[N]] operator (Y) (D X[[N]] x)
 //@ inline;
 {
@@ -544,7 +493,6 @@ D Y[[N]] operator (Y) (D X[[N]] x)
 //cat
 
 template <domain D, type T, dim N>
-context<>
 function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 context<>
 //@ requires n < N;
@@ -557,7 +505,6 @@ context<>
 }
 
 template <domain D, type T, dim N>
-context<>
 function D T[[N]] cat (D T[[N]] x, D T[[N]] y)
 context<>
 {
