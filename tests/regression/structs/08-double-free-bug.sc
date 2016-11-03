@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 struct weird {
     int[[1]] a;
 }

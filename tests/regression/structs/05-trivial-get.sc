@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 struct vec2d {
     int x;
     int y;

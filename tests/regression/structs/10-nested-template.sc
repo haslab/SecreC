@@ -1,4 +1,6 @@
 
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 template <type T>
 struct nest {
     T x;

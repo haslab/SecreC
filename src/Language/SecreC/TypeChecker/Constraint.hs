@@ -1314,7 +1314,10 @@ coercesDimSizes l bvs e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> Compl
     coercesDimSizes'' opts st d1 (Right False) d2 (Right False) = assignsExprTy l x2 e1
     coercesDimSizes'' opts st d1 _ d2 (Right True) = assignsExprTy l x2 e1
     coercesDimSizes'' opts st d1 (Right False) d2 _ = assignsExprTy l x2 e1
-    coercesDimSizes'' opts st d1 (Right True) d2 (Right False) = constraintError (CoercionException "complex type dimension") l e1 ppExprTy x2 ppVarTy Nothing
+    coercesDimSizes'' opts st d1 (Right True) s2 (Right False) = do
+        e2 <- repeatExpr l False e1 Nothing ct2
+        assignsExprTy l x2 e2
+    coercesDimSizes'' opts st d1 (Right False) d2 (Right True) = constraintError (CoercionException "complex type dimension") l e1 ppExprTy x2 ppVarTy $ Just $ GenericError (locpos l) (text "cannot coerce (>0) to 0") Nothing
     coercesDimSizes'' opts st d1 (Right True) d2 _ = if doMulti
         then tcCstrM_ l $ Coerces (Just [IdxT d2]) e1 x2
         else do
@@ -1360,7 +1363,10 @@ coercesDimSizes l bvs e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> Compl
             -- d1 ~> d2
             choiceDec <- mkChoiceDec l e1 x2
             resolveMultipleSubstitutions l Nothing [IdxT d1,IdxT d2] ([choice0,choice1,choice2,choice3] ++ choiceDec)
-    coercesDimSizes'' opts st d1 _ d2 _ = constraintError (\x y mb -> Halt $ CoercionException "complex type dimension" x y mb) l e1 ppExprTy x2 ppVarTy Nothing
+    coercesDimSizes'' opts st d1 mb1 d2 mb2 = do
+        ppmb1 <- pp mb1
+        ppmb2 <- pp mb2
+        constraintError (\x y mb -> Halt $ CoercionException "complex type dimension" x y mb) l e1 ppExprTy x2 ppVarTy $ Just $ GenericError (locpos l) (text "Left:" <+> ppmb1 $+$ text "Right:" <+> ppmb2) Nothing
 
 coercesSec :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
 coercesSec l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = do

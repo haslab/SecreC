@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --failtypechecker
+#OPTIONS_SECREC --failtypechecker --implicitcoercions=defaultsc
 
 kind a3p;
 

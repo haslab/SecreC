@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=defaultsc
+
 kind additive3p;
 domain pd_a3p additive3p;
 

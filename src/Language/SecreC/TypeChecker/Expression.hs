@@ -141,12 +141,12 @@ tcExpr pe@(PreOp l op e) = do
     exprC <- getExprC
     when (exprC==PureExpr) $ genTcError (locpos l) $ text "preop is not pure" <+> ppid pe
     e' <- tcLValue True e
-    limitExprC ReadOnlyExpr $ tcBinaryOp l True op e'
+    limitExprC ReadOnlyExpr $ tcPrePostOp l True op e'
 tcExpr pe@(PostOp l op e) = do
     exprC <- getExprC
     when (exprC==PureExpr) $ genTcError (locpos l) $ text "postop is not pure" <+> ppid pe
     e' <- tcLValue True e
-    limitExprC ReadOnlyExpr $ tcBinaryOp l False op e'
+    limitExprC ReadOnlyExpr $ tcPrePostOp l False op e'
 tcExpr (UnaryExpr l op e) = do
     e' <- limitExprC ReadOnlyExpr $ tcExpr e
     let t = typed $ loc e'
@@ -269,8 +269,8 @@ tcQuantifier :: ProverK loc m => Quantifier loc -> TcM m (Quantifier (Typed loc)
 tcQuantifier (ForallQ l) = return $ ForallQ (notTyped "quantifier" l)
 tcQuantifier (ExistsQ l) = return $ ExistsQ (notTyped "quantifier" l)
     
-tcBinaryOp :: (ProverK loc m) => loc -> Bool -> Op Identifier loc -> Expression GIdentifier (Typed loc) -> TcM m (Expression GIdentifier (Typed loc))
-tcBinaryOp l isPre op e1 = do
+tcPrePostOp :: (ProverK loc m) => loc -> Bool -> Op Identifier loc -> Expression GIdentifier (Typed loc) -> TcM m (Expression GIdentifier (Typed loc))
+tcPrePostOp l isPre op e1 = do
     elit1 <- tcLiteral $ IntLit l 1
     top <- tcOp op
     let t1 = typed $ loc e1
