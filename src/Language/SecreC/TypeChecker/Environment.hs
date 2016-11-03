@@ -143,7 +143,7 @@ getVarsPred isAnn LocalScope f = do
 
 addVar :: (ProverK loc m) => loc -> Scope -> GIdentifier -> Maybe Expr -> Bool -> Bool -> EntryEnv -> TcM m ()
 addVar l GlobalScope n v isConst isAnn e = do
-    dict <- liftM (head . tDict) State.get
+    dict <- liftM (headNe . tDict) State.get
     e' <- substFromTDict "addVar" dontStop l dict False Map.empty e
     case v of
         Nothing -> modifyModuleEnv $ \env -> env { globalVars = Map.insert n (Nothing,(isConst,isAnn,e')) (globalVars env) }
@@ -471,7 +471,7 @@ checkTypeName isAnn tn@(TypeName l n) = do
         Just tn' -> return tn'
         Nothing -> do
             dec <- newDecVar False Nothing
-            topTcCstrM_ l $ TDec False (TIden n) [] dec
+            topTcCstrM_ l $ TDec False Nothing (TIden n) [] dec
             let ret = BaseT $ TApp (TIden n) [] dec
             return $ TypeName (Typed l ret) (TIden n)
 
@@ -597,7 +597,7 @@ newOperator bctx hdeps op = do
     
     let did = fromJustNote "newOperator" (decTypeId $ unDecT recdt)
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
-    dict <- liftM (head . tDict) State.get
+    dict <- liftM (headNe . tDict) State.get
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" dontStop l dict True Map.empty =<< writeIDecVars l d'
     let td = DecT $ DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
@@ -661,7 +661,7 @@ newDecCtx l msg (DecCtx False dict frees) doTop = do
     addHeadTDict l ("newDecCtx False"++msg) =<< fromPureTDict dict
     addFrees ("newDecCtx False"++msg) frees
     if doTop then solveTop l ("newDecCtx False"++msg) else solve l ("newDecCtx False"++msg)
-    dict' <- liftM (head . tDict) State.get
+    dict' <- liftM (headNe . tDict) State.get
     frees' <- getFrees l
     let ks = toPureCstrs $ tCstrs dict'
     let recs = if doTop then mempty else (tRec dict')
@@ -670,7 +670,7 @@ newDecCtx l msg (DecCtx False dict frees) doTop = do
 newDecCtx l msg (DecCtx True dict frees) doTop = do
     recs <- addTCstrGraphToRec l (pureCstrs dict)
     solveTop l ("newDecCtx True"++msg)
-    d' <- liftM (head . tDict) State.get
+    d' <- liftM (headNe . tDict) State.get
     let d'' = substRecs recs d'
     frees' <- getFrees l
     checkFrees l frees' (pureCstrs dict) d''
@@ -701,7 +701,7 @@ addTCstrToRec l i k = do
     genTcError (locpos l) $ text "addTCstrToRec" <+> ppk
     
 addTcCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TcCstr -> CstrState -> TcM m (Map DecType VarIdentifier)
-addTcCstrToRec l i (PDec dk n ts ps ret (DVar v)) st = do
+addTcCstrToRec l i (PDec dk es n ts ps ret (DVar v)) st = do
     j <- newModuleTyVarId
     let (isRead,isWrite) = case cstrExprC st of
                                 PureExpr -> (False,False)
@@ -718,7 +718,7 @@ addTcCstrToRec l i (PDec dk n ts ps ret (DVar v)) st = do
     env <- mkDecEnv l dec
     addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env
     return $ Map.singleton dec v
-addTcCstrToRec l i (TDec dk n ts (DVar v)) st = do
+addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
     j <- newModuleTyVarId
     let (isRead,isWrite) = case cstrExprC st of
                                 PureExpr -> (False,False)
@@ -771,7 +771,7 @@ newProcedureFunction bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     
     let did = fromJustNote "newProcedureFunction" (decTypeId $ unDecT recdt)
     bctx' <- addLineage did $ newDecCtx l "newProcedureFunction" bctx True
-    dict <- liftM (head . tDict) State.get
+    dict <- liftM (headNe . tDict) State.get
     
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" dontStop l dict True Map.empty =<< writeIDecVars l d'
     let dt = DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
@@ -808,10 +808,10 @@ newAxiom l tvars hdeps d = do
     frees <- getFrees l
     d' <- substFromTDict "newAxiom head" dontStop l recdict False Map.empty d
     
-    doc <- liftM (tCstrs . head . tDict) State.get >>= ppConstraints
+    doc <- liftM (tCstrs . headNe . tDict) State.get >>= ppConstraints
     bctx' <- newDecCtx l "newAxiom" (DecCtx True emptyPureTDict Map.empty) True
 --    unresolvedQVars l "newAxiom" tvars
-    dict <- liftM (head . tDict) State.get
+    dict <- liftM (headNe . tDict) State.get
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" dontStop l dict True Map.empty =<< writeIDecVars l d'
     let dt = DecType i DecTypeOriginal tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
@@ -875,38 +875,39 @@ entryLens (dn,i) k = Lns get put
     get env = case (dn,k) of
         (tn,TKind) ->
             let (x,y) = moduleEnv env
-                zs = map tRec $ tDict env
-            in  map (Map.lookup tn . structs) (x:y:zs)
+                zs = fmap tRec $ tDict env
+            in  map (Map.lookup tn . structs) (x:y:Foldable.toList zs)
         (pn,PKind) ->
             let (x,y) = moduleEnv env
-                zs = map tRec $ tDict env
-            in  map (Map.lookup pn . procedures) (x:y:zs)
+                zs = fmap tRec $ tDict env
+            in  map (Map.lookup pn . procedures) (x:y:Foldable.toList zs)
         (pn,FKind) ->
             let (x,y) = moduleEnv env
-                zs = map tRec $ tDict env
-            in  map (Map.lookup pn . functions) (x:y:zs)
+                zs = fmap tRec $ tDict env
+            in  map (Map.lookup pn . functions) (x:y:Foldable.toList zs)
         (pn,LKind) ->
             let (x,y) = moduleEnv env
-                zs = map tRec $ tDict env
-            in  map (Map.lookup pn . lemmas) (x:y:zs)
-    put env (x':y':zs') | length zs' == length (tDict env) = case (dn,k) of
+                zs = fmap tRec $ tDict env
+            in  map (Map.lookup pn . lemmas) (x:y:Foldable.toList zs)
+    put env (x':y':zs') | length zs' == length (Foldable.toList $ tDict env) = case (dn,k) of
         (tn,TKind) ->
             let (x,y) = moduleEnv env
                 upd a' a = a { structs = Map.alter (const a') tn $ structs a }
-            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = mapDict upd zs' $ tDict env }
         (pn,PKind) ->
             let (x,y) = moduleEnv env
                 upd a' a = a { procedures = Map.alter (const a') pn $ procedures a }
-            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = mapDict upd zs' $ tDict env }
         (pn,FKind) ->
             let (x,y) = moduleEnv env
                 upd a' a = a { functions = Map.alter (const a') pn $ functions a }
-            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = mapDict upd zs' $ tDict env }
         (pn,LKind) ->
             let (x,y) = moduleEnv env
                 upd a' a = a { lemmas = Map.alter (const a') pn $ lemmas a }
-            in  env { moduleEnv = (upd x' x,upd y' y), tDict = map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (tDict env) }
+            in  env { moduleEnv = (upd x' x,upd y' y), tDict = mapDict upd zs' $ tDict env }
     put env xs' = error "unsupported view in entryLens"
+    mapDict upd zs' d = fromListNe $ map (\(z',d) -> d { tRec = upd z' $ tRec d }) $ zip zs' (Foldable.toList d)
 
 findListLens :: (a -> Bool) -> Lns [Maybe a] (Maybe (a,Int))
 findListLens p = Lns (get 0) put
@@ -972,7 +973,7 @@ mkDecEnv l d@(DecType i _ ts hd bd specs p@(LemmaType isLeak pl pn pargs panns b
     
 topCstrs :: ProverK loc m => loc -> TcM m (Set LocIOCstr)
 topCstrs l = do
-    cs <- liftM (flattenIOCstrGraphSet . tCstrs . head . tDict) State.get
+    cs <- liftM (flattenIOCstrGraphSet . tCstrs . headNe . tDict) State.get
     opens <- dependentCstrs l []
     return $ cs `Set.difference` opens
     
@@ -996,7 +997,7 @@ buildCstrGraph l cstrs = do
     let ns = nodes gr'
     -- filter out undesired constraints
     let remHeadCstrs d = if dropFromTail then d { tCstrs = Graph.nfilter (\x -> not $ elem x ns) (Graph.trc $ tCstrs d) } else d
-    State.modify $ \env -> env { tDict = let (d:ds) = tDict env in d { tCstrs = gr' } : map remHeadCstrs ds }
+    State.modify $ \env -> env { tDict = let (d:ds) = Foldable.toList (tDict env) in fromListNe (d { tCstrs = gr' } : map remHeadCstrs ds) }
 --    mgr <- State.gets (foldr unionGr Graph.empty . map tCstrs . tail . tDict)
 --    doc <- ppConstraints mgr
 --    liftIO $ putStrLn $ "buildCstrGraphTail: " ++ show doc
@@ -1039,7 +1040,7 @@ tpltVars ((unConstrained -> v@(VarName t (VIden n)),_):xs) = do
     
 splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> DecCtx -> DecCtx -> Set LocIOCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (DecCtx,DecCtx,([(Constrained Var,IsVariadic)],a))
 splitTpltHead l hctx bctx deps vars dec = do
-    d <- liftM (head . tDict) State.get
+    d <- liftM (headNe . tDict) State.get
     let cstrs = tCstrs d
     
     frees <- getFrees l
@@ -1150,7 +1151,7 @@ newStruct bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
             -- solve the body
             let did = fromJustNote "newStruct" (decTypeId $ unDecT recdt)
             bctx' <- addLineage did $ newDecCtx l "newStruct" bctx True
-            dict <- liftM (head . tDict) State.get
+            dict <- liftM (headNe . tDict) State.get
             --i <- newModuleTyVarId
             d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" dontStop (locpos l) dict True Map.empty d'
             let dt = DecT $ DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
@@ -1398,7 +1399,7 @@ resolveIOCstr l iok resolve = do
   where
     trySolve = do
         openCstr l iok
-        gr <- liftM (tCstrs . head . tDict) State.get
+        gr <- liftM (tCstrs . headNe . tDict) State.get
         let ctx = contextGr gr (ioCstrId iok)
         ((x,rest),frees,delfrees) <- withFrees l $ tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
         remove
@@ -1469,7 +1470,7 @@ getCstrNodes = do
     return $ foldr (\d xs -> Set.fromList (nodes $ tCstrs d) `Set.union` xs) Set.empty dicts
 
 getCstrs :: Monad m => TcM m IOCstrGraph
-getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . tDict)
+getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . Foldable.toList . tDict)
 
 addHeadTDict :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
 addHeadTDict l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l (SubstMode NoFailS False) x d
@@ -1529,13 +1530,7 @@ updateHeadTCstrs l msg upd = updateHeadTDict l (msg ++ ":updateHeadTCstrs") $ \d
 updateHeadTDict :: (ProverK loc m) => loc -> String -> (TDict -> TcM m (a,TDict)) -> TcM m a
 updateHeadTDict l msg upd = do
     e <- State.get
-    (x,d') <- case tDict e of
-        (y:ys) -> do
-            (a,y') <- upd y
-            return (a,y':ys)
-        [] -> do
-            pp1 <- pp (locpos l)
-            error $ show $ pp1 <> char ':' <+> text msg <+> text ": unexpected empty dictionary"
+    (x,d') <- updHeadNeM upd (tDict e)
     let e' = e { tDict = d' }
     State.put e'
     return x
@@ -1731,7 +1726,7 @@ substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
   where
     eq x proxy = eqTypeOf x (typeOfProxy proxy)
 
-concatTDict :: (ProverK loc m) => loc -> SubstMode -> [TDict] -> TcM m TDict
+concatTDict :: (ProverK loc m) => loc -> SubstMode -> NeList TDict -> TcM m TDict
 concatTDict l noFail = Foldable.foldlM (appendTDict l noFail) emptyTDict
 
 mergeHeadDecCtx :: ProverK loc m => loc -> DecCtx -> DecCtx -> TcM m DecCtx
@@ -1811,18 +1806,18 @@ newDict l msg = do
     if size >= constraintStackSize opts
         then tcError (locpos l) $ ConstraintStackSizeExceeded $ ppid (constraintStackSize opts) <+> text "dictionaries"
         else do
-            State.modify $ \e -> e { tDict = emptyTDict : tDict e }
+            State.modify $ \e -> e { tDict = ConsNe emptyTDict (tDict e) }
 --            liftIO $ putStrLn $ "newDict " ++ show msg ++ " " ++ show size
 
 tcWith :: (VarsGTcM m) => Position -> String -> TcM m a -> TcM m (a,TDict)
 tcWith l msg m = do
     newDict l $ "tcWith " ++ msg
     x <- m
-    d <- liftM (head . tDict) State.get
+    d <- liftM (headNe . tDict) State.get
     State.modify $ \e -> e { tDict = dropDict (tDict e) }
     return (x,d)
   where
-    dropDict (x:xs) = xs
+    dropDict (ConsNe x xs) = xs
 
 tcNew :: (VarsGTcM m) => Position -> String -> TcM m a -> TcM m a
 tcNew l msg m = do
@@ -2122,6 +2117,10 @@ isDelayableCstr k = everything orM (mkQ (return False) mk) k
 
 isMultipleSubstsTcCstr :: VarsGTcM m => TcCstr -> TcM m Bool
 --isMultipleSubstsTcCstr (MultipleSubstitutions _ _ [k]) = return False
+isMultipleSubstsTcCstr (PDec _ es _ _ _ _ _) = do
+    return $ length es >= 1
+isMultipleSubstsTcCstr (TDec _ es _ _ _) = do
+    return $ length es >= 1
 isMultipleSubstsTcCstr (Coerces ts _ _) = do
     xs <- usedVs' ts
     if Set.null xs then return False else return True
@@ -2167,14 +2166,30 @@ priorityTcCstr k1 k2 = do
                         (False,True) -> return LT
                         otherwise -> return $ compare k1 k2
 
-priorityMultipleSubsts :: MonadIO m => TcCstr -> TcCstr -> TcM m Ordering
-priorityMultipleSubsts c1@(Coerces vs1 _ _) c2@(Coerces vs2 _ _) = do
-    x1 <- usedVs vs1
-    x2 <- usedVs vs2
-    case compare (Set.size x1) (Set.size x2) of
-        LT -> return LT
-        GT -> return GT
-        EQ -> return $ compare c1 c2
+isDecTcCstr :: TcCstr -> Maybe (Maybe [EntryEnv])
+isDecTcCstr (TDec _ es _ _ _) = Just es
+isDecTcCstr (PDec _ es _ _ _ _ _) = Just es
+isDecTcCstr _ = Nothing
+
+priorityMultipleSubsts :: ProverK Position m => TcCstr -> TcCstr -> TcM m Ordering
+priorityMultipleSubsts c1 c2 = do
+    is1 <- isMultipleSubstsTcCstr c1
+    is2 <- isMultipleSubstsTcCstr c2
+    case (is1,is2) of
+        (True,False) -> return GT
+        (False,True) -> return LT
+        otherwise -> priorityMultipleSubsts' c1 c2
+  where
+    priorityMultipleSubsts' (isDecTcCstr -> Just es1) (isDecTcCstr -> Just es2) = return $ compare (length es1) (length es2)
+    priorityMultipleSubsts' (isDecTcCstr -> Just es1) c2 = return LT
+    priorityMultipleSubsts' c1 (isDecTcCstr -> Just es2) = return GT
+    priorityMultipleSubsts' c1@(Coerces vs1 _ _) c2@(Coerces vs2 _ _) = do
+        x1 <- usedVs vs1
+        x2 <- usedVs vs2
+        case compare (Set.size x1) (Set.size x2) of
+            LT -> return LT
+            GT -> return GT
+            EQ -> return $ compare c1 c2
 
 cstrScope :: VarsGTcM m => TCstr -> TcM m SolveScope
 cstrScope k = do
@@ -2224,7 +2239,7 @@ getRecs withBody = do
     debugTc $ do
         ppline <- liftM (sepBy comma) $ mapM pp lineage
         liftIO $ putStrLn $ "getRecs: " ++ show ppline
-    State.gets (mconcat . map tRec . tDict) >>= filterRecModuleTcEnv lineage withBody
+    State.gets (mconcat . Foldable.toList . fmap tRec . tDict) >>= filterRecModuleTcEnv lineage withBody
 
 filterRecModuleTcEnv :: ProverK Position m => Lineage -> Bool -> ModuleTcEnv -> TcM m ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = do
@@ -2259,8 +2274,12 @@ processRecs lin withBody = Map.foldrWithKey go (return Map.empty)
                     else mxs -- drop non-lineage non-monomorphic recursive entries
 
 isMonomorphicDec :: (ProverK Position m) => DecType -> TcM m Bool
-isMonomorphicDec (DecType _ _ targs _ _ specs _) = do
+isMonomorphicDec d@(DecType _ _ targs _ _ specs _) = do
     vs <- usedVs' (targs,specs)
+    debugTc $ do
+        ppd <- ppr d
+        ppvs <- ppr vs
+        liftIO $ putStrLn $ "isMonomorphicDec: " ++ ppvs ++ " " ++ ppd
     return $ Set.null vs
 
 isSMTError :: SecrecError -> Bool

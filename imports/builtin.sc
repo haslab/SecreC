@@ -16,6 +16,13 @@ context<>
     __builtin("core.declassify",x) :: T[[N]]
 }
 
+//@ template <domain D1,domain D2,type T,dim N>
+//@ function D2 T[[N]] reclassify (D1 T[[N]] x)
+//@ context<>
+//@ {
+//@     __builtin("core.reclassify",x) :: D2 T[[N]]
+//@ }
+
 template <domain D, type T, dim N>
 function uint size (D T[[N]] x)
 context<>

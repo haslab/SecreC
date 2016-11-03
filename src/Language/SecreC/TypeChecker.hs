@@ -35,7 +35,7 @@ import Data.Bifunctor
 import Data.Binary
 import Data.Generics
 import Data.Traversable
-import Data.Foldable
+import Data.Foldable as Foldable
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Graph.Inductive.Graph as Graph
@@ -377,7 +377,7 @@ tcContextConstraint (ContextPDec l cl isLeak isAnn ck ret (ProcedureName nl n) t
     st <- getCstrState
     let st' = st { cstrExprC = cl, cstrIsLeak = isLeak, cstrIsAnn = isAnn, cstrDecK = cstrKind2DecKind ck }
     dec <- newDecVar False Nothing
-    let k = PDec False (PIden $ mkVarId n) (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
+    let k = PDec False Nothing (PIden $ mkVarId n) (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
     let kt = TCstrT $ TcK k st'
     return $ ContextPDec (Typed l kt) cl isLeak isAnn ck ret' n' ts' ps'
 tcContextConstraint (ContextODec l cl isLeak isAnn ck ret o ts ps) = do
@@ -388,7 +388,7 @@ tcContextConstraint (ContextODec l cl isLeak isAnn ck ret o ts ps) = do
     st <- getCstrState
     let st' = st { cstrExprC = cl, cstrIsLeak = isLeak, cstrIsAnn = isAnn, cstrDecK = cstrKind2DecKind ck }
     dec <- newDecVar False Nothing
-    let k = PDec False (OIden $ fmap typed o') (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
+    let k = PDec False Nothing (OIden $ fmap typed o') (fmap (map (mapFst (typed . loc))) ts') tps (typed $ loc ret') dec
     let kt = TCstrT $ TcK k st'
     return $ ContextODec (Typed l kt) cl isLeak isAnn ck ret' o' ts' ps'
 tcContextConstraint (ContextTDec l cl (TypeName nl n) ts) = do
@@ -397,7 +397,7 @@ tcContextConstraint (ContextTDec l cl (TypeName nl n) ts) = do
     st <- getCstrState
     let st' = st { cstrExprC = cl, cstrDecK = TKind }
     dec <- newDecVar False Nothing
-    let k = TDec False (TIden $ mkVarId n) (map (mapFst (typed . loc)) ts') dec
+    let k = TDec False Nothing (TIden $ mkVarId n) (map (mapFst (typed . loc)) ts') dec
     let kt = TCstrT $ TcK k st'
     return $ ContextTDec (Typed l kt) cl n' ts'
 
@@ -535,7 +535,7 @@ tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $
 tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
 tcGlobal l m = do
     State.modify $ \e -> e { decClass = DecClass False False (Left False) (Left False) }
-    newDict l "tcGlobal"
+    --newDict l "tcGlobal"
     x <- m
     --debugTc $ liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l)
     solveTop l "tcGlobal"
@@ -545,14 +545,14 @@ tcGlobal l m = do
     --    liftIO $ putStrLn $ "substituting tcGlobal " ++ pprid (locpos l) ++ "\n" ++ pprd
     x' <- substFromTDict "tcGlobal" dontStop l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False (Left False) (Left False), localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = [], moduleCount = incModuleBlock (moduleCount e) }
+    State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False (Left False) (Left False), localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
     liftIO resetGlobalEnv
     liftIO resetTyVarId
     return x'
   where
-    top [x] = return x
+    top (WrapNe x) = return x
     top xs = do
-        ppxs <- mapM pp xs
+        ppxs <- mapM pp $ Foldable.toList xs
         error $ "tcGlobal: " ++ show (vcat ppxs)
 
 incModuleBlock :: (Maybe (Identifier,TyVarId),Int) -> (Maybe (Identifier,TyVarId),Int)

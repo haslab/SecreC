@@ -11,7 +11,7 @@ domain private privatek;
 
 //* Annotations
 
-//@ template <domain D,type T>
+//@ template <nonpublic kind K,domain D : K,type T>
 //@ leakage function bool lcomparison (D T[[1]] xs,D T x)
 //@ context<>
 //@ noinline;
@@ -19,7 +19,7 @@ domain private privatek;
 //@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
 //@ }
 
-//@ template <domain D,type T>
+//@ template <nonpublic kind K,domain D : K,type T>
 //@ leakage function bool lcomparisons (D T[[1]] xs)
 //@ context<>
 //@ noinline;
@@ -27,13 +27,13 @@ domain private privatek;
 //@     forall uint i,uint j ; (0 <= i && i < size(xs) && 0 <= j && j < size(xs)) ==> public(xs[i] <= xs[j])
 //@ }
 
-//@ leakage lemma lcomparisons_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys)
+//@ leakage lemma lcomparisons_subset <nonpublic kind K,domain D : K,type T> (D T[[1]] xs,D T[[1]] ys)
 //@ context<>
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires lcomparisons(xs);
 //@ ensures lcomparisons(ys);
  
-//@ leakage lemma lcomparison_subset <domain D,type T> (D T[[1]] xs,D T[[1]] ys, D T z)
+//@ leakage lemma lcomparison_subset <nonpublic kind K,domain D : K,type T> (D T[[1]] xs,D T[[1]] ys, D T z)
 //@ context<>
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires in(z,xs);

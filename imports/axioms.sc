@@ -6,7 +6,7 @@ module axioms;
 //@ ensures size(xs) == size(multiset(xs));
 
 //@ axiom <domain D,type T> (D T[[1]] xs)
-//@ requires xs == {};
+//@ requires reclassify(xs) == {};
 //@ ensures multiset(xs) == multiset{};
 
 //@ axiom <domain D,type T> (D T[[1]] xs)

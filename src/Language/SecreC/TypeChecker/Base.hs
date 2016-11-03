@@ -143,7 +143,7 @@ data TCstrStatus
         ShowOrdDyn -- result value
     | Erroneous -- has failed
         SecrecError -- failure error
-  deriving (Data,Typeable,Show,Generic)
+  deriving (Data,Typeable,Show,Generic,Eq,Ord)
 
 instance Hashable TCstrStatus
 
@@ -267,7 +267,7 @@ data TcEnv = TcEnv {
     , localConsts :: Map Identifier GIdentifier
     , globalDeps :: Deps -- ^ global dependencies
     , localDeps :: Deps -- ^ local dependencies
-    , tDict :: [TDict] -- ^ A stack of dictionaries
+    , tDict :: NeList TDict -- ^ A stack of dictionaries
     , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
     , cstrCache :: CstrCache -- cache for constraints
     , solveToCache :: Bool -- solve constraints to the cache or global state
@@ -522,7 +522,7 @@ emptyTcEnv = TcEnv
     , localFrees = Map.empty
     , globalDeps = Set.empty
     , localDeps = Set.empty
-    , tDict = []
+    , tDict = WrapNe emptyTDict
     , openedCstrs = []
     , cstrCache = Map.empty
     , solveToCache = False
@@ -732,11 +732,13 @@ type PIdentifier = GIdentifier' Type --Either VarIdentifier (Op GIdentifier Type
 data TcCstr
     = TDec -- ^ type template declaration
         Bool -- check only context
+        (Maybe [EntryEnv]) -- optional ambiguous entries
         SIdentifier -- template name
         [(Type,IsVariadic)] -- template arguments
         DecType -- resulting type
     | PDec -- ^ procedure declaration
         Bool -- check only context
+        (Maybe [EntryEnv]) -- optional ambiguous entries
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
         [(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
@@ -921,20 +923,22 @@ instance PP m VarIdentifier => PP m [(IsConst,Either Expr Type,IsVariadic)] wher
             return $ ppConst x $ ppVariadic y' z
 
 instance PP m VarIdentifier => PP m TcCstr where
-    pp (TDec k n ts x) = do
+    pp (TDec k es n ts x) = do
         ppk <- pp k
+        ppes <- pp (isJust es)
         ppn <- pp n
         ppts <- (mapM pp ts) 
         ppx <- pp x
-        return $ text "tdec" <+> ppk <+> ppn <+> sepBy space ppts <+> char '=' <+> ppx
-    pp (PDec k n specs ts r x) = do
+        return $ text "tdec" <+> ppk <+> ppes <+> ppn <+> sepBy space ppts <+> char '=' <+> ppx
+    pp (PDec k es n specs ts r x) = do
         ppk <- pp k
+        ppes <- pp (isJust es)
         ppr <- pp r
         ppn <- pp n
         ppspecs <- mapM pp $ maybe [] id specs
         ppts <- pp ts
         ppx <- pp x
-        return $ ppk <+> ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
+        return $ ppk <+> ppes <+> ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
     pp (Equals t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
@@ -1139,22 +1143,24 @@ falseExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) False)
 
 indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
 indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
-    
+
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCstr where
-    traverseVars f (TDec k n args x) = do
+    traverseVars f (TDec k e n args x) = do
         k' <- f k
+        e' <- mapM (mapM f) e
         n' <- f n
         args' <- mapM f args
         x' <- f x
-        return $ TDec k' n' args' x'
-    traverseVars f (PDec k n ts args ret x) = do
+        return $ TDec k' e' n' args' x'
+    traverseVars f (PDec k e n ts args ret x) = do
         k' <- f k
+        e' <- mapM (mapM f) e
         n' <- f n
         x' <- f x
         ts' <- mapM (mapM f) ts
         args' <- mapM f args
         ret' <- f ret
-        return $ PDec k' n' ts' args' ret' x'
+        return $ PDec k' e' n' ts' args' ret' x'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2

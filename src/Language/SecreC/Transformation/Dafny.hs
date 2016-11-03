@@ -13,6 +13,7 @@ import Language.SecreC.Location
 import Language.SecreC.Error
 import Language.SecreC.TypeChecker.Environment
 import Language.SecreC.TypeChecker.Conversion
+import Language.SecreC.TypeChecker.Type
 import Language.SecreC.Modules
 import Language.SecreC.Prover.Semantics
 import Language.SecreC.Vars
@@ -558,7 +559,7 @@ genDafnyPublics l False annK pv tv = whenLeakMode $ do
                 genPublic t = return []
             -- only generate public sizes for private types
             let genPublicSize t@(ComplexT (CType s b d)) | not (isPublicSecType s) = do
-                    mb <- lift $ tryTcError $ fullyEvaluateIndexExpr l d
+                    mb <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
                     case mb of
                         Right 0 -> return []
                         Right 1 -> do
@@ -778,7 +779,7 @@ baseTypeToDafny l (TApp _ args dec@(decTypeTyVarId -> Just mid)) = do
 complexTypeToDafny :: DafnyK m => Position -> ComplexType -> DafnyM m Doc
 complexTypeToDafny l t@(CType s b d) = do
     pb <- baseTypeToDafny l b
-    mb <- lift $ tryTcError $ fullyEvaluateIndexExpr l d
+    mb <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
     case mb of
         Right 0 -> return pb
         Right 1 -> return $ text "seq" <> abrackets pb
@@ -849,7 +850,7 @@ tAttDec l ppe t@(BaseT (TApp _ _ d)) = do
     did <- loadDafnyDec' l d
     return did
 tAttDec l ppe t@(ComplexT (CType Public b d)) = do
-    mbd <- lift $ tryTcError $ fullyEvaluateIndexExpr l d
+    mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
     case mbd of
         Right 0 -> tAttDec l ppe (BaseT b)
         otherwise -> do
@@ -1069,21 +1070,32 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.div" [x,y] = do
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.declassify" [x] = do -- we ignore security types
     (annx,px) <- expressionToDafny isLVal False annK x
     leakMode <- getLeakMode
-    if leakMode
+    inAnn <- getInAnn
+    if leakMode && not inAnn
         then do
             let assert = (annK,False,text "DeclassifiedIn" <> parens px)
             qExprToDafny isQExpr (annx++[assert]) px
         else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.classify" [x] = do -- we ignore security types
     expressionToDafny isLVal False annK x
+builtinToDafny isLVal isQExpr annK (Typed l ret) "core.reclassify" [x] = do -- we ignore security types
+    (annx,px) <- expressionToDafny isLVal False annK x
+    leakMode <- getLeakMode
+    inAnn <- getInAnn
+    isPub <- lift $ liftM isJust $ tryTcErrorMaybe l $ isPublic l False ret
+    if leakMode && not inAnn && isPub
+        then do
+            let assert = (annK,False,text "DeclassifiedIn" <> parens px)
+            qExprToDafny isQExpr (annx++[assert]) px
+        else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.cat" [x,y,n] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
     let tx = typed $ loc x
     case tx of
         ComplexT (CType s b d) -> do
-            mbd <- lift $ tryTcError $ fullyEvaluateIndexExpr l d
-            mbn <- lift $ tryTcError $ fullyEvaluateIndexExpr l $ fmap typed n
+            mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
+            mbn <- lift $ tryTcError l $ fullyEvaluateIndexExpr l $ fmap typed n
             case (mbd,mbn) of
                 (Right 1,Right 0) -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> char '+' <+> py)
                 (err1,err2) -> do
@@ -1103,7 +1115,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.size" [x] = do
     case tx of
         BaseT b -> qExprToDafny isQExpr (annx) (dafnySize px)
         ComplexT (CType s b d) -> do
-            mbd <- lift $ tryTcError $ fullyEvaluateIndexExpr l d
+            mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
                 Right 0 -> qExprToDafny isQExpr (annx) (dafnySize px)
                 Right 1 -> qExprToDafny isQExpr (annx) (dafnySize px)
@@ -1121,7 +1133,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
     case tx of
         BaseT b -> qExprToDafny isQExpr (annx) (brackets empty)
         ComplexT (CType s b d) -> do
-            mbd <- lift $ tryTcError $ fullyEvaluateIndexExpr l d
+            mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
                 Right 0 -> qExprToDafny isQExpr (annx) (brackets empty)
                 Right 1 -> qExprToDafny isQExpr (annx) (brackets $ dafnySize px)

@@ -18,9 +18,9 @@ void main () {
     private int x;
     protected int y;
     x = reclassify (x);
-    x = reclassify (y);
-    y = reclassify (x);
-    y = reclassify (y);
-    x = classify_ (0);
+//    x = reclassify (y);
+//    y = reclassify (x);
+//    y = reclassify (y);
+//    x = classify_ (0);
 }
 

@@ -219,7 +219,7 @@ tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     let ts = map (mapFst (typed . loc)) args'
     let vn@(TypeName _ vnn) = bimap (TIden . mkVarId) id n
     dec <- newDecVar False Nothing
-    topTcCstrM_ l $ TDec False vnn ts dec
+    topTcCstrM_ l $ TDec False Nothing vnn ts dec
     let ret = TApp vnn ts dec
     let n' = fmap (flip Typed (DecT dec)) vn
     return $ TemplateSpecifier (Typed l $ BaseT ret) n' args'
@@ -578,7 +578,7 @@ defaultExpr l t@(ComplexT (CVar v c)) szs = do
     c <- resolveCVar l v c
     defaultExpr l (ComplexT c) szs
 defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
-    mbd <- tryTcError $ addErrorM l (TypecheckerError (locpos l) . GenTcError (text "defaultExpr dimension") . Just) $ fullyEvaluateIndexExpr l d
+    mbd <- tryTcError l $ addErrorM l (TypecheckerError (locpos l) . GenTcError (text "defaultExpr dimension") . Just) $ fullyEvaluateIndexExpr l d
     case mbd of
         Right 0 -> addErrorM l (TypecheckerError (locpos l) . GenTcError (text "dimension == 0") . Just) $ defaultBaseExpr l s b
         Right n -> do
@@ -633,7 +633,7 @@ defaultBaseExpr l s b@(MSet _) = return $ MultisetConstructorPExpr (ComplexT $ C
 defaultBaseExpr l Public b@(TApp (TIden sn) targs sdec) = do
 --    StructType _ _ (Just atts) cl <- structBody l dec
     let ct = BaseT b
-    (pdec,[]) <- pDecCstrM l False False False (PIden sn) (Just targs) [] ct
+    (pdec,[]) <- pDecCstrM l Nothing False False False (PIden sn) (Just targs) [] ct
     targs' <- mapM (\(x,y) -> liftM ((,y) . fmap typed) $ type2TemplateTypeArgument l x) targs
     let targs'' = if null targs' then Nothing else Just targs'
     return $ ProcCallExpr ct (fmap (const $ DecT pdec) $ ProcedureName () (TIden sn)) targs'' []

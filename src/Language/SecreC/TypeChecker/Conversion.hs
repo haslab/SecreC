@@ -85,18 +85,18 @@ decCtx2TemplateContext l dec@(DecCtx True d _) = liftM (TemplateContext (Typed l
         ppk <- pp k
         genError (locpos l) $ text "cstr2Context: hypothesis" <+> ppk
     tcCstr2Context :: ConversionK loc m => loc -> TcCstr -> CstrState -> TcM m (ContextConstraint GIdentifier (Typed loc))
-    tcCstr2Context l k@(TDec dk (TIden n) ts x) st = do
+    tcCstr2Context l k@(TDec dk es (TIden n) ts x) st = do
         let tn' = TypeName (Typed l $ DecT x) $ TIden n
         ts' <- mapM (mapFstM (type2TemplateTypeArgument l)) ts
         return $ ContextTDec (Typed l $ TCstrT $ TcK k st) (cstrExprC st) tn' ts'
-    tcCstr2Context l k@(PDec dk (PIden n) ts args ret x) st = do
+    tcCstr2Context l k@(PDec dk es (PIden n) ts args ret x) st = do
         ret' <- type2ReturnTypeSpecifier l ret
         let pn' = ProcedureName (Typed l $ DecT x) $ PIden n
         ts' <- mapM (mapM (mapFstM (type2TemplateTypeArgument l))) ts
         args' <- mapM (decPArg2CtxPArg l) args
         let Just kind = decKind2CstrKind $ cstrDecK st
         return $ ContextPDec (Typed l $ TCstrT $ TcK k st) (cstrExprC st) (cstrIsLeak st) (cstrIsAnn st) kind ret' pn' ts' args'
-    tcCstr2Context l k@(PDec dk (OIden o) ts args ret _) st = do
+    tcCstr2Context l k@(PDec dk es (OIden o) ts args ret _) st = do
         ret' <- type2ReturnTypeSpecifier l ret
         let o' = fmap (Typed l) o
         ts' <- mapM (mapM (mapFstM (type2TemplateTypeArgument l))) ts

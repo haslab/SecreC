@@ -70,7 +70,7 @@ tryCstrBool :: (ProverK loc m) => loc -> TcM m a -> TcM m Bool
 
 tryCstrMaybe :: (ProverK loc m) => loc -> TcM m a -> TcM m (Maybe a)
 
-comparesExpr :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m (Comparison (TcM m))
+comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
 
 unifiesExpr :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 
@@ -100,7 +100,7 @@ resolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m DecType
 
 unifiesTIdentifier :: (ProverK loc m) => loc -> TIdentifier -> TIdentifier -> TcM m ()
 
-pDecCstrM :: (ProverK loc m) => loc -> Bool -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Either Expr Type,IsVariadic)])
+pDecCstrM :: (ProverK loc m) => loc -> Maybe [EntryEnv] -> Bool -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Either Expr Type,IsVariadic)])
 
 expandVariadicExpr :: (ProverK loc m) => loc -> Bool -> (Expr,IsVariadic) -> TcM m [Expr]
 
@@ -129,7 +129,7 @@ equalsSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 
 projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index GIdentifier Type] -> TcM m Expr
 
-tryTcError :: Monad m => TcM m a -> TcM m (Either SecrecError a)
+tryTcError :: ProverK loc m => loc -> TcM m a -> TcM m (Either SecrecError a)
 
 tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
 
