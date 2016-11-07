@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=tryb
 
 // set of legal implicit classifications
 kind additive3pp;
