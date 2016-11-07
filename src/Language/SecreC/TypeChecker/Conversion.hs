@@ -71,8 +71,8 @@ dec2AxiomDecl l t = do
     genError (locpos l) $ text "dec2AxiomDecl:" <+> ppt
 
 decCtx2TemplateContext :: ConversionK loc m => loc -> DecCtx -> TcM m (TemplateContext GIdentifier (Typed loc))
-decCtx2TemplateContext l dec@(DecCtx False _ _) = return $ TemplateContext (Typed l (DecCtxT dec)) Nothing
-decCtx2TemplateContext l dec@(DecCtx True d _) = liftM (TemplateContext (Typed l (DecCtxT dec)) . Just) $ cstrs2Context l (pureCstrs d)
+decCtx2TemplateContext l dec@(DecCtx Nothing _ _) = return $ TemplateContext (Typed l (DecCtxT dec)) Nothing
+decCtx2TemplateContext l dec@(DecCtx (Just _) d _) = liftM (TemplateContext (Typed l (DecCtxT dec)) . Just) $ cstrs2Context l (pureCstrs d)
     where
     cstrs2Context :: ConversionK loc m => loc -> TCstrGraph -> TcM m [ContextConstraint GIdentifier (Typed loc)]
     cstrs2Context l g = mapM (cstr2Context l . unLoc . snd) $ Graph.labNodes g

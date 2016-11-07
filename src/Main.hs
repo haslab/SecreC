@@ -266,7 +266,9 @@ verifOutput isLeak isDafny st@(Status (Left output)) = do
         Right (oks,kos) -> do
             let c = if isLeak then "leakage" else "functional"
             let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
-            return $ Status $ Left res
+            case kos of
+                0 -> return $ Status $ Left res
+                otherwise -> error $ show res
 
 verifErr :: MonadIO m => Bool -> Status -> m Status
 verifErr isDafny (Status res) = do

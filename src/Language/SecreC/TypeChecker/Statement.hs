@@ -27,6 +27,7 @@ import Data.Map (Map(..))
 import qualified Data.Map as Map
 import Data.Int
 import Data.Word
+import Data.Maybe
 
 import Safe
 
@@ -42,6 +43,16 @@ import Prelude hiding (mapM)
 -- | Left-biased merge of two @StmtClass@es
 extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
+
+tcStmtBlock :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
+tcStmtBlock l msg m = do
+    delay <- State.gets (isJust . inTemplate)
+    if delay
+        then tcAddDeps l msg m
+        else tcNew (locpos l) msg $ do
+            x <- m
+            solveTop l msg
+            return x
 
 tcStmtsRet :: ProverK loc m => loc -> Type -> [Statement Identifier loc] -> TcM m [Statement GIdentifier (Typed loc)]
 tcStmtsRet l ret ss = do
@@ -63,10 +74,10 @@ isReturnStmt l cs ret = do
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement GIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.singleton StmtFallthru)
 tcStmts ret [s] = do
-    (s',StmtType c) <- tcAddDeps (loc s) "stmt" $ tcStmt ret s
+    (s',StmtType c) <- tcStmtBlock (loc s) "stmt" $ tcStmt ret s
     return ([s'],StmtType c)
 tcStmts ret (s:ss) = do
-    (s',StmtType c) <- tcAddDeps (loc s) "stmts" $ tcStmt ret s
+    (s',StmtType c) <- tcStmtBlock (loc s) "stmts" $ tcStmt ret s
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
@@ -85,7 +96,7 @@ tcStmts ret (s:ss) = do
 -- | Typecheck a non-empty statement
 tcNonEmptyStmt :: (ProverK loc m) => Type -> Statement Identifier loc -> TcM m (Statement GIdentifier (Typed loc),Type)
 tcNonEmptyStmt ret s = do
-    r@(s',StmtType cs) <- tcAddDeps (loc s) "nonempty stmt" $ tcStmt ret s
+    r@(s',StmtType cs) <- tcStmtBlock (loc s) "nonempty stmt" $ tcStmt ret s
     when (Set.null cs) $ do
         pps <- pp s
         tcWarn (locpos $ loc s) $ EmptyBranch (pps)
@@ -94,7 +105,7 @@ tcNonEmptyStmt ret s = do
 -- | Typecheck a statement in the body of a loop
 tcLoopBodyStmt :: (ProverK loc m) => Type -> loc -> Statement Identifier loc -> TcM m (Statement GIdentifier (Typed loc),Type)
 tcLoopBodyStmt ret l s = do
-    (s',StmtType cs) <- tcAddDeps l "loop" $ tcStmt ret s
+    (s',StmtType cs) <- tcStmtBlock l "loop" $ tcStmt ret s
     -- check that the body can perform more than iteration
     when (Set.null $ Set.filter isIterationStmtClass cs) $ do
         pps <- pp s
@@ -111,27 +122,27 @@ tcStmt ret (CompoundStatement l s) = do
     (ss',t) <- tcLocal l "tcStmt compound" $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
 tcStmt ret (IfStatement l condE thenS Nothing) = do
-    condE' <- tcAddDeps l "ifguard" $ tcGuard condE
+    condE' <- tcStmtBlock l "ifguard" $ tcGuard condE
     (thenS',StmtType cs) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     -- an if statement falls through if the condition is not satisfied
     let t = StmtType $ Set.insert (StmtFallthru) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
-    condE' <- tcAddDeps l "ifguard" $ tcGuard condE
+    condE' <- tcStmtBlock l "ifguard" $ tcGuard condE
     (thenS',StmtType cs1) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     (elseS',StmtType cs2) <- tcLocal l "tcStmt if else" $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
 tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for" $ do
-    startE' <- tcAddDeps l "forinit" $ tcForInitializer startE
-    whileE' <- tcAddDeps l "forguard" $ mapM (tcGuard) whileE
-    incE' <- withExprC ReadWriteExpr $ tcAddDeps l "forinc" $ mapM (tcExpr) incE
+    startE' <- tcStmtBlock l "forinit" $ tcForInitializer startE
+    whileE' <- tcStmtBlock l "forguard" $ mapM (tcGuard) whileE
+    incE' <- withExprC ReadWriteExpr $ tcStmtBlock l "forinc" $ mapM (tcExpr) incE
     ann' <- mapM tcLoopAnn ann
     (bodyS',t') <- tcLocal l "tcStmt for body" $ tcLoopBodyStmt ret l bodyS
     return (ForStatement (notTyped "tcStmt" l) startE' whileE' incE' ann' bodyS',t')
 tcStmt ret (WhileStatement l condE ann bodyS) = do
     ann' <- mapM tcLoopAnn ann
-    condE' <- tcAddDeps l "whileguard" $ tcGuard condE
+    condE' <- tcStmtBlock l "whileguard" $ tcGuard condE
     (bodyS',t') <- tcLocal l "tcStmt while body" $ tcLoopBodyStmt ret l bodyS
     return (WhileStatement (notTyped "tcStmt" l) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
@@ -199,21 +210,21 @@ tcStmt ret (AnnStatement l ann) = do
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))
-tcLoopAnn (DecreasesAnn l isFree e) = tcAddDeps l "loopann" $ insideAnnotation $ withLeak False $ do
+tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "loopann" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = tcAddDeps l "loopann" $ insideAnnotation $ do
+tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "loopann" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation GIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ do
+tcStmtAnn (AssumeAnn l isLeak e) = tcStmtBlock l "stmtann" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (AssertAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ do
+tcStmtAnn (AssertAnn l isLeak e) = tcStmtBlock l "stmtann" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssertAnn (Typed l $ typed $ loc e') isLeak' e'
-tcStmtAnn (EmbedAnn l isLeak e) = tcAddDeps l "stmtann" $ insideAnnotation $ withKind LKind $ do
+tcStmtAnn (EmbedAnn l isLeak e) = tcStmtBlock l "stmtann" $ insideAnnotation $ withKind LKind $ do
     (isLeak',(e',t)) <- checkLeak l isLeak $ tcStmt (ComplexT Void) e
     return $ EmbedAnn (Typed l t) isLeak' e'
 

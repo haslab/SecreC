@@ -699,7 +699,7 @@ coercesDec = do
     let kst = CstrState False False PureExpr False FKind (cstrLineage st) (cstrErr st)
     let k = TcK (Coerces Nothing (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
-    let ctx = DecCtx False (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
+    let ctx = DecCtx Nothing (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
     let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
     debugTc $ do
         ppd <- ppr dec
@@ -1279,6 +1279,7 @@ data TDict = TDict
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     , tRec :: ModuleTcEnv -- recursive environment
+    , tSolved :: Set IOCstr -- constraints already solved; this may be important because of nested dictionaries
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1307,7 +1308,7 @@ instance (PP m VarIdentifier, GenVar VarIdentifier m,MonadIO m) => Vars GIdentif
 fromPureTDict :: MonadIO m => PureTDict -> TcM m TDict
 fromPureTDict (PureTDict g ss rec) = do
     g' <- fromPureCstrs g
-    return $ TDict g' Set.empty ss rec
+    return $ TDict g' Set.empty ss rec Set.empty
 
 fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m IOCstrGraph
 fromPureCstrs g = do
@@ -1335,7 +1336,7 @@ toPureCstrs :: IOCstrGraph -> TCstrGraph
 toPureCstrs = nmap (fmap kCstr)
 
 toPureTDict :: TDict -> PureTDict
-toPureTDict (TDict ks _ ss rec) = PureTDict (toPureCstrs ks) ss rec
+toPureTDict (TDict ks _ ss rec _) = PureTDict (toPureCstrs ks) ss rec
 
 flattenIOCstrGraph :: IOCstrGraph -> [LocIOCstr]
 flattenIOCstrGraph = map snd . labNodes
@@ -1366,7 +1367,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
             return ((k',v'):xs')
 
 emptyTDict :: TDict
-emptyTDict = TDict Graph.empty Set.empty emptyTSubsts mempty
+emptyTDict = TDict Graph.empty Set.empty emptyTSubsts mempty Set.empty
 
 emptyPureTDict :: PureTDict
 emptyPureTDict = PureTDict Graph.empty emptyTSubsts mempty
@@ -1645,18 +1646,18 @@ iDecTyKind (AxiomType {}) = AKind
 iDecTyKind (StructType {}) = TKind
 iDecTyKind (LemmaType {}) = LKind
 
-data DecCtx = DecCtx { dCtxExplicit :: Bool, dCtxDict :: PureTDict, dCtxFrees :: Frees }
+data DecCtx = DecCtx { dCtxExplicit :: Maybe (Map DecType VarIdentifier), dCtxDict :: PureTDict, dCtxFrees :: Frees }
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 instance Binary DecCtx
 instance Hashable DecCtx
 
 implicitDecCtx :: DecCtx
-implicitDecCtx = DecCtx False emptyPureTDict Map.empty
+implicitDecCtx = DecCtx Nothing emptyPureTDict Map.empty
 
 explicitDecCtx :: DecCtx
-explicitDecCtx = DecCtx True emptyPureTDict Map.empty
+explicitDecCtx = DecCtx (Just Map.empty) emptyPureTDict Map.empty
 
-ppContext hasCtx = if hasCtx then text "context" else text "implicit"
+ppContext hasCtx = if isJust (hasCtx) then text "context" else text "implicit"
 
 instance PP m VarIdentifier => PP m DecCtx where
     pp (DecCtx has dict frees) = do
@@ -1666,7 +1667,7 @@ instance PP m VarIdentifier => PP m DecCtx where
 
 instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m DecCtx where
     traverseVars f (DecCtx has dict frees) = do
-        has' <- f has
+        has' <- mapM (liftM (Map.fromList . map (mapSnd unVIden)) . mapM (f . mapSnd VIden) . Map.toList) has
         frees' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList frees
         dict' <- f dict
         return $ DecCtx has' dict' frees'

@@ -134,7 +134,8 @@ matchTemplate l oldentries kid n targs pargs ret check = do
             isAnn <- getAnn
             isLeak <- getLeak
             kind <- getKind
-            tcError (locpos l) $ Halt $ NoMatchingTemplateOrProcedure (ppid isAnn <+> ppid isLeak <+> ppid kind <+> def) defs
+            halt <- getHalt
+            tcError (locpos l) $ halt $ NoMatchingTemplateOrProcedure (ppid isAnn <+> ppid isLeak <+> ppid kind <+> def) defs
         [inst] -> liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
         -- sort the declarations from most to least specific: this will issue an error if two declarations are not comparable
         otherwise -> do
@@ -196,8 +197,8 @@ type EntryInst = (EntryEnv,EntryEnv,TDict,TDict,Frees,Frees,CstrCache)
 entryInstOld :: EntryInst -> EntryEnv
 entryInstOld (e,_,_,_,_,_,_) = e
 
-discardMatchingEntry :: ProverK Position m => EntryInst -> TcM m ()
-discardMatchingEntry (e,e',dict,_,frees,_,_) = delFrees "discardMatchingEntry" frees
+--discardMatchingEntry :: ProverK Position m => EntryInst -> TcM m ()
+--discardMatchingEntry (e,e',dict,_,frees,_,_) = delFrees "discardMatchingEntry" frees
 
 mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
 mkInvocationDec l dec@(DecType j (DecTypeRec i) targs hdict bdict specs d) targs' = return dec
@@ -218,7 +219,7 @@ resolveTemplateEntries l kid n targs pargs ret insts ko = do
                 pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
                 let match = (resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid)
                 let post (dec,heads) = return (heads,dec)
-                return $ (match,(return,PP.empty),(post,PP.empty),Map.keysSet frees)
+                return $ (match,(return,PP.empty),(post,PP.empty))
             choices' <- mapM (choice True) (init insts)
             choice' <- choice False (last insts)
             multipleSubstitutions l kid SolveAll (n,targs,pargs,ret) (Left ko) (choices'++[choice'])
@@ -248,7 +249,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict
     addFrees "resolveTemplateEntry" $ decTypeFrees dec
     --liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr targs ++ " " ++ ppr pargs ++ " " ++ ppr dec
     -- prove the body (with a recursive declaration)
-    let doWrap = isTemplateDecType olddec && decIsOriginal olddec
+    let doWrap = isTemplateDecType olddec && decIsRec dec && decIsOriginal olddec
     (decrec,rec) <- if doWrap
         then do
             debugTc $ do
@@ -393,9 +394,11 @@ compareTwice l x x' y y' cmp1 cmp2 = do
             --    ppo' <- ppr o'
             --    liftIO $ putStrLn $ "comparing after " ++ ppo'
             case compOrdering o' of
+                (EQ,EQ,False) -> return o
                 (ord',isLat',ko') -> do -- the initial non-coercion comparison is the one to choose from
                     appendComparison l o o' -- the pre and post comparisons should be consistent
-                    return $ Comparison x y (minOrd ord ord') (minOrd isLat isLat') (min ko ko')
+                    return $ Comparison x y ord' isLat' (min ko ko')
+                    --return $ Comparison x y (minOrd ord ord') (minOrd isLat isLat') (min ko ko')
                 otherwise -> do
                     ppo <- ppr o
                     ppo' <- ppr $ compOrdering o'
@@ -496,13 +499,18 @@ instantiateTemplateEntries valids l def isLattice kid n targs pargs ret (e:es) =
 addValidEntry :: ProverK loc m => loc -> Doc -> Bool -> TIdentifier -> EntryInst -> TcM m (Set ModuleTyVarId)
 addValidEntry l def isLattice n (e,e',_,_,_,_,_) = do
     let d = unDecT (entryType e)
+    let d' = unDecT (entryType e')
     if isLattice
         then do
-            ori <- getOriginalDec l d
-            o <- compareTemplateEntries def l isLattice n (EntryEnv (entryLoc e) $ DecT ori) e'
-            case o of
-                Comparison _ _ _ EQ _ -> return (Set.fromList $ decLineage d)
-                otherwise -> return Set.empty 
+            let doWrap = isTemplateDecType d && decIsRec d' && decIsOriginal d
+            if doWrap
+                then do
+                    ori <- getOriginalDec l d
+                    o <- compareTemplateEntries def l isLattice n (EntryEnv (entryLoc e) $ DecT ori) e'
+                    case o of
+                        Comparison _ _ _ EQ _ -> return (Set.fromList $ decLineage d)
+                        otherwise -> return Set.empty 
+                else return Set.empty
         else return (Set.fromList $ decLineage d)
 
 unifyTemplateTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m ()
@@ -816,7 +824,7 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                         pperr <- ppr err
                         liftIO $ putStrLn $ "failed to instantiate " ++ pprid kid ++ " " ++ ppn ++" "++ show (decTypeTyVarId olddec) ++ "\n" ++ pperr
                     return $ Left (olde,err)
-                Right ((cache),TDict hgr _ subst recs) -> do
+                Right ((cache),TDict hgr _ subst recs solved) -> do
                         --removeIOCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
                         (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
@@ -825,8 +833,8 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                         recs'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty recs'
                         hgr1 <- fromPureCstrs hgr''
                         bgr1 <- fromPureCstrs bgr''
-                        let headDict = (TDict hgr1 Set.empty subst' recs'')
-                        let bodyDict = (TDict bgr1 Set.empty emptyTSubsts mempty)
+                        let headDict = (TDict hgr1 Set.empty subst' recs'' solved)
+                        let bodyDict = (TDict bgr1 Set.empty emptyTSubsts mempty Set.empty)
                         --let headPureDict = toPureTDict headDict
                         --let bodyPureDict = toPureTDict bodyDict
                         debugTc $ do
@@ -900,7 +908,7 @@ templateTDict :: (ProverK Position m) => ExprClass -> EntryEnv -> TcM m (EntryEn
 templateTDict exprC e = case entryType e of
     DecT (DecType i isRec vars (DecCtx his hd hfrees) (DecCtx bis d bfrees) specs ss) -> do
         hd' <- fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
-        let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d)
+        let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d) Set.empty
         let e' = e { entryType = DecT (DecType i isRec vars (DecCtx his emptyPureTDict hfrees) (DecCtx bis emptyPureTDict bfrees) specs ss) }
         return (e',hd',d',purify $ pureCstrs d)
     otherwise -> return (e,emptyTDict,emptyTDict,Graph.empty)
