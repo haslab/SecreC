@@ -1,5 +1,5 @@
 
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 kind additive3pp;
 domain p1 additive3pp;
