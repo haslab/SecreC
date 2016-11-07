@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 int fact (int n) {
   int out = 1;

@@ -1,20 +1,7 @@
+#OPTIONS_SECREC --implicitcoercions=onc
+
 kind additive3pp;
 domain sharemind_test_pd additive3pp;
-
-sharemind_test_pd int classify (int x) {
-    havoc sharemind_test_pd int y;
-    return y;
-}
-bool declassify (sharemind_test_pd bool x) {
-    havoc bool y;
-    return y;
-}
-
-sharemind_test_pd bool operator == (sharemind_test_pd int x,sharemind_test_pd int y) {
-    // stub
-    havoc sharemind_test_pd bool     ret;
-    return ret;
-}
 
 int val = 0;
 

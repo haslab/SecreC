@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 int g1 = 42, g2;
 void main () {
     assert (g1 == 42);

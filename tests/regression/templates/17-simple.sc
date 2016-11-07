@@ -8,5 +8,5 @@ void foo (uint [[D]] arr) {
 
 void main () {
     foo (3 :: uint);
-//    foo (reshape (7 :: uint, 5, 6));
+    foo (reshape (7 :: uint, 5, 6));
 }

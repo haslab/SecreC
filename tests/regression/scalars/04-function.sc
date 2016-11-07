@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 int add (int x, int y)
 {

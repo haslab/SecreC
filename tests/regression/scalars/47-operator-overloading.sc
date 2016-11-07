@@ -1,14 +1,7 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 kind additive3pp;
 domain private additive3pp;
-
-private int classify (int x) {
-    havoc private int y;
-    return y;
-}
-private bool classify (bool x) {
-    havoc private bool y;
-    return y;
-}
 
 int operator +  (private int x, private int y)  { return  0; }
 int operator +  (private int x, int y)          { return  1; }

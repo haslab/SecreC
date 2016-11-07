@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 // bug in postfix inc/dec code generation -- fixed
 void main () {
   int i = 0;

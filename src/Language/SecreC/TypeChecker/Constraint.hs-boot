@@ -122,6 +122,8 @@ tryResolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe DecTyp
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 
+tcCoercesN :: ProverK loc m => loc -> Bool -> [Expr] -> Type -> TcM m [Expr]
+
 unifiesExprTy :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()

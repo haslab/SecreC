@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 /**
  * Bug fixed with
  * ef869a3fcce29d8ab267da5bcb4c4f70a1d7e91a

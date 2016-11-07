@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void order (int a1, int a2, int a3) {
     assert (a1 == 1);
     assert (a2 == 2);

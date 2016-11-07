@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main() {
   uint32[[1]] foo1 = {1, 2};
   uint32[[1]] foo2 = {3, 4};

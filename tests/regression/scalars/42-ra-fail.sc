@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
     int i = 0;
     int count = 10;

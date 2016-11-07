@@ -1,4 +1,6 @@
 
+#OPTIONS_SECREC --implicitcoercions=offc
+
 // basic parsing and semantic checks for postfix increment and decrement
 void main () {
   int i;

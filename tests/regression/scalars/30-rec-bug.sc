@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 int t (int n) {
   int x = n;
   if (n > 0) t (n - 1);

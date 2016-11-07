@@ -22,14 +22,19 @@ timelimit = 3 * 60
 
 buildTestTree :: IO Test
 buildTestTree = do
-    tests1 <- buildTestDirectoryTree "tests/regression/templates"
-    tests2 <- buildTestDirectoryTree "tests/regression/structs"
---    tests2 <- buildTestDirectoryTree "imports/stdlib"
---    tests3 <- buildTestDirectoryTree "examples"
-
-    tests3 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
-    tests4 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
-    return $ TestList [tests1,tests2,tests3,tests4]
+    
+    tests0 <- buildTestDirectoryTree "tests/regression/scalars"
+    return $ TestList [tests0]
+    
+    --    tests2 <- buildTestDirectoryTree "imports/stdlib"
+    --    tests3 <- buildTestDirectoryTree "examples"
+    
+--    tests1 <- buildTestDirectoryTree "tests/regression/templates"
+--    tests2 <- buildTestDirectoryTree "tests/regression/structs"
+--    tests3 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
+--    tests4 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
+    --return $ TestList [tests1,tests2,tests3,tests4]
+    
 
 buildTestDirectoryTree :: FilePath -> IO Test
 buildTestDirectoryTree path = fold (depth >=? 0) addTestFile (TestList []) path

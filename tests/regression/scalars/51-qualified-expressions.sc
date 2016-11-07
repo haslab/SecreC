@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 bool get (int n) { assert (n == 1); return false; }
 int8 get (int n) { assert (n == 2); return 0; }
 void main () {

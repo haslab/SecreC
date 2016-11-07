@@ -1,4 +1,6 @@
 
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
   string sa = "hello, world!";
   assert (sa == sa);

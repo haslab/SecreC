@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 int one = 1;
 bool f = false;

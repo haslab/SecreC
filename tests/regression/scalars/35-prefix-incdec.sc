@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 // basic parsing and semantics checks for prefix increment and decrement
 void main () {

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 // x was not in scope in declaration.
 void main () {
     int x = 0, y = x + 1;

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void int_f (int a, int8 a8, int16 a16, int32 a32, int64 a64) { }
 
 void uint_f (uint b, uint8 b8, uint16 b16, uint32 b32, uint64 b64) { }

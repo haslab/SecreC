@@ -552,14 +552,14 @@ resolveTcCstr l mode kid k = do
         if checkCoercion (implicitCoercions opts) st
             then coerces l bvs e1 x2
             else unifiesExpr l (varExpr x2) e1
-    resolveTcCstr' kid k@(CoercesN exs) = do
-        opts <- askOpts
-        st <- getCstrState
-        if checkCoercion (implicitCoercions opts) st
-            then coercesN l exs
-            else do
-                unifiesN l $ map (loc . fst) exs
-                assignsExprTys l exs
+    --resolveTcCstr' kid k@(CoercesN exs) = do
+    --    opts <- askOpts
+    --    st <- getCstrState
+    --    if checkCoercion (implicitCoercions opts) st
+    --        then coercesN l exs
+    --        else do
+    --            unifiesN l $ map (loc . fst) exs
+    --            assignsExprTys l exs
     resolveTcCstr' kid k@(CoercesLit e) = do
         ppe <- ppExprTy e
         let msg = text "Failed to coerce expression " <+> ppe
@@ -1077,65 +1077,65 @@ expandCTypeVar l v@(varIdWrite -> True) True = do
 -- | Non-directed coercion for a list of expressions.
 -- Returns the unified type.
 -- applies substitutions
-coercesN :: ProverK loc m => loc -> [(Expr,Var)] -> TcM m ()
-coercesN l exs | all (isComplex . loc . fst) exs = do
-    exs' <- forM exs $ \(e,x) -> do
-        ct <- typeToComplexType l (loc e)
-        let e' = updLoc e (ComplexT ct)
-        return (e',x)
-    coercesNComplex l exs'
-coercesN l exs = do
-    ppexs <- mapM (ppExprTy . fst) exs
-    addErrorM l (TypecheckerError (locpos l) . NCoercionException "type" Nothing (ppexs) . Just) $ do
-        unifiesN l $ map (loc . fst) exs
-        assignsExprTys l exs
+--coercesN :: ProverK loc m => loc -> [(Expr,Var)] -> TcM m ()
+--coercesN l exs | all (isComplex . loc . fst) exs = do
+--    exs' <- forM exs $ \(e,x) -> do
+--        ct <- typeToComplexType l (loc e)
+--        let e' = updLoc e (ComplexT ct)
+--        return (e',x)
+--    coercesNComplex l exs'
+--coercesN l exs = do
+--    ppexs <- mapM (ppExprTy . fst) exs
+--    addErrorM l (TypecheckerError (locpos l) . NCoercionException "type" Nothing (ppexs) . Just) $ do
+--        unifiesN l $ map (loc . fst) exs
+--        assignsExprTys l exs
 
-coercesNComplex :: ProverK loc m => loc -> [(Expr,Var)] -> TcM m ()
-coercesNComplex l exs | any (isVoid . unComplexT . loc . fst) exs = do
-    ppexs <- mapM (ppExprTy . fst) exs
-    addErrorM l (TypecheckerError (locpos l) . NCoercionException "complex type" Nothing (ppexs) . Just) $ do
-        unifiesN l $ map (loc . fst) exs
-        assignsExprTys l exs
-coercesNComplex l exs | any (isCVar . unComplexT . loc . fst) exs = do
-    exs' <- forM exs $ rec True
-    coercesNComplex l exs'
-  where
-    rec True (e,x) = case loc e of
-        ComplexT (CVar v@(varIdRead -> True) isNotVoid) -> do
-            mb <- tryResolveCVar l v isNotVoid
-            case mb of
-                Just t' -> return (updLoc e $ ComplexT t',x)
-                Nothing -> rec False (e,x)
-        ComplexT (CVar v@(varIdWrite -> True) True) -> do
-            t' <- expandCTypeVar l v True
-            return (updLoc e $ ComplexT t',x)
-        ComplexT (CVar v isNotVoid) -> do
-            ppexs <- mapM (ppExprTy . fst) exs
-            tcError (locpos l) $ Halt $ NCoercionException "complex type" Nothing (ppexs) Nothing
-        otherwise -> return (e,x)
-coercesNComplex l exs | all (isCType . unComplexT . loc . fst) exs = do
-    ppexs <- mapM (ppExprTy . fst) exs
-    addErrorM l (TypecheckerError (locpos l) . (NCoercionException "complex type") Nothing (ppexs) . Just) $ do
-        -- we unify base types, no coercions here
-        unifiesN l $ map (BaseT . baseCType . unComplexT . loc . fst) exs
-        -- coerce security and dimension types
-        coercesNSecDimSizes l exs
-coercesNComplex l exs = do
-    ppexs <- mapM (ppExprTy . fst) exs
-    tcError (locpos l) $ NCoercionException "complex type" Nothing (ppexs) Nothing
+--coercesNComplex :: ProverK loc m => loc -> [(Expr,Var)] -> TcM m ()
+--coercesNComplex l exs | any (isVoid . unComplexT . loc . fst) exs = do
+--    ppexs <- mapM (ppExprTy . fst) exs
+--    addErrorM l (TypecheckerError (locpos l) . NCoercionException "complex type" Nothing (ppexs) . Just) $ do
+--        unifiesN l $ map (loc . fst) exs
+--        assignsExprTys l exs
+--coercesNComplex l exs | any (isCVar . unComplexT . loc . fst) exs = do
+--    exs' <- forM exs $ rec True
+--    coercesNComplex l exs'
+--  where
+--    rec True (e,x) = case loc e of
+--        ComplexT (CVar v@(varIdRead -> True) isNotVoid) -> do
+--            mb <- tryResolveCVar l v isNotVoid
+--            case mb of
+--                Just t' -> return (updLoc e $ ComplexT t',x)
+--                Nothing -> rec False (e,x)
+--        ComplexT (CVar v@(varIdWrite -> True) True) -> do
+--            t' <- expandCTypeVar l v True
+--            return (updLoc e $ ComplexT t',x)
+--        ComplexT (CVar v isNotVoid) -> do
+--            ppexs <- mapM (ppExprTy . fst) exs
+--            tcError (locpos l) $ Halt $ NCoercionException "complex type" Nothing (ppexs) Nothing
+--        otherwise -> return (e,x)
+--coercesNComplex l exs | all (isCType . unComplexT . loc . fst) exs = do
+--    ppexs <- mapM (ppExprTy . fst) exs
+--    addErrorM l (TypecheckerError (locpos l) . (NCoercionException "complex type") Nothing (ppexs) . Just) $ do
+--        -- we unify base types, no coercions here
+--        unifiesN l $ map (BaseT . baseCType . unComplexT . loc . fst) exs
+--        -- coerce security and dimension types
+--        coercesNSecDimSizes l exs
+--coercesNComplex l exs = do
+--    ppexs <- mapM (ppExprTy . fst) exs
+--    tcError (locpos l) $ NCoercionException "complex type" Nothing (ppexs) Nothing
 
-coercesNSecDimSizes :: (ProverK loc m) => loc -> [(Expr,Var)] -> TcM m ()
-coercesNSecDimSizes l [] = return ()
-coercesNSecDimSizes l exs = do
-    let cts = map (unComplexT . loc . fst) exs
-    s3 <- maxSec l $ map secCType cts
-    let b3 = baseCType $ head cts
-    d3 <- maxDim l $ map dimCType cts
-    let t3 = ComplexT $ CType s3 b3 d3
-    -- coerce each expression individually
-    forM_ exs $ \(e,x) -> do
-        tcCstrM_ l $ Unifies (loc x) t3
-        coercesSecDimSizes l Nothing e x
+--coercesNSecDimSizes :: (ProverK loc m) => loc -> [(Expr,Var)] -> TcM m ()
+--coercesNSecDimSizes l [] = return ()
+--coercesNSecDimSizes l exs = do
+--    let cts = map (unComplexT . loc . fst) exs
+--    s3 <- maxSec l $ map secCType cts
+--    let b3 = baseCType $ head cts
+--    d3 <- maxDim l $ map dimCType cts
+--    let t3 = ComplexT $ CType s3 b3 d3
+--    -- coerce each expression individually
+--    forM_ exs $ \(e,x) -> do
+--        tcCstrM_ l $ Unifies (loc x) t3
+--        coercesSecDimSizes l Nothing e x
 
 maxSec :: ProverK loc m => loc -> [SecType] -> TcM m SecType
 maxSec l ss = do
@@ -1189,6 +1189,10 @@ resolveMultipleSubstitutions l ko v s = do
                 Just b -> Left b
                 Nothing -> Right (\cl -> any ((==cl) . typeClass "") v)
     multipleSubstitutions l kid SolveAll v ko' s'
+
+tcCoercesN :: ProverK loc m => loc -> Bool -> [Expr] -> Type -> TcM m [Expr]
+tcCoercesN l isTop es t = do
+    forM es $ \e -> tcCoerces l isTop Nothing e t
 
 tcCoerces :: ProverK loc m => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM m Expr
 tcCoerces l isTop bvs e t = do
@@ -1598,20 +1602,20 @@ coercesLit :: (ProverK loc m) => loc -> Expr -> TcM m ()
 coercesLit l e@(LitPExpr t lit) = do
     b <- typeToBaseType l t
     coercesLitBase l (funit lit) b
-coercesLit l (ArrayConstructorPExpr (ComplexT ct@(CType s t d)) es) = do
-    -- coerce each element
-    let et = ComplexT $ CType s t $ indexExpr 0
-    xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("ael"++show i) et False $ Just $ ppe
-    tcCstrM_ l $ CoercesN (zip es xs)
-    -- match the array's dimension
-    tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1) -- dimension 1
-coercesLit l (MultisetConstructorPExpr (ComplexT ct@(CType s (MSet b) d)) es) = do
-    -- coerce each element
-    let et = ComplexT $ CType s b $ indexExpr 0
-    xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("mel"++show i) et False $ Just $ ppe
-    tcCstrM_ l $ CoercesN (zip es xs)
-    -- match the array's dimension
-    tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 0) -- dimension 0
+--coercesLit l (ArrayConstructorPExpr (ComplexT ct@(CType s t d)) es) = do
+--    -- coerce each element
+--    let et = ComplexT $ CType s t $ indexExpr 0
+--    --xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("ael"++show i) et False $ Just $ ppe
+--    tcCoercesN l False es et
+--    -- match the array's dimension
+--    tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1) -- dimension 1
+--coercesLit l (MultisetConstructorPExpr (ComplexT ct@(CType s (MSet b) d)) es) = do
+--    -- coerce each element
+--    let et = ComplexT $ CType s b $ indexExpr 0
+--    --xs <- forM (zip [1..] es) $ \(i,e) -> pp e >>= \ppe -> newTypedVar ("mel"++show i) et False $ Just $ ppe
+--    tcCoercesN l False es et
+--    -- match the array's dimension
+--    tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 0) -- dimension 0
 coercesLit l e = constraintError (CoercionException "literal") l e pp (loc e) pp Nothing  
 
 equalsLit :: (ProverK loc m) => loc -> Literal () -> Literal () -> TcM m ()

@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 void main () {
     { // supported integer types
         int8  i8;  uint8  u8;

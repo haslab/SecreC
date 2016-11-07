@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 int get_int (int n) { return 42; }
 int get_int (bool b) { return 1; }
 void main() {

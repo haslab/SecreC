@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 /**
  * for loop with empty body, failed codegen
  * Fixed: e3ceae772ecb3dc24863758a412ec110bf48810b

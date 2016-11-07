@@ -750,8 +750,8 @@ data TcCstr
         (Maybe [Type]) -- optional bound variables, to delay the coercions' evaluation until these are unbound
         Expr
         Var
-    | CoercesN -- ^ multidirectional coercion
-        [(Expr,Var)]
+--    | CoercesN -- ^ multidirectional coercion
+--        [(Expr,Var)]
     | CoercesLit -- coerce a literal expression into a specific type
         Expr -- literal expression with the base type given at the top-level
     | Unifies -- unification
@@ -951,10 +951,10 @@ instance PP m VarIdentifier => PP m TcCstr where
     pp (CoercesLit e) = do
         ppe <- ppExprTy e
         return $ text "coerceslit" <+> ppe
-    pp (CoercesN exs) = do
-        pp1 <- (mapM (ppExprTy . fst) exs)
-        pp2 <- (mapM (ppVarTy . snd) exs)
-        return $ text "coercesn" <+> sepBy comma pp1 <+> char '=' <+> sepBy comma pp2
+--    pp (CoercesN exs) = do
+--        pp1 <- (mapM (ppExprTy . fst) exs)
+--        pp2 <- (mapM (ppVarTy . snd) exs)
+--        return $ text "coercesn" <+> sepBy comma pp1 <+> char '=' <+> sepBy comma pp2
     pp (Unifies t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
@@ -1170,9 +1170,9 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         e1' <- f e1
         v2' <- {-inLHS False $ -}f v2
         return $ Coerces bvs' e1' v2'
-    traverseVars f (CoercesN exs) = do
-        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- {-inLHS False $ -}f y; return (x',y') }) exs
-        return $ CoercesN exs'
+--    traverseVars f (CoercesN exs) = do
+--        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- {-inLHS False $ -}f y; return (x',y') }) exs
+--        return $ CoercesN exs'
     traverseVars f (CoercesLit e) = do
         e' <- f e
         return $ CoercesLit e'

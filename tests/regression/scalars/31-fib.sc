@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 int glob = -1;
 
 int fib (int n) {

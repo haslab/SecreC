@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --implicitcoercions=offc
+
 // taken from goblin test suite
 int glob1;
 int glob2 = 9;
