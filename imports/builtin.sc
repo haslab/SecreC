@@ -281,10 +281,11 @@ context< /*@ uint sum(ns...) @*/ >
     __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
 }
 
-function bool operator ! (bool x)
-context<>
+template<domain D>
+function D bool operator ! (D bool x)
+context< D bool <~(bool) >
 {
-    (x==false)
+    (x==<~(false))
 }
 
 template<domain D>

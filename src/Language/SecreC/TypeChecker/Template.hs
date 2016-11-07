@@ -680,7 +680,7 @@ matchPArg l isConst v2 (Left e) = do
     when isConst $ unifiesExpr l v2 e
 
 expandPArgExpr :: (ProverK loc m) => loc -> (IsConst,Either Expr Type,IsVariadic) -> TcM m [Either Expr Type]
-expandPArgExpr l (_,Left e,False) = return [Left e]
+expandPArgExpr l (_,et,False) = return [et]
 expandPArgExpr l (_,Left e,True) = do
     es <- expandVariadicExpr l False (e,True)
     return $ map Left es
