@@ -1627,33 +1627,37 @@ equalsLit l (FloatLit _ f1) (FloatLit _ f2) | f1 == f2 = return ()
 equalsLit l lit1 lit2 = constraintError (EqualityException "literal type") l lit1 pp lit2 pp Nothing  
 
 -- coerces a literal into a base type
+
+--readable1 :: (ToVariable x var,ProverK loc m) => (x -> TcM m b) -> loc -> x -> TcM m b
+
 coercesLitBase :: (ProverK loc m) => loc -> Literal () -> BaseType -> TcM m ()
-coercesLitBase l lit t2@(BVar v@(varIdRead -> True) c2) = do
-    mb <- tryResolveBVar l v c2
-    case mb of
-       Just t2' -> coercesLitBase l lit t2'
-       Nothing -> coercesLitBase l lit (BVar v{varIdRead = False} c2)
-coercesLitBase l lit t2@(BVar v@(varIdWrite -> True) c2) = do
-    b <- case lit of
-         StringLit _ s -> return $ TyPrim $ DatatypeString ()
-         BoolLit _ b -> return $ TyPrim $ DatatypeBool ()
-         otherwise -> constraintError (\x y e -> Halt $ CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
-    addSubstM l (SubstMode CheckS True) (tyToVar $ BaseT t2) (BaseT b)
-coercesLitBase l (IntLit _ i) (TyPrim (t@(primIntBounds -> Just (min,max)))) = do
-    unless (min <= i && i <= max) $ do
-        ppt <- pp t
-        tcWarn (locpos l) $ LiteralOutOfRange (show i) (ppt) (show min) (show max)
-coercesLitBase l (IntLit _ i) (TyPrim (t@(primFloatBounds -> Just (min,max)))) = do
-    unless (min <= fromInteger i && fromInteger i <= max) $ do
-        ppt <- pp t
-        tcWarn (locpos l) $ LiteralOutOfRange (show i) (ppt) (show min) (show max)
-coercesLitBase l (FloatLit _ f) (TyPrim (t@(primFloatBounds -> Just (min,max)))) | isPrimFloat t = do
-    unless (min <= f && f <= max) $ do
-        ppt <- pp t
-        tcWarn (locpos l) $ LiteralOutOfRange (show f) (ppt) (show min) (show max)
-coercesLitBase l (BoolLit _ b) (TyPrim (DatatypeBool _)) = return ()
-coercesLitBase l (StringLit _ s) (TyPrim (DatatypeString _)) = return ()
-coercesLitBase l l1 t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l l1 pp t2 pp Nothing  
+coercesLitBase l (BoolLit _ b) t = tcCstrM_ l $ Unifies (BaseT t) (BaseT bool)
+coercesLitBase l (StringLit _ s) t = tcCstrM_ l $ Unifies (BaseT t) (BaseT string)
+coercesLitBase l lit@(IntLit _ i) t = readable1 coercesLitInt l t
+    where
+    coercesLitInt (TyPrim (t@(primIntBounds -> Just (min,max)))) = do
+        unless (min <= i && i <= max) $ do
+            ppt <- pp t
+            tcWarn (locpos l) $ LiteralOutOfRange (show i) (ppt) (show min) (show max)
+    coercesLitInt (TyPrim (t@(primFloatBounds -> Just (min,max)))) = do
+        unless (min <= fromInteger i && fromInteger i <= max) $ do
+            ppt <- pp t
+            tcWarn (locpos l) $ LiteralOutOfRange (show i) (ppt) (show min) (show max)
+    coercesLitInt t2@(TyPrim {}) = constraintError (\x y e -> CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+    coercesLitInt t2@(BVar v@(varIdWrite -> True) c2) = do
+        constraintError (\x y e -> Halt $ CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+    coercesLitInt t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l lit pp t2 pp Nothing  
+coercesLitBase l lit@(FloatLit _ f) t = readable1 coercesLitFloat l t
+    where
+    coercesLitFloat (TyPrim (t@(primFloatBounds -> Just (min,max)))) | isPrimFloat t = do
+        unless (min <= f && f <= max) $ do
+            ppt <- pp t
+            tcWarn (locpos l) $ LiteralOutOfRange (show f) (ppt) (show min) (show max)
+    coercesLitFloat t2@(TyPrim {}) = constraintError (\x y e -> CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+    coercesLitFloat t2@(BVar v@(varIdWrite -> True) c2) = do
+        constraintError (\x y e -> Halt $ CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+    coercesLitFloat t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l lit pp t2 pp Nothing  
+coercesLitBase l lit t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l lit pp t2 pp Nothing  
 
 decToken :: MonadIO m => TcM m DecType
 decToken = do

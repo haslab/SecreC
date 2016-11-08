@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 kind additive3pp;
 domain private additive3pp;
@@ -30,7 +30,7 @@ void main () {
     private bool b;
 
     assert (x +  x     ==  0);
-    assert (x +  0     ==  (1::int));
+    assert (x +  (0::int)     ==  (1::int));
     assert (1 +  x     ==  2);
     assert (x +  true  ==  3);
     assert (x +  b     ==  4);
