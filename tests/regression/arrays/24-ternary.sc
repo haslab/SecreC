@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 void main () {
   int [[1]] r (5);
