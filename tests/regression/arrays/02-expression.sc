@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 void main () {
   int [[1]] a (10) = 1;

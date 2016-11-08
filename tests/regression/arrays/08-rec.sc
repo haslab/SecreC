@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 int first (int [[1]] arr) {
   return arr[0];

@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 void main () {
   int [[1]] r (5);

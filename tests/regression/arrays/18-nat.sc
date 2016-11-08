@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 uint [[1]] nat (uint n) {
   uint [[1]] out (n) = 1;
