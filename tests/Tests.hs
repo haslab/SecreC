@@ -23,7 +23,7 @@ timelimit = 3 * 60
 buildTestTree :: IO Test
 buildTestTree = do
     
-    tests0 <- buildTestDirectoryTree "tests/regression/scalars"
+    tests0 <- buildTestDirectoryTree "tests/regression/arrays"
     return $ TestList [tests0]
     
     --    tests2 <- buildTestDirectoryTree "imports/stdlib"
