@@ -18,7 +18,7 @@ import Test.Hspec.Core.Runner (hspecWith, Config(..),defaultConfig)
 
 -- Configs
 fastfail = True
-timelimit = 3 * 60
+timelimit = 5 * 60
 
 buildTestTree :: IO Test
 buildTestTree = do
