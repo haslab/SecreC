@@ -339,7 +339,8 @@ tcArrayLiteral l es = do
         return s
     b <- newBaseTyVar Nothing False Nothing
     let t = ComplexT $ CType s b (indexExpr 1)
-    xs <- tcCoercesN l True es'' t
+    let bt = ComplexT $ CType s b (indexExpr 0)
+    xs <- tcCoercesN l True es'' bt
     return $ ArrayConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
 tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
@@ -350,7 +351,8 @@ tcMultisetLiteral l es = do
     s <- newDomainTyVar "s" k False Nothing
     b <- newBaseTyVar Nothing False Nothing
     let t = ComplexT $ CType s (MSet b) (indexExpr 0)
-    xs <- tcCoercesN l True es'' t
+    let bt = ComplexT $ CType s b (indexExpr 0)
+    xs <- tcCoercesN l True es'' bt
     return $ MultisetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
 tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName GIdentifier (Typed loc))
