@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --verify
+#OPTIONS_SECREC --verify --implicitcoercions=offc
 
 uint bar (const uint n)
 //@ requires n > 0;

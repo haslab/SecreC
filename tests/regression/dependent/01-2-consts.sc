@@ -1,3 +1,4 @@
+#OPTIONS_SECREC --implicitcoercions=offc
 
 void main () {
     const uint n = 1;
