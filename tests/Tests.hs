@@ -23,19 +23,19 @@ timelimit = 3 * 60
 buildTestTree :: IO Test
 buildTestTree = do
     
---    tests0 <- buildTestDirectoryTree "tests/regression/scalars"
---    return $ TestList [tests0]
+    tests0 <- buildTestDirectoryTree "tests/regression/scalars"
+    return $ TestList [tests0]
     
     --    tests2 <- buildTestDirectoryTree "imports/stdlib"
     --    tests3 <- buildTestDirectoryTree "examples"
     
-    tests1 <- buildTestDirectoryTree "tests/regression/templates"
-    tests2 <- buildTestDirectoryTree "tests/regression/structs"
-    tests3 <- buildTestDirectoryTree "tests/regression/scalars"
-    tests4 <- buildTestDirectoryTree "tests/regression/dependent"
-    tests5 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
-    tests6 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
-    return $ TestList [tests1,tests2,tests3,tests4,tests5,tests6]
+--    tests1 <- buildTestDirectoryTree "tests/regression/templates"
+--    tests2 <- buildTestDirectoryTree "tests/regression/structs"
+--    tests3 <- buildTestDirectoryTree "tests/regression/scalars"
+--    tests4 <- buildTestDirectoryTree "tests/regression/dependent"
+--    tests5 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
+--    tests6 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
+--    return $ TestList [tests1,tests2,tests3,tests4,tests5,tests6]
     
 
 buildTestDirectoryTree :: FilePath -> IO Test
