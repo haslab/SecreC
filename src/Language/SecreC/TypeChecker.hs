@@ -65,7 +65,7 @@ tcModuleFile (Right sci) = do
 
 tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc) -> TcM m (PPArgs,Module GIdentifier (Typed loc))
 tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
-    --debugTc $ liftIO $ putStrLn $ "typechecking args ..." ++ show ppargs
+    debugTc $ liftIO $ putStrLn $ "typechecking args ..." ++ show ppargs
     x' <- tcModule x
     menv <- State.gets (snd . moduleEnv)
     TcM $ lift $ writeModuleSCI ppargs menv x
@@ -74,7 +74,7 @@ tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
 tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module GIdentifier (Typed loc))
 tcModule m@(Module l name prog) = failTcM l $ do
     opts' <- TcM $ State.lift Reader.ask
-    --debugTc $ liftIO $ putStrLn $ "typechecking ..." ++ show opts'
+    debugTc $ liftIO $ putStrLn $ "typechecking ..." ++ show opts'
     when (debugTypechecker opts') $ do
         ppm <- ppr (moduleId $ fmap locpos m)
         liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppm ++ "...")
@@ -586,9 +586,11 @@ tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $
 tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
 tcGlobal l m = do
     State.modify $ \e -> e { decClass = DecClass False False (Left False) (Left False) }
+    debugTc $ do
+        opts <- askOpts
+        liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l) ++ " " ++ show (implicitCoercions opts)
     --newDict l "tcGlobal"
     x <- m
-    --debugTc $ liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l)
     solveTop l "tcGlobal"
     dict <- top . tDict =<< State.get
     --debugTc $ do

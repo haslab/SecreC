@@ -1198,7 +1198,12 @@ tcCoerces :: ProverK loc m => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM
 tcCoerces l isTop bvs e t = do
     opts <- askOpts
     st <- getCstrState
-    if checkCoercion (implicitCoercions opts) st
+    let doCoerce = checkCoercion (implicitCoercions opts) st
+    debugTc $ do
+        ppe <- pp e
+        ppt <- pp t
+        liftIO $ putStrLn $ "tcCoerces " ++ show doCoerce ++ " " ++ show ppe ++ " " ++ show ppt
+    if doCoerce
         then coercesE l isTop bvs e t
         else do
             tcTop_ l isTop $ Unifies (loc e) t

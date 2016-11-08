@@ -69,11 +69,13 @@ type PPParserT u m a = ParsecT [Char] u m a
     
 runPP :: (MonadIO m) => FilePath -> SecrecM m PPArgs
 runPP file = do
+--    liftIO $ putStrLn $ "parsing ppfile " ++ show file
     str <- liftIO $ readFile file
     mapM (parsePP file) (filter (isPrefixOf "#") $ lines str)
 
 parsePP :: MonadIO m => FilePath -> String -> SecrecM m PPArg
 parsePP file str = do
+--    liftIO $ putStrLn $ "parsing pp " ++ show str
     mb <- runParserT parsePPArg () file str
     case mb of
         Left err -> throwError $ ParserError $ PreProcessorException $ show err
