@@ -1211,7 +1211,7 @@ template <domain D : shared3p, dim N>
 D float32[[N]] operator / (D float32[[N]] arr, float32[[N]] pubArr) {
     assert(shapesAreEqual(arr,pubArr));
     __syscall ("shared3p::divc_float32_vec", __domainid (D),
-        a, __cref pubArr, arr);
+        arr, __cref pubArr, arr);
     return arr;
 }
 
@@ -1242,7 +1242,7 @@ template <domain D : shared3p, dim N>
 D float64[[N]] operator / (D float64[[N]] arr, float64[[N]] pubArr) {
     assert(shapesAreEqual(arr,pubArr));
     __syscall ("shared3p::divc_float64_vec", __domainid (D),
-        a, __cref pubArr, arr);
+        arr, __cref pubArr, arr);
     return arr;
 }
 
