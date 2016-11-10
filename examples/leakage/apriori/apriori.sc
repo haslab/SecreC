@@ -114,7 +114,7 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
 
 
 void main () {
-    pd_a3p uint [[2]] db; = load_db ();
+    pd_a3p uint [[2]] db = load_db ();
     uint [[2]] itemsets = apriori (db, 1 :: uint, 3 :: uint);
     printArray (itemsets);
 }
