@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc
+#OPTIONS_SECREC --implicitcoercions=onc
 
 import stdlib;
 import shared3p;
