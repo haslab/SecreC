@@ -1587,6 +1587,10 @@ tryInferCstr l opts x m = if (implicitContext opts == InferCtx)
         if inferrable
             then do
                 thisk <- State.gets (fst . head . openedCstrs)
+                debugTc $ do
+                    ppx <- ppr x
+                    ppthisk <- ppr thisk
+                    liftIO $ putStrLn $ "infer cstr " ++ ppx ++ " " ++ ppthisk
                 solvedCstr l thisk True
                 return ()
             else m
