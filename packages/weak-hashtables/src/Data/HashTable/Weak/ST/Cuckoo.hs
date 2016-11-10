@@ -134,8 +134,13 @@ instance WeakKey (HashTable s k v) where
 	{-# INLINE mkWeakKey #-}
 	
 mkWeakKeyHashTable :: HashTable s k v -> b -> IO () -> IO (Weak b)
+#if __GLASGOW_HASKELL__ >= 800
+mkWeakKeyHashTable k@(HT (STRef r#,_)) v (IO f) = IO $ \s ->
+  case mkWeak# r# v f s of (# s1, w #) -> (# s1, Weak w #)
+#else
 mkWeakKeyHashTable k@(HT (STRef r#,_)) v f = IO $ \s ->
   case mkWeak# r# v f s of (# s1, w #) -> (# s1, Weak w #)
+#endif
 
 ------------------------------------------------------------------------------
 instance C.HashTable HashTable where

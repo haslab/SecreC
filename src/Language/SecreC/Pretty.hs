@@ -101,7 +101,7 @@ instance Monad m => PP m () where
     pp () = return empty
 
 instance Data Doc where
-    gunfold = error "gunfold Doc"
+    gunfold _ _ _ = error "gunfold Doc"
     toConstr = error "toConstr Doc"
     dataTypeOf = error "dataTypeOf Doc"
 

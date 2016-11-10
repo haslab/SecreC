@@ -39,6 +39,15 @@ import System.Exit
 
 import GHC.Generics (Generic)
 
+data ContextOpt = DelayCtx | InferCtx
+    deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
+instance Binary ContextOpt
+instance Hashable ContextOpt
+
+instance Monad m => PP m ContextOpt where
+    pp DelayCtx = return $ text "delayctx"
+    pp InferCtx = return $ text "inferctx"
+
 data BacktrackOpt = NoneB | TryB | FullB
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
 instance Binary BacktrackOpt
@@ -59,6 +68,9 @@ instance Monad m => PP m CoercionOpt where
     pp DefaultsC = return $ text "defaultsc"
     pp OnC = return $ text "onc"
     pp ExtendedC = return $ text "extendedc"
+
+appendContextOpt :: ContextOpt -> ContextOpt -> ContextOpt
+appendContextOpt x y = max x y
 
 appendCoercionOpt :: CoercionOpt -> CoercionOpt -> CoercionOpt
 appendCoercionOpt ExtendedC _ = ExtendedC
@@ -82,6 +94,7 @@ data Options
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitCoercions      :: CoercionOpt
+        , implicitContext        :: ContextOpt
         , backtrack              :: BacktrackOpt
         , printOutput           :: Bool
         , debug :: Bool
@@ -115,6 +128,7 @@ instance Monoid Options where
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitCoercions = implicitCoercions x `appendCoercionOpt` implicitCoercions y
+        , implicitContext = implicitContext x `appendContextOpt` implicitContext y
         , backtrack = backtrack x `min` backtrack y
         , printOutput = printOutput x || printOutput y
         , debug = debug x || debug y
@@ -145,6 +159,7 @@ defaultOptions = Opts
     , constraintStackSize = 100
     , evalTimeOut = 5
     , implicitCoercions = OnC
+    , implicitContext = DelayCtx
     , backtrack = FullB
     , printOutput = False
     , debug = False

@@ -214,15 +214,21 @@ resolveTemplateEntries l kid n targs pargs ret insts ko = do
     case insts of
         [inst] -> liftM fst $ resolveTemplateEntry False l kid n targs pargs ret inst
         otherwise -> do
-            let choice refresh inst@(e,_,_,_,frees,_,_) = do
-                ppkid <- pp kid
-                pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
-                let match = (resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid)
-                let post (dec,heads) = return (heads,dec)
-                return $ (match,(return,PP.empty),(post,PP.empty))
-            choices' <- mapM (choice True) (init insts)
-            choice' <- choice False (last insts)
+            choices' <- mapM (choiceEntryInst l kid n targs pargs ret True) (init insts)
+            choice' <- choiceEntryInst l kid n targs pargs ret False (last insts)
             multipleSubstitutions l kid SolveAll (n,targs,pargs,ret) (Left ko) (choices'++[choice'])
+
+choiceEntryInst :: ProverK loc m => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> Bool -> EntryInst -> TcM m ((TcM m (DecType,Set LocIOCstr),Doc),((DecType,Set LocIOCstr) -> TcM m (DecType,Set LocIOCstr),Doc),((DecType,Set LocIOCstr) -> TcM m (Set LocIOCstr,DecType),Doc))
+choiceEntryInst l kid n targs pargs ret refresh inst@(e,_,_,_,frees,_,_) = do
+    ppkid <- pp kid
+    pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
+    let match :: ProverK loc m => Proxy m -> loc -> (TcM m (DecType,Set LocIOCstr),Doc)
+        match _ l = (resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid)
+    let cont :: ProverK Position m => Proxy m -> (DecType,Set LocIOCstr) -> TcM m (DecType,Set LocIOCstr)
+        cont _ = return
+    let post :: ProverK Position m => Proxy m -> (DecType,Set LocIOCstr) -> TcM m (Set LocIOCstr,DecType)
+        post _ (dec,heads) = return (heads,dec)
+    return $ (match Proxy l,(cont Proxy,PP.empty),(post Proxy,PP.empty))
 
 resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m (DecType,Set LocIOCstr)
 resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict,frees,delfrees,solved) = do
@@ -257,7 +263,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict
                 liftIO $ putStrLn $ "mkDecEnv " ++ ppd
             rec <- mkDecEnv p dec
             return (dec,rec)
-        else return (dec,mempty)
+        else return (dec,mempty::ModuleTcEnv)
     lineage <- getLineage
     let did = fromJustNote "resolveDecId" (decTypeId decrec)
     debugTc $ do
@@ -480,7 +486,7 @@ compareDecTypeK allowReps j1 d1 j2 d2 = Nothing
 -- Ignores templates with different number of arguments. 
 -- Matching does not consider constraints.
 instantiateTemplateEntries :: (ProverK loc m) => Set ModuleTyVarId -> loc -> Doc -> Bool -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryEnv] -> TcM m ([Either (EntryEnv,SecrecError) EntryInst],Set ModuleTyVarId)
-instantiateTemplateEntries valids l def isLattice kid n targs pargs ret [] = return ([],Set.empty)
+instantiateTemplateEntries valids l def isLattice kid n targs pargs ret [] = return ([],(Set.empty::Set ModuleTyVarId))
 instantiateTemplateEntries valids l def isLattice kid n targs pargs ret (e:es) = do
     let d = unDecT (entryType e)
     let did = fromJustNote "instantiate" $ decTypeTyVarId d
@@ -509,8 +515,8 @@ addValidEntry l def isLattice n (e,e',_,_,_,_,_) = do
                     o <- compareTemplateEntries def l isLattice n (EntryEnv (entryLoc e) $ DecT ori) e'
                     case o of
                         Comparison _ _ _ EQ _ -> return (Set.fromList $ decLineage d)
-                        otherwise -> return Set.empty 
-                else return Set.empty
+                        otherwise -> return (Set.empty::Set ModuleTyVarId)
+                else return (Set.empty::Set ModuleTyVarId)
         else return (Set.fromList $ decLineage d)
 
 unifyTemplateTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m ()
@@ -827,14 +833,14 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                 Right ((cache),TDict hgr _ subst recs solved) -> do
                         --removeIOCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
-                        (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr,recs)
+                        (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr Map.empty,recs)
                         hgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty hgr'
                         bgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty bgr'
                         recs'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty recs'
                         hgr1 <- fromPureCstrs hgr''
                         bgr1 <- fromPureCstrs bgr''
                         let headDict = (TDict hgr1 Set.empty subst' recs'' solved)
-                        let bodyDict = (TDict bgr1 Set.empty emptyTSubsts mempty Set.empty)
+                        let bodyDict = (TDict bgr1 Set.empty emptyTSubsts mempty Map.empty)
                         --let headPureDict = toPureTDict headDict
                         --let bodyPureDict = toPureTDict bodyDict
                         debugTc $ do
@@ -885,7 +891,7 @@ templateIdentifier (DecT t) = templateIdentifier' t
 templateArgs :: (MonadIO m,Location loc) => loc -> TIdentifier -> Type -> TcM m (Maybe [(Constrained Type,IsVariadic)],Maybe [(Bool,Var,IsVariadic)],Maybe Type)
 templateArgs l (TIden name) t = case t of
     DecT d@(DecType _ isRec args hcstrs cstrs specs body) -> do 
-        return (Just $ decTypeArgs d,Nothing,Nothing)
+        return (Just $ decTypeArgs d,Nothing::Maybe [(Bool,Var,IsVariadic)],Nothing::Maybe Type)
 templateArgs l name t = case t of
     DecT d@(DecType _ isRec args hcstrs cstrs specs (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ decTypeArgs d,Just vars,Just ret)
@@ -894,7 +900,7 @@ templateArgs l name t = case t of
     DecT d@(DecType _ isRec args hcstrs cstrs specs (LemmaType isLeak _ n vars ann stmts _)) -> do
         return (Just $ decTypeArgs d,Just vars,Just $ ComplexT Void)
     DecT d@(DecType _ isRec args hcstrs cstrs specs (AxiomType isLeak _ vars ann _)) -> do
-        return (Just $ decTypeArgs d,Just vars,Nothing)
+        return (Just $ decTypeArgs d,Just vars,Nothing::Maybe Type)
     otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
 
 tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set GIdentifier
@@ -908,10 +914,10 @@ templateTDict :: (ProverK Position m) => ExprClass -> EntryEnv -> TcM m (EntryEn
 templateTDict exprC e = case entryType e of
     DecT (DecType i isRec vars (DecCtx his hd hfrees) (DecCtx bis d bfrees) specs ss) -> do
         hd' <- fromPureTDict $ hd { pureCstrs = purify $ pureCstrs hd }
-        let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d) Set.empty
+        let d' = TDict Graph.empty Set.empty (pureSubsts d) (pureRec d) Map.empty
         let e' = e { entryType = DecT (DecType i isRec vars (DecCtx his emptyPureTDict hfrees) (DecCtx bis emptyPureTDict bfrees) specs ss) }
         return (e',hd',d',purify $ pureCstrs d)
-    otherwise -> return (e,emptyTDict,emptyTDict,Graph.empty)
+    otherwise -> return (e,emptyTDict,emptyTDict,Graph.empty::TCstrGraph)
   where
     purify :: TCstrGraph -> TCstrGraph
     purify = Graph.nmap (fmap add)
@@ -1055,7 +1061,7 @@ uniqueVar l isConst i@(VarName t (VIden v@(varIdRead -> True))) = do
     case mb of
         Nothing -> do
             v' <- lift $ freshVarId (varIdBase v) Nothing
-            let i' = VarName t' $ VIden v'
+            let i' = VarName t' (VIden v'::GIdentifier)
             let ss = substsProxyFromTSubsts l (TSubsts $ Map.singleton v (varNameToType i'))
             let ssBounds = if isConst then Map.singleton (VIden v) (VIden v') else Map.empty
             addLocalM (ss,ssBounds)

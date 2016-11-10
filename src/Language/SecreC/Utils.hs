@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
+{-# LANGUAGE CPP, DeriveGeneric, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, RankNTypes, GADTs, StandaloneDeriving, TupleSections, DeriveDataTypeable, DeriveFunctor, DeriveTraversable, DeriveFoldable #-}
 
 module Language.SecreC.Utils where
     
@@ -137,8 +137,11 @@ instance (Ord a,Ord b) => Ord (Gr a b) where
     
 deriving instance Typeable (Gr a b)
 
+#if MIN_VERSION_base(4,9,0)
+#else
 deriving instance (Typeable i,Data c,Typeable p) => Data (G.K1 i c p)
 deriving instance (Typeable i,Typeable c,Typeable p,Typeable f,Data (f p)) => Data (G.M1 i c f p)
+#endif
 
 instance (Binary a,Binary b) => Binary (Gr a b)
 
@@ -403,7 +406,7 @@ data EqDyn where
 
 instance Data EqDyn where
     gfoldl k z (EqDyn x) = z EqDyn `k` x
-    gunfold = error "gunfold unsupported"
+    gunfold _ _ _ = error "gunfold unsupported"
     toConstr (EqDyn _) = conEqDyn
     dataTypeOf _ = tyEqDyn
 
@@ -430,7 +433,7 @@ data OrdDyn where
   
 instance Data OrdDyn where
     gfoldl k z (OrdDyn x) = z OrdDyn `k` x
-    gunfold = error "gunfold unsupported"
+    gunfold _ _ _ = error "gunfold unsupported"
     toConstr (OrdDyn _) = conOrdDyn
     dataTypeOf _ = tyOrdDyn
 
@@ -465,7 +468,7 @@ instance Hashable ShowOrdDyn where
   
 instance Data ShowOrdDyn where
     gfoldl k z (ShowOrdDyn x) = z ShowOrdDyn `k` x
-    gunfold = error "gunfold unsupported"
+    gunfold _ _ _ = error "gunfold unsupported"
     toConstr (ShowOrdDyn _) = conShowOrdDyn
     dataTypeOf _ = tyShowOrdDyn
 
@@ -500,7 +503,7 @@ data PPDyn m where
   
 instance Typeable m => Data (PPDyn m) where
     gfoldl k z (PPDyn x) = z PPDyn `k` x
-    gunfold = error "gunfold unsupported"
+    gunfold _ _ _ = error "gunfold unsupported"
     toConstr (PPDyn _) = conPPDyn
     dataTypeOf _ = tyPPDyn
 
@@ -589,7 +592,7 @@ writeIdRef :: IdRef id a -> a -> IO ()
 writeIdRef r x = writeIORef (idRef r) x
 
 instance Data Unique where
-    gunfold = error "gunfold Unique"
+    gunfold _ _ _ = error "gunfold Unique"
     toConstr = error "toConstr Unique"
     dataTypeOf = error "dataTypeof Unique"
     
@@ -602,8 +605,11 @@ snd4 (x,y,z,w) = y
 thr4 (x,y,z,w) = z
 fou4 (x,y,z,w) = w
 
+#if MIN_VERSION_hashable(1,2,4)
+#else
 instance Hashable Unique where
     hashWithSalt i a = hashWithSalt i (hashUnique a)
+#endif
 
 funit :: Functor f => f a -> f ()
 funit = fmap (const ())

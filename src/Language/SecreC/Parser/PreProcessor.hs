@@ -115,6 +115,7 @@ instance Monad m => PP m Options where
         pp12 <- pp (debugTransformation opts)
         pp13 <- pp (debugVerification opts)
         pp14 <- pp (implicitCoercions opts)
+        pp141 <- pp (implicitContext opts)
         pp15 <- pp (backtrack opts)
         pp16 <- pp (writeSCI opts)
         pp17 <- pp (implicitBuiltin opts)
@@ -140,6 +141,7 @@ instance Monad m => PP m Options where
             <+> text "--debugtransformation=" <> pp12
             <+> text "--debugverify=" <> pp13
             <+> text "--implicitcoercions=" <> pp14
+            <+> text "--implicitcontext=" <> pp141
             <+> text "--backtrack=" <> pp15
             <+> text "--writesci=" <> pp16
             <+> text "--implicitbuiltin=" <> pp17
@@ -151,6 +153,12 @@ instance Monad m => PP m Options where
             <+> text "--forcerecomp" <> pp23
             <+> text "--entrypoints" <> PP.sepBy (PP.char ':') pp24
             <+> text "--defaults" <> pp25
+
+contextMsg :: Doc
+contextMsg = PP.text "Controls template constraint resolution" $+$ PP.nest 4 (
+        PP.text "delayctx" <+> PP.char '=' <+> PP.text "Delay template resolution"
+    $+$ PP.text "inferctx" <+> PP.char '=' <+> PP.text "Try to solve as many constraints as possible"
+    )
 
 coercionMsg :: Doc
 coercionMsg = PP.text "Controls implicit coercions" $+$ PP.nest 4 (
@@ -193,6 +201,7 @@ optionsDecl  = Opts {
     -- Typechecker
     , defaults   = defaults defaultOptions &= help "Generate default variable initializations" &= groupname "Verification:Typechecker"
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help (show coercionMsg) &= groupname "Verification:Typechecker"
+    , implicitContext   = implicitContext defaultOptions &= help (show contextMsg) &= groupname "Verification:Typechecker"
     , backtrack   = backtrack defaultOptions &= help (show backtrackMsg) &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"

@@ -67,7 +67,7 @@ instance Assertable Result where
 
 testTypeChecker :: FilePath -> Test
 testTypeChecker f = test $ do
-    code <- timeout (timelimit *10^6) (system $ "secrec " ++ f)
+    code <- timeout (timelimit *10^6) (system $ "cabal exec -- secrec " ++ f)
     case code of
         Just ExitSuccess -> return ResSuccess
         Just (ExitFailure i) -> return $ ResFailure i

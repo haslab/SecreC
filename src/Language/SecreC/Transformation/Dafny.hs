@@ -1192,7 +1192,7 @@ dafnyGId (OIden on) = pp on
 dafnyGIdM :: DafnyK m => GIdentifier -> DafnyM m Doc
 dafnyGIdM v = lift $ dafnyGId v
 
-instance PP m VarIdentifier => PP m DafnyId where
+instance (Monad m,PP m VarIdentifier) => PP m DafnyId where
     pp did = ppDafnyId did
 
 ppDafnyId :: PP m VarIdentifier => DafnyId -> m Doc

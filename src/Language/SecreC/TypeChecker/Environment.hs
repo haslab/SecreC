@@ -675,10 +675,13 @@ newDecCtx :: ProverK loc m => loc -> String -> DecCtx -> Bool -> TcM m DecCtx
 newDecCtx l msg (DecCtx Nothing dict frees) doTop = do
     addHeadTDict l ("newDecCtx False"++msg) =<< fromPureTDict dict
     addFrees ("newDecCtx False"++msg) frees
-    if doTop then solveTop l ("newDecCtx False"++msg) else solve l ("newDecCtx False"++msg)
+    opts <- askOpts
+    if (doTop || implicitContext opts == InferCtx)
+        then solveTop l ("newDecCtx False"++msg)
+        else solve l ("newDecCtx False"++msg)
     dict' <- liftM (headNe . tDict) State.get
     frees' <- getFrees l
-    let ks = toPureCstrs $ tCstrs dict'
+    let ks = toPureCstrs (tCstrs dict') (tSolved dict')
     let recs = if doTop then mempty else (tRec dict')
     checkFrees l frees' ks dict'
     return $ DecCtx Nothing (PureTDict ks emptyTSubsts recs) frees'
@@ -730,7 +733,7 @@ addTcCstrToRec l i (PDec dk es n ts ps ret (DVar v)) st = do
     let hctx = implicitDecCtx { dCtxDict = emptyPureTDict { pureSubsts = mconcat substs }}
     let dec = DecType j DecTypeCtx [] hctx implicitDecCtx (concat ts) idec
     env <- mkDecEnv l dec
-    addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env Set.empty
+    addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env Map.empty
     return $ Map.singleton dec v
 addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
     j <- newModuleTyVarId
@@ -742,7 +745,7 @@ addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
     let idec = StructType (locpos l) n Nothing decclass
     let dec = DecType j DecTypeCtx [] implicitDecCtx implicitDecCtx ts idec
     env <- mkDecEnv l dec
-    addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env Set.empty
+    addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env Map.empty
     return $ Map.singleton dec v
 addTcCstrToRec l i k st = do
     ppk <- pp k
@@ -1088,7 +1091,7 @@ splitTpltHead l hctx bctx deps vars dec = do
     let bgr = differenceGr gr hgr
 --    liftIO $ putStrLn $ "splitHead " ++ ppr hgr ++ "\n|\n" ++ ppr bgr
     let headDict = TDict hgr Set.empty emptyTSubsts (tRec d) (tSolved d)
-    let bodyDict = TDict bgr Set.empty emptyTSubsts mempty Set.empty
+    let bodyDict = TDict bgr Set.empty emptyTSubsts mempty Map.empty
     hctx' <- tcNew (locpos l) "split head" $ onFrees l $ do
         addHeadTDict l "split head" headDict
         addFrees "splitTpltHead" hfrees
@@ -1415,13 +1418,13 @@ addCstrCache l delays = do
         else liftIO $ forM_ (Map.toList delays) $ \(Loc l iok,st) -> writeIdRef (kStatus iok) st
 
 
-getSolved :: ProverK Position m => TcM m (Set IOCstr)
+getSolved :: ProverK Position m => TcM m (Map LocIOCstr Bool)
 getSolved = State.gets (mconcat . Foldable.toList . fmap tSolved . tDict)
 
 resolveIOCstr_ :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
 resolveIOCstr_ l iok resolve = do
     solved <- getSolved
-    if (Set.member iok solved)
+    if (isJust $ Map.lookup (Loc (locpos l) iok) solved)
         then removeCstr l iok
         else resolveIOCstr l iok resolve >> return ()
   where
@@ -1429,9 +1432,9 @@ resolveIOCstr_ l iok resolve = do
     resolveIOCstr l iok resolve = do
         st <- readCstrStatus (locpos l) iok
         case st of
-            Evaluated rest (frees,delfrees) x -> do
+            Evaluated rest (frees,delfrees) infer x -> do
                 removeCstr l iok
-                solvedCstr l iok
+                solvedCstr l iok infer
                 addHeadTDict l "resolveIOCstr" rest
                 addFrees ("resolveIOCstr "++show (ioCstrId iok)) frees
                 delFrees ("resolveIOCstr "++show (ioCstrId iok)) delfrees
@@ -1449,9 +1452,9 @@ resolveIOCstr_ l iok resolve = do
             let ctx = contextGr gr (ioCstrId iok)
             ((x,rest),frees,delfrees) <- withFrees l $ tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
             removeCstr l iok
-            solvedCstr l iok
+            solvedCstr l iok False
             closeCstr
-            writeCstrStatus (locpos l) iok $ Evaluated rest (frees,delfrees) x
+            writeCstrStatus (locpos l) iok $ Evaluated rest (frees,delfrees) False x
             addHeadTDict l "writeTCstrStatus" rest
             addFrees ("resolveIOCstr "++show (ioCstrId iok)) frees
             delFrees ("resolveIOCstr "++show (ioCstrId iok)) delfrees
@@ -1459,8 +1462,8 @@ resolveIOCstr_ l iok resolve = do
             --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
             return x
 
-solvedCstr :: ProverK loc m => loc -> IOCstr -> TcM m ()
-solvedCstr l iok = updateHeadTDict l "solved" $ \env -> return ((),env { tSolved = Set.insert iok (tSolved env) })
+solvedCstr :: ProverK loc m => loc -> IOCstr -> Bool -> TcM m ()
+solvedCstr l iok infer = updateHeadTDict l "solved" $ \env -> return ((),env { tSolved = Map.insertWith (max) (Loc (locpos l) iok) infer (tSolved env) })
 
 removeCstr :: ProverK loc m => loc -> IOCstr -> TcM m ()
 removeCstr l iok = do
@@ -1532,10 +1535,10 @@ addHeadTDictDirty :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
 addHeadTDictDirty l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l (SubstMode NoFailS True) x d
 
 addHeadTCstrs :: (ProverK loc m) => loc -> String -> IOCstrGraph -> TcM m ()
-addHeadTCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict ks Set.empty emptyTSubsts mempty Set.empty
+addHeadTCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict ks Set.empty emptyTSubsts mempty Map.empty
 
 addHeadTFlatCstrs :: (ProverK loc m) => loc -> String -> Set LocIOCstr -> TcM m ()
-addHeadTFlatCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty) mempty Set.empty
+addHeadTFlatCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty) mempty Map.empty
     where nodes = map (\n -> (ioCstrId $ unLoc n,n)) $ Set.toList ks
 
 getHyps :: (MonadIO m) => TcM m Deps

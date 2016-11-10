@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MagicHash, DeriveGeneric, Rank2Types, UndecidableInstances, DeriveFoldable, DeriveTraversable, FlexibleContexts, ConstraintKinds, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
+{-# LANGUAGE CPP, TemplateHaskell, MagicHash, DeriveGeneric, Rank2Types, UndecidableInstances, DeriveFoldable, DeriveTraversable, FlexibleContexts, ConstraintKinds, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor #-}
 
 module Language.SecreC.TypeChecker.Base where
 
@@ -38,7 +38,11 @@ import Data.Graph.Inductive.Query as Graph hiding (mapFst,mapSnd)
 import Data.Text.Unsafe
 
 import GHC.Generics (Generic)
+#if MIN_VERSION_base(4,9,0)
+import GHC.Base hiding (mapM,Type)
+#else
 import GHC.Base hiding (mapM)
+#endif
 import GHC.Num
 
 import Control.Applicative
@@ -129,7 +133,7 @@ instance Eq IOCstr where
 instance Ord IOCstr where
     compare k1 k2 = compare (kStatus k1) (kStatus k2)
 
-instance PP m VarIdentifier => PP m IOCstr where
+instance (Monad m,PP m VarIdentifier) => PP m IOCstr where
     pp k = do
         pp1 <- pp (ioCstrId k)
         pp2 <- pp (kCstr k)
@@ -140,6 +144,7 @@ data TCstrStatus
     | Evaluated -- has been evaluated
         TDict -- resolved dictionary (variables bindings and recursive constraints)
         (Frees,Frees) -- (new frees,old frees)
+        Bool -- is inferred
         ShowOrdDyn -- result value
     | Erroneous -- has failed
         SecrecError -- failure error
@@ -551,7 +556,7 @@ instance Located EntryEnv where
     loc = entryLoc
     updLoc e l = e { entryLoc = l }
    
-instance PP m VarIdentifier => PP m EntryEnv where
+instance (Monad m,PP m VarIdentifier) => PP m EntryEnv where
     pp = pp . entryType
    
 varNameToType :: Var -> Type
@@ -915,14 +920,14 @@ ppExprTy e = do
     return $ ppe <+> text "::" <+> ppl
 ppVarTy v = ppExprTy (varExpr v)
 
-instance PP m VarIdentifier => PP m [(IsConst,Either Expr Type,IsVariadic)] where
+instance (Monad m,PP m VarIdentifier) => PP m [(IsConst,Either Expr Type,IsVariadic)] where
     pp xs = liftM (parens . sepBy comma) (mapM aux xs)
       where
         aux (x,y,z) = do
             y' <- eitherM ppExprTy pp y
             return $ ppConst x $ ppVariadic y' z
 
-instance PP m VarIdentifier => PP m TcCstr where
+instance (Monad m,PP m VarIdentifier) => PP m TcCstr where
     pp (TDec k es n ts x) = do
         ppk <- pp k
         ppes <- pp (isJust es)
@@ -1018,10 +1023,10 @@ instance PP m VarIdentifier => PP m TcCstr where
         ppr <- pp r
         return $ text "tomultiset" <+> ppt <+> ppr
 
-instance PP m VarIdentifier => PP m CheckCstr where
+instance (Monad m,PP m VarIdentifier) => PP m CheckCstr where
     pp (CheckAssertion c) = liftM (text "checkAssertion" <+>) (pp c)
 
-instance PP m VarIdentifier => PP m HypCstr where
+instance (Monad m,PP m VarIdentifier) => PP m HypCstr where
     pp (HypCondition c) = do
         pp1 <- pp c
         return $ text "hypothesis" <+> pp1
@@ -1033,7 +1038,7 @@ instance PP m VarIdentifier => PP m HypCstr where
         pp2 <- pp e2
         return $ text "hypothesis" <+> pp1 <+> text "==" <+> pp2
 
-instance PP m VarIdentifier => PP m TCstr where
+instance (Monad m,PP m VarIdentifier) => PP m TCstr where
     pp (TcK k _) = pp k
     pp (CheckK c _) = pp c
     pp (HypK h _) = pp h
@@ -1055,7 +1060,7 @@ instance Ord ArrayProj where
     compare (ArrayIdx w1) (ArrayIdx w2) = compare w1 w2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
     
-instance PP m VarIdentifier => PP m ArrayProj where
+instance (Monad m,PP m VarIdentifier) => PP m ArrayProj where
     pp (ArraySlice i1 i2) = do
         pp1 <- pp i1
         pp2 <- pp i2
@@ -1110,7 +1115,7 @@ instance Ord ArrayIndex where
     compare (DynArrayIndex e1) (DynArrayIndex e2) = compare e1 e2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
   
-instance PP m VarIdentifier => PP m ArrayIndex where
+instance (Monad m,PP m VarIdentifier) => PP m ArrayIndex where
     pp NoArrayIndex = return PP.empty
     pp (DynArrayIndex e) = pp e
     
@@ -1279,7 +1284,8 @@ data TDict = TDict
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     , tRec :: ModuleTcEnv -- recursive environment
-    , tSolved :: Set IOCstr -- constraints already solved; this may be important because of nested dictionaries
+    -- this may be important because of nested dictionaries
+    , tSolved :: Map LocIOCstr Bool -- constraints already solved and (True=inferred constraint)
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1308,7 +1314,7 @@ instance (PP m VarIdentifier, GenVar VarIdentifier m,MonadIO m) => Vars GIdentif
 fromPureTDict :: MonadIO m => PureTDict -> TcM m TDict
 fromPureTDict (PureTDict g ss rec) = do
     g' <- fromPureCstrs g
-    return $ TDict g' Set.empty ss rec Set.empty
+    return $ TDict g' Set.empty ss rec Map.empty
 
 fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m IOCstrGraph
 fromPureCstrs g = do
@@ -1332,11 +1338,15 @@ fromPureCstrs g = do
         State.modify $ \is -> Map.insert i j is
         return (ins,j,Loc l $ IOCstr k st,outs)
 
-toPureCstrs :: IOCstrGraph -> TCstrGraph
-toPureCstrs = nmap (fmap kCstr)
+toPureCstrs :: IOCstrGraph -> Map LocIOCstr Bool -> TCstrGraph
+toPureCstrs ks solved = unionGr g1 g2
+    where
+    g1 = nmap (fmap kCstr) ks
+    inferred = Map.keys $ Map.filter id solved
+    g2 = Graph.mkGraph (map (\x -> (ioCstrId $ unLoc x,fmap kCstr x)) inferred) []
 
 toPureTDict :: TDict -> PureTDict
-toPureTDict (TDict ks _ ss rec _) = PureTDict (toPureCstrs ks) ss rec
+toPureTDict (TDict ks _ ss rec solved) = PureTDict (toPureCstrs ks solved) ss rec
 
 flattenIOCstrGraph :: IOCstrGraph -> [LocIOCstr]
 flattenIOCstrGraph = map snd . labNodes
@@ -1353,7 +1363,7 @@ instance Monoid TSubsts where
     mempty = TSubsts Map.empty
     mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
 
-instance PP m VarIdentifier => PP m TSubsts where
+instance (Monad m,PP m VarIdentifier) => PP m TSubsts where
     pp = ppTSubsts
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TSubsts where
@@ -1367,7 +1377,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
             return ((k',v'):xs')
 
 emptyTDict :: TDict
-emptyTDict = TDict Graph.empty Set.empty emptyTSubsts mempty Set.empty
+emptyTDict = TDict Graph.empty Set.empty emptyTSubsts mempty Map.empty
 
 emptyPureTDict :: PureTDict
 emptyPureTDict = PureTDict Graph.empty emptyTSubsts mempty
@@ -1426,14 +1436,14 @@ removeFree msg n = do
         liftIO $ putStrLn $ "removeFree " ++ msg ++ " " ++ ppn -- ++ " from " ++ ppolds
     State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
 
-instance PP m VarIdentifier => PP m TDict where
+instance (Monad m,PP m VarIdentifier) => PP m TDict where
     pp dict = do
         pp1 <- ppGrM pp (const $ return PP.empty) $ tCstrs dict
         pp2 <- ppTSubsts (tSubsts dict)
         return $ text "Constraints:" $+$ nest 4 pp1
               $+$ text "Substitutions:" $+$ nest 4 pp2
 
-instance PP m VarIdentifier => PP m PureTDict where
+instance (Monad m,PP m VarIdentifier) => PP m PureTDict where
     pp dict = do
         pp1 <- ppGrM pp (const $ return PP.empty) $ pureCstrs dict
         pp2 <- ppTSubsts (pureSubsts dict)
@@ -1446,7 +1456,7 @@ ppConstraints d = do
         s <- readCstrStatus l c
         pre <- pp c
         case s of
-            Evaluated rest frees t -> do
+            Evaluated rest frees infer t -> do
                 ppf <- pp frees
                 return $ pre <+> char '=' <+> text (show t) <+> text "with frees" <+> ppf
             Unevaluated -> return $ pre
@@ -1659,7 +1669,7 @@ explicitDecCtx = DecCtx (Just Map.empty) emptyPureTDict Map.empty
 
 ppContext hasCtx = if isJust (hasCtx) then text "context" else text "implicit"
 
-instance PP m VarIdentifier => PP m DecCtx where
+instance (Monad m,PP m VarIdentifier) => PP m DecCtx where
     pp (DecCtx has dict frees) = do
         ppfrees <- pp frees
         ppd <- pp dict
@@ -1921,7 +1931,7 @@ ppFrees xs = do
     ppxs <- mapM pp $ Set.toList xs
     return $ text "Free variables:" <+> sepBy comma ppxs
 
-instance PP m VarIdentifier => PP m VArrayType where
+instance (Monad m,PP m VarIdentifier) => PP m VArrayType where
     pp (VAVal ts b) = do
         ppts <- mapM pp ts
         ppb <- pp b
@@ -1932,7 +1942,7 @@ instance PP m VarIdentifier => PP m VArrayType where
         ppsz <- pp sz
         return $ parens (ppv <+> text "::" <+> ppb <> text "..." <> parens ppsz)
 
-instance PP m VarIdentifier => PP m SecType where
+instance (Monad m,PP m VarIdentifier) => PP m SecType where
     pp Public = return $ text "public"
     pp (Private d k) = pp d
     pp (SVar v k) = do
@@ -1946,7 +1956,7 @@ ppAtt (Attribute t _ n szs) = do
     ppz <- pp szs
     return $ ppt <+> ppn <> ppz        
 
-instance PP m VarIdentifier => PP m DecType where
+instance (Monad m,PP m VarIdentifier) => PP m DecType where
     pp (DecType did isrec vars hctx bctx specs body@(StructType _ n atts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
@@ -2048,7 +2058,7 @@ ppConstArg (isConst,(VarName t n),isVariadic) = do
 prefixOp True = (text "operator" <+>)
 prefixOp False = id
 
-instance PP m VarIdentifier => PP m InnerDecType where
+instance (Monad m,PP m VarIdentifier) => PP m InnerDecType where
     pp (StructType _ n atts cl) = do
         ppn <- pp n
         ppo <- ppOpt atts (liftM (braces . vcat) . mapM ppAtt)
@@ -2094,7 +2104,7 @@ instance PP m VarIdentifier => PP m InnerDecType where
         ppo <- ppOpt stmts (liftM braces . pp)
         return $ ppLeak isLeak (text "lemma" <+> ppn <+> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
         
-instance PP m VarIdentifier => PP m BaseType where
+instance (Monad m,PP m VarIdentifier) => PP m BaseType where
     pp (TyPrim p) = pp p
     pp (TApp n ts d) = do
         ppn <- pp n
@@ -2108,7 +2118,7 @@ instance PP m VarIdentifier => PP m BaseType where
         ppv <- pp v
         ppc <- pp c
         return $ ppv <+> ppc
-instance PP m VarIdentifier => PP m ComplexType where
+instance (Monad m,PP m VarIdentifier) => PP m ComplexType where
     pp Void = return $ text "void"
     pp (CType s t d) = do
         pps <- pp s
@@ -2116,13 +2126,13 @@ instance PP m VarIdentifier => PP m ComplexType where
         ppd <- pp d
         return $ pps <+> ppt <> brackets (brackets ppd)
     pp (CVar v b) = pp v
-instance PP m VarIdentifier => PP m SysType where
+instance (Monad m,PP m VarIdentifier) => PP m SysType where
     pp t@(SysPush {}) = return $ text (show t)
     pp t@(SysRet {}) =  return $ text (show t)
     pp t@(SysRef {}) =  return $ text (show t)
     pp t@(SysCRef {}) = return $ text (show t)
 
-instance PP m VarIdentifier => PP m Type where
+instance (Monad m,PP m VarIdentifier) => PP m Type where
     pp t@(NoType msg) = return $ text "no type" <+> text msg
     pp (VAType t sz) = do
         ppt <- pp t
@@ -2164,7 +2174,7 @@ data TypeClass
     | VArrayC TypeClass -- array type
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
-instance PP m VarIdentifier => PP m TypeClass where
+instance (Monad m,PP m VarIdentifier) => PP m TypeClass where
     pp KindStarC = return $ text "kind star"
     pp (VArrayStarC t) = liftM (text "array star of" <+>) (pp t)
     pp KindC = return $ text "kind"
@@ -2293,7 +2303,7 @@ isPrimBaseType :: BaseType -> Bool
 isPrimBaseType (TyPrim {}) = True
 isPrimBaseType _ = False
 
-instance PP m VarIdentifier => PP m StmtClass where
+instance (Monad m,PP m VarIdentifier) => PP m StmtClass where
     pp = return . text . show
 
 instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m StmtClass where
@@ -2333,7 +2343,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         z' <- traverseDecClassVars f z
         return (DecClass x' i' y' z')
 
-instance PP m VarIdentifier => PP m DecClass where
+instance (Monad m,PP m VarIdentifier) => PP m DecClass where
     pp (DecClass False inline r w) = do
         ppr <- pp r
         ppw <- pp w
@@ -2494,7 +2504,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     substL (KVar v _) = return $ Just $ VIden v
     substL e = return Nothing
 
-instance PP m VarIdentifier => PP m KindType where
+instance (Monad m,PP m VarIdentifier) => PP m KindType where
     pp PublicK = return $ text "public"
     pp (PrivateK k) = pp k
     pp (KVar k c) = do
@@ -2879,7 +2889,6 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
         isLHS <- getLHS
         if isJust isLHS then addBV id n else addFV id n
     substL v = return $ Just v
-    substL v = return Nothing
 
 -- filter the constraints that depend on a set of variables
 varsCstrGraph :: (VarsGTcM m) => Set VarIdentifier -> IOCstrGraph -> TcM m IOCstrGraph

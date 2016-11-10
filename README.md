@@ -10,7 +10,7 @@ This tool takes a set of specific analysis and transformation flags, receives a 
 A programmer interacts with the SecreC analyser in the same way as with a typical compiler: as the tool produces errors, and the programmer responds by changing the program, including its security types and specifications.
 
 #### Requirements:
-* [Haskell Platform](https://www.haskell.org/platform/) (with GHC version 7.8.x)
+* [Haskell Platform](https://www.haskell.org/platform/) (with GHC version >= 7.8.x)
 * [Dafny](https://dafny.codeplex.com/) (only for verification)
 * [Boogie](https://boogie.codeplex.com/) (only for verification)
 * [Z3](https://z3.codeplex.com/) (only for verification)

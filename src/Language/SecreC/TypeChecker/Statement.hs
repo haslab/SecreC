@@ -47,7 +47,8 @@ extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 tcStmtBlock :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
 tcStmtBlock l msg m = do
     delay <- State.gets (isJust . inTemplate)
-    if delay
+    opts <- askOpts
+    if (delay && implicitContext opts /= InferCtx)
         then tcAddDeps l msg m
         else tcNew (locpos l) msg $ do
             x <- m

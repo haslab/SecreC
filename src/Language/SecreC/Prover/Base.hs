@@ -70,7 +70,7 @@ data IExpr
     | IArr ComplexType [[IExpr]] -- multi-dimensional array value
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IExpr
-instance PP m VarIdentifier => PP m IExpr where
+instance (Monad m,PP m VarIdentifier) => PP m IExpr where
     pp (ILit l) = pp l
     pp (IIdx v) = pp v
     pp (IBinOp o e1 e2) = do

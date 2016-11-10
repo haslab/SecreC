@@ -1,4 +1,4 @@
-{-# LANGUAGE Rank2Types, DeriveDataTypeable #-}
+{-# LANGUAGE CPP, Rank2Types, DeriveDataTypeable #-}
 {-# LANGUAGE UndecidableInstances, MultiParamTypeClasses, FlexibleInstances, MagicHash, UnboxedTuples #-}
 
 module System.Mem.Weak.Exts (
@@ -53,16 +53,31 @@ orMkWeak (MkWeak mkWeak1) (MkWeak mkWeak2) = MkWeak $ \v f -> do
 -- Finalizers can be used reliably for types that are created explicitly and have identity, such as IORef and MVar. However, to place a finalizer on one of these types, you should use the specific operation provided for that type, e.g. mkWeakIORef and addMVarFinalizer respectively (the non-uniformity is accidental). These operations attach the finalizer to the primitive object inside the box (e.g. MutVar# in the case of IORef), because attaching the finalizer to the box itself fails when the outer box is optimised away by the compiler.
 
 mkWeakKeyIORef :: IORef a -> b -> IO () -> IO (Weak b)
+#if __GLASGOW_HASKELL__ >= 800
+mkWeakKeyIORef k@(IORef (STRef r#)) v (IO f) = IO $ \s ->
+  case mkWeak# r# v f s of (# s1, w #) -> (# s1, Weak w #)
+#else
 mkWeakKeyIORef k@(IORef (STRef r#)) v f = IO $ \s ->
   case mkWeak# r# v f s of (# s1, w #) -> (# s1, Weak w #)
+#endif
 
 mkWeakKeySTRef :: STRef s a -> b -> IO () -> IO (Weak b)
+#if __GLASGOW_HASKELL__ >= 800
+mkWeakKeySTRef k@(STRef r#) v (IO f) = IO $ \s ->
+  case mkWeak# r# v f s of (# s1, w #) -> (# s1, Weak w #)
+#else
 mkWeakKeySTRef k@(STRef r#) v f = IO $ \s ->
   case mkWeak# r# v f s of (# s1, w #) -> (# s1, Weak w #)
+#endif
 
 mkWeakKeyMVar :: MVar a -> b -> IO () -> IO (Weak b)
-mkWeakKeyMVar m@(MVar m#) v f = IO $ \s ->
+#if __GLASGOW_HASKELL__ >= 800
+mkWeakKeyMVar m@(MVar m#) v (IO f) = IO $ \s ->
   case mkWeak# m# v f s of (# s1, w #) -> (# s1, Weak w #)
+#else
+mkWeakKeyMVar m@(MVar m#) v (IO f) = IO $ \s ->
+  case mkWeak# m# v f s of (# s1, w #) -> (# s1, Weak w #)
+#endif
 
 class WeakRef r where
 	mkWeakRefKey :: r a -> b -> Maybe (IO ()) -> IO (Weak b)

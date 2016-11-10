@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
+#OPTIONS_SECREC --implicitcoercions=onc --implicitcontext=inferctx
 
 import stdlib;
 import shared3p;
