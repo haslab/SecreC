@@ -1,32 +1,20 @@
-/*
- * This file is a part of the Sharemind framework.
- *
- * Copyright (C) AS Cybernetica
- * All rights are reserved. Reproduction in whole or part is prohibited
- * without the written consent of the copyright owner.
- *
- * Main contributors:
- * Roman Jagomagis (neo15@ut.ee)
- */
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 import stdlib;
 import shared3p;
 
 domain pd_a3p shared3p;
 
-// ./bin/scc -o t.sb ../00-apriori.sc  -I ../src/stdlib/
-
-
-template <domain D>
-D uint [[2]] load_db () {
-    D uint [[2]] db = reshape (0, 5, 5);
-    db[0, 0] = 1; db[0, 1] = 1;               db[0, 3] = 1;
-    db[1, 0] = 1;                             db[1, 3] = 1; db[1,4] = 1;
-    db[2, 0] = 1; db[2, 1] = 1;
-                                db[3, 2] = 1;
-                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
-    return db;
-}
+//template <domain D>
+//D uint [[2]] load_db () {
+//    D uint [[2]] db = reshape (0, 5, 5);
+//    db[0, 0] = 1; db[0, 1] = 1;               db[0, 3] = 1;
+//    db[1, 0] = 1;                             db[1, 3] = 1; db[1,4] = 1;
+//    db[2, 0] = 1; db[2, 1] = 1;
+//                                db[3, 2] = 1;
+//                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
+//    return db;
+//}
     
 
 
@@ -57,8 +45,8 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
 //x //@ ensures \result == frequents(db);
 //x //@ ensures shape(\result)[1] == setSize; //
 {
-  uint dbColumns = shape(db)[1];
-  uint dbRows = shape(db)[0];
+  uint dbColumns = shape(db)[1]; // number of items
+  uint dbRows = shape(db)[0]; // number of transactions
 
   uint [[2]] F (0, 1); // frequent itemsets
   D uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
@@ -90,7 +78,7 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
   {
     F_new = reshape (0, 0, k + 1); // empty?
     F_newcache = reshape (0, 0, dbRows); // empty?
-    uint F_size = shape(F)[0];
+    uint F_size = shape(F)[0]; // number of items for k-1
     for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
     {
       for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
@@ -103,13 +91,13 @@ uint [[2]] apriori (D uint [[2]] db, uint threshold, uint setSize)
             prefixEqual = false;
           }
         }
-        
+        //itemsets are ordered by item, hence the comparison in the test
         if (prefixEqual && F[i, k-1] < F[j, k-1]) {
-          D uint [[1]] C_dot = F_cache[i, :] * F_cache[j, :];
-          D uint frequence = sum (C_dot);
+          D uint [[1]] C_dot = F_cache[i, :] * F_cache[j, :]; //join the two caches
+          D uint frequence = sum (C_dot); // compute the joint frequency
           if (declassify (frequence >= threshold)) {
             F_newcache = cat (F_newcache, reshape(C_dot, 1, size(C_dot)));
-            // create the new itemset by appending the last element of the second itemset to the fist
+            // create the new itemset by appending the last element of the second itemset to the first
             C = cat (F[i, :], F[j, k-1:k]);
             F_new = cat (F_new, reshape(C, 1, k+1));
           }
