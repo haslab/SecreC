@@ -1,8 +1,9 @@
 #OPTIONS_SECREC --implicitcoercions=onc --implicitcontext=inferctx
 
-import stdlib;
-import shared3p;
+//import stdlib;
+//import shared3p;
 
+kind shared3p;
 domain pd_a3p shared3p;
 
 template <domain D>
