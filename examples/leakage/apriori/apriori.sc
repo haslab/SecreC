@@ -5,16 +5,16 @@ import shared3p;
 
 domain pd_a3p shared3p;
 
-//template <domain D>
-//D uint [[2]] load_db () {
-//    D uint [[2]] db = reshape (0, 5, 5);
-//    db[0, 0] = 1; db[0, 1] = 1;               db[0, 3] = 1;
-//    db[1, 0] = 1;                             db[1, 3] = 1; db[1,4] = 1;
-//    db[2, 0] = 1; db[2, 1] = 1;
-//                                db[3, 2] = 1;
-//                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
-//    return db;
-//}
+template <domain D>
+D uint [[2]] load_db () {
+    D uint [[2]] db = reshape (0, 5, 5);
+    db[0, 0] = 1; db[0, 1] = 1;               db[0, 3] = 1;
+    db[1, 0] = 1;                             db[1, 3] = 1; db[1,4] = 1;
+    db[2, 0] = 1; db[2, 1] = 1;
+                                db[3, 2] = 1;
+                  db[4, 1] = 1; db[4, 2] = 1; db[4, 3] = 1;
+    return db;
+}
     
 
 
