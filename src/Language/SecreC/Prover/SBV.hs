@@ -117,7 +117,8 @@ iIdx2SBV l r v@(VarName t (VIden n)) = do
         Nothing -> do
             unless inHyp $ do
                 ppn <- lift $ pp n
-                lift $ tcError (locpos l) $ Halt $ UnresolvedVariable (ppn)
+                let halt = if isReadable v then Halt else id
+                lift $ tcError (locpos l) $ halt $ UnresolvedVariable (ppn)
             i <- do
                 ppv <- lift $ ppr v
                 lift $ lift $ sbVal (ppv) t
