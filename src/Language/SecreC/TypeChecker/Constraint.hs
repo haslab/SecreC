@@ -2726,7 +2726,10 @@ unifiesExpr l e1 e2 = do
             tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)
 
 tryProjectExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
-tryProjectExpr l (PostIndexExpr t e s) = tryTcErrorMaybe l $ do
+tryProjectExpr l pe@(PostIndexExpr t e s) = tryTcErrorMaybe l $ do
+    debugTc $ do
+        pppe <- ppr pe
+        liftIO $ putStrLn $ "tryProjectExpr " ++ pppe
     arr' <- expandArrayExpr l e
     projectArrayExpr l arr' (Foldable.toList s)
 tryProjectExpr l e = return Nothing
