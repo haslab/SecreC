@@ -1684,7 +1684,8 @@ unionTSubsts (TSubsts ss1) (TSubsts ss2) = do
         Nothing -> return (Map.insert v t xs,ks)
         Just t' -> do
             st <- getCstrState
-            return (xs,TcK (Unifies t t') st : ks)
+            k <- if t==t' then [] else TcK (Unifies t t') st
+            return (xs,k ++ ks)
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
 appendTSubsts l (SubstMode NoCheckS _) ss1 ss2 = do
