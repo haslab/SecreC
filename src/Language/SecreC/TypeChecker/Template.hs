@@ -833,13 +833,13 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                 Right ((cache),TDict hgr _ subst recs solved) -> do
                         --removeIOCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
-                        (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr Map.empty,recs)
+                        (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr solved,recs)
                         hgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty hgr'
                         bgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty bgr'
                         recs'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty recs'
                         hgr1 <- fromPureCstrs hgr''
                         bgr1 <- fromPureCstrs bgr''
-                        let headDict = (TDict hgr1 Set.empty subst' recs'' solved)
+                        let headDict = (TDict hgr1 Set.empty subst' recs'' Map.empty)
                         let bodyDict = (TDict bgr1 Set.empty emptyTSubsts mempty Map.empty)
                         --let headPureDict = toPureTDict headDict
                         --let bodyPureDict = toPureTDict bodyDict

@@ -475,6 +475,7 @@ newTCstr l k = do
             (\e -> if (isHaltError e)
                 then do
                     debugTc $ liftIO $ putStrLn $ "halted newTCstr: " ++ pprid (ioCstrId iok)
+                    --writeCstrStatus (locpos l) iok Unevaluated
                     return (Just iok)
                 else do
                     debugTc $ liftIO $ putStrLn $ "failed newTCstr: " ++ pprid (ioCstrId iok)
@@ -681,7 +682,7 @@ ioCstrResult l iok proxy = do
         Erroneous err -> return Nothing
         Unevaluated -> return Nothing
     where
-    cstrResult :: (Hashable a,IsScVar (TcM m) a,Monad m,Location loc) => loc -> TCstr -> Proxy a -> ShowOrdDyn -> TcM m a
+    cstrResult :: (Hashable a,IsScVar (TcM m) a,MonadIO m,Location loc) => loc -> TCstr -> Proxy a -> ShowOrdDyn -> TcM m a
     cstrResult l k (Proxy::Proxy t) dyn = case fromShowOrdDyn dyn of
         Nothing -> do
             ppk <- pp k
@@ -1651,9 +1652,6 @@ equalsLit l (FloatLit _ f1) (FloatLit _ f2) | f1 == f2 = return ()
 equalsLit l lit1 lit2 = constraintError (EqualityException "literal type") l lit1 pp lit2 pp Nothing  
 
 -- coerces a literal into a base type
-
---readable1 :: (ToVariable x var,ProverK loc m) => (x -> TcM m b) -> loc -> x -> TcM m b
-
 coercesLitBase :: (ProverK loc m) => loc -> Literal () -> BaseType -> TcM m ()
 coercesLitBase l (BoolLit _ b) t = tcCstrM_ l $ Unifies (BaseT t) (BaseT bool)
 coercesLitBase l (StringLit _ s) t = tcCstrM_ l $ Unifies (BaseT t) (BaseT string)

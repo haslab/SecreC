@@ -394,6 +394,12 @@ withLeak b m = do
     State.modify $ \env -> env { isLeak = old }
     return x
     
+runOnCache :: MonadIO m => TcM m a -> TcM m a
+runOnCache m = do
+   (x,cache) <- onCache m
+   forM_ (Map.toList cache) $ \(Loc p iok,st) ->  writeCstrStatus p iok st
+   return x
+    
 onCache :: Monad m => TcM m a -> TcM m (a,CstrCache)
 onCache m = do
     oldcache <- State.gets cstrCache
@@ -615,7 +621,15 @@ instance Hashable SecrecErrArr where
     hashWithSalt salt err = salt
 
 newtype TcM m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv) (SecrecM m) a }
-    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv),MonadReader (Int,SecrecErrArr),MonadWriter (),MonadError SecrecError,MonadPlus,Alternative)
+    deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv),MonadReader (Int,SecrecErrArr),MonadWriter (),Alternative)
+    
+instance MonadIO m => MonadPlus (TcM m) where
+    mzero = TcM mzero
+    mplus x y = catchError x (const y)
+    
+instance MonadIO m => MonadError SecrecError (TcM m) where
+    throwError e = TcM $ throwError e
+    catchError m f = TcM $ catchError (unTcM $ runOnCache m) (unTcM . f)
 
 localOptsTcM :: Monad m => (Options -> Options) -> TcM m a -> TcM m a
 localOptsTcM f (TcM m) = TcM $ RWS.mapRWST (Reader.local f) m

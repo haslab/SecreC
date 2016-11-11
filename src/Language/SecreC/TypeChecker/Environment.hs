@@ -1671,7 +1671,7 @@ appendTDict l noFail (TDict u1 c1 ss1 rec1 solved1) (TDict u2 c2 ss2 rec2 solved
     let u12 = unionGr u1 u2
     (ss12,ks) <- appendTSubsts l noFail ss1 ss2
     u12' <- foldM (\gr k -> insertNewCstr l k gr) u12 ks
-    return $ TDict u12' (Set.union c1 c2) ss12 (mappend rec1 rec2) (mappend solved1 solved2)
+    return $ TDict u12' (Set.union c1 c2) ss12 (mappend rec1 rec2) (Map.unionWith max solved1 solved2)
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
 appendTSubsts l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
