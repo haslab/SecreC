@@ -2698,7 +2698,7 @@ assignsExpr l v1@(VarName t1 (VIden n1)) e2 = assignable bound ass err l (VarNam
 
 unifiesExpr :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 unifiesExpr l e1 e2 = do
-    debugTc $ liftIO $ putStrLn $ "unifiesExpr " ++ show (funit e1) ++ " " ++ show (funit e2)
+    debugTc $ liftIO $ putStrLn $ "unifiesExpr " ++ show (e1) ++ "\n\n" ++ show (e2)
     pp1 <- pp e1
     pp2 <- pp e2
     addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ readable2 (readable2List [tryInlineUnaryExpr l,tryProjectExpr l,tryVArraySizeExpr l,tryExpandArrayExpr l] unifiesExpr') l e1 e2
