@@ -1688,8 +1688,8 @@ unionTSubsts (TSubsts ss1) (TSubsts ss2) = do
             return (xs,k ++ ks)
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
-appendTSubsts l (SubstMode NoCheckS _) ss1 ss2 = do
-    unionTSubsts ss1 ss2
+appendTSubsts l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return $ TSubsts $ Map.union ss1 ss2
+--    unionTSubsts ss1 ss2
 appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
   where
     addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
