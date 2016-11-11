@@ -2623,7 +2623,7 @@ tryResolveTVar l v = do
     s <- getTSubsts l
     mb <- substsFromMap (Map.mapKeys VIden $ unTSubsts s) (VIden v::GIdentifier)
     case mb of
-        Just t -> replaceSubstM l v t
+        Just t -> replaceSubstM l False v t
         Nothing -> return ()
     return $ mb
 
@@ -2646,7 +2646,7 @@ tryResolveEVar l v t = do
             return $ Just $ fmap (Typed l) $ RVariablePExpr (tyOf a) (VarName (tyOf a) $ VIden v)
         otherwise -> return Nothing
     case mb of
-        Just e -> replaceSubstM l v (IdxT $ fmap typed e)
+        Just e -> replaceSubstM l False v (IdxT $ fmap typed e)
         Nothing -> return ()
     return mb
 

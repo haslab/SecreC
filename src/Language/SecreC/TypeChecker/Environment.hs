@@ -1302,14 +1302,15 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
             ppv <- ppr v
             ppt' <- ppr t'
             liftIO $ putStrLn $ "addSubstM " ++ ppv ++ " = " ++ ppt'
-        replaceSubstM l vn t'
+        replaceSubstM l True vn t'
         removeFree "addSubstM" vn
         when dirty $ dirtyGDependencies (locpos l) $ VIden vn
         -- register variable assignment in the top-most open constraint
         State.modify $ \env -> env { openedCstrs = mapHead (mapSnd $ Set.insert vn) (openedCstrs env) }
 
-replaceSubstM :: ProverK loc m => loc -> VarIdentifier -> Type -> TcM m ()
-replaceSubstM l v t = updateHeadTDict l "addSubstM" $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert v t (unTSubsts $ tSubsts d) })
+replaceSubstM :: ProverK loc m => loc -> Bool -> VarIdentifier -> Type -> TcM m ()
+replaceSubstM l True v t = addHeadTDict l "addSubstM" $ emptyTDict { tSubsts = TSubsts $ Map.singleton v t }
+replaceSubstM l False v t = updateHeadTDict l "addSubstM" $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert v t (unTSubsts $ tSubsts d) })
 
 newDomainTyVar :: (MonadIO m) => String -> KindType -> IsVariadic -> Maybe Doc -> TcM m SecType
 newDomainTyVar str k isVariadic doc = do
@@ -1673,8 +1674,21 @@ appendTDict l noFail (TDict u1 c1 ss1 rec1 solved1) (TDict u2 c2 ss2 rec2 solved
     u12' <- foldM (\gr k -> insertNewCstr l k gr) u12 ks
     return $ TDict u12' (Set.union c1 c2) ss12 (mappend rec1 rec2) (Map.unionWith max solved1 solved2)
 
+unionTSubsts :: ProverK Position m => TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
+unionTSubsts (TSubsts ss1) (TSubsts ss2) = do
+    (ss3,ks) <- foldM aux (ss1,[]) (Map.toList ss2)
+    return (TSubsts ss3,ks)
+  where
+    aux :: ProverK Position m => (Map VarIdentifier Type,[TCstr]) -> (VarIdentifier,Type) -> TcM m (Map VarIdentifier Type,[TCstr])
+    aux (xs,ks) (v,t) = case Map.lookup v xs of
+        Nothing -> return (Map.insert v t xs,ks)
+        Just t' -> do
+            st <- getCstrState
+            return (xs,TcK (Unifies t t') st : ks)
+
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
-appendTSubsts l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
+appendTSubsts l (SubstMode NoCheckS _) ss1 ss2 = do
+    unionTSubsts ss1 ss2
 appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
   where
     addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
@@ -1693,7 +1707,8 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
                         return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') $ VIden v) t') st : ks)
             else do
                 when (substDirty mode) $ dirtyGDependencies (locpos l) $ VIden v
-                return (TSubsts $ Map.insert v t' (unTSubsts ss),ks)
+                (ss3,ks3) <- unionTSubsts (TSubsts $ Map.singleton v t') ss
+                return (ss3,ks++ks3)
 
 substFromTSubsts :: (VarsG (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubsts msg stop l tys doBounds ssBounds = substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds
