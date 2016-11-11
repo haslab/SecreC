@@ -634,7 +634,7 @@ resolve :: ProverK loc m => loc -> Type -> TcM m ()
 resolve l (KindT s) = resolveKind l s
 resolve l t = do
     ppt <- pp t
-    genTcError (locpos l) True $ text "failed to resolve" <+> ppt
+    genTcError (locpos l) False $ text "failed to resolve" <+> ppt
 
 resolveKind :: ProverK loc m => loc -> KindType -> TcM m ()
 resolveKind l PublicK = return ()
@@ -649,7 +649,7 @@ resolveKind l k@(KVar v@(varIdRead -> True) isPriv) = do
             throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to resolve kind" <+> ppk) Nothing
 resolveKind l k = do
     ppk <- pp k
-    genTcError (locpos l) True $ text "failed to resolve kind" <+> ppk
+    genTcError (locpos l) False $ text "failed to resolve kind" <+> ppk
 
 resolveHypCstr :: (ProverK loc m) => loc -> SolveMode -> HypCstr -> TcM m (Maybe IExpr)
 resolveHypCstr l mode hyp = do
@@ -2698,7 +2698,7 @@ assignsExpr l v1@(VarName t1 (VIden n1)) e2 = assignable bound ass err l (VarNam
 
 unifiesExpr :: (ProverK loc m) => loc -> Expr -> Expr -> TcM m ()
 unifiesExpr l e1 e2 = do
-    debugTc $ liftIO $ putStrLn $ "unifiesExpr " ++ show (e1) ++ "\n\n" ++ show (e2)
+--    debugTc $ liftIO $ putStrLn $ "unifiesExpr " ++ show (e1) ++ "\n\n" ++ show (e2)
     pp1 <- pp e1
     pp2 <- pp e2
     addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ readable2 (readable2List [tryInlineUnaryExpr l,tryProjectExpr l,tryVArraySizeExpr l,tryExpandArrayExpr l] unifiesExpr') l e1 e2
@@ -2726,7 +2726,7 @@ unifiesExpr l e1 e2 = do
             tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)
 
 tryProjectExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
---tryProjectExpr l pe@(PostIndexExpr t (ToVArrayExpr _ e n) s) = return $ Just $ PostIndexExpr t e s    
+tryProjectExpr l pe@(PostIndexExpr t (ToVArrayExpr _ e n) s) = return $ Just $ PostIndexExpr t e s    
 tryProjectExpr l pe@(PostIndexExpr t arr s) = tryTcErrorMaybe l $ do
     debugTc $ do
         pppe <- ppr pe
