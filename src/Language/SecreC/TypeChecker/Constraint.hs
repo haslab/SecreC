@@ -2726,7 +2726,7 @@ unifiesExpr l e1 e2 = do
             tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)
 
 tryProjectExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
-tryProjectExpr l pe@(PostIndexExpr t (ToVArrayExpr _ e n) s) = return $ Just $ PostIndexExpr t e s    
+--tryProjectExpr l pe@(PostIndexExpr t (ToVArrayExpr _ e n) s) = return $ Just $ PostIndexExpr t e s    
 tryProjectExpr l pe@(PostIndexExpr t arr s) = tryTcErrorMaybe l $ do
     debugTc $ do
         pppe <- ppr pe
