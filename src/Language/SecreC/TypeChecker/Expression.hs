@@ -73,7 +73,7 @@ tcLValue isWrite (RVariablePExpr l v) = do
     v' <- tcVarName isWrite v
     let t = typed $ loc v'
     return $ RVariablePExpr (Typed l t) v'
-tcLValue isWrite e = genTcError (locpos $ loc e) $ text "Not a l-value expression: " <+> quotes (ppid e)
+tcLValue isWrite e = genTcError (locpos $ loc e) False $ text "Not a l-value expression: " <+> quotes (ppid e)
 
 tcVariadicArg :: (PP (TcM m) (a GIdentifier (Typed loc)),VarsGTcM m,Located (a GIdentifier (Typed loc)),Location loc,LocOf (a GIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a GIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a GIdentifier (Typed loc),IsVariadic)
 tcVariadicArg tcA (e,isVariadic) = do
@@ -82,8 +82,8 @@ tcVariadicArg tcA (e,isVariadic) = do
     ppe' <- pp e'
     ppt <- pp t
     if isVariadic
-        then unless (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should be variadic"
-        else when (isVATy t) $ genTcError (locpos l) $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should not be variadic" 
+        then unless (isVATy t) $ genTcError (locpos l) False $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should be variadic"
+        else when (isVATy t) $ genTcError (locpos l) False $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should not be variadic" 
     return (e',isVariadic)
 
 tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
@@ -94,7 +94,7 @@ tcExpr (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
     tcExpr $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
 tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
     exprC <- getExprC
-    when (exprC==PureExpr) $ genTcError (locpos l) $ text "assign expression is not pure" <+> ppid ae
+    when (exprC==PureExpr) $ genTcError (locpos l) False $ text "assign expression is not pure" <+> ppid ae
     pe' <- tcLValue True pe
     e' <- tcExpr e
     let tpe = typed $ loc pe'
@@ -137,12 +137,12 @@ tcExpr (BinaryExpr l e1 op e2) = do
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr pe@(PreOp l op e) = do
     exprC <- getExprC
-    when (exprC==PureExpr) $ genTcError (locpos l) $ text "preop is not pure" <+> ppid pe
+    when (exprC==PureExpr) $ genTcError (locpos l) False $ text "preop is not pure" <+> ppid pe
     e' <- tcLValue True e
     limitExprC ReadOnlyExpr $ tcPrePostOp l True op e'
 tcExpr pe@(PostOp l op e) = do
     exprC <- getExprC
-    when (exprC==PureExpr) $ genTcError (locpos l) $ text "postop is not pure" <+> ppid pe
+    when (exprC==PureExpr) $ genTcError (locpos l) False $ text "postop is not pure" <+> ppid pe
     e' <- tcLValue True e
     limitExprC ReadOnlyExpr $ tcPrePostOp l False op e'
 tcExpr (UnaryExpr l op e) = do
@@ -174,7 +174,7 @@ tcExpr (BytesFromStringExpr l e) = do
 tcExpr (VArraySizeExpr l e) = do
     e' <- withExprC ReadOnlyExpr $ tcExpr e
     let t = typed $ loc e'
-    unless (isVATy t) $ genTcError (locpos l) $ text "size... expects a variadic array but got" <+> quotes (ppid e)
+    unless (isVATy t) $ genTcError (locpos l) False $ text "size... expects a variadic array but got" <+> quotes (ppid e)
     return $ VArraySizeExpr (Typed l $ BaseT index) e'
 tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
@@ -250,7 +250,7 @@ tcExpr me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
 tcExpr e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     return $ ResultExpr tl
-tcExpr e = genTcError (locpos $ loc e) $ text "failed to typecheck expression" <+> ppid e
+tcExpr e = genTcError (locpos $ loc e) False $ text "failed to typecheck expression" <+> ppid e
 
 isSupportedBuiltin :: (MonadIO m,Location loc) => loc -> Identifier -> [Type] -> TcM m Type
 isSupportedBuiltin l n args = do -- TODO: check specific builtins?

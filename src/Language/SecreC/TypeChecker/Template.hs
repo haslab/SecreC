@@ -284,8 +284,8 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict
             exprC <- getExprC
             let isEmpty = either not Map.null
             case exprC of
-                PureExpr -> unless (isEmpty rs && isEmpty ws) $ genTcError (locpos p) $ text "procedure" <+> ppdecrec <+> text "not pure" <+> def
-                ReadOnlyExpr -> unless (isEmpty ws) $ genTcError (locpos p) $ text "procedure" <+> ppdecrec <+> text "not read-only" <+> def
+                PureExpr -> unless (isEmpty rs && isEmpty ws) $ genTcError (locpos p) False $ text "procedure" <+> ppdecrec <+> text "not pure" <+> def
+                ReadOnlyExpr -> unless (isEmpty ws) $ genTcError (locpos p) False $ text "procedure" <+> ppdecrec <+> text "not read-only" <+> def
                 ReadWriteExpr -> return ()
             chgDecClassM $ addDecClassVars rs ws
     return (decrec,headCstrs)
@@ -542,7 +542,7 @@ matchVariadicTypeArgs l [] [] = return ()
 matchVariadicTypeArgs l xs@[] ys = do
     ppxs <- pp xs
     ppys <- pp ys
-    genTcError (locpos l) $ text "Template type argument variadic mismatch" <+> ppxs <+> ppys
+    genTcError (locpos l) False $ text "Template type argument variadic mismatch" <+> ppxs <+> ppys
 matchVariadicTypeArgs l (x:xs) ys = do
     ys' <- matchVariadicTypeArg l x ys
     matchVariadicTypeArgs l xs ys'
@@ -552,7 +552,7 @@ matchVariadicTypeArg :: (ProverK loc m) => loc -> (Type,IsVariadic) -> [Type] ->
 matchVariadicTypeArg l x@(t,False) ys@[] = do
     ppx <- pp x
     ppys <- pp ys
-    genTcError (locpos l) $ text "Template type argument variadic mismatch" <+> ppx <+> ppys
+    genTcError (locpos l) False $ text "Template type argument variadic mismatch" <+> ppx <+> ppys
 matchVariadicTypeArg l (t,False) (y:ys) = do
     tcCstrM_ l $ Unifies t y
     return ys
@@ -594,7 +594,7 @@ matchBasePArgs l xs ys = do
     when (List.null xs' && List.null ys') $ do
         ppxs <- pp $ map (\(x,y,z) -> (y,z)) xs
         ppys <- liftM (sepBy comma) $ mapM (ppVariadicArg (either ppExprTy pp)) ys
-        genTcError (locpos l) $ text "Procedure arguments do not match" <+> ppxs <+> text " with " <+> ppys
+        genTcError (locpos l) True $ text "Procedure arguments do not match" <+> ppxs <+> text " with " <+> ppys
     xys <- matchBasePArgs l xs'' ys''
     return $ (xs',ys') : xys
   where
@@ -656,7 +656,7 @@ matchPArgs l [(isConst,x,True)] [(y,True)] = do
 matchPArgs l xs ys = do
     ppxs <- pp $ map (\(x,y,z) -> (y,z)) xs
     ppys <- liftM (sepBy comma) $ mapM (ppVariadicArg (either ppExprTy pp)) ys
-    genTcError (locpos l) $ text "Procedure argument variadic mismatch" <+> ppxs <+> ppys
+    genTcError (locpos l) True $ text "Procedure argument variadic mismatch" <+> ppxs <+> ppys
 
 --matchVariadicPArg l (isConst,v,False) ((e,True):exs) = undefined
 --matchVariadicPArg l (isConst,v,True) exs = do
@@ -901,7 +901,7 @@ templateArgs l name t = case t of
         return (Just $ decTypeArgs d,Just vars,Just $ ComplexT Void)
     DecT d@(DecType _ isRec args hcstrs cstrs specs (AxiomType isLeak _ vars ann _)) -> do
         return (Just $ decTypeArgs d,Just vars,Nothing::Maybe Type)
-    otherwise -> genTcError (locpos l) $ text "Invalid type for procedure template"
+    otherwise -> genTcError (locpos l) False $ text "Invalid type for procedure template"
 
 tpltTyVars :: Maybe [(Constrained Type,IsVariadic)] -> Set GIdentifier
 tpltTyVars Nothing = Set.empty

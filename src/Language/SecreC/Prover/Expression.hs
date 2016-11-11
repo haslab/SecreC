@@ -68,7 +68,7 @@ expr2IExpr e = runExprM $ do
     case mbe' of
         Nothing -> lift $ do
             ppe <- pp e
-            genTcError (locpos l) $ text "failed to convert void expression" <+> ppe <+> text "to prover expression"
+            genTcError (locpos l) True $ text "failed to convert void expression" <+> ppe <+> text "to prover expression"
         Just e' -> expr2Prover e'
 
 stmts2Prover :: (ProverK loc m) => [Statement GIdentifier (Typed loc)] -> ExprM m ()
@@ -83,7 +83,7 @@ stmt2Prover (ExpressionStatement l e) = expr2ProverMb e >> return ()
 stmt2Prover (AnnStatement l ann) = return ()
 stmt2Prover s = lift $ do
     pps <- pp s
-    genTcError (locpos $ unTyped $ loc s) $ text "failed to convert statement" <+> pps <+> text "to prover expression"
+    genTcError (locpos $ unTyped $ loc s) True $ text "failed to convert statement" <+> pps <+> text "to prover expression"
     
 syscall2Prover :: (ProverK loc m) => loc -> String -> [SyscallParameter GIdentifier (Typed loc)] -> ExprM m ()
 syscall2Prover l n@(isPrefixOf "core." -> True) args = do
@@ -97,7 +97,7 @@ syscall2Prover l n@(isPrefixOf "core." -> True) args = do
 syscall2Prover l n args = lift $ do
     ppn <- pp n
     ppargs <- mapM pp args
-    genTcError (locpos l) $ text "unsupported syscall" <+> ppn <+> sepBy space ppargs
+    genTcError (locpos l) False $ text "unsupported syscall" <+> ppn <+> sepBy space ppargs
     
 builtin2Prover :: ProverK loc m => loc -> String -> [(Expression GIdentifier (Typed loc),IsVariadic)] -> ExprM m (Maybe IExpr)
 builtin2Prover l n@(isPrefixOf "core." -> True) args = do
@@ -106,7 +106,7 @@ builtin2Prover l n@(isPrefixOf "core." -> True) args = do
 builtin2Prover l n args = lift $ do
     ppn <- pp n
     ppargs <- mapM pp args
-    genTcError (locpos l) $ text "unsupported builtin" <+> ppn <+> sepBy space ppargs
+    genTcError (locpos l) False $ text "unsupported builtin" <+> ppn <+> sepBy space ppargs
     
 corecall2Prover :: ProverK loc m => loc -> String -> [IExpr] -> ExprM m IExpr
 corecall2Prover l "sub"    [e1,e2] = return $ IBinOp IMinus e1 e2
@@ -127,7 +127,7 @@ corecall2Prover l "size"        [e]     = do
 corecall2Prover l n es = lift $ do
     ppn <- pp n
     pp2 <- mapM pp es
-    genTcError (locpos l) $ text "failed to convert core call" <+> ppn <+> parens (sepBy comma pp2) <+> text "to prover expression"
+    genTcError (locpos l) False $ text "failed to convert core call" <+> ppn <+> parens (sepBy comma pp2) <+> text "to prover expression"
     
 varInit2Prover :: (ProverK loc m) => loc -> Bool -> Bool -> VariableInitialization GIdentifier (Typed loc) -> ExprM m ()
 varInit2Prover l isConst True (VariableInitialization _ v@(VarName vl (VIden n)) _ e) = do
@@ -140,7 +140,7 @@ varInit2Prover l isConst isHavoc vd = lift $ do
     pp1 <- pp isConst
     pp2 <- pp isHavoc
     pp3 <- pp vd
-    genTcError (locpos l) $ text "failed to convert variable initialization to core" <+> pp1 <+> pp2 <+> pp3
+    genTcError (locpos l) False $ text "failed to convert variable initialization to core" <+> pp1 <+> pp2 <+> pp3
 
 expr2ProverMb :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> ExprM m (Maybe IExpr)
 expr2ProverMb (RVariablePExpr l v@(VarName tl (VIden n))) = do
@@ -175,7 +175,7 @@ expr2ProverMb e@(BuiltinExpr l n args) = builtin2Prover (unTyped l) n args
 expr2ProverMb e@(QualExpr l e1 t) = expr2ProverMb e1
 expr2ProverMb e = lift $ do
     ppe <- ppExprTy (fmap typed e)
-    genTcError (locpos $ unTyped $ loc e) $ text "failed to convert expression" <+> ppe <+> text "to prover expression"
+    genTcError (locpos $ unTyped $ loc e) True $ text "failed to convert expression" <+> ppe <+> text "to prover expression"
     
 proverProcError str (DecT (DVar v)) e = do
     lift $ addGDependencies $ VIden v
@@ -186,13 +186,13 @@ proverProcError str t e = do
     lift $ do
         ppe <- ppExprTy (fmap typed e)
         ppt <- pp t
-        genTcError (locpos $ unTyped $ loc e) $ text "failed to convert" <+> text str <+> text "expression" <+> ppe <+> text "to prover expression: unknown declaration type" <+> ppt
+        genTcError (locpos $ unTyped $ loc e) True $ text "failed to convert" <+> text str <+> text "expression" <+> ppe <+> text "to prover expression: unknown declaration type" <+> ppt
 
 variadicExpr2Prover :: (ProverK loc m) => (Expression GIdentifier (Typed loc),IsVariadic) -> ExprM m IExpr
 variadicExpr2Prover (e,False) = expr2Prover e
 variadicExpr2Prover (e,True) = lift $ do
     ppe <- pp e
-    genTcError (locpos $ unTyped $ loc e) $ text "failed to convert variadic expression" <+> ppe <+> text "to prover expression"
+    genTcError (locpos $ unTyped $ loc e) True $ text "failed to convert variadic expression" <+> ppe <+> text "to prover expression"
     
 expr2Prover :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> ExprM m IExpr
 expr2Prover e = do
@@ -200,7 +200,7 @@ expr2Prover e = do
     case mb of
         Nothing -> lift $ do
             ppe <- pp e
-            genTcError (locpos $ unTyped $ loc e) $ text "failed to convert void expression" <+> ppe <+> text "to prover expression"
+            genTcError (locpos $ unTyped $ loc e) False $ text "failed to convert void expression" <+> ppe <+> text "to prover expression"
         Just e' -> return e'
     
 lit2Prover :: (ProverK loc m) => Literal (Typed loc) -> ExprM m IExpr
@@ -226,30 +226,30 @@ litVal2Prover lit@(IntLit l i) (TyPrim t) = case t of
     DatatypeXorUint64 _ -> return $ ILit $ IUint64 $ fromInteger i
     otherwise -> lift $ do
         pp1 <- pp lit
-        genTcError (locpos l) $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
+        genTcError (locpos l) False $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
 litVal2Prover lit@(FloatLit l f) (TyPrim t) = case t of
     DatatypeFloat32 _ -> return $ ILit $ IFloat32 $ realToFrac f
     DatatypeFloat64 _ -> return $ ILit $ IFloat64 $ realToFrac f
     otherwise -> lift $ do
         pp1 <- pp lit
-        genTcError (locpos l) $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
+        genTcError (locpos l) False $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
 litVal2Prover lit@(StringLit l s) (TyPrim t) = case t of
     otherwise -> lift $ do
         pp1 <- pp lit
-        genTcError (locpos l) $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
+        genTcError (locpos l) False $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
 litVal2Prover lit@(BoolLit l b) (TyPrim t) = case t of
     DatatypeBool _ -> return $ ILit $ IBool b
     otherwise -> lift $ do
         pp1 <- pp lit
-        genTcError (locpos l) $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
+        genTcError (locpos l) False $ text "failed to convert literal" <+> pp1 <+> text "to prover value"
 litVal2Prover lit t = lift $ do
     pp1 <- pp lit
     pp2 <- pp t
-    genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp1 <> text "::" <> pp2 <+> text "to prover value"
+    genTcError (locpos $ loc lit) False $ text "failed to convert literal" <+> pp1 <> text "::" <> pp2 <+> text "to prover value"
 
 litArr2Prover :: ProverK loc m => Literal loc -> ComplexType -> ExprM m IExpr
 litArr2Prover lit t = lift $ do
     pp1 <- pp lit
     pp2 <- pp t
-    genTcError (locpos $ loc lit) $ text "failed to convert literal" <+> pp1 <> text "::" <> pp2 <+> text "to prover array"
+    genTcError (locpos $ loc lit) False $ text "failed to convert literal" <+> pp1 <> text "::" <> pp2 <+> text "to prover array"
 

@@ -244,12 +244,12 @@ checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
         Just (isGlobal,(isConst,bAnn,e)) -> do
             when cConst $ unless isConst $ do
                 ppv <- pp v
-                genTcError (locpos l) $ text "expected variable" <+> ppv <+> text "to be a constant"
+                genTcError (locpos l) False $ text "expected variable" <+> ppv <+> text "to be a constant"
             when isGlobal $ do
                 decK <- State.gets decKind
                 when (decK == AKind || decK == LKind) $ do
                     ppv <- pp v
-                    genTcError (locpos l) $ text "cannot read/write global variable" <+> ppv <+> text "inside an axiom/lemma"
+                    genTcError (locpos l) False $ text "cannot read/write global variable" <+> ppv <+> text "inside an axiom/lemma"
                 unless isConst $ registerVar isWrite n (entryType e) -- consts don't count as global variables for reads/writes
             when (isWrite && isConst) $ do
                 ppn <- pp n
@@ -393,7 +393,7 @@ checkKind isAnn (KindName l n) = do
             KType (Just NonPublicClass) -> return (TIden n,KindT $ PrivateK $ TIden n)
             otherwise -> do
                 ppn <- pp n
-                genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
+                genTcError (locpos l) False $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         Nothing -> do
             kvars <- getVarsPred isAnn LocalScope isKind
             n <- checkConst $ VIden n
@@ -415,7 +415,7 @@ checkDomain isAnn (DomainName l n) = do
             KindT (PrivateK k) -> return (TIden n,SecT $ Private (TIden n) k)
             otherwise -> do
                 ppn <- pp n
-                genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
+                genTcError (locpos l) False $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         Nothing -> do
             dvars <- getVarsPred isAnn LocalScope isDomain
             n <- checkConst $ VIden n
@@ -530,7 +530,7 @@ checkTemplateArg decK isAnn isLeak (TemplateArgName l n) = do
             KindT (PrivateK k) -> return $ TemplateArgName (Typed l $ SecT $ Private (TIden n) k) (TIden n)
             otherwise -> do
                 ppn <- pp n
-                genTcError (locpos l) $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
+                genTcError (locpos l) False $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         (Nothing,Nothing,Just (isGlobal,(b,b2,e))) -> do
             when isGlobal $ registerVar False vn (entryType e)
             return $ TemplateArgName (Typed l $ varNameToType $ VarName (entryType e) vn) vn
@@ -716,7 +716,7 @@ addTCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TCstr -> TcM m (Map De
 addTCstrToRec l i (TcK k st) = addTcCstrToRec l i k st
 addTCstrToRec l i k = do
     ppk <- pp k
-    genTcError (locpos l) $ text "addTCstrToRec" <+> ppk
+    genTcError (locpos l) False $ text "addTCstrToRec" <+> ppk
     
 addTcCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TcCstr -> CstrState -> TcM m (Map DecType VarIdentifier)
 addTcCstrToRec l i (PDec dk es n ts ps ret (DVar v)) st = do
@@ -750,7 +750,7 @@ addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
     return $ Map.singleton dec v
 addTcCstrToRec l i k st = do
     ppk <- pp k
-    genTcError (locpos l) $ text "addTcCstrToRec" <+> ppk
+    genTcError (locpos l) False $ text "addTcCstrToRec" <+> ppk
 
 addPArgToRec :: ProverK loc m => loc -> (IsConst,Either Expr Type,IsVariadic) -> TcM m ((IsConst,Var,IsVariadic),TSubsts)
 addPArgToRec l (isConst,Right t,isVariadic) = do
@@ -1050,7 +1050,7 @@ noNormalFreesM e = do
     unless (Set.null vs) $ do
         ppvs <- pp vs
         ppe <- pp e
-        genTcError (loc e) $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
+        genTcError (loc e) False $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
 
 splitHeadFrees :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m (Frees,Frees)
 splitHeadFrees l deps = do
@@ -1125,7 +1125,7 @@ checkFrees l frees x dict = do
     forM_ (Map.keys $ Map.filter (\b -> not b) $ frees) $ \v -> unless (Set.member v freevars) $ do
         ppv <- pp v
         ppd <- pp dict
-        genTcError (locpos l) $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd
+        genTcError (locpos l) False $ text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
@@ -1288,7 +1288,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
                                 ppv <- pp v
                                 ppvns <- pp vns
                                 ppt' <- pp t'
-                                genTcError (locpos l) $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt' <+> text "with" <+> ppvns
+                                genTcError (locpos l) False $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt' <+> text "with" <+> ppvns
                             CheckS -> do
                                 let tv = (varNameToType v)
                                 pptv <- pp tv
@@ -1702,7 +1702,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
                     NoFailS -> do
                         ppv <- pp v
                         ppt' <- pp t'
-                        genTcError (locpos l) $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
+                        genTcError (locpos l) False $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
                     CheckS -> do
                         st <- getCstrState
                         return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') $ VIden v) t') st : ks)
@@ -1850,8 +1850,10 @@ tcLocal l msg m = do
 tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
 tcError pos msg = throwTcError pos $ TypecheckerError pos msg  
 
-genTcError :: (MonadIO m) => Position -> Doc -> TcM m a
-genTcError pos msg = throwTcError pos $ TypecheckerError pos $ GenTcError msg Nothing
+genTcError :: (MonadIO m) => Position -> Bool -> Doc -> TcM m a
+genTcError pos doHalt msg = do
+    let halt = if doHalt then Halt else id
+    throwTcError pos $ TypecheckerError pos $ halt $ GenTcError msg Nothing
 
 throwTcError :: (Location loc,MonadIO m) => loc -> SecrecError -> TcM m a
 throwTcError l err = do
@@ -1897,14 +1899,14 @@ tcNew l msg m = do
 onlyAnn :: ProverK loc m => loc -> Doc -> TcM m a -> TcM m a
 onlyAnn l doc m = do
     isAnn <- getAnn
-    unless isAnn $ genTcError (locpos l) $ text "can only typecheck" <+> doc <+> text "inside annotations"
+    unless isAnn $ genTcError (locpos l) False $ text "can only typecheck" <+> doc <+> text "inside annotations"
     x <- m
     return x
 
 onlyLeak :: ProverK loc m => loc -> Doc -> TcM m a -> TcM m a
 onlyLeak l doc m = do
     isLeak <- getLeak
-    unless isLeak $ genTcError (locpos l) $ text "can only typecheck" <+> doc <+> text "inside a leakage annotation"
+    unless isLeak $ genTcError (locpos l) False $ text "can only typecheck" <+> doc <+> text "inside a leakage annotation"
     x <- m
     return x
 
@@ -1936,7 +1938,7 @@ checkLeak l True m = do
             LKind -> liftM (True,) $ withLeak True m
             otherwise -> do
                 ppk <- pp k
-                genTcError (locpos l) $ text "leakage annotation not supported in" <+> ppk
+                genTcError (locpos l) False $ text "leakage annotation not supported in" <+> ppk
 
 getOpens :: MonadIO m => TcM m [IOCstr]
 getOpens = State.gets (map fst . openedCstrs)
@@ -2420,7 +2422,7 @@ getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (FunType _ _ n _ _ _ _ cl))
         Just e -> return $ unDecT $ entryType e
         Nothing -> do
             ppd <- pp d
-            genTcError (locpos l) $ text "could not find original function declaration for" <+> ppd
+            genTcError (locpos l) False $ text "could not find original function declaration for" <+> ppd
 getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (ProcType _ n _ _ _ _ cl)) = do
     es <- case n of
         PIden pn -> checkProcedureFunctionLemma (const True) (isAnnDecClass cl) (isLeakDec d) PKind (ProcedureName l $ PIden pn)
@@ -2430,7 +2432,7 @@ getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (ProcType _ n _ _ _ _ cl)) 
         Just e -> return $ unDecT $ entryType e
         Nothing -> do
             ppd <- pp d
-            genTcError (locpos l) $ text "could not find original procedure declaration for" <+> ppd
+            genTcError (locpos l) False $ text "could not find original procedure declaration for" <+> ppd
 getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (LemmaType _ _ n _ _ _ cl)) = do
     es <- case n of
         PIden pn -> checkProcedureFunctionLemma (const True) (isAnnDecClass cl) (isLeakDec d) LKind (ProcedureName l $ PIden pn)
@@ -2440,7 +2442,7 @@ getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (LemmaType _ _ n _ _ _ cl))
         Just e -> return $ unDecT $ entryType e
         Nothing -> do
             ppd <- pp d
-            genTcError (locpos l) $ text "could not find original lemma declaration for" <+> ppd
+            genTcError (locpos l) False $ text "could not find original lemma declaration for" <+> ppd
 
 testDec j e = case entryType e of
     DecT d -> decTypeKind d == DecTypeOriginal && decTypeTyVarId d == Just j

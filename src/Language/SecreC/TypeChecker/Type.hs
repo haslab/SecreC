@@ -92,7 +92,7 @@ typeToPrimType l t = do
         TyPrim p -> return p
         otherwise -> do
             ppt <- pp t
-            genTcError (locpos l) $ text "not a primitive type" <+> ppt
+            genTcError (locpos l) True $ text "not a primitive type" <+> ppt
 
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToBaseType l (BaseT s) = return s
@@ -191,7 +191,7 @@ zipCTypeArgs l ss bs ds = zipCTypeArgs' l ss bs ds
     where
     zipCTypeArgs l [] [] [] = return []
     zipCTypeArgs' l (s:ss) (b:bs) (d:ds) = liftM ((s,b,d) :) (zipCTypeArgs' l ss bs ds)
-    zipCTypeArgs' l _ _ _ = genTcError (locpos l) $ text "variadic arrays with mismatching sizes"
+    zipCTypeArgs' l _ _ _ = genTcError (locpos l) False $ text "variadic arrays with mismatching sizes"
     
 tcMbSecType :: (ProverK loc m) => Maybe (SecTypeSpecifier Identifier loc) -> TcM m (Maybe (SecTypeSpecifier GIdentifier (Typed loc)),Type)
 tcMbSecType Nothing = return (Nothing,SecT Public) -- public by default
@@ -318,11 +318,11 @@ projectMatrixType l vt@(VAType t sz) rngs = projectSizesTyArray l vt rngs
                 ppvt <- pp vt
                 pp2 <- mapM pp rngs
                 ppszs <- pp szs'
-                genTcError (locpos l) $ text "Cannot project type " <+> quotes (ppvt <> brackets (sepBy comma pp2) $+$ text "Unexpected projected dimension" <+> ppid dim' <+> ppszs)
+                genTcError (locpos l) True $ text "Cannot project type " <+> quotes (ppvt <> brackets (sepBy comma pp2) $+$ text "Unexpected projected dimension" <+> ppid dim' <+> ppszs)
 projectMatrixType l t rngs = do
     ppt <- pp t
     pp2 <- mapM pp rngs
-    genTcError (locpos l) $ text "Cannot project type " <+> quotes (ppt <> brackets (sepBy comma pp2))
+    genTcError (locpos l) True $ text "Cannot project type " <+> quotes (ppt <> brackets (sepBy comma pp2))
 
 projectSizes :: (ProverK loc m) => loc -> Type -> Word64 -> [ArrayProj] -> TcM m (Word64,Maybe [Expr])
 projectSizes p t i ys = do
@@ -411,7 +411,7 @@ projectStructFieldDec l t@(StructType _ _ (Just atts) cl) (AttributeName _ a) = 
 projectStructFieldDec l t a = do
     ppa <- pp a
     ppt <- pp t
-    genTcError (locpos l) $ text "cannot project field" <+> ppa <+> text "on type" <+> ppt
+    genTcError (locpos l) True $ text "cannot project field" <+> ppa <+> text "on type" <+> ppt
 
 -- | Typechecks the sizes of a matrix and appends them to a given complex type.
 tcTypeSizes :: (ProverK loc m) => loc -> Type -> Maybe (Sizes Identifier loc) -> TcM m (Type,Maybe (Sizes GIdentifier (Typed loc)))
@@ -435,7 +435,7 @@ variadicExprsLength l isTop es = mapM (variadicExprLength l) es >>= foldr0M (ind
             VArrayT (VAVar v _ sz) -> return sz
             otherwise -> do
                 ppt <- pp t
-                genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
+                genTcError (locpos l) False $ text "Not a variadic parameter pack" <+> quotes (ppt)
 
 --evalVarExprs :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> TcM m ()
 --evalVarExprs l = mapM_ (evalVarExpr l)
@@ -473,7 +473,7 @@ refineTypeSizes l (VAType b sz) szs = do
     return $ VAType b' sz
 refineTypeSizes l ct _ = do
     ppct <- pp ct
-    genTcError (locpos l) $ text "Failed to add type size" <+> ppct
+    genTcError (locpos l) False $ text "Failed to add type size" <+> ppct
 
 variadicBase :: Type -> Type
 variadicBase (VAType b sz) = b
@@ -489,7 +489,7 @@ typeBase l (ComplexT (CVar v@(varIdRead -> True) isNotVoid)) = do
 typeBase l (VAType b sz) = return b
 typeBase l t = do
     ppt <- pp t
-    tcError (locpos l) $ Halt $ GenTcError (text "No static base type for type" <+> quotes (ppt)) Nothing
+    genTcError (locpos l) True $ text "No static base type for type" <+> quotes (ppt)
     
 isPublic :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
 isPublic l doUnify (BaseT b) = return ()
@@ -500,7 +500,7 @@ isPublic l doUnify (ComplexT (CType s _ _)) = isPublicSec l doUnify s
 isPublic l doUnify (SecT s) = isPublicSec l doUnify s
 isPublic l doUnify t = do
     ppt <- pp t
-    genTcError (locpos l) $ text "type" <+> ppt <+> text "is not private"
+    genTcError (locpos l) False $ text "type" <+> ppt <+> text "is not private"
     
 isPublicSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
 isPublicSec l True s = unifiesSec l s Public
@@ -517,7 +517,7 @@ isPrivate l doUnify (SecT s) = do
         isPrivateSec l doUnify s
 isPrivate l doUnify t = do
     ppt <- pp t
-    genTcError (locpos l) $ text "type" <+> ppt <+> text "is not private" <+> ppid doUnify
+    genTcError (locpos l) False $ text "type" <+> ppt <+> text "is not private" <+> ppid doUnify
     
 isPrivateSec :: ProverK loc m => loc -> Bool -> SecType -> TcM m ()
 isPrivateSec l doUnify@True s = do
@@ -528,7 +528,7 @@ isPrivateSec l False (Private {}) = return ()
 isPrivateSec l False (SVar v k) = isPrivateSVar True l False v k
 isPrivateSec l False Public = do
     pps <- pp Public
-    genTcError (locpos l) $ text "security type" <+> pps <+> text "is not private" <+> ppid False
+    genTcError (locpos l) False $ text "security type" <+> pps <+> text "is not private" <+> ppid False
 
 isPrivateSVar :: ProverK loc m => Bool -> loc -> Bool -> VarIdentifier -> KindType -> TcM m ()
 isPrivateSVar True l doUnify v@(varIdRead -> True) k = do
@@ -539,7 +539,7 @@ isPrivateSVar True l doUnify v@(varIdRead -> True) k = do
 isPrivateSVar r l False v (kindClass -> Just NonPublicClass) = return ()
 isPrivateSVar r l False v k = do
     ppv <- pp v
-    genTcError (locpos l) $ text "security type" <+> ppv <+> text "is not private" <+> ppid False  
+    genTcError (locpos l) False $ text "security type" <+> ppv <+> text "is not private" <+> ppid False  
 
 typeSize :: (ProverK loc m) => loc -> Type -> TcM m Expr
 typeSize l (BaseT _) = return $ indexExpr 1
@@ -570,7 +570,7 @@ toMultisetType l (ComplexT (CType s b d)) = do
     return $ CType s (MSet b) (indexExpr 0)
 toMultisetType l t = do
     ppt <- pp t
-    genTcError (locpos l) $ text "cannot convert type" <+> ppt <+> text "to multiset"
+    genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
 
 defaultExpr :: ProverK loc m => loc -> Type -> Maybe [(Expr,IsVariadic)] -> TcM m Expr
 defaultExpr l t@(BaseT b) szs = defaultBaseExpr l Public b

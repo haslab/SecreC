@@ -139,10 +139,10 @@ iExpr2SBV l (ICond c e1 e2) = do
     v1 <- iExpr2SBV l e1
     v2 <- iExpr2SBV l e2
     return $ mergeSBVal (ite vc) v1 v2
-iExpr2SBV l (ISize e) = lift $ genTcError (locpos l) $ text "array size not defined in SBV"
+iExpr2SBV l (ISize e) = lift $ genTcError (locpos l) False $ text "array size not defined in SBV"
 iExpr2SBV l e = lift $ do
     ppe <- pp e
-    genTcError (locpos l) $ text "iExpr2SBV:" <+> ppe
+    genTcError (locpos l) False $ text "iExpr2SBV:" <+> ppe
 
 iBinOp2SBV :: SMTK loc => loc -> IBOp -> SBVal -> SBVal -> TcSBV SBVal
 iBinOp2SBV l IAnd (SBool b1) (SBool b2) = return $ SBool $ b1 &&& b2
@@ -162,7 +162,7 @@ iBinOp2SBV l IDiv e1 e2 = return $ divisibleSBVal sDiv e1 e2
 iBinOp2SBV l IMod e1 e2 = return $ divisibleSBVal sMod e1 e2
 iBinOp2SBV l op e1 e2 = lift $ do
     ppop <- pp op
-    genTcError (locpos l) $ text "iBinOp2SBV: unsupported op" <+> ppop
+    genTcError (locpos l) False $ text "iBinOp2SBV: unsupported op" <+> ppop
 
 iUnOp2SBV :: SMTK loc => loc -> IUOp -> SBVal -> TcSBV SBVal
 iUnOp2SBV l INot (SBool b) = return $ SBool $ bnot b

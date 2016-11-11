@@ -634,7 +634,7 @@ resolve :: ProverK loc m => loc -> Type -> TcM m ()
 resolve l (KindT s) = resolveKind l s
 resolve l t = do
     ppt <- pp t
-    genTcError (locpos l) $ text "failed to resolve" <+> ppt
+    genTcError (locpos l) True $ text "failed to resolve" <+> ppt
 
 resolveKind :: ProverK loc m => loc -> KindType -> TcM m ()
 resolveKind l PublicK = return ()
@@ -649,7 +649,7 @@ resolveKind l k@(KVar v@(varIdRead -> True) isPriv) = do
             throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "failed to resolve kind" <+> ppk) Nothing
 resolveKind l k = do
     ppk <- pp k
-    genTcError (locpos l) $ text "failed to resolve kind" <+> ppk
+    genTcError (locpos l) True $ text "failed to resolve kind" <+> ppk
 
 resolveHypCstr :: (ProverK loc m) => loc -> SolveMode -> HypCstr -> TcM m (Maybe IExpr)
 resolveHypCstr l mode hyp = do
@@ -2089,7 +2089,7 @@ assignsArray l v1 b1 sz1 a2 = assignable bound ass err l (v1,b1,sz1)
     err (v1,b1,sz1) = do
         pp2 <- pp a2
         pp1 <- pp v1
-        genTcError (locpos l) $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
+        genTcError (locpos l) False $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
 
 unifiesArray :: (ProverK loc m) => loc -> VArrayType -> VArrayType -> TcM m ()
 unifiesArray l = readable2 unifiesArray' l
@@ -2121,7 +2121,7 @@ assignsDec l v1 d2 = assignable bound ass err l v1
     err v1 = do
         pp2 <- pp d2
         pp1 <- pp v1
-        genTcError (locpos l) $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
+        genTcError (locpos l) False $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
 
 unifiesDec :: (ProverK loc m) => loc -> DecType -> DecType -> TcM m ()
 unifiesDec l d1 d2 = do
@@ -2156,7 +2156,7 @@ assignsComplex l v1 isNotVoid1 d2 = assignable bound ass err l (v1,isNotVoid1)
     err (v1,isNotVoid1) = do
         pp2 <- pp d2
         pp1 <- pp v1
-        genTcError (locpos l) $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
+        genTcError (locpos l) False $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
 
 unifiesComplex :: (ProverK loc m) => loc -> ComplexType -> ComplexType -> TcM m ()
 unifiesComplex l = readable2 unifiesComplex' l
@@ -2201,7 +2201,7 @@ matchComplexClass l isNotVoid c@(CVar v@(varIdWrite -> False) k) | k >= isNotVoi
 matchComplexClass l isNotVoid c = do
     ppis <- pp isNotVoid
     ppc <- pp c
-    genTcError (locpos l) $ text "complex kind mismatch" <+> ppis <+> text "against" <+> ppc
+    genTcError (locpos l) False $ text "complex kind mismatch" <+> ppis <+> text "against" <+> ppc
     
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
@@ -2244,7 +2244,7 @@ matchSecClass l k s2@(SVar v2 k2) = do
 matchSecClass l k s = do
     ppk <- pp k
     pps <- pp s
-    genTcError (locpos l) $ text "security kind mismatch" <+> ppk <+> text "against" <+> pps
+    genTcError (locpos l) False $ text "security kind mismatch" <+> ppk <+> text "against" <+> pps
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 unifiesKind l = readable2 unifiesKind' l
@@ -2288,7 +2288,7 @@ matchKindClass l c t@(KVar v@(varIdWrite -> False) k) | k >= c = return (k,t)
 matchKindClass l c k = do
     ppc <- pp c
     ppk <- pp k
-    genTcError (locpos l) $ text "kind mismatch" <+> ppc <+> text "against" <+> ppk
+    genTcError (locpos l) False $ text "kind mismatch" <+> ppc <+> text "against" <+> ppk
 
 assignsSec :: ProverK loc m => loc -> VarIdentifier -> KindType -> SecType -> TcM m ()
 assignsSec l v1 k1 s2 = assignable bound ass err l (v1,k1)
@@ -2298,7 +2298,7 @@ assignsSec l v1 k1 s2 = assignable bound ass err l (v1,k1)
     err (v1,k1) = do
     pp2 <- pp s2
     pp1 <- pp k1
-    genTcError (locpos l) $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
+    genTcError (locpos l) False $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
 
 unifiesSys :: (ProverK loc m) => loc -> SysType -> SysType -> TcM m ()
 unifiesSys l (SysPush t1) (SysPush t2) = do
@@ -2324,7 +2324,7 @@ assignsBase l v1 c1 d2 = assignable bound ass err l (v1,c1)
     err (v1,c1) = do
     pp2 <- pp d2
     pp1 <- pp v1
-    genTcError (locpos l) $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
+    genTcError (locpos l) False $ text "cannot assign type" <+> pp2 <+> text "to non-writeable variable" <+> pp1
 
 unifiesBase :: (ProverK loc m) => loc -> BaseType -> BaseType -> TcM m ()
 unifiesBase l = readable2 unifiesBase' l
@@ -2375,7 +2375,7 @@ matchDataClass l c (BVar v k) = do
 matchDataClass l c b = do
     ppc <- pp c
     ppb <- pp b
-    genTcError (locpos l) $ text "data type mismatch" <+> ppc <+> text "against" <+> ppb
+    genTcError (locpos l) False $ text "data type mismatch" <+> ppc <+> text "against" <+> ppb
 
 unifiesTpltArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Type,IsVariadic)] -> TcM m ()
 unifiesTpltArgs l ts1 ts2 = do
@@ -2448,17 +2448,17 @@ expandVariadicExpr = expandVariadicExpr' True
     expandVariadicExpr' r l isConst (e,False) = case loc e of
         VAType {} -> do
             ppe <- pp e
-            genTcError (locpos l) $ text "Non-expanded variadic parameter pack" <+> quotes (ppe)
+            genTcError (locpos l) True $ text "Non-expanded variadic parameter pack" <+> quotes (ppe)
         VArrayT {} -> do
             ppe <- pp e
-            genTcError (locpos l) $ text "Non-expanded variadic parameter pack" <+> quotes (ppe)
+            genTcError (locpos l) True $ text "Non-expanded variadic parameter pack" <+> quotes (ppe)
         otherwise -> return [e]
     expandVariadicExpr' r l isConst (ArrayConstructorPExpr t es,True) = case t of
         VAType {} -> return es
         VArrayT {} -> return es
         otherwise -> do
             ppt <- pp t
-            genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
+            genTcError (locpos l) False $ text "Not a variadic parameter pack" <+> quotes (ppt)
     expandVariadicExpr' r l isConst (e,True) = do
         let t = loc e
         case t of
@@ -2484,13 +2484,13 @@ expandVariadicExpr = expandVariadicExpr' True
                     return es'
             otherwise -> do
                 ppt <- pp t
-                genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
+                genTcError (locpos l) False $ text "Not a variadic parameter pack" <+> quotes (ppt)
     
 expandVariadicType :: (ProverK loc m) => loc -> (Type,IsVariadic) -> TcM m [Type]
 expandVariadicType l (t,False) = case tyOf t of
     VAType {} -> do
         ppt <- pp t
-        genTcError (locpos l) $ text "Non-expanded variadic parameter pack" <+> quotes (ppt)
+        genTcError (locpos l) False $ text "Non-expanded variadic parameter pack" <+> quotes (ppt)
     otherwise -> return [t]
 expandVariadicType l (VArrayT (VAVal ts _),True) = return ts
 expandVariadicType l (t@(VArrayT a),True) = do
@@ -2502,7 +2502,7 @@ expandVariadicType l (t@(VArrayT a),True) = do
     return vs
 expandVariadicType l (t,True) = do
     ppt <- pp t
-    genTcError (locpos l) $ text "Not a variadic parameter pack" <+> quotes (ppt)
+    genTcError (locpos l) False $ text "Not a variadic parameter pack" <+> quotes (ppt)
 
 unifiesList :: (ProverK loc m) => loc -> [Type] -> [Type] -> TcM m ()
 unifiesList l [] [] = return ()
@@ -2692,7 +2692,7 @@ assignsExpr l v1@(VarName t1 (VIden n1)) e2 = assignable bound ass err l (VarNam
     err v1 = do
         pp2 <- pp e2
         pp1 <- pp v1
-        genTcError (locpos l) $ text "cannot assign expression" <+> pp2 <+> text "to non-writable variable" <+> pp1
+        genTcError (locpos l) False $ text "cannot assign expression" <+> pp2 <+> text "to non-writable variable" <+> pp1
 
 
 
@@ -2754,10 +2754,11 @@ projectArrayExpr l (ArrayConstructorPExpr t es) (IndexSlice _ il iu:s) = do
     checkIdx l il' es
     checkIdx l iu' es
     projectArrayExpr l (ArrayConstructorPExpr (chgArraySize (length es) t) $ drop il' $ take iu' es) s
+projectArrayExpr l e idxs = genTcError (locpos l) True $ text "failed to project array expression"
 
 checkIdx :: ProverK loc m => loc -> Int -> [a] -> TcM m ()
 checkIdx l i xs = unless (i >= 0 && i <= length xs) $ do
-    genTcError (locpos l) $ text "failed to evaluate projection"
+    genTcError (locpos l) True $ text "failed to evaluate projection"
 
 chgArraySize :: Int -> Type -> Type
 chgArraySize sz (VAType b _) = VAType b (indexExpr $ toEnum sz)
@@ -2771,7 +2772,7 @@ expandArrayExpr l e = do
         Just e' -> return e'
         Nothing -> do
             ppe <- pp e
-            genTcError (locpos l) $ text "cannot expand array expression" <+> quotes ppe
+            genTcError (locpos l) True $ text "cannot expand array expression" <+> quotes ppe
 
 tryExpandArrayExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
 tryExpandArrayExpr l e@(ArrayConstructorPExpr {}) = return Nothing
@@ -2867,7 +2868,7 @@ comparesTpltArgs l isLattice ts1 ts2 = do
     appendComparisons l os
   where
     comparesTpltArg (t1,b1) (t2,b2) = do
-        unless (b1 == b2) $ genTcError (locpos l) $ text "incomparable template arguments"
+        unless (b1 == b2) $ genTcError (locpos l) False $ text "incomparable template arguments"
         compares l isLattice t1 t2
 
 comparesDim :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
@@ -3041,7 +3042,7 @@ cSec ct = Nothing
 cSecM :: ProverK loc m => loc -> ComplexType -> TcM m SecType
 cSecM l (CType s _ _) = return s
 cSecM l (CVar v@(varIdRead -> True) isNotVoid) = resolveCVar l v isNotVoid >>= cSecM l
-cSecM l Void = genTcError (locpos l) $ text "no security type for void"
+cSecM l Void = genTcError (locpos l) False $ text "no security type for void"
 
 isZeroIdxExpr :: ProverK loc m => loc -> Expr -> TcM m (Either SecrecError Bool)
 isZeroIdxExpr l e = do

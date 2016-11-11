@@ -132,10 +132,10 @@ validitySBV l cfg str sprop = do
             when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr "ok"
         Right (ThmResult (Satisfiable _ _)) -> do
             when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "falsifiable: " ++ show r
-            genTcError (UnhelpfulPos $ show cfg) $ text $ show r
+            genTcError (UnhelpfulPos $ show cfg) False $ text $ show r
         otherwise -> do
             when (debugTypechecker opts) $ liftIO $ hPutStrLn stderr $ "failed: " ++ show r
-            genTcError (UnhelpfulPos $ show cfg) $ text $ show r
+            genTcError (UnhelpfulPos $ show cfg) True $ text $ show r
 
 -- * Generic interface
 
@@ -151,7 +151,7 @@ checkWithAny names errs (solver:solvers) check = do
 checkAny :: MonadIO m => (SMTConfig -> TcM m a) -> TcM m a
 checkAny check = do
     solvers <- liftIO sbvAvailableSolvers
-    when (null solvers) $ genTcError noloc $ text "No solver found"
+    when (null solvers) $ genTcError noloc False $ text "No solver found"
     res <- checkWithAny (map show solvers) [] solvers check
     case res of
         Left x -> return x
@@ -163,8 +163,8 @@ checkEvalOrSMT l ie check = do
     case res of
         Left err -> checkAny check
         Right (IBool True) -> return ()
-        Right (IBool False) -> genTcError (UnhelpfulPos "evalIExpr") $ text "false"
+        Right (IBool False) -> genTcError (UnhelpfulPos "evalIExpr") False $ text "false"
         Right ilit -> do
             ppilit <- pp ilit
-            genTcError (UnhelpfulPos "evalIExpr") $ text "not a static boolean prover expression" <+> ppilit
+            genTcError (UnhelpfulPos "evalIExpr") True $ text "not a static boolean prover expression" <+> ppilit
 

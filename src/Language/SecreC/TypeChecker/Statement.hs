@@ -70,7 +70,7 @@ isReturnStmt l cs ret = do
     aux (Set.toList -> [StmtFallthru]) = equals l ret (ComplexT Void) 
     aux (Set.toList -> [StmtReturn,StmtFallthru]) = equals l ret (ComplexT Void) 
     aux (Set.toList -> [StmtReturn]) = return ()
-    aux x = genTcError (locpos l) $ text "Unexpected return class"
+    aux x = genTcError (locpos l) False $ text "Unexpected return class"
 
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement GIdentifier (Typed loc)],Type)
 tcStmts ret [] = return ([],StmtType $ Set.singleton StmtFallthru)
