@@ -111,6 +111,20 @@ getDoAll = do
 --    State.modify $ \env -> env { inTemplate = old }
 --    return x
 
+-- when we really need to resolve variables
+getDoResolve :: Monad m => TcM m Bool
+getDoResolve = do
+    opts <- askOpts
+    inCtx <- getInCtx
+    return (inCtx || implicitContext opts == InferCtx)
+
+unresolvedVariable :: (PP (TcM m) x,Variable x,ProverK loc m) => loc -> x -> TcM m b
+unresolvedVariable l n = do
+    doResolve <- getDoResolve
+    ppn <- pp n
+    let halt = if doResolve && not (isWritable n) then id else Halt
+    tcError (locpos l) $ halt $ UnresolvedVariable (ppn)
+
 chgInCtx :: Bool -> Maybe ([TemplateTok],Bool) -> Maybe ([TemplateTok],Bool)
 chgInCtx True Nothing = Just ([],True)
 chgInCtx False Nothing = Nothing

@@ -2516,41 +2516,29 @@ resolveCVar l v isNotVoid = do
     mb <- tryResolveCVar l v isNotVoid
     case mb of
         Just t -> return t
-        Nothing -> do
-            ppv <- pp v
-            let halt = if isReadable v then Halt else id
-            tcError (locpos l) $ halt $ UnresolvedVariable ppv
+        Nothing -> unresolvedVariable l v
 
 resolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> KindType -> TcM m SecType
 resolveSVar l v c = do
     mb <- tryResolveSVar l v c
     case mb of
         Just t -> return t
-        Nothing -> do
-            ppv <- pp v
-            let halt = if isReadable v then Halt else id
-            tcError (locpos l) $ halt $ UnresolvedVariable ppv
+        Nothing -> unresolvedVariable l v
 
 resolveKVar :: (ProverK loc m) => loc -> VarIdentifier -> Maybe KindClass -> TcM m KindType
 resolveKVar l v c = do
     mb <- tryResolveKVar l v c
     case mb of
         Just t -> return t
-        Nothing -> do
-            ppv <- pp v
-            let halt = if isReadable v then Halt else id
-            tcError (locpos l) $ halt $ UnresolvedVariable ppv
+        Nothing -> unresolvedVariable l v
 
 resolveVAVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> Expr -> TcM m VArrayType
 resolveVAVar l v b sz = do
     mb <- tryResolveVAVar l v b sz
     case mb of
         Just t -> return t
-        Nothing -> do
-            ppv <- pp v
-            let halt = if isReadable v then Halt else id
-            tcError (locpos l) $ halt $ UnresolvedVariable ppv
-
+        Nothing -> unresolvedVariable l v
+        
 resolveDVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m DecType
 resolveDVar l v = resolveTVar l v >>= typeToDecType l
 
@@ -2558,20 +2546,14 @@ resolveBVar :: (ProverK loc m) => loc -> VarIdentifier -> Maybe DataClass -> TcM
 resolveBVar l v c = do
     mb <- tryResolveBVar l v c
     case mb of
-        Nothing -> do
-            ppv <- pp v
-            let halt = if isReadable v then Halt else id
-            tcError (locpos l) $ halt $ UnresolvedVariable (ppv)
+        Nothing -> unresolvedVariable l v
         Just t -> return t
 
 resolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m Type
 resolveTVar l v = do
     mb <- tryResolveTVar l v
     case mb of
-        Nothing -> do
-            ppv <- pp v
-            let halt = if isReadable v then Halt else id
-            tcError (locpos l) $ halt $ UnresolvedVariable (ppv)
+        Nothing -> unresolvedVariable l v
         Just t -> return t
 
 tryResolveSVar :: (ProverK loc m) => loc -> VarIdentifier -> KindType -> TcM m (Maybe SecType)

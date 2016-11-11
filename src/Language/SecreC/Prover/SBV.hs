@@ -115,10 +115,7 @@ iIdx2SBV l r v@(VarName t (VIden n)) = do
     case Map.lookup n sbvs of
         Just i -> return i
         Nothing -> do
-            unless inHyp $ do
-                ppn <- lift $ pp n
-                let halt = if isReadable n then Halt else id
-                lift $ tcError (locpos l) $ halt $ UnresolvedVariable (ppn)
+            unless inHyp $ lift $ unresolvedVariable l n
             i <- do
                 ppv <- lift $ ppr v
                 lift $ lift $ sbVal (ppv) t
