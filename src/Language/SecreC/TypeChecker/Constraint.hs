@@ -2731,6 +2731,9 @@ tryProjectExpr l pe@(PostIndexExpr t e s) = tryTcErrorMaybe l $ do
         pppe <- ppr pe
         liftIO $ putStrLn $ "tryProjectExpr " ++ pppe
     arr' <- expandArrayExpr l e
+    debugTc $ do
+        pparr <- ppr arr'
+        liftIO $ putStrLn $ "tryProjectExpr arr " ++ pparr
     projectArrayExpr l arr' (Foldable.toList s)
 tryProjectExpr l e = return Nothing
 
