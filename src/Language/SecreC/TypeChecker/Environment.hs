@@ -681,7 +681,8 @@ newDecCtx l msg (DecCtx Nothing dict frees) doTop = do
         else solve l ("newDecCtx False"++msg)
     dict' <- liftM (headNe . tDict) State.get
     frees' <- getFrees l
-    let ks = toPureCstrs (tCstrs dict') (tSolved dict')
+    solved <- getSolved
+    let ks = toPureCstrs (tCstrs dict') solved
     let recs = if doTop then mempty else (tRec dict')
     checkFrees l frees' ks dict'
     return $ DecCtx Nothing (PureTDict ks emptyTSubsts recs) frees'
