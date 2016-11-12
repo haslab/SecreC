@@ -178,7 +178,11 @@ entryPointsTypedModuleFile (Right sci) = do
     let fs = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ functions env
     let ls = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ lemmas env
     let ss = concat $ Map.elems $ Map.mapWithKey (\k vs -> catMaybes $ map (\(mid,e) -> decE e) $ Map.toList vs) $ filterEntries $ structs env
-    return $ ps ++ fs ++ ls ++ ss
+    let es = ps ++ fs ++ ls ++ ss
+    debugTc $ do
+        ppes <- liftM (sepBy space) $ mapM pp es
+        liftIO $ putStrLn $ "entryPointsTypedModuleFile: " ++ pprid (sciFile sci) ++ " " ++ show ppes
+    return es
 
 collectDafnyIds :: Data a => a -> Set DafnyId
 collectDafnyIds = everything Set.union (mkQ Set.empty aux)
@@ -254,7 +258,7 @@ resolveEntryPoint :: ProverK Position m => Identifier -> TcM m (Maybe DafnyId)
 resolveEntryPoint n = do
     let n' = mkVarId n
     env <- getModuleField False id id
-    case Map.lookup (PIden n') (procedures env) of
+    mb <- case Map.lookup (PIden n') (procedures env) of
         Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
         Nothing -> case Map.lookup (TIden n') (structs env) of
             Just (Map.toList -> [(k,e)]) -> return $ decDafnyId $ unDecT $ entryType e
@@ -265,6 +269,8 @@ resolveEntryPoint n = do
                     Nothing -> return Nothing
             otherwise -> return Nothing
         otherwise -> return Nothing
+    debugTc $ liftIO $ putStrLn $ "resolveEntryPoint " ++ pprid n ++ " " ++ pprid mb
+    return mb
 
 getModule :: Monad m => DafnyM m (Maybe Identifier)
 getModule = State.gets currentModule
