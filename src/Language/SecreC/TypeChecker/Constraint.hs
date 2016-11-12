@@ -2708,6 +2708,9 @@ unifiesExpr l e1 e2 = do
     unifiesExpr' (ArrayConstructorPExpr t1 es1) (ArrayConstructorPExpr t2 es2) = do
         constraintList (UnificationException "expression") (unifiesExprTy l) l es1 es2
         return ()
+    unifiesExpr' (ToVArray t1 a1 sz1) (ToVArray t2 a2 sz2) = do
+        unifiesExpr a1 a2
+        unifiesExpr sz1 sz2
     --unifiesExpr' (UnaryExpr ret1 o1 e1) (UnaryExpr ret2 o2 e2) = do
     --    tcCstrM_ l $ Unifies ret1 ret2
     --    unifiesOp l o1 o2
@@ -2838,6 +2841,11 @@ equalsExpr l e1 e2 = do
     equalsExpr' (LitPExpr t1 lit1) (LitPExpr t2 lit2) = do
         equalsLit l (funit lit1) (funit lit2)
         tcCstrM_ l $ Unifies t1 t2
+    equalsExpr' (ArrayConstructorPExpr t1 es1) (ArrayConstructorPExpr t2 es2) = do
+        equalsExpr l es1 es2
+    equalsExpr' (ToVArray t1 a1 sz1) (ToVArray t2 a2 sz2) = do
+        equalsExpr a1 a2
+        equalsExpr sz1 sz2
     equalsExpr' e1 e2 = sameExpr e1 e2
     sameExpr e1 e2 = do
         pp1 <- ppr e1
