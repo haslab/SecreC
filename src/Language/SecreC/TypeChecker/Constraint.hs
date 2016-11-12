@@ -2387,6 +2387,11 @@ equalsTpltArgs l ts1 ts2 = do
     matchTpltArgs l EqualityException (\x y -> tcCstrM_ l $ Equals x y) ts1 ts2
     return ()
 
+equalsMaybeTpltArgs :: ProverK loc m => loc -> Maybe [(TemplateTypeArgument GIdentifier Type,IsVariadic)] -> Maybe [(TemplateTypeArgument GIdentifier Type,IsVariadic)] -> TcM m ()
+equalsMaybeTpltArgs l (Just ts1) (Just ts2) = do
+    equalsTpltArgs l (map (mapFst loc) ts1) (map (mapFst loc) ts2)
+equalsMaybeTpltArgs l _ _ = return ()
+
 matchTpltArgs :: (ProverK loc m) => loc -> (String -> Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> (Type -> Type -> TcM m r) -> [(Type,IsVariadic)] -> [(Type,IsVariadic)] -> TcM m [r]
 matchTpltArgs l ex match ts1 ts2 = do
     pp1 <- pp ts1
@@ -2411,30 +2416,30 @@ matchTpltArgs l ex match ts1 ts2 = do
         ts2' <- concatMapM (expandVariadicType l) ts2
         constraintList (ex "template arguments") match l ts1' ts2'
 
---equalsSizes :: (ProverK loc m) => loc -> Maybe [(Expr,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> TcM m ()
---equalsSizes l szs1 szs2 = matchSizes l EqualityException (equalsExprTy l False) szs1 szs2
---
---unifiesSizes :: (ProverK loc m) => loc -> Maybe [(Expr,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> TcM m ()
---unifiesSizes l szs1 szs2 = matchSizes l UnificationException (unifiesExprTy l False) szs1 szs2
+equalsVariadicExprs :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> [(Expr,IsVariadic)] -> TcM m ()
+equalsVariadicExprs l szs1 szs2 = matchVariadicExprs l EqualityException (equalsExprTy l) szs1 szs2
 
-matchSizes :: (ProverK loc m) => loc -> (String -> Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> (Expr -> Expr -> TcM m ()) -> Maybe [(Expr,IsVariadic)] -> Maybe [(Expr,IsVariadic)] -> TcM m ()
-matchSizes l ex match szs1 szs2 = do
-    pp1 <- (ppOpt szs1 pp)
-    pp2 <- (ppOpt szs2 pp)
-    addErrorM l (TypecheckerError (locpos l) . (ex "sizes") pp1 pp2 . Just) $ matchSizes' szs1 szs2
+unifiesVariadicExprs :: (ProverK loc m) => loc -> [(Expr,IsVariadic)] -> [(Expr,IsVariadic)] -> TcM m ()
+unifiesVariadicExprs l szs1 szs2 = matchVariadicExprs l UnificationException (unifiesExprTy l) szs1 szs2
+
+matchVariadicExprs :: (ProverK loc m) => loc -> (String -> Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> (Expr -> Expr -> TcM m ()) -> [(Expr,IsVariadic)] -> [(Expr,IsVariadic)] -> TcM m ()
+matchVariadicExprs l ex match szs1 szs2 = do
+    pp1 <- pp szs1
+    pp2 <- pp szs2
+    addErrorM l (TypecheckerError (locpos l) . (ex "sizes") pp1 pp2 . Just) $ matchVariadicExprs' szs1 szs2
   where
-    matchSizes' (Just szs1@(all (not . snd) -> True)) (Just [(e2,True)]) = do
+    matchVariadicExprs' (szs1@(all (not . snd) -> True)) ([(e2,True)]) = do
         match e2 (ArrayConstructorPExpr (loc e2) $ map fst szs1)
-    matchSizes' (Just [(e1,True)]) (Just szs2@(all (not . snd) -> True)) = do
+    matchVariadicExprs' ([(e1,True)]) (szs2@(all (not . snd) -> True)) = do
         match e1 (ArrayConstructorPExpr (loc e1) $ map fst szs2)
-    matchSizes' (Just [(e1,True)]) (Just [(e2,True)]) = do
+    matchVariadicExprs' ([(e1,True)]) ([(e2,True)]) = do
         match e1 e2
-    matchSizes' (Just szs1) (Just szs2) = do
+    matchVariadicExprs' (szs1) (szs2) = do
         szs1' <- concatMapM (expandVariadicExpr l False) szs1
         szs2' <- concatMapM (expandVariadicExpr l False) szs2
         constraintList (ex "sizes") match l szs1' szs2'
         return ()
-    matchSizes' sz1 sz2 = return () -- ignore if both sizes are not known
+    matchVariadicExprs' sz1 sz2 = return () -- ignore if both expressions are not known
 
 expandVariadicExpr :: (ProverK loc m) => loc -> IsConst -> (Expr,IsVariadic) -> TcM m [Expr]
 expandVariadicExpr = expandVariadicExpr' True
@@ -2689,7 +2694,7 @@ unifiesExpr l e1 e2 = do
 --    debugTc $ liftIO $ putStrLn $ "unifiesExpr " ++ show (e1) ++ "\n\n" ++ show (e2)
     pp1 <- pp e1
     pp2 <- pp e2
-    addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ readable2 (readable2List [tryInlineUnaryExpr l,tryProjectExpr l,tryVArraySizeExpr l,tryExpandArrayExpr l] unifiesExpr') l e1 e2
+    addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ readable2 (readable2List [tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] unifiesExpr') l e1 e2
   where
     unifiesExpr' e1@(getReadableVar -> Just v1@(VarName t1 n1)) e2@(getReadableVar -> Just v2@(VarName t2 n2)) | isWritable v1 == isWritable v2 = do
         o <- chooseWriteVar l n1 n2
@@ -2703,10 +2708,20 @@ unifiesExpr l e1 e2 = do
     unifiesExpr' (ArrayConstructorPExpr t1 es1) (ArrayConstructorPExpr t2 es2) = do
         constraintList (UnificationException "expression") (unifiesExprTy l) l es1 es2
         return ()
-    unifiesExpr' (UnaryExpr ret1 o1 e1) (UnaryExpr ret2 o2 e2) = do
-        tcCstrM_ l $ Unifies ret1 ret2
-        unifiesOp l o1 o2
-        tcCstrM_ l $ Unifies (IdxT e1) (IdxT e2)
+    --unifiesExpr' (UnaryExpr ret1 o1 e1) (UnaryExpr ret2 o2 e2) = do
+    --    tcCstrM_ l $ Unifies ret1 ret2
+    --    unifiesOp l o1 o2
+    --    tcCstrM_ l $ Unifies (IdxT e1) (IdxT e2)
+    --unifiesExpr' (BinaryExpr ret1 e11 o1 e12) (BinaryExpr ret2 e21 o2 e22) = do
+    --    tcCstrM_ l $ Unifies ret1 ret2
+    --    unifiesOp l o1 o2
+    --    tcCstrM_ l $ Unifies (IdxT e11) (IdxT e21)
+    --    tcCstrM_ l $ Unifies (IdxT e12) (IdxT e22)
+    --unifiesExpr' (ProcCallExpr ret1 pn1 ts1 es1) (ProcCallExpr ret2 pn2 ts2 es2) = do
+    --    tcCstrM_ l $ Unifies ret1 ret2
+    --    unifiesProcedureName l pn1 pn2
+    --    unifiesTpltArgs l (map (mapFst loc) ts1) (map (mapFst loc) ts2)
+    --    unifiesVariadicExprs l es1 es2
     unifiesExpr' e1 e2 = do
         (_,ks) <- tcWithCstrs l "unifiesExpr'" $ tcCstrM_ l $ Unifies (loc e1) (loc e2)
         withDeps LocalScope $ do
@@ -2803,13 +2818,23 @@ equalsExpr l e1 e2 = do
     pp2 <- pp e2
     addErrorM l
         (TypecheckerError (locpos l) . (EqualityException "expression") (pp1) (pp2) . Just)
-        (readable2 (readable2List [tryInlineUnaryExpr l,tryProjectExpr l,tryVArraySizeExpr l,tryExpandArrayExpr l] equalsExpr') l e1 e2)
+        (readable2 (readable2List [tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] equalsExpr') l e1 e2)
   where
     equalsExpr' e1 e2 | e1 == e2 = return ()
     equalsExpr' (UnaryExpr ret1 o1 e1) (UnaryExpr ret2 o2 e2) = do
         tcCstrM_ l $ Equals ret1 ret2
         equalsOp l o1 o2
         tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)
+    equalsExpr' (BinaryExpr ret1 e11 o1 e12) (BinaryExpr ret2 e21 o2 e22) = do
+        tcCstrM_ l $ Equals ret1 ret2
+        equalsOp l o1 o2
+        tcCstrM_ l $ Equals (IdxT e11) (IdxT e21)
+        tcCstrM_ l $ Equals (IdxT e12) (IdxT e22)
+    equalsExpr' (ProcCallExpr ret1 pn1 ts1 es1) (ProcCallExpr ret2 pn2 ts2 es2) = do
+        tcCstrM_ l $ Equals ret1 ret2
+        equalsProcedureName l pn1 pn2
+        equalsMaybeTpltArgs l ts1 ts2
+        equalsVariadicExprs l es1 es2
     equalsExpr' (LitPExpr t1 lit1) (LitPExpr t2 lit2) = do
         equalsLit l (funit lit1) (funit lit2)
         tcCstrM_ l $ Unifies t1 t2
@@ -2825,29 +2850,21 @@ equalsExpr l e1 e2 = do
 --        opts <- askOpts
 --        when (checkAssertions opts) $ getDeps >>= \deps -> checkCstrM_ l deps $ CheckAssertion eq
 
---tryUnfoldUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)
---tryUnfoldUnaryExpr l ue = do
---    mb <- tryInlineUnaryExpr l ue
---    case mb of
---        Just e' -> return $ Just e'
---        Nothing -> tryRemoveUnaryExpr l ue
---tryUnfoldUnaryExpr l ue = return Nothing
---
---tryRemoveUnaryExpr :: ProverK loc m => loc -> Expr -> TcM m (Maybe Expr)
---tryRemoveUnaryExpr l ue@(UnaryExpr ret o e) = do
---    mb <- tryTcError $ equals l ret (loc e)
---    case mb of
---        Right _ -> return e
---        Left _ -> return Nothing
---tryRemoveUnaryExpr l e = return Nothing
-
 equalsOp :: ProverK loc m => loc -> Op GIdentifier Type -> Op GIdentifier Type -> TcM m ()
 equalsOp l o1 o2 | funit o1 == funit o2 = tcCstrM_ l $ Equals (loc o1) (loc o2)
 equalsOp l o1 o2 = constraintError (EqualityException "operation") l o1 pp o2 pp Nothing
 
 unifiesOp :: ProverK loc m => loc -> Op GIdentifier Type -> Op GIdentifier Type -> TcM m ()
 unifiesOp l o1 o2 | funit o1 == funit o2 = tcCstrM_ l $ Unifies (loc o1) (loc o2)
-unifiesOp l o1 o2 = constraintError (EqualityException "operation") l o1 pp o2 pp Nothing
+unifiesOp l o1 o2 = constraintError (UnificationException "operation") l o1 pp o2 pp Nothing
+
+equalsProcedureName :: ProverK loc m => loc -> ProcedureName GIdentifier Type -> ProcedureName GIdentifier Type -> TcM m ()
+equalsProcedureName l p1 p2 | funit p1 == funit p2 = tcCstrM_ l $ Equals (loc p1) (loc p2)
+equalsProcedureName l p1 p2 = constraintError (EqualityException "procedure") l p1 pp p2 pp Nothing
+
+unifiesProcedureName :: ProverK loc m => loc -> ProcedureName GIdentifier Type -> ProcedureName GIdentifier Type -> TcM m ()
+unifiesProcedureName l p1 p2 | funit p1 == funit p2 = tcCstrM_ l $ Unifies (loc p1) (loc p2)
+unifiesProcedureName l p1 p2 = constraintError (UnificationException "procedure") l p1 pp p2 pp Nothing
 
 comparesTpltArgs :: (ProverK loc m)
     => loc -> Bool -> [(Type,IsVariadic)] -> [(Type,IsVariadic)] -> TcM m (Comparison (TcM m))
@@ -2883,7 +2900,7 @@ comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Compari
 comparesExpr l isLattice e1 e2 = do
     pp1 <- pp e1
     pp2 <- pp e2
-    addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp1) (pp2) . Just) (readable2 (readable2List [tryInlineUnaryExpr l,tryProjectExpr l,tryVArraySizeExpr l,tryExpandArrayExpr l] comparesExpr') l e1 e2)
+    addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp1) (pp2) . Just) (readable2 (readable2List [tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] comparesExpr') l e1 e2)
   where
 --    comparesExpr' :: (ProverK loc m) => Bool -> Bool -> loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
     comparesExpr' e1 e2 | e1 == e2 = return (Comparison e1 e2 EQ EQ False)

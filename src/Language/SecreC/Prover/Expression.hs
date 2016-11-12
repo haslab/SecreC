@@ -164,13 +164,12 @@ expr2ProverMb (VArraySizeExpr l e) = do
     let p = unTyped l
     sz <- lift $ typeSize p (typed $ loc e)
     expr2ProverMb $ fmap (Typed p) sz
-expr2ProverMb e@(UnaryExpr l o e1) = do
-    mb <- lift $ tryInlineUnaryExpr l $ fmap typed e
+expr2ProverMb e@(isInlinableExpr -> True) = do
+    let Typed l t = loc e
+    mb <- lift $ tryInlineExpr l $ fmap typed e
     case mb of
         Just e' -> expr2ProverMb $ fmap (Typed l) e'
-        Nothing -> proverProcError "unary" (typed $ loc o) e
-expr2ProverMb e@(BinaryExpr l e1 o e2) = proverProcError "binary" (typed $ loc o) e
-expr2ProverMb e@(ProcCallExpr l n ts es) = proverProcError "proccall" (typed $ loc n) e
+        Nothing -> proverProcError "inlinable" t e
 expr2ProverMb e@(BuiltinExpr l n args) = builtin2Prover (unTyped l) n args
 expr2ProverMb e@(QualExpr l e1 t) = expr2ProverMb e1
 expr2ProverMb e = lift $ do

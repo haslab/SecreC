@@ -118,6 +118,12 @@ getDoResolve = do
     inCtx <- getInCtx
     return (inCtx || implicitContext opts == InferCtx)
 
+isInlinableExpr :: Expression iden loc -> Bool
+isInlinableExpr (UnaryExpr {}) = True
+isInlinableExpr (BinaryExpr {}) = True
+isInlinableExpr (ProcCallExpr {}) = True
+isInlinableExpr e = False
+
 unresolvedVariable :: (PP (TcM m) x,Variable x,ProverK loc m) => loc -> x -> TcM m b
 unresolvedVariable l n = do
     doResolve <- getDoResolve

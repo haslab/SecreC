@@ -563,24 +563,36 @@ loopAnn2StmtAnn :: LoopAnnotation iden loc -> StatementAnnotation iden loc
 loopAnn2StmtAnn (InvariantAnn l True isLeak e) = AssumeAnn l isLeak e
 loopAnn2StmtAnn (InvariantAnn l False isLeak e) = AssertAnn l isLeak e
 
-tryInlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)
-tryInlineUnaryExpr l ue@(UnaryExpr ret o e) = do
+tryInlineExpr :: SimplifyK loc m => loc -> Expr -> TcM m (Maybe Expr)
+tryInlineExpr l ue@(UnaryExpr ret o e) = do
     mb <- inlineProcCall True True l (OIden o) (loc o) [(fmap (Typed l) e,False)]
     case mb of
         Left (_,Just e) -> do
             return $ Just $ fmap typed e
         otherwise -> return Nothing
-tryInlineUnaryExpr l ue = return Nothing
+tryInlineExpr l ue@(BinaryExpr ret e1 o e2) = do
+    mb <- inlineProcCall True True l (OIden o) (loc o) [(fmap (Typed l) e1,False),(fmap (Typed l) e2,False)]
+    case mb of
+        Left (_,Just e) -> do
+            return $ Just $ fmap typed e
+        otherwise -> return Nothing
+tryInlineExpr l ue@(ProcCallExpr ret p@(ProcedureName ln (PIden pn)) ts es) = do
+    mb <- inlineProcCall True True l (PIden pn) (loc p) (map (mapFst (fmap (Typed l))) es)
+    case mb of
+        Left (_,Just e) -> do
+            return $ Just $ fmap typed e
+        otherwise -> return Nothing
+tryInlineExpr l e = return Nothing
 
-inlineUnaryExpr :: SimplifyK loc m => loc -> Expr -> TcM m Expr
-inlineUnaryExpr l ue@(UnaryExpr ret o e) = do
-    mb <- tryInlineUnaryExpr l ue
+inlineExpr :: SimplifyK loc m => loc -> Expr -> TcM m Expr
+inlineExpr l e = do
+    mb <- tryInlineExpr l e
     case mb of
         Just e -> return e
         Nothing -> do
-            ppue <- pp ue
-            ppd <- pp (loc o)
-            tcError (locpos l) $ Halt $ GenTcError (text "cannot inline unary expression" <+> ppue <+> ppd) Nothing
+            ppe <- pp e
+            ppd <- pp (loc e)
+            tcError (locpos l) $ Halt $ GenTcError (text "cannot inline expression" <+> ppe <+> ppd) Nothing
 
 tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> TcM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))
 tryInlineLemmaCall l (ProcCallExpr _ (ProcedureName (Typed _ (DecT dec)) (PIden n)) targs args) | decTyKind dec == LKind = do
