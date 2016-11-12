@@ -111,6 +111,12 @@ getDoAll = do
 --    State.modify $ \env -> env { inTemplate = old }
 --    return x
 
+getHalt :: (ProverK Position m) => TcM m (TypecheckerErr -> TypecheckerErr)
+getHalt = do
+    doResolve <- getDoResolve
+    let halt = if doResolve then id else Halt
+    return halt
+
 -- when we really need to resolve variables
 getDoResolve :: Monad m => TcM m Bool
 getDoResolve = do
@@ -127,8 +133,8 @@ isInlinableExpr e = False
 unresolvedVariable :: (PP (TcM m) x,Variable x,ProverK loc m) => loc -> x -> TcM m b
 unresolvedVariable l n = do
     doResolve <- getDoResolve
-    ppn <- pp n
     let halt = if doResolve && not (isWritable n) then id else Halt
+    ppn <- pp n
     tcError (locpos l) $ halt $ UnresolvedVariable (ppn)
 
 chgInCtx :: Bool -> Maybe ([TemplateTok],Bool) -> Maybe ([TemplateTok],Bool)
@@ -366,8 +372,8 @@ newDomainVariable isAnn scope (DomainName (Typed l t) (VIden n)) = do
 newTypeVariable :: (ProverK loc m) => Bool -> Bool -> Scope -> TypeName GIdentifier (Typed loc) -> TcM m ()
 newTypeVariable isAnn isLeak scope (TypeName (Typed l t) (VIden n)) = do
     removeFree "newTypeVariable" n
-    ss <- getStructs False (const True) isAnn isLeak
-    case Map.lookup (VIden n) ss of
+    ss <- getStructsByName (TIden n) False (const True) isAnn isLeak
+    case ss of
         Just (es) -> do
             ppn <- pp n
             tcError (locpos l) $ InvalidTypeVariableName (ppn) (map (locpos . entryLoc) (Map.elems es))
@@ -452,29 +458,29 @@ checkStruct l withBody decK isAnn isLeak sid mid = do
     pp2 <- pp mid
     debugTc $ liftIO $ putStrLn $ show $ text "checkStruct:" <+> pp1 <+> pp2
     halt <- getHalt
-    ss <- getStructs withBody decK isAnn isLeak
-    case Map.lookup sid ss of
+    ss <- getStructsByName sid withBody decK isAnn isLeak
+    case ss of
         Just es -> case Map.lookup mid es of
             Just e -> typeToDecType l (entryType e)
             Nothing -> do
-                ppk <- liftM vcat $ mapM (\(k,v) -> do { x <- pp k; y <- pp v; return $ x <+> text "->" <+> y }) $ Map.toList ss
-                tcError (locpos l) $ halt $ NotDefinedType (pp1 <+> pp2 <+> text "in" <+> ppk)
+                --ppk <- liftM vcat $ mapM (\(k,v) -> do { x <- pp k; y <- pp v; return $ x <+> text "->" <+> y }) $ Map.toList ss
+                tcError (locpos l) $ halt $ NotDefinedType (pp1 <+> pp2)
         Nothing -> do
-            ppk <- liftM vcat $ mapM (\(k,v) -> do { x <- pp k; y <- pp v; return $ x <+> text "->" <+> y }) $ Map.toList ss
-            tcError (locpos l) $ halt $ NotDefinedType (pp1 <+> pp2 <+> text "in" <+> ppk)
+            --ppk <- liftM vcat $ mapM (\(k,v) -> do { x <- pp k; y <- pp v; return $ x <+> text "->" <+> y }) $ Map.toList ss
+            tcError (locpos l) $ halt $ NotDefinedType (pp1 <+> pp2)
         
 -- | Checks if a type exists in scope
 -- Searches for both user-defined types and type variables
 checkType :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> TypeName VarIdentifier loc -> TcM m [EntryEnv]
 checkType decK isAnn isLeak (TypeName l n) = do
     halt <- getHalt
-    ss <- getStructs False decK isAnn isLeak
-    case Map.lookup (TIden n) ss of
+    ss <- getStructsByName (TIden n) False decK isAnn isLeak
+    case ss of
         Just (es) -> return (Map.elems es)
         Nothing -> do
             ppn <- pp n
-            ppk <- liftM vcat $ mapM (\(k,v) -> do { x <- pp k; y <- pp v; return $ x <+> text "->" <+> y }) $ Map.toList ss
-            tcError (locpos l) $ halt $ NotDefinedType (ppn <+> text "in" <+> ppk)
+            --ppk <- liftM vcat $ mapM (\(k,v) -> do { x <- pp k; y <- pp v; return $ x <+> text "->" <+> y }) $ Map.toList ss
+            tcError (locpos l) $ halt $ NotDefinedType (ppn)
 
 checkTypeVariable :: (ProverK loc m) => Bool -> TypeName VarIdentifier loc -> TcM m (Maybe (TypeName GIdentifier (Typed loc)))
 checkTypeVariable isAnn (TypeName l n) = do
@@ -532,11 +538,11 @@ checkTypeName isAnn tn@(TypeName l n) = do
 -- The argument can be a (user-defined or variable) type, a (user-defined or variable) domain or a dimension variable
 checkTemplateArg :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> TemplateArgName VarIdentifier loc -> TcM m (TemplateArgName GIdentifier (Typed loc))
 checkTemplateArg decK isAnn isLeak (TemplateArgName l n) = do
-    ss <- getStructs False decK isAnn isLeak
+    ss <- getStructsByName (TIden n) False decK isAnn isLeak
     ds <- getDomains
     vs <- liftM (envVariables isAnn) State.get
     vn <- checkConst $ VIden n
-    case (Map.lookup (TIden n) ss,Map.lookup (TIden n) ds,Map.lookup vn vs) of
+    case (ss,Map.lookup (TIden n) ds,Map.lookup vn vs) of
         (Just (es),Nothing,Nothing) -> case ( Map.elems es) of
             [e] -> if (isStructTemplate $ entryType e)
                 then do
@@ -649,15 +655,15 @@ isOpCastIden n = Nothing
 checkOperator :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> Op GIdentifier loc -> TcM m [EntryEnv]
 checkOperator decK isAnn isLeak k op@(OpCast l t) = do
     addGDependencies $ OIden $ funit op
-    ps <- getEntries l decK isAnn isLeak k
+    ps <- getEntriesByPred l (isJust . isOpCastIden) decK isAnn isLeak k
     -- select all cast declarations
-    let casts = concatMap Map.elems $ Map.elems $ Map.filterWithKey (\k v -> isJust $ isOpCastIden k) ps
+    let casts = concatMap Map.elems ps
     return casts
 checkOperator decK isAnn isLeak k op = do
     let cop = funit op
     addGDependencies $ OIden cop
-    ps <- getEntries (loc op) decK isAnn isLeak k
-    case Map.lookup (OIden cop) ps of
+    ps <- getEntriesByName (loc op) (OIden cop) decK isAnn isLeak k
+    case ps of
         Nothing -> do
             pp1 <- pp op
             halt <- getHalt
@@ -886,8 +892,8 @@ newLemma vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
 checkProcedureFunctionLemma :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> ProcedureName GIdentifier loc -> TcM m [EntryEnv]
 checkProcedureFunctionLemma decK isAnn isLeak k pn@(ProcedureName l n) = do
     addGDependencies n
-    ps <- getEntries l decK isAnn isLeak k
-    case Map.lookup n ps of
+    ps <- getEntriesByName l n decK isAnn isLeak k
+    case ps of
         Nothing -> do
             pp1 <- pp isAnn
             pp2 <- pp isLeak
@@ -897,23 +903,28 @@ checkProcedureFunctionLemma decK isAnn isLeak k pn@(ProcedureName l n) = do
             tcError (locpos l) $ halt $ NotDefinedProcedure (pp1 <+> pp2 <+> pp3 <+> pp4)
         Just es -> return $ Map.elems es
 
-getHalt :: ProverK Position m => TcM m (TypecheckerErr -> TypecheckerErr)
-getHalt = do
-    h <- State.gets (isJust . inTemplate)
-    return $ if h then Halt else id
+getEntriesByName :: (ProverK loc m) => loc -> GIdentifier -> (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> TcM m (Maybe (Map ModuleTyVarId EntryEnv))
+getEntriesByName l n onlyRecs isAnn isLeak k = do
+    let aux = Map.filterWithKey (\k v -> k == n)
+    liftM (Map.lookup n) $ getEntries l aux onlyRecs isAnn isLeak k
+    
+getEntriesByPred :: (ProverK loc m) => loc -> (GIdentifier -> Bool) -> (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> TcM m [Map ModuleTyVarId EntryEnv]
+getEntriesByPred l p onlyRecs isAnn isLeak k = do
+    let aux = Map.filterWithKey (\k v -> p k)
+    liftM (Map.elems) $ getEntries l aux onlyRecs isAnn isLeak k
 
-getEntries :: (ProverK loc m) => loc -> (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getEntries l onlyRecs isAnn isLeak (FKind) = getFunctions False onlyRecs isAnn isLeak
-getEntries l onlyRecs isAnn isLeak (TKind) = getFunctions False onlyRecs isAnn isLeak
-getEntries l onlyRecs isAnn isLeak (AKind) = getFunctions False onlyRecs isAnn isLeak
-getEntries l onlyRecs isAnn isLeak (LKind) = do
-    xs <- getFunctions False onlyRecs isAnn isLeak
-    ys <- getLemmas False onlyRecs isAnn isLeak 
+getEntries :: (ProverK loc m) => loc -> (Map GIdentifier (Map ModuleTyVarId EntryEnv) -> Map GIdentifier (Map ModuleTyVarId EntryEnv)) -> (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getEntries l filterf onlyRecs isAnn isLeak (FKind) = getFunctions filterf False onlyRecs isAnn isLeak
+getEntries l filterf onlyRecs isAnn isLeak (TKind) = getFunctions filterf False onlyRecs isAnn isLeak
+getEntries l filterf onlyRecs isAnn isLeak (AKind) = getFunctions filterf False onlyRecs isAnn isLeak
+getEntries l filterf onlyRecs isAnn isLeak (LKind) = do
+    xs <- getFunctions filterf False onlyRecs isAnn isLeak
+    ys <- getLemmas filterf False onlyRecs isAnn isLeak 
     return $ Map.unionWith Map.union xs ys
-getEntries l onlyRecs isAnn isLeak (PKind) = do
-    xs <- getFunctions False onlyRecs isAnn isLeak
-    ys <- getLemmas False onlyRecs isAnn isLeak 
-    zs <- getProcedures False onlyRecs isAnn isLeak
+getEntries l filterf onlyRecs isAnn isLeak (PKind) = do
+    xs <- getFunctions filterf False onlyRecs isAnn isLeak
+    ys <- getLemmas filterf False onlyRecs isAnn isLeak 
+    zs <- getProcedures filterf False onlyRecs isAnn isLeak
     return $ Map.unionWith Map.union (Map.unionWith Map.union xs zs) ys
 --getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
 
@@ -1157,8 +1168,8 @@ addTemplateStruct vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
-    ss <- getStructs False (const True) (tyIsAnn dt') (isLeakType dt')
-    case Map.lookup n ss of
+    ss <- getStructsByName n False (const True) (tyIsAnn dt') (isLeakType dt')
+    case ss of
         Just es -> do
             ppn <- pp n
             tcError (locpos l) $ MultipleDefinedStructTemplate (ppn) (locpos $ entryLoc $ head $ Map.elems es)
@@ -1193,8 +1204,8 @@ addStructToRec hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     d' <- substFromTDict "newStruct head" dontStop l recdict False Map.empty d
     let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
-    ss <- getStructs False (const True) (tyIsAnn recdt) (isLeakType recdt)
-    case Map.lookup n ss of
+    ss <- getStructsByName n False (const True) (tyIsAnn recdt) (isLeakType recdt)
+    case ss of
         Just es -> do
             ppn <- pp n
             tcError (locpos l) $ MultipleDefinedStruct (ppn) (locpos $ entryLoc $ head $ Map.elems es)
@@ -2293,44 +2304,85 @@ cstrScope k = do
                 then return SolveGlobal
                 else return SolveLocal
 
-getStructs :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
-getStructs withBody decK isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody structs
 getKinds :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
-getKinds = getModuleField True kinds
+getKinds = do
+    let aux env = mempty { kinds = kinds env }
+    getModuleField True aux kinds
 getGlobalVars :: ProverK Position m => TcM m (Map GIdentifier (Maybe Expr,(Bool,Bool,EntryEnv)))
-getGlobalVars = getModuleField True globalVars
+getGlobalVars = do
+    let aux env = mempty { globalVars = globalVars env }
+    getModuleField True aux globalVars
 getGlobalConsts :: ProverK Position m => TcM m (Map Identifier GIdentifier)
-getGlobalConsts = getModuleField True globalConsts
+getGlobalConsts = do
+    let aux env = mempty { globalConsts = globalConsts env }
+    getModuleField True aux globalConsts
 getDomains :: ProverK Position m => TcM m (Map GIdentifier EntryEnv)
-getDomains = getModuleField True domains
-getProcedures :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getProcedures withBody decK isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody procedures
-getFunctions :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
-getFunctions withBody decK isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody functions
-getLemmas :: ProverK Position m => Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
-getLemmas withBody decK isAnn isLeak = do
-    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody lemmas
-getAxioms :: ProverK Position m => (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
-getAxioms decK isAnn isLeak = liftM (filterAnns1 isAnn isLeak decK) $ getModuleField True axioms
+getDomains = do
+    let aux env = mempty { domains = domains env }
+    getModuleField True aux domains
 
-getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> x) -> TcM m x
-getModuleField withBody f = do
+getStructsByName :: ProverK Position m => SIdentifier -> Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Maybe (Map ModuleTyVarId EntryEnv))
+getStructsByName n withBody decK isAnn isLeak = do
+    let aux = Map.filterWithKey (\k v -> k == n)
+    liftM (Map.lookup n) $ getStructs aux withBody decK isAnn isLeak
+
+getStructs :: ProverK Position m => (Map SIdentifier (Map ModuleTyVarId EntryEnv) -> Map SIdentifier (Map ModuleTyVarId EntryEnv)) -> Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
+getStructs filterf withBody decK isAnn isLeak = do
+    let filterstructs env = mempty { structs = filterf $ structs env }
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody filterstructs structs
+getProcedures :: ProverK Position m => (Map POId (Map ModuleTyVarId EntryEnv) -> Map POId (Map ModuleTyVarId EntryEnv)) -> Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getProcedures filterf withBody decK isAnn isLeak = do
+    let filterprocs env = mempty { procedures = filterf $ procedures env }
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody filterprocs procedures
+getFunctions :: ProverK Position m => (Map POId (Map ModuleTyVarId EntryEnv) -> Map POId (Map ModuleTyVarId EntryEnv)) -> Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map POId (Map ModuleTyVarId EntryEnv))
+getFunctions filterf withBody decK isAnn isLeak = do
+    let filterfunctions env = mempty { functions = filterf $ functions env }
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody filterfunctions functions
+getLemmas :: ProverK Position m => (Map GIdentifier (Map ModuleTyVarId EntryEnv) -> Map GIdentifier (Map ModuleTyVarId EntryEnv)) -> Bool -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map GIdentifier (Map ModuleTyVarId EntryEnv))
+getLemmas filterf withBody decK isAnn isLeak = do
+    let filterlemmas env = mempty { lemmas = filterf $ lemmas env }
+    liftM (filterAnns isAnn isLeak decK) $ getModuleField withBody filterlemmas lemmas
+getAxioms :: ProverK Position m => (Map ModuleTyVarId EntryEnv -> Map ModuleTyVarId EntryEnv) -> (DecTypeK -> Bool) -> Bool -> Bool -> TcM m (Map ModuleTyVarId EntryEnv)
+getAxioms filterf decK isAnn isLeak = do
+    let filteraxioms env = mempty { axioms = filterf $ axioms env }
+    liftM (filterAnns1 isAnn isLeak decK) $ getModuleField True filteraxioms axioms    
+
+getEntry :: ProverK Position m => Maybe GIdentifier -> ModuleTyVarId -> DecKind -> Bool -> TcM m (Maybe EntryEnv)
+getEntry Nothing tid AKind withBody = do
+    let filterf = Map.filterWithKey (\k v -> k == tid)
+    let aux env = mempty { axioms = filterf $ axioms env } 
+    ss <- getModuleField withBody aux axioms
+    return $ Map.lookup tid ss
+getEntry (Just pn) tid k withBody = do
+    
+    let selector = case k of
+                    TKind -> Lns structs (\x v -> x { structs = v }) 
+                    FKind -> Lns functions (\x v -> x { functions = v }) 
+                    PKind -> Lns procedures (\x v -> x { procedures = v })
+                    LKind -> Lns lemmas (\x v -> x { lemmas = v })
+    
+    let filterf = Map.filterWithKey (\k v -> k == pn) . Map.map (Map.filterWithKey (\k v -> k == tid))
+    let aux env = putLns selector mempty $ filterf $ getLns selector env
+    ss <- getModuleField withBody aux (getLns selector)
+    case Map.lookup pn ss of
+        Nothing -> return Nothing
+        Just es -> return $ Map.lookup tid es 
+
+getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> ModuleTcEnv) -> (ModuleTcEnv -> x) -> TcM m x
+getModuleField withBody filterf f = do
     (x,y) <- State.gets moduleEnv
-    z <- getRecs withBody
-    let xyz = mappend x (mappend y z)
+    z <- getRecs withBody filterf
+    let xyz = mappend (filterf x) (mappend (filterf y) z)
     return $ f xyz
 
 -- get only the recursive declarations for the lineage
-getRecs :: ProverK Position m => Bool -> TcM m ModuleTcEnv
-getRecs withBody = do
+getRecs :: ProverK Position m => Bool -> (ModuleTcEnv -> ModuleTcEnv) -> TcM m ModuleTcEnv
+getRecs withBody filterf = do
     lineage <- getLineage
     debugTc $ do
         ppline <- liftM (sepBy comma) $ mapM pp lineage
         liftIO $ putStrLn $ "getRecs: " ++ show ppline
-    State.gets (mconcat . Foldable.toList . fmap tRec . tDict) >>= filterRecModuleTcEnv lineage withBody
+    State.gets (mconcat . Foldable.toList . fmap (filterf . tRec) . tDict) >>= filterRecModuleTcEnv lineage withBody
 
 filterRecModuleTcEnv :: ProverK Position m => Lineage -> Bool -> ModuleTcEnv -> TcM m ModuleTcEnv
 filterRecModuleTcEnv lineage withBody env = do

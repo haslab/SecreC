@@ -314,7 +314,7 @@ data ModuleTcEnv = ModuleTcEnv {
     -- | a base template and a list of specializations; akin to Haskell type functions
     , functions :: Map POId (Map ModuleTyVarId EntryEnv)
     , lemmas :: Map GIdentifier (Map ModuleTyVarId EntryEnv)
-    , structs :: Map SIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
+    , structs :: Map GIdentifier (Map ModuleTyVarId EntryEnv) -- ^ defined structs: name |-> struct decl
     , axioms :: Map ModuleTyVarId EntryEnv -- defined axioms
     } deriving (Generic,Data,Typeable,Eq,Ord,Show)
 
