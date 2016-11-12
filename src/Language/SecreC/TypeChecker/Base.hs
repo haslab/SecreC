@@ -434,7 +434,7 @@ getDef :: Monad m => TcM m (Bool)
 getDef = State.gets isDef
 
 getInCtx :: Monad m => TcM m Bool
-getInCtx = State.gets (maybe False snd . inTemplate)
+getInCtx = State.gets (maybe True snd . inTemplate)
 
 getCstrState :: Monad m => TcM m CstrState
 getCstrState = do
