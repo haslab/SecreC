@@ -2706,11 +2706,13 @@ unifiesExpr l e1 e2 = do
     unifiesExpr' e1 e2@(getWritableVar -> Just (VarName t2 n2)) = do
         addValueM l (SubstMode CheckS True) (VarName t2 $ VIden n2) e1
     unifiesExpr' (ArrayConstructorPExpr t1 es1) (ArrayConstructorPExpr t2 es2) = do
-        constraintList (UnificationException "expression") (unifiesExprTy l) l es1 es2
+        tcCstrM_ l $ Unifies t1 t2
+        constraintList (UnificationException "array expression") (\e1 e2 -> tcCstrM_ l $ Unifies (IdxT e1) (IdxT e2)) l es1 es2
         return ()
-    unifiesExpr' (ToVArray t1 a1 sz1) (ToVArray t2 a2 sz2) = do
-        unifiesExpr a1 a2
-        unifiesExpr sz1 sz2
+    unifiesExpr' (ToVArrayExpr t1 a1 sz1) (ToVArrayExpr t2 a2 sz2) = do
+        tcCstrM_ l $ Unifies t1 t2
+        tcCstrM_ l $ Unifies (IdxT a1) (IdxT a2)
+        tcCstrM_ l $ Unifies (IdxT sz1) (IdxT sz2)
     --unifiesExpr' (UnaryExpr ret1 o1 e1) (UnaryExpr ret2 o2 e2) = do
     --    tcCstrM_ l $ Unifies ret1 ret2
     --    unifiesOp l o1 o2
@@ -2842,10 +2844,13 @@ equalsExpr l e1 e2 = do
         equalsLit l (funit lit1) (funit lit2)
         tcCstrM_ l $ Unifies t1 t2
     equalsExpr' (ArrayConstructorPExpr t1 es1) (ArrayConstructorPExpr t2 es2) = do
-        equalsExpr l es1 es2
-    equalsExpr' (ToVArray t1 a1 sz1) (ToVArray t2 a2 sz2) = do
-        equalsExpr a1 a2
-        equalsExpr sz1 sz2
+        tcCstrM_ l $ Equals t1 t2
+        constraintList (EqualityException "array expression") (\e1 e2 -> tcCstrM_ l $ Equals (IdxT e1) (IdxT e2)) l es1 es2
+        return ()
+    equalsExpr' (ToVArrayExpr t1 a1 sz1) (ToVArrayExpr t2 a2 sz2) = do
+        tcCstrM_ l $ Equals t1 t2
+        tcCstrM_ l $ Equals (IdxT a1) (IdxT a2)
+        tcCstrM_ l $ Equals (IdxT sz1) (IdxT sz2)
     equalsExpr' e1 e2 = sameExpr e1 e2
     sameExpr e1 e2 = do
         pp1 <- ppr e1
