@@ -306,15 +306,12 @@ runBoogie isLeak isDebug bpl = do
 
 getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]
 getEntryPoints files = do
-    liftIO $ hPutStrLn stderr $ "entryPoints "
     opts <- askOpts
     ps <- case entryPoints opts of
         (List.null -> True) -> do
             let files' = map fst $ filter ((/=NoOutput) . snd) files
             liftM concat $ mapM entryPointsTypedModuleFile files'
         es -> liftM catMaybes $ mapM resolveEntryPoint es
-    ppps <- liftM (Pretty.sepBy space) $ mapM pp ps
-    liftIO $ hPutStrLn stderr $ "getEntryPoints " ++ show ppps
     return ps
 
 output :: Options -> [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)] 
