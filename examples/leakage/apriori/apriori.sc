@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --verify --entrypoints=apriori
+#OPTIONS_SECREC --implicitcoercions=defaultsc --verify --entrypoints="apriori"
 
 module apriori;
 

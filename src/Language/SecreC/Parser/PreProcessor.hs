@@ -231,6 +231,9 @@ processOpts opts = opts
     }
 
 parsePaths :: [FilePath] -> [FilePath]
-parsePaths = concatMap (splitOn ":")
+parsePaths = map unAspas . concatMap (splitOn ":")
+    where
+    unAspas :: String -> String
+    unAspas x = if headMay x == Just '\"' && lastMay x == Just '\"' then init (tail x) else x
 
 
