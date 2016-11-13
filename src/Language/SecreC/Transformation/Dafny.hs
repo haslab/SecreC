@@ -719,9 +719,12 @@ statementAnnToDafny (EmbedAnn l isLeak e) = withInAnn True $ do
 checkDafnyShape :: DafnyK m => Position -> Bool -> Sizes GIdentifier (Typed Position) -> Doc -> DafnyM m AnnsDoc
 checkDafnyShape l isFree (Sizes szs) e = case Foldable.toList szs of
     [] -> return []
-    [(d,False)] -> do
-        (anns,de) <- expressionToDafny False False StmtK d
-        return $ anns ++ [(StmtK,isFree,dafnySize e <+> text "==" <+> de)]
+    (ds@(all (not . snd) -> True)) -> do
+        (anns,des) <- Utils.mapAndUnzipM (expressionToDafny False False StmtK) (map fst ds)
+        let check = case des of
+                        [de] -> dafnySize e <+> text "==" <+> de
+                        des -> e <> text ".shape()" <+> text "==" <+> brackets (sepBy comma des)
+        return $ concat anns ++ [(StmtK,isFree,check)]
     otherwise -> do
         ppszs <- lift $ pp (Sizes szs)
         ppe <- lift $ pp e
