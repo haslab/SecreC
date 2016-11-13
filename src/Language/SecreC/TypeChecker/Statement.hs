@@ -72,7 +72,7 @@ isReturnStmt l cs ret = do
         pp1 <- pp ret
         pp2 <- pp t
         addErrorM l (TypecheckerError (locpos l) . (EqualityException "expression") (pp1) (pp2) . Just) $
-            equals l ret t
+            tcCstrM_ l $ Unifies ret t
     aux x = genTcError (locpos l) False $ text "Unexpected return class"
 
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement GIdentifier (Typed loc)],Type)
