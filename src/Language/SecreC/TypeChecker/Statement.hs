@@ -65,7 +65,7 @@ isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> Type -> TcM m ()
 isReturnStmt l cs ret = do
     ppret <- pp ret
     ppcs <- pp cs
-    addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (ppret <+> ppcs)) $ mapM_ aux $ Set.toList cs
+    addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (ppret <+> ppcs) $ Just err) $ mapM_ aux $ Set.toList cs
   where
     aux StmtReturn = return ()
     aux (StmtFallthru t) = do

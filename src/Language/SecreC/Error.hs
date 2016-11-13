@@ -113,6 +113,7 @@ data TypecheckerErr
     | MultipleDefinedVariable Identifier
     | NoReturnStatement
         Doc -- declaration
+        (Maybe SecrecError)
     | NoTemplateType
         Doc -- template name
         Position -- entry location
@@ -306,7 +307,10 @@ instance Monad m => PP m TypecheckerErr where
         ppe <- pp err
         return $ text "Expecting dimension" <+> d <+> text "for type" <+> quotes t <> char ':' $+$ nest 4 (text "Because of:" $+$ nest 4 ppe)
     pp e@(MultipleDefinedVariable {}) = return $ text (show e)
-    pp e@(NoReturnStatement dec) = return $ text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
+    pp e@(NoReturnStatement dec Nothing) = return $ text "No return statement in procedure or operator declaration:" $+$ nest 4 dec
+    pp e@(NoReturnStatement dec (Just err)) = do
+         ppe <- pp err
+         return $ text "No return statement in procedure or operator declaration:" $+$ nest 4 (dec $+$ (text "Because of:" $+$ nest 4 ppe))
     pp e@(NoTemplateType n p t) = do
         ppp <- pp p
         return $ text "Declaration" <+> quotes t <+> text "at" <+> ppp <+> text "is not a template type with name" <+> quotes n
