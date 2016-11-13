@@ -65,15 +65,14 @@ isReturnStmt :: (ProverK loc m) => loc -> Set StmtClass -> Type -> TcM m ()
 isReturnStmt l cs ret = do
     ppret <- pp ret
     ppcs <- pp cs
-    addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (ppret <+> ppcs)) $ aux cs
+    addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (ppret <+> ppcs)) $ mapM_ aux $ Set.toList cs
   where
-    aux (Set.toList -> [StmtFallthru]) = equals l ret (ComplexT Void) 
-    aux (Set.toList -> [StmtReturn,StmtFallthru]) = equals l ret (ComplexT Void) 
-    aux (Set.toList -> [StmtReturn]) = return ()
+    aux StmtReturn = return ()
+    aux (StmtFallthru t) = equals l ret t
     aux x = genTcError (locpos l) False $ text "Unexpected return class"
 
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement GIdentifier (Typed loc)],Type)
-tcStmts ret [] = return ([],StmtType $ Set.singleton StmtFallthru)
+tcStmts ret [] = return ([],StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void)
 tcStmts ret [s] = do
     (s',StmtType c) <- tcStmtBlock (loc s) "stmt" $ tcStmt ret s
     return ([s'],StmtType c)
@@ -112,7 +111,7 @@ tcLoopBodyStmt ret l s = do
         pps <- pp s
         tcWarn (locpos l) $ SingleIterationLoop (pps)
     -- return the @StmtClass@ for the whole loop
-    let t' = StmtType $ Set.insert (StmtFallthru) (Set.filter (not . isLoopStmtClass) cs)
+    let t' = StmtType $ Set.insert (StmtFallthru $ ComplexT Void) (Set.filter (not . isLoopStmtClass) cs)
     return (s',t')
     
 -- | Typechecks a @Statement@
@@ -126,7 +125,7 @@ tcStmt ret (IfStatement l condE thenS Nothing) = do
     condE' <- tcStmtBlock l "ifguard" $ tcGuard condE
     (thenS',StmtType cs) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     -- an if statement falls through if the condition is not satisfied
-    let t = StmtType $ Set.insert (StmtFallthru) cs
+    let t = StmtType $ Set.insert (StmtFallthru $ ComplexT Void) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
 tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     condE' <- tcStmtBlock l "ifguard" $ tcGuard condE
@@ -154,7 +153,7 @@ tcStmt ret (PrintStatement (l::loc) argsE) = do
         newTypedVar "print" tx False $ Just pparg
     topTcCstrM_ l $ SupportedPrint (map (\(x,y) -> (False,Left $ fmap typed x,y)) argsE') xs
     let exs = map (fmap (Typed l) . varExpr) xs
-    let t = StmtType $ Set.singleton $ StmtFallthru
+    let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
 tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal l "tcStmt dowhile" $ do
     ann' <- mapM tcLoopAnn ann
@@ -166,16 +165,16 @@ tcStmt ret (AssertStatement l argE) = do
     opts <- askOpts
     when (checkAssertions opts) $ topCheckCstrM_ l cstrsargE $ CheckAssertion $ fmap typed argE'
     tryAddHypothesis l "tcStmt assert" LocalScope checkAssertions cstrsargE $ HypCondition $ fmap typed argE'
-    let t = StmtType $ Set.singleton $ StmtFallthru
+    let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
 tcStmt ret (SyscallStatement l n args) = do
     args' <- mapM tcSyscallParam args
-    let t = StmtType $ Set.singleton $ StmtFallthru
+    let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     isSupportedSyscall l n $ map (typed . loc) args'
     return (SyscallStatement (Typed l t) n args',t)
 tcStmt ret (VarStatement l decl) = do
     decl' <- tcVarDecl LocalScope decl
-    let t = StmtType (Set.singleton $ StmtFallthru)
+    let t = StmtType (Set.singleton $ StmtFallthru $ ComplexT Void)
     return (VarStatement (notTyped "tcStmt" l) decl',t)
 tcStmt ret (ReturnStatement l Nothing) = do
     topTcCstrM_ l $ Unifies (ComplexT Void) ret
@@ -203,11 +202,11 @@ tcStmt ret (ExpressionStatement l e) = do
     --case e of
     --    BinaryAssign {} -> return ()
     --    otherwise -> topTcCstrM_ l $ Unifies te (ComplexT Void)
-    let t = StmtType (Set.singleton $ StmtFallthru)
+    let t = StmtType (Set.singleton $ StmtFallthru te)
     return (ExpressionStatement (Typed l t) e',t)
 tcStmt ret (AnnStatement l ann) = do
     (ann') <- mapM tcStmtAnn ann
-    let t = StmtType $ Set.singleton StmtFallthru
+    let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))

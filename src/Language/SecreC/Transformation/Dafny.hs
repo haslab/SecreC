@@ -644,7 +644,7 @@ statementToDafny es@(ExpressionStatement (Typed l _) e) = do
             let ppe = if (pe==empty) then pe else pe <> semicolon
             return $ annLines anne $+$ ppe
         otherwise -> do
-            let tl = Typed l (StmtType $ Set.singleton StmtFallthru)
+            let tl = Typed l (StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void)
             eres <- lift $ liftM (VarName (Typed l t)) $ genVar (VIden $ mkVarId "eres")
             t' <- lift $ type2TypeSpecifierNonVoid l t
             let edef = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl eres Nothing (Just e)

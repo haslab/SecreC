@@ -515,7 +515,7 @@ context<>
     __builtin("core.cat", x,y) :: D T[[1]]
 }
 
-template <domain D, type T, dim N { N > 0 } >
+template <domain D, type T, dim N >
 D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 context<>
 //@ requires n < N;
@@ -523,13 +523,14 @@ context<>
 //@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
 //@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
 {
-    D T[[N]] ret;
+    havoc D T[[N]] ret;
     __syscall("core.cat", x, y, n,__return ret);
+    return ret;
 }
 
 template <domain D, type T, dim N>
 D T[[N]] cat (D T[[N]] x, D T[[N]] y)
 context<>
 {
-    cat(x,y,0)
+    cat(x,y,0);
 }

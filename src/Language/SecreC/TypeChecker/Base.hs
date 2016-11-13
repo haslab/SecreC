@@ -2617,7 +2617,7 @@ data StmtClass
     -- | The execution of the statement may end because of reaching a continue statement
     | StmtContinue
     -- | The execution of the statement may end without reaching a return, break or continue statement
-    | StmtFallthru
+    | StmtFallthru Type
   deriving (Show,Data,Typeable,Eq,Ord,Generic) 
 instance Binary StmtClass
 instance Hashable StmtClass
@@ -2632,14 +2632,14 @@ isLoopBreakStmtClass _ = False
 
 isIterationStmtClass :: StmtClass -> Bool
 isIterationStmtClass StmtContinue = True
-isIterationStmtClass (StmtFallthru) = True
+isIterationStmtClass (StmtFallthru _) = True
 isIterationStmtClass c = False
 
 hasStmtFallthru :: Set StmtClass -> Bool
 hasStmtFallthru cs = not $ Set.null $ Set.filter isStmtFallthru cs
 
 isStmtFallthru :: StmtClass -> Bool
-isStmtFallthru (StmtFallthru) = True
+isStmtFallthru (StmtFallthru _) = True
 isStmtFallthru c = False
 
 data Typed a = Typed a Type
@@ -2955,10 +2955,10 @@ annStmt l ss = AnnStatement (Typed l t) ss
 
 assertStmtAnn isLeak e = AnnStatement ast [AssertAnn ast isLeak e]
     where
-    ast = StmtType $ Set.singleton StmtFallthru
+    ast = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
 assertStmt e = AssertStatement ast e
     where
-    ast = StmtType $ Set.singleton StmtFallthru
+    ast = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     
 unDecT (DecT x) = x
 unDecT t = error $ "unDecT: " ++ show t
