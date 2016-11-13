@@ -68,7 +68,11 @@ isReturnStmt l cs ret = do
     addErrorM l (\err -> TypecheckerError (locpos l) $ NoReturnStatement (ppret <+> ppcs)) $ mapM_ aux $ Set.toList cs
   where
     aux StmtReturn = return ()
-    aux (StmtFallthru t) = equals l ret t
+    aux (StmtFallthru t) = do
+        pp1 <- pp ret
+        pp2 <- pp t
+        addErrorM l (TypecheckerError (locpos l) . (EqualityException "expression") (pp1) (pp2) . Just) $
+            equals l ret t
     aux x = genTcError (locpos l) False $ text "Unexpected return class"
 
 tcStmts :: (ProverK loc m) => Type -> [Statement Identifier loc] -> TcM m ([Statement GIdentifier (Typed loc)],Type)
