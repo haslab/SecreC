@@ -269,7 +269,7 @@ resolveEntryPoint n = do
                     Nothing -> return Nothing
             otherwise -> return Nothing
         otherwise -> return Nothing
-    debugTc $ liftIO $ putStrLn $ "resolveEntryPoint " ++ pprid n ++ " " ++ pprid mb ++ " in\n" ++ show (procedures env)
+    debugTc $ liftIO $ putStrLn $ "resolveEntryPoint " ++ pprid n ++ " " ++ pprid mb ++ " in\n" ++ show (Map.keys $ procedures env)
     return mb
 
 getModule :: Monad m => DafnyM m (Maybe Identifier)
