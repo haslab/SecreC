@@ -1,5 +1,7 @@
 #OPTIONS_SECREC --implicitcoercions=defaultsc --verify --entrypoints="apriori"
 
+module apriori;
+
 //import stdlib;
 //import shared3p;
 
