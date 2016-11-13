@@ -44,3 +44,45 @@ decreases sz;
 {
   if sz == 0 then [] else [x] + Repeat(x,sz-1) 
 }
+
+
+
+class Array2<T> {
+  var arr2 : array2<T>;
+  
+  function valid() : bool
+  reads this`arr2;
+  { this.arr2 != null }
+  
+  function size() : int
+  reads this`arr2;
+  requires this.arr2 != null && this.valid()
+  { this.arr2.Length0 * this.arr2.Length1 }
+  
+  function shape() : seq<int>
+  reads this`arr2;
+  requires this.arr2 != null && this.valid()
+  { [this.arr2.Length0,this.arr2.Length1] }
+  
+  method cat0(xs: Array2<T>, ys: Array2<T>) returns (zs: Array2<T>)
+  requires xs != null && xs.valid();
+  requires ys != null && ys.valid();
+  requires xs.arr2.Length1 == ys.arr2.Length1;
+  free ensures zs != null && zs.valid();
+  free ensures zs.arr2.Length1 == xs.arr2.Length1;
+  free ensures zs.arr2.Length0 == xs.arr2.Length0 + ys.arr2.Length0;
+  free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> zs.arr2[i,j] == xs.arr2[i,j];
+  free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> zs.arr2[i+xs.arr2.Length0,j] == ys.arr2[i,j];
+  {}
+  
+  method cat1(xs: Array2<T>, ys: Array2<T>) returns (zs: Array2<T>)
+  requires xs != null && xs.valid();
+  requires ys != null && ys.valid();
+  requires xs.arr2.Length0 == ys.arr2.Length0;
+  free ensures zs != null && zs.valid();
+  free ensures zs.arr2.Length0 == xs.arr2.Length0;
+  free ensures zs.arr2.Length1 == xs.arr2.Length1 + ys.arr2.Length1;
+  free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> zs.arr2[i,j] == xs.arr2[i,j];
+  free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> zs.arr2[i,j+xs.arr2.Length1] == ys.arr2[i,j];
+  {}
+}

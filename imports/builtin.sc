@@ -507,20 +507,28 @@ D Y[[N]] operator (Y) (D X[[N]] x)
 
 //cat
 
-template <domain D, type T, dim N>
-function D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
+template <domain D, type T>
+function D T[[1]] cat (D T[[1]] x, D T[[1]] y)
+context<>
+//@ free ensures size(\result) == size(x) + size(y);
+{
+    __builtin("core.cat", x,y) :: D T[[1]]
+}
+
+template <domain D, type T, dim N { N > 0 } >
+D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 context<>
 //@ requires n < N;
 //@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
 //@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
 //@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
 {
-
-    __builtin("core.cat", x,y,n) :: D T[[N]]
+    D T[[N]] ret;
+    __syscall("core.cat", x, y, n,__return ret);
 }
 
 template <domain D, type T, dim N>
-function D T[[N]] cat (D T[[N]] x, D T[[N]] y)
+D T[[N]] cat (D T[[N]] x, D T[[N]] y)
 context<>
 {
     cat(x,y,0)

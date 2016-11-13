@@ -17,6 +17,7 @@ import Text.PrettyPrint ((<+>),(<>),text,($+$),Doc(..))
 import qualified Text.PrettyPrint as PP
 import Text.Parsec
 import Text.Parsec.Pos
+import Text.Read
 
 import Control.Applicative hiding ((<|>),optional,many)
 import Control.Monad.IO.Class
@@ -234,6 +235,8 @@ parsePaths :: [FilePath] -> [FilePath]
 parsePaths = map unAspas . concatMap (splitOn ":")
     where
     unAspas :: String -> String
-    unAspas x = if headMay x == Just '\"' && lastMay x == Just '\"' then init (tail x) else x
+    unAspas x = case readMaybe x :: Maybe String of
+        Just str -> str
+        Nothing -> x
 
 
