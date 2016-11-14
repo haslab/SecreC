@@ -100,4 +100,43 @@ class Array2<T> {
   free ensures ys.arr2.Length0 == m && ys.arr2.Length1 == n;
   free ensures forall i: int, j: int :: (0 <= i < m && 0 <= j < n) ==> i+j < |xs| && ys.arr2[i,j] == xs[i+j];
   {}
+      
+  function project00(x: int, y: int) : T
+  reads this`arr2, this.arr2;
+  requires this.arr2 != null && this.valid();
+  requires 0 <= x < this.arr2.Length0;
+  requires 0 <= y < this.arr2.Length1;
+  { this.arr2[x,y] }
+  
+  function project10(x1: int, x2: int, y: int) : seq<T>
+  reads this`arr2, this.arr2;
+  requires this.arr2 != null && this.valid();
+  requires 0 <= x1 < this.arr2.Length0;
+  requires 0 <= x2 < this.arr2.Length0;
+  requires x1 <= x2;
+  requires 0 <= y < this.arr2.Length1;
+  ensures forall i:int :: 0 <= i < x2-x1 ==> project10(x1,x2,y)[i] == this.arr2[x1+i,y];
+  
+  function project01(x: int, y1: int, y2: int) : seq<T>
+  reads this`arr2, this.arr2;
+  requires this.arr2 != null && this.valid();
+  requires 0 <= x < this.arr2.Length0;
+  requires 0 <= y1 < this.arr2.Length1;
+  requires 0 <= y2 < this.arr2.Length1;
+  requires y1 <= y2;
+  ensures forall j:int :: 0 <= j < y2-y1 ==> project01(x,y1,y2)[j] == this.arr2[x,y1+j];
+  
+  function project11(x1: int, x2: int, y1: int, y2: int) : Array2<T>
+  reads this`arr2, this.arr2;
+  requires this.arr2 != null && this.valid();
+  requires 0 <= x1 < this.arr2.Length0;
+  requires 0 <= x2 < this.arr2.Length0;
+  requires x1 <= x2;
+  requires 0 <= y1 < this.arr2.Length1;
+  requires 0 <= y2 < this.arr2.Length1;
+  requires y1 <= y2;
+  ensures project11(x1,x2,y1,y2) != null && project11(xs,ys).valid();
+  ensures project11(x1,x2,y1,y2).arr2.Length0 == x2-x1;
+  ensures project11(x1,x2,y1,y2).arr2.Length1 == y2-y1;
+  ensures forall i: int, j:int :: (0 <= i < x2-x1 && 0 <= j < y2-y1) ==> project11(x1,x2,y1,y2).arr2[i,j] == this.arr2[x1+i,y1+j];
 }

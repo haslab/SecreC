@@ -803,14 +803,20 @@ instance Monad m => PP m AnnKind where
 type AnnsDoc = [AnnDoc]
 type AnnDoc = (AnnKind,Bool,Doc)
 
-indexToDafny :: DafnyK m => Bool -> AnnKind -> Index GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
-indexToDafny isLVal annK (IndexInt l e) = do
+indexToDafny :: DafnyK m => Bool -> AnnKind -> Maybe Doc -> Int -> Index GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+indexToDafny isLVal annK isClass i (IndexInt l e) = do
     (anne,pe) <- expressionToDafny isLVal False annK e
     return (anne,pe)
-indexToDafny isLVal annK (IndexSlice l e1 e2) = do
+indexToDafny isLVal annK Nothing i (IndexSlice l e1 e2) = do
     (anne1,pe1) <- mapExpressionToDafny isLVal annK e1
     (anne2,pe2) <- mapExpressionToDafny isLVal annK e2
     return (anne1++anne2,ppid pe1 <> text ".." <> ppid pe2)
+indexToDafny isLVal annK (Just pe) i (IndexSlice l e1 e2) = do
+    (anne1,pe1) <- mapExpressionToDafny isLVal annK e1
+    let pe1' = maybe (int 0) id pe1
+    (anne2,pe2) <- mapExpressionToDafny isLVal annK e2
+    let pe2' = maybe (pe <> text ".Length" <> int i) id pe2
+    return (anne1++anne2,ppid pe1 <> text "," <> ppid pe2)
 
 -- left = expression, right = update
 assignmentToDafny :: DafnyK m => AnnKind -> Expression GIdentifier (Typed Position) -> Either Doc Doc -> DafnyM m (AnnsDoc,Doc)
@@ -829,12 +835,12 @@ assignmentToDafny annK se@(SelectionExpr l e att) (Right upd) = do
     (ann,doc) <- assignmentToDafny annK e (Right $ char '.' <> parens (patt <+> text ":=" <+> pse <> upd))
     return (annse++ann,doc)
 assignmentToDafny annK se@(PostIndexExpr l e (Foldable.toList -> [i])) (Left pre) = do
-    (anni,pi) <- indexToDafny True annK i
+    (anni,pi) <- indexToDafny True annK Nothing 0 i
     (annse,_) <- expressionToDafny True False annK se
     (ann,doc) <- assignmentToDafny annK e (Right $ brackets (text "int" <> parens pi <+> text ":=" <+> pre))
     return (anni++annse++ann,doc)
 assignmentToDafny annK se@(PostIndexExpr l e (Foldable.toList -> [i])) (Right upd) = do
-    (anni,pi) <- indexToDafny True annK i
+    (anni,pi) <- indexToDafny True annK Nothing 0 i
     (annse,pse) <- expressionToDafny True False annK se
     (ann,doc) <- assignmentToDafny annK e (Right $ brackets (text "int" <> parens pi <+> text ":=" <+> pse <> upd))
     return (anni++annse++ann,doc)
@@ -876,13 +882,38 @@ hasLeakExpr = everything (||) (mkQ False aux)
     aux (LeakExpr {}) = True
     aux _ = False
 
-expressionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
-expressionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> [i])) = do
+projectionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+projectionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> is)) = do
     (anne,pe) <- expressionToDafny isLVal False annK e
-    (anni,pi) <- indexToDafny isLVal annK i
-    let pse = pe <> brackets pi
-    annp <- genDafnyPublics (unTyped l) (hasLeakExpr se) annK pse (typed l)
-    qExprToDafny isQExpr (anne++anni++annp) pse
+    let Typed _ t = loc e
+    mbd <- lift $ tryTcError l $ typeDim l t >>= fullyEvaluateIndexExpr l
+    case (mbd,is) of
+        (Right 1,[i]) -> do
+            (anne,pe) <- expressionToDafny isLVal False annK e
+            (anni,pi) <- indexToDafny isLVal annK Nothing 0 i
+            let pse = pe <> brackets pi
+            annp <- genDafnyPublics (unTyped l) (hasLeakExpr se) annK pse (typed l)
+            qExprToDafny isQExpr (anne++anni++annp) pse
+        (Right n,is) -> do
+            (anne,pe) <- expressionToDafny isLVal False annK e
+            (concat -> annis,pis) <- Utils.mapAndUnzipM (\(idx,i) -> indexToDafny isLVal annK (Just pe) i idx) (zip is [0..])
+            let pse = pe <> text ".project" <> ppIndexIds is <> parens (sepBy comma pis)
+            annp <- genDafnyPublics (unTyped l) (hasLeakExpr se) annK pse (typed l)
+            qExprToDafny isQExpr (anne++annis++annp) pse
+        otherwise -> do
+            ppannK <- lift $ pp annK
+            ppe <- lift $ pp e
+            ppis <- lift $ liftM (sepBy comma) $ mapM pp is
+            genError (unTyped $ loc e) $ text "projectionToDafny:" <+> ppid isLVal <+> ppannK <+> ppe <> brackets ppis
+
+ppIndexIds :: [Index iden loc] -> Doc
+ppIndexIds [] = empty
+ppIndexIds (IndexInt {}:xs) = int 0 <> ppIndexIds xs
+ppIndexIds (IndexSlice {}:xs) = int 1 <> ppIndexIds xs
+
+expressionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+expressionToDafny isLVal isQExpr annK se@(PostIndexExpr {}) = do
+    projectionToDafny isLVal isQExpr annK se
 expressionToDafny isLVal isQExpr annK se@(SelectionExpr l e att) = do
     (anne,pe) <- expressionToDafny isLVal False annK e
     did <- tAttDec (unTyped $ loc e) (pp se) (typed $ loc e)
