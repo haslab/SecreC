@@ -522,6 +522,9 @@ procedureArgToDafny l isPost (_,v,False) = do
     (pt,annt) <- typeToDafny l annK (loc v)
     annp <- genDafnyPublics l False annK pv (loc v)
     return (pv <> char ':' <> pt,annp ++ annt)
+procedureArgToDafny l isPost (_,v,True) = do
+    ppv <- lift $ pp v
+    genError l $ text "procedureArgToDafny:" <+> ppv <> text "..."
 
 dafnySize x = text "uint64" <> parens (char '|' <> x <> char '|')
 
@@ -665,7 +668,10 @@ statementToDafny (WhileStatement l e anns s) = do
     ps <- statementToDafny s
     return $ text "while" <+> pe $+$ annLines anne $+$ annLines annl $+$ vbraces (ps)    
 statementToDafny (SyscallStatement l n params) = do
-    syscallToDafny (unTyped l) n params
+    (concat -> ss,concat -> params') <- lift $ Utils.mapAndUnzipM simplifySyscallParameter params
+    pss <- statementsToDafny ss
+    psys <- syscallToDafny (unTyped l) n params'
+    return $ pss $+$ psys
 statementToDafny s = do
     pps <- lift $ pp s
     genError (unTyped $ loc s) $ text "statementToDafny:" <+> pps
@@ -1048,13 +1054,13 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
     let tret = typed $ loc ret
     mbdx <- lift $ tryTcError l $ typeDim l tx >>= fullyEvaluateIndexExpr l
     mbdret <- lift $ tryTcError l $ typeDim l tret >>= fullyEvaluateIndexExpr l
-    case (mbdx,mbdret) of
-        (Right d@((>1) -> True),Right n) -> do
+    case (mbdret,length szs) of
+        (Right d@((>1) -> True),n) -> do
             return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum n) <> parens (px <> comma <> sepBy comma pszs)
         otherwise -> do
-            ppx <- lift $ pp x
+            pptx <- lift $ pp tx
             ppret <- lift $ pp ret
-            genError l $ text "syscallToDafny: unsupported reshape type" <+> ppx <+> int (length szs) <+> ppret
+            genError l $ text "syscallToDafny: unsupported reshape type" <+> pptx <+> int (length szs) <+> ppret
 syscallToDafny l n params = do
     ppn <- lift $ pp n
     ppparams <- lift $ liftM (sepBy comma) $ mapM pp params

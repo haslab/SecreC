@@ -620,7 +620,7 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
                 ppn <- ppr n
                 ppes <- ppr es
                 ppd' <- ppr d'
-                liftIO $ putStrLn $ "not inline " ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
+                liftIO $ putStrLn $ "not inline parameters" ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
             return $ Right $ DecT d'
   where
     inlineProcCall' es' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just body) c)) | withBody && not isExpr && isInlineDecClass c = do
@@ -820,9 +820,24 @@ simplifyStatement ret (PrintStatement l es) = do
 simplifyStatement ret (AnnStatement l anns) = do
     anns' <- simplifyStatementAnns True anns
     return anns'
+simplifyStatement ret (SyscallStatement l n es) = do
+    (ss,es') <- mapAndUnzipM simplifySyscallParameter es
+    return $ concat ss ++ [SyscallStatement l n $ concat es']
 simplifyStatement ret s = return [s]
 
---    | SyscallStatement loc String [SyscallParameter iden loc]
+simplifySyscallParameter :: SimplifyK loc m => SyscallParameter GIdentifier (Typed loc) -> TcM m ([Statement GIdentifier (Typed loc)],[SyscallParameter GIdentifier (Typed loc)])
+simplifySyscallParameter (SyscallPush l e) = do
+    (ss,e') <- simplifyVariadicExpression False e
+    return (ss,map mkSysPush e')
+simplifySyscallParameter (SyscallReturn l v) = return ([],[SyscallReturn l v])
+simplifySyscallParameter (SyscallPushRef l v) = return ([],[SyscallPushRef l v])
+simplifySyscallParameter (SyscallPushCRef l e) = do
+    (ss,e') <- simplifyNonVoidExpression False e
+    return (ss,[SyscallPushCRef l e'])
+
+mkSysPush :: Location loc => (Expression GIdentifier (Typed loc),IsVariadic) -> SyscallParameter GIdentifier (Typed loc)
+mkSysPush (e,isV) = SyscallPush (Typed l $ SysT $ SysPush t) (e,isV)
+    where (Typed l t) = loc e
 
 simplifyForInitializer :: SimplifyK loc m => ForInitializer GIdentifier (Typed loc) -> TcM m [Statement GIdentifier (Typed loc)]
 simplifyForInitializer i@(InitializerExpression Nothing) = return []

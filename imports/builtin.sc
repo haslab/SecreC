@@ -269,16 +269,20 @@ context<>
 template <domain D, type T >
 D T[[size...(ns)]] reshape (D T val, uint... ns)
 context<>
+//@ inline;
 {
-    __builtin("core.reshape",val,ns...) :: D T[[size...(ns)]]
+    havoc D T[[size...(ns)]] ret;
+    __syscall("core.reshape",val,ns...,__return ret);
+    return ret;
 }
 
 template <domain D, type T, dim N { N > 0 } >
-function D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
+D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint sum(ns...) @*/ >
+//@ inline;
 //@ requires sum(ns...) == size(arr);
 {
-    D T[[size...(ns)]] ret;
+    havoc D T[[size...(ns)]] ret;
     __syscall("core.reshape",arr,ns...,__return ret);
     return ret;
 }
@@ -512,6 +516,7 @@ D Y[[N]] operator (Y) (D X[[N]] x)
 template <domain D, type T>
 function D T[[1]] cat (D T[[1]] x, D T[[1]] y)
 context<>
+//@ inline;
 //@ free ensures size(\result) == size(x) + size(y);
 {
     __builtin("core.cat", x,y) :: D T[[1]]
@@ -520,6 +525,7 @@ context<>
 template <domain D, type T, dim N >
 D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 context<>
+//@ inline;
 //@ requires n < N;
 //@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
 //@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
@@ -533,6 +539,7 @@ context<>
 template <domain D, type T, dim N>
 D T[[N]] cat (D T[[N]] x, D T[[N]] y)
 context<>
+//@ inline;
 {
     cat(x,y,0);
 }

@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --verify --entrypoints="apriori"
+#OPTIONS_SECREC --implicitcoercions=defaultsc
 
 module apriori;
 
@@ -13,11 +13,6 @@ D uint sum (D uint[[1]] xs) {
 	havoc D uint res;
 	return res;
 }
-
-template <type T, dim N>
-void printArray (T[[N]] arr) {
-}
-
 
 pd_a3p uint [[2]] load_db () {
     pd_a3p uint [[2]] db = reshape (repeat(classify(0),25), 5, 5);
@@ -36,31 +31,19 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
-//x //@ template <nonpublic kind K,domain D : K,type T>
-//x //@ leakage function bool lcomparison (D T[[1]] xs,D T x)
-//x //@ context<>
-//x //@ noinline;
-//x //@ {
-//x //@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
-//x //@ }
-//x 
-//x //@ template <nonpublic kind K,domain D : K, type T>
-//x //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
-//x //@ context<>
-//x //@ noinline;
-//x //@ {
-//x //@     forall uint[[1]] is; itemset(is,db) ==> public (sum(items(is,db)) <= threshold)
-//x //@ }
+struct itemset {
+    uint[[2]] items;
+}
 
-// database rows = transaction no, database column = item no
-// result = one itemset per row
-uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
-//x //@ leakage requires public(frequents(db));
+itemset[[1]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 {
   uint dbColumns = shape(db)[1]; // number of items
   uint dbRows = shape(db)[0]; // number of transactions
 
-  uint [[2]] F (0, 1); // frequent itemsets
+  itemset[[1]] frequents;
+  itemset frequent;
+
+  uint[[2]] F (0,1); // frequent itemsets
   pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
 
   uint [[2]] F_new; // new frequent itemsets based on existing ones in F
@@ -80,49 +63,55 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     }
   }
   
-  //// until we find itemsets with length setSize
-  //for (uint k = 1; k < setSize; k=k+1)
-  ////x //@ invariant shape(F)[1] == k;
-  //{
-  //  F_new = reshape ({}, 0, k + 1); // empty?
-  //  F_newcache = reshape ({}, 0, dbRows); // empty?
-  //  uint F_size = shape(F)[0]; // number of items for k-1
-  //  for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
-  //  {
-  //    for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
-  //    {
-  //      // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
-  //      bool prefixEqual = true;
-  //      for (uint n = 0; n < k - 1; n=n+1)
-  //      {
-  //        if (F[i, n] != F[j, n]) {
-  //          prefixEqual = false;
-  //        }
-  //      }
-  //      //itemsets are ordered by item, hence the comparison in the test
-  //      if (prefixEqual && F[i, k-1] < F[j, k-1]) {
-  //        pd_a3p uint [[1]] C_dot = F_cache[i, :] * F_cache[j, :]; //join the two caches
-  //        pd_a3p uint frequence = sum (C_dot); // compute the joint frequency
-  //        if (declassify (frequence >= classify(threshold))) {
-  //          F_newcache = cat (F_newcache, reshape(C_dot, 1, size(C_dot)));
-  //          // create the new itemset by appending the last element of the second itemset to the first
-  //          C = cat (F[i, :], F[j, k-1:k]);
-  //          F_new = cat (F_new, reshape(C, 1, k+1));
-  //        }
-  //      }
-  //    }
-  //  }
-  //  
-  //  F = F_new;
-  //  F_cache = F_newcache;
-  //}
+  frequent.items = F;
+  frequents = cat(frequents,{frequent});
+  
+  // until we find itemsets with length setSize
+  for (uint k = 1; k < setSize; k=k+1)
+  //x //@ invariant shape(F)[1] == k;
+  {
+    F_new = reshape ({}, 0, k + 1); // empty?
+    F_newcache = reshape ({}, 0, dbRows); // empty?
+    uint F_size = shape(F)[0]; // number of items for k-1
+    for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
+    {
+      for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
+      {
+        // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
+        bool prefixEqual = true;
+        for (uint n = 0; n < k - 1; n=n+1)
+        {
+          if (F[i, n] != F[j, n]) {
+            prefixEqual = false;
+          }
+        }
+        //itemsets are ordered by item, hence the comparison in the test
+        if (prefixEqual && F[i, k-1] < F[j, k-1]) {
+          pd_a3p uint [[1]] C_dot = F_cache[i, :] * F_cache[j, :]; //join the two caches
+          pd_a3p uint frequence = sum (C_dot); // compute the joint frequency
+          if (declassify (frequence >= classify(threshold))) {
+            F_newcache = cat (F_newcache, reshape(C_dot, 1, size(C_dot)));
+            // create the new itemset by appending the last element of the second itemset to the first
+            C = cat (F[i, :], F[j, k-1:k]);
+            F_new = cat (F_new, reshape(C, 1, k+1));
+          }
+        }
+      }
+    }
+    
+    F = F_new;
+    F_cache = F_newcache;
+    
+    frequent.items = F_new;
+    frequents = cat(frequents,{frequent});
+  }
 
-  return F;
+  return frequents;
 }
 
 
 void main () {
     pd_a3p uint [[2]] db = load_db ();
-    uint [[2]] itemsets = apriori (db, 1 :: uint, 3 :: uint);
-    printArray (itemsets);
+    itemset [[1]] itemsets = apriori (db, 1 :: uint, 3 :: uint);
+    print (itemsets);
 }
