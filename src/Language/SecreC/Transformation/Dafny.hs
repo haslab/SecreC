@@ -1064,10 +1064,10 @@ syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
                 (Right 1,Right 0) -> do
                     pret <- varToDafny ret
                     (annse,pe) <- qExprToDafny False (annx++anny) (parens $ px <+> char '+' <+> py)
-                    return $ annLines annse $+$ pret <+> text ":=" <+> pe
+                    return $ annLines annse $+$ pret <+> text ":=" <+> pe <> semi
                 (Right d,Right n) -> do
                     pret <- varToDafny ret
-                    return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py)
+                    return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py) <> semi
                 (err1,err2) -> do
                     ppx <- lift $ pp x
                     ppy <- lift $ pp y
@@ -1089,7 +1089,7 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
     mbdret <- lift $ tryTcError l $ typeDim l tret >>= fullyEvaluateIndexExpr l
     case (mbdret,length szs) of
         (Right d@((>1) -> True),n) -> do
-            return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum n) <> parens (px <> comma <> sepBy comma pszs)
+            return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum n) <> parens (px <> comma <> sepBy comma pszs) <> semi
         otherwise -> do
             pptx <- lift $ pp tx
             ppret <- lift $ pp ret
