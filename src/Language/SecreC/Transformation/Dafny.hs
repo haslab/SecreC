@@ -526,7 +526,9 @@ procedureArgToDafny l isPost (_,v,True) = do
     ppv <- lift $ pp v
     genError l $ text "procedureArgToDafny:" <+> ppv <> text "..."
 
-dafnySize x = text "uint64" <> parens (char '|' <> x <> char '|')
+dafnySize n x = if n > 1
+    then x <> text ".size()"
+    else text "uint64" <> parens (char '|' <> x <> char '|') 
 
 qualifiedDafny :: DafnyK m => Position -> Type -> Doc -> DafnyM m Doc
 qualifiedDafny l t x = do
@@ -539,7 +541,6 @@ genDafnyPublics l False annK pv tv = whenLeakMode $ do
     d <- getInDecl
     if isLeakageInDecl d
         then do
-            let psize = dafnySize pv
             let publick = case annK of
                             StmtK -> "PublicMid"
                             InvariantK -> "PublicMid"
@@ -555,7 +556,8 @@ genDafnyPublics l False annK pv tv = whenLeakMode $ do
                     mb <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
                     case mb of
                         Right 0 -> return []
-                        Right 1 -> do
+                        Right n -> do
+                            let psize = dafnySize n pv
                             return [(annK,True,text publick <> parens psize)]
                         otherwise -> do
                             ppt <- lift $ pp t
@@ -728,7 +730,7 @@ checkDafnyShape l isFree (Sizes szs) e = case Foldable.toList szs of
     (ds@(all (not . snd) -> True)) -> do
         (anns,des) <- Utils.mapAndUnzipM (expressionToDafny False False StmtK) (map fst ds)
         let check = case des of
-                        [de] -> dafnySize e <+> text "==" <+> de
+                        [de] -> dafnySize 0 e <+> text "==" <+> de
                         des -> e <> text ".shape()" <+> text "==" <+> brackets (sepBy comma des)
         return $ concat anns ++ [(StmtK,isFree,check)]
     otherwise -> do
@@ -1205,13 +1207,11 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.size" [x] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     let tx = typed $ loc x
     case tx of
-        BaseT b -> qExprToDafny isQExpr (annx) (dafnySize px)
+        BaseT b -> qExprToDafny isQExpr (annx) (dafnySize 0 px)
         ComplexT (CType s b d) -> do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
-                Right 0 -> qExprToDafny isQExpr (annx) $ dafnySize px
-                Right 1 -> qExprToDafny isQExpr (annx) $ dafnySize px
-                Right n -> qExprToDafny isQExpr (annx) $ px <> text ".size()"
+                Right n -> qExprToDafny isQExpr (annx) $ dafnySize n px
                 otherwise -> do
                     ppx <- lift $ pp x
                     pptx <- lift $ pp tx
@@ -1229,8 +1229,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
                 Right 0 -> qExprToDafny isQExpr (annx) $ brackets empty
-                Right 1 -> qExprToDafny isQExpr (annx) $ brackets $ dafnySize px
-                Right n -> qExprToDafny isQExpr (annx) $ px <> text ".shape()"
+                Right n -> qExprToDafny isQExpr (annx) $ brackets $ dafnySize n px
                 otherwise -> do
                     ppx <- lift $ pp x
                     pptx <- lift $ pp tx
