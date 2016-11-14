@@ -1001,17 +1001,19 @@ procCallArgToDafny isLVal annK (e,True) = do
     ppe <- lift $ pp e
     genError (unTyped $ loc e) $ text "unsupported variadic procedure argument" <+> ppe
 
---syscall2Prover l n@(isPrefixOf "core." -> True) args = do
---    args' <- mapM unpush $ init args
---    VarName (Typed _ t) (VIden r) <- unret $ last args
---    ie <- corecall2Prover l (drop 5 n) args'
---    addVar r (Just ie,Nothing)
---  where
---    unpush (SyscallPush _ e) = variadicExpr2Prover e
---    unret (SyscallReturn _ v) = return v
+sysParamsToDafny :: [SyscallParameter GIdentifier (Typed Position)] -> Maybe ([Expression GIdentifier (Typed Position)],VarName GIdentifier (Typed Position))
+sysParamsToDafny xs | not (null xs) && all ispush (init xs) && isret (last xs) = Just (map unpush $ init xs,unret $ last xs)
+    where
+    ispush (SyscallPush _ (x,False)) = True
+    ispush _ = False
+    isret (SyscallReturn {}) = True
+    isret _ = False
+    unpush (SyscallPush _ (x,False)) = x
+    unret (SyscallReturn _ ret) = ret
+sysParamsToDafny params = Nothing
 
 syscallToDafny :: DafnyK m => Position -> String -> [SyscallParameter GIdentifier (Typed Position)] -> DafnyM m Doc
-syscallToDafny l "core.cat" [SyscallPush _ (x,False),SyscallPush _ (y,False),SyscallPush _ (n,False),SyscallReturn _ ret] = do
+syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
     (annx,px) <- expressionToDafny False False StmtK x
     (anny,py) <- expressionToDafny False False StmtK y
     let tx = typed $ loc x
@@ -1026,7 +1028,7 @@ syscallToDafny l "core.cat" [SyscallPush _ (x,False),SyscallPush _ (y,False),Sys
                     return $ annLines annse $+$ pret <+> text ":=" <+> pe
                 (Right d,Right n) -> do
                     pret <- varToDafny ret
-                    return $ pret <+> text ":=" <+> text "cat" <> int (fromEnum n) <> parens (px <> comma <> py)
+                    return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py)
                 (err1,err2) -> do
                     ppx <- lift $ pp x
                     ppy <- lift $ pp y
@@ -1038,32 +1040,25 @@ syscallToDafny l "core.cat" [SyscallPush _ (x,False),SyscallPush _ (y,False),Sys
             ppn <- lift $ pp n
             pptx <- lift $ pp tx
             genError l $ text "syscallToDafny: unsupported cat type" <+> ppx <+> ppy <+> ppn <+> pptx
+syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
+    (annx,px) <- expressionToDafny False False StmtK x
+    (concat -> annszs,pszs) <- Utils.mapAndUnzipM (expressionToDafny False False StmtK) szs
+    pret <- varToDafny ret
+    let tx = typed $ loc x
+    let tret = typed $ loc ret
+    mbdx <- lift $ tryTcError l $ typeDim l tx >>= fullyEvaluateIndexExpr l
+    mbdret <- lift $ tryTcError l $ typeDim l tret >>= fullyEvaluateIndexExpr l
+    case (mbdx,mbdret) of
+        (Right d@((>1) -> True),Right n) -> do
+            return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum n) <> parens (px <> comma <> sepBy comma pszs)
+        otherwise -> do
+            ppx <- lift $ pp x
+            ppret <- lift $ pp ret
+            genError l $ text "syscallToDafny: unsupported reshape type" <+> ppx <+> int (length szs) <+> ppret
 syscallToDafny l n params = do
     ppn <- lift $ pp n
     ppparams <- lift $ liftM (sepBy comma) $ mapM pp params
     genError l $ text "syscallToDafny: unexpected" <+> ppn <+> ppparams
-
---builtinToDafny isLVal isQExpr annK (Typed l ret) "core.cat" [x,y,n] = do
---    (annx,px) <- expressionToDafny isLVal False annK x
---    (anny,py) <- expressionToDafny isLVal False annK y
---    let tx = typed $ loc x
---    case tx of
---        ComplexT (CType s b d) -> do
---            mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
---            mbn <- lift $ tryTcError l $ fullyEvaluateIndexExpr l $ fmap typed n
---            case (mbd,mbn) of
---                (Right 1,Right 0) -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> char '+' <+> py)
---                (err1,err2) -> do
---                    ppx <- lift $ pp x
---                    ppy <- lift $ pp y
---                    ppn <- lift $ pp n
---                    genError (locpos l) $ text "builtinToDafny: unsupported cat dimension" <+> ppx <+> ppy <+> ppn <+> vcat (map ppid $ lefts [err1,err2])
---        otherwise -> do
---            ppx <- lift $ pp x
---            ppy <- lift $ pp y
---            ppn <- lift $ pp n
---            pptx <- lift $ pp tx
---            genError l $ text "builtinToDafny: unsupported cat type" <+> ppx <+> ppy <+> ppn <+> pptx
 
 builtinToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Typed Position -> String -> [Expression GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.eq" [x,y] = do

@@ -85,4 +85,19 @@ class Array2<T> {
   free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> zs.arr2[i,j] == xs.arr2[i,j];
   free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> zs.arr2[i,j+xs.arr2.Length1] == ys.arr2[i,j];
   {}
+      
+  method reshape0(x: T, m: int, n: int) returns (ys: Array2<T>)
+  requires m * n == 1;
+  free ensures ys != null && ys.valid();
+  free ensures ys.arr2.Length0 == m && ys.arr2.Length1 == n;
+  free ensures ys.arr2[0,0] == x; 
+  {}
+  
+  method reshape1(xs: seq<int>, m: int, n: int) returns (ys: Array2<int>)
+  requires m >= 0 && n >= 0;
+  requires |xs| == m * n;
+  free ensures ys != null && ys.valid();
+  free ensures ys.arr2.Length0 == m && ys.arr2.Length1 == n;
+  free ensures forall i: int, j: int :: (0 <= i < m && 0 <= j < n) ==> i+j < |xs| && ys.arr2[i,j] == xs[i+j];
+  {}
 }

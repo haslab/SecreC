@@ -75,7 +75,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
-      F = cat (F, reshape((uint) i, 1, 1));
+      F = cat (F, reshape(i, 1, 1));
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }

@@ -267,7 +267,7 @@ context<>
 }
 
 template <domain D, type T >
-function D T[[size...(ns)]] reshape (D T val, uint... ns)
+D T[[size...(ns)]] reshape (D T val, uint... ns)
 context<>
 {
     __builtin("core.reshape",val,ns...) :: D T[[size...(ns)]]
@@ -278,7 +278,9 @@ function D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint sum(ns...) @*/ >
 //@ requires sum(ns...) == size(arr);
 {
-    __builtin("core.reshape",arr,ns...) :: D T[[size...(ns)]]
+    D T[[size...(ns)]] ret;
+    __syscall("core.reshape",arr,ns...,__return ret);
+    return ret;
 }
 
 template<domain D>
