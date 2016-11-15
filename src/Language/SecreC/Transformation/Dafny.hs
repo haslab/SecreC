@@ -818,7 +818,7 @@ indexToDafny isLVal annK (Just pe) i (IndexSlice l e1 e2) = do
     let pe1' = maybe (int 0) id pe1
     (anne2,pe2) <- mapExpressionToDafny isLVal annK e2
     let pe2' = maybe (pe <> text ".Length" <> int i) id pe2
-    return (anne1++anne2,ppid pe1 <> text "," <> ppid pe2)
+    return (anne1++anne2,pe1' <> text "," <> pe2')
 
 -- left = expression, right = update
 assignmentToDafny :: DafnyK m => AnnKind -> Expression GIdentifier (Typed Position) -> Either Doc Doc -> DafnyM m (AnnsDoc,Doc)
