@@ -1113,9 +1113,9 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
     let tret = typed $ loc ret
     mbdx <- lift $ tryTcError l $ typeDim l tx >>= fullyEvaluateIndexExpr l
     mbdret <- lift $ tryTcError l $ typeDim l tret >>= fullyEvaluateIndexExpr l
-    case (mbdret,length szs) of
-        (Right d@((>1) -> True),n) -> do
-            return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum n) <> parens (px <> comma <> sepBy comma pszs) <> semi
+    case (mbdx,mbdret) of
+        (Right dx,Right d@((>1) -> True)) -> do
+            return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum dx) <> parens (px <> comma <> sepBy comma pszs) <> semi
         otherwise -> do
             pptx <- lift $ pp tx
             ppret <- lift $ pp ret
