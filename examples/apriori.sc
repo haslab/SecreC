@@ -45,7 +45,7 @@ pd_a3p uint [[2]] load_db () {
 
 //@ template <domain D>
 //@ function set<uint> itemsof(D uint[[2]] db) {
-//@     (set int x | 0 <= x && x < shape(db)[1])
+//@     (set uint x | 0 <= x && x < shape(db)[1])
 //@ }
 
 //@ template <domain D>
