@@ -9,9 +9,16 @@ kind shared3p;
 domain pd_a3p shared3p;
 
 template<domain D>
-D uint sum (D uint[[1]] xs) {
-	havoc D uint res;
-	return res;
+function D uint sum (D uint[[1]] xs)
+{
+    __builtin("core.sum",xs) :: D uint
+}
+
+template <domain D >
+function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
+//@ requires shape(x) == shape(y);
+{
+    __builtin("core.mul",x,y) :: D uint[[1]]
 }
 
 template <type T, dim N>
@@ -36,28 +43,28 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
-//x template <domain D>
-//x function set<uint> itemsof(D uint[[2]] db) {
-//x     (set int x | 0 <= x && x < shape(db)[1])
-//x }
+//@ template <domain D>
+//@ function set<uint> itemsof(D uint[[2]] db) {
+//@     (set int x | 0 <= x && x < shape(db)[1])
+//@ }
 
-//x template <domain D>
-//x function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
-//x     if is.size() == [] then 0 else db[:,is[0]] * transactions(is[1:],db)
-//x }
+//@ template <domain D>
+//@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
+//@     if is.size() == [] then 0 else db[:,is[0]] * transactions(is[1:],db)
+//@ }
 
-//x //@ template <nonpublic kind K,domain D : K, type T>
-//x //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
-//x //@ context<>
-//x //@ noinline;
-//x //@ {
-//x //@     forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) <= threshold)
-//x //@ }
+//@ template <nonpublic kind K,domain D : K, type T>
+//@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
+//@ context<>
+//@ noinline;
+//@ {
+//@     forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) <= threshold)
+//@ }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
-//x //@ leakage requires lfrequents(db,threshold);
+//@ leakage requires lfrequents(db,threshold);
 {
   uint dbColumns = shape(db)[1]; // number of items
   uint dbRows = shape(db)[0]; // number of transactions

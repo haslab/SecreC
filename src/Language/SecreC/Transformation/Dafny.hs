@@ -1191,6 +1191,10 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.add" [x,y] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
     qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "+" <+> py)
+builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sum" [xs] = do
+    (pret,annpret) <- typeToDafny l annK ret
+    (annxs,pxs) <- expressionToDafny isLVal False annK xs
+    qExprToDafny isQExpr (annpret++annxs) (parens $ text "sum_" <> pret <> parens pxs)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sub" [x,y] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
@@ -1198,7 +1202,13 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sub" [x,y] = do
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.mul" [x,y] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "*" <+> py)
+    mbd <- lift $ tryTcError l $ typeDim l ret >>= fullyEvaluateIndexExpr l
+    case mbd of
+        Right 0 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "*" <+> py)
+        Right n -> qExprToDafny isQExpr (annx++anny) (text "mul" <> int (fromEnum n) <> parens (px <> comma <> py))
+        otherwise -> do
+            ppret <- lift $ pp ret
+            genError (locpos l) $ text "builtinToDafny: unsupported mul dimension for" <+> ppret
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.div" [x,y] = do
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
