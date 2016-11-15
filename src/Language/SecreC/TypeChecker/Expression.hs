@@ -236,7 +236,7 @@ tcExpr me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     e' <- tcExpr e
     ComplexT set <- newTyVar True False Nothing
     topTcCstrM_ l $ ToSet (Right $ typed $ loc e') set
-    return $ ToMultisetExpr (Typed l $ ComplexT set) e'
+    return $ ToSetExpr (Typed l $ ComplexT set) e'
 tcExpr me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     (t',x') <- tcQVar l (t,x)
     px' <- tcGuard px

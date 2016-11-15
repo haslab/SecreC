@@ -593,7 +593,7 @@ toSetType l isBase (ComplexT ct) = readable1 toSetType' l ct
         return $ CType s (Set b) (indexExpr 0)
     toSetType' (CType s b d) | not isBase = do
         tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
-        return $ CType s (Set b) (indexExpr 1)
+        return $ CType s (Set b) (indexExpr 0)
     toSetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to set"
