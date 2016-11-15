@@ -73,6 +73,13 @@ context<>
 // addition
 
 //@ template<domain D,type T>
+//@ function D set<T> operator + (D set<T> x, D set<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.union",x,y) :: D set<T>
+//@ }
+
+//@ template<domain D,type T>
 //@ function D multiset<T> operator + (D multiset<T> x, D multiset<T> y)
 //@ context<>
 //@ {
@@ -186,10 +193,24 @@ context<>
 } 
 
 //@ template<domain D,type T>
+//@ function D bool operator <= (D set<T> x, D set<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.subset",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
 //@ function D bool operator <= (D multiset<T> x, D multiset<T> y)
 //@ context<>
 //@ {
 //@     __builtin("core.subset",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
+//@ function D bool in (D T x, D set<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.in",x,y) :: D bool
 //@ }
 
 //@ template<domain D,type T>
@@ -204,6 +225,13 @@ context<>
 //@ context<>
 //@ {
 //@     __builtin("core.in",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
+//@ function D bool operator >= (D set<T> x, D set<T> y)
+//@ context<>
+//@ {
+//@     __builtin("core.subset",y,x) :: D bool
 //@ }
 
 //@ template<domain D,type T>
