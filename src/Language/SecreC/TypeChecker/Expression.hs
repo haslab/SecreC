@@ -178,18 +178,9 @@ tcExpr (VArraySizeExpr l e) = do
     return $ VArraySizeExpr (Typed l $ BaseT index) e'
 tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
-    vs' <- mapM tcQVar vs
+    vs' <- mapM (tcQVar l) vs
     e' <- tcGuard e
     return $ QuantifiedExpr (Typed l $ BaseT bool) q' vs' e'
-  where
-    tcQVar (t,v) = do
-        t' <- tcTypeSpec t False False
-        let ty = typed $ loc t'
-        let v' = bimap (VIden . mkVarId) (flip Typed ty) v
-        topTcCstrM_ l $ IsPublic True $ typed $ loc v'
-        isAnn <- getAnn
-        newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
-        return (t',v')
 tcExpr le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
     e' <- limitExprC ReadOnlyExpr $ tcExpr e
     topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
@@ -222,6 +213,9 @@ tcExpr (ArrayConstructorPExpr l es) = limitExprC ReadOnlyExpr $ do
 tcExpr e@(MultisetConstructorPExpr l es) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     lit' <- tcMultisetLiteral l es
     return lit'
+tcExpr e@(SetConstructorPExpr l es) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
+    lit' <- tcSetLiteral l es
+    return lit'
 tcExpr (LitPExpr l lit) = limitExprC ReadOnlyExpr $ do
     lit' <- tcLiteral lit
     return lit'
@@ -238,6 +232,19 @@ tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $
     ComplexT mset <- newTyVar True False Nothing
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
+tcExpr me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
+    e' <- tcExpr e
+    ComplexT set <- newTyVar True False Nothing
+    topTcCstrM_ l $ ToSet (Right $ typed $ loc e') set
+    return $ ToMultisetExpr (Typed l $ ComplexT set) e'
+tcExpr me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
+    (t',x') <- tcQVar l (t,x)
+    px' <- tcGuard px
+    fx' <- mapM tcExpr fx
+    let setb = maybe (typed $ loc t') (typed . loc) fx'
+    ComplexT set <- newTyVar True False Nothing
+    topTcCstrM_ l $ ToSet (Left setb) set
+    return $ SetComprehensionExpr (Typed l $ ComplexT set) t' x' px' fx'
 tcExpr me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
     e' <- tcExpr e
     i' <- tcIndexExpr False i
@@ -251,6 +258,16 @@ tcExpr e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     return $ ResultExpr tl
 tcExpr e = genTcError (locpos $ loc e) False $ text "failed to typecheck expression" <+> ppid e
+
+tcQVar :: ProverK loc m => loc -> (TypeSpecifier Identifier loc,VarName Identifier loc) -> TcM m (TypeSpecifier GIdentifier (Typed loc),VarName GIdentifier (Typed loc))
+tcQVar l (t,v) = do
+    t' <- tcTypeSpec t False False
+    let ty = typed $ loc t'
+    let v' = bimap (VIden . mkVarId) (flip Typed ty) v
+    topTcCstrM_ l $ IsPublic True $ typed $ loc v'
+    isAnn <- getAnn
+    newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
+    return (t',v')
 
 isSupportedBuiltin :: (MonadIO m,Location loc) => loc -> Identifier -> [Type] -> TcM m Type
 isSupportedBuiltin l n args = do -- TODO: check specific builtins?
@@ -354,6 +371,18 @@ tcMultisetLiteral l es = do
     let bt = ComplexT $ CType s b (indexExpr 0)
     xs <- tcCoercesN l True es'' bt
     return $ MultisetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
+
+tcSetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
+tcSetLiteral l es = do
+    es' <- mapM tcExpr es
+    let es'' = fmap (fmap typed) es'
+    k <- newKindVar "k" Nothing False Nothing
+    s <- newDomainTyVar "s" k False Nothing
+    b <- newBaseTyVar Nothing False Nothing
+    let t = ComplexT $ CType s (Set b) (indexExpr 0)
+    let bt = ComplexT $ CType s b (indexExpr 0)
+    xs <- tcCoercesN l True es'' bt
+    return $ SetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
 tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName GIdentifier (Typed loc))
 tcVarName isWrite v@(VarName l n) = do

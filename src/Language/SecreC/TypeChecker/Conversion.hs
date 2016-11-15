@@ -236,6 +236,9 @@ baseType2DatatypeSpecifier l b@(BVar v c) = do
 baseType2DatatypeSpecifier l t@(MSet b) = do
     b' <- baseType2DatatypeSpecifier l b
     return $ MultisetSpecifier (Typed l $ BaseT t) b'
+baseType2DatatypeSpecifier l t@(Set b) = do
+    b' <- baseType2DatatypeSpecifier l b
+    return $ SetSpecifier (Typed l $ BaseT t) b'
 --baseType2DatatypeSpecifier l t = genError (locpos l) $ text "baseType2DatatypeSpecifier:" <+> pp t
 
 type2TemplateTypeArgument :: ConversionK loc m => loc -> Type -> TcM m (TemplateTypeArgument GIdentifier (Typed loc))

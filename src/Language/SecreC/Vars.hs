@@ -658,10 +658,25 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         l' <- f l
         es' <- mapM f es
         return $ MultisetConstructorPExpr l' es'
+    traverseVars f (SetConstructorPExpr l es) = do
+        l' <- f l
+        es' <- mapM f es
+        return $ SetConstructorPExpr l' es'
     traverseVars f (ToMultisetExpr l e) = do
         l' <- f l
         e' <- f e
         return $ ToMultisetExpr l' e'
+    traverseVars f (ToSetExpr l e) = do
+        l' <- f l
+        e' <- f e
+        return $ ToSetExpr l' e'
+    traverseVars f (SetComprehensionExpr l t x p g) = do
+        l' <- f l
+        t' <- f t
+        x' <- f x
+        p' <- f p
+        g' <- f g
+        return $ SetComprehensionExpr l' t' x' p' g'
     traverseVars f (ToVArrayExpr l e i) = do
         l' <- f l
         e' <- f e
@@ -739,6 +754,10 @@ instance (GenVar iden m,Vars iden2 m iden,Location loc,Vars iden2 m loc,IsScVar 
         l' <- f l
         t' <- f t
         return $ MultisetSpecifier l' t'
+    traverseVars f (SetSpecifier l t) = do
+        l' <- f l
+        t' <- f t
+        return $ SetSpecifier l' t'
     substL (VariableSpecifier l (TypeName _ n)) = substL n
     substL s = return Nothing
     

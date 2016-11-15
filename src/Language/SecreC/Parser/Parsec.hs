@@ -357,6 +357,7 @@ scSecTypeSpecifier = (apA (scTok PUBLIC) (\x1 -> PublicSpecifier (loc x1)) <?> "
 scDatatypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (DatatypeSpecifier Identifier Position)
 scDatatypeSpecifier = (apA scPrimitiveDatatype (\x1 -> PrimitiveSpecifier (loc x1) x1) <?> "primitive type specifier")
                   <|> scAnn (apA2 (scTok MULTISET) (scABrackets scDatatypeSpecifier) (\x1 x2 -> MultisetSpecifier (loc x1) x2) <?> "multiset type specifier")
+                  <|> scAnn (apA2 (scTok SET) (scABrackets scDatatypeSpecifier) (\x1 x2 -> SetSpecifier (loc x1) x2) <?> "set type specifier")
                   <||> (scTemplateStructDatatypeSpecifier <?> "template type specifier")
                   <||> (apA scTypeId (\x1 -> VariableSpecifier (loc x1) x1) <?> "named type specifier")
 
@@ -873,6 +874,7 @@ scPostfixExpression' = (apA2 (scTok DOMAINID) (scParens scSecTypeSpecifier) (\x1
                   <|> apA2 (scTok VSIZE) (scParens scExpression) (\x1 x2 -> VArraySizeExpr (loc x1) x2)
                   <|> scAnn (apA2 (scTok PUBLIC) (scParens scExpression) (\x1 x2 -> LeakExpr (loc x1) x2))
                   <|> scMultiSetExpr
+                  <|> scSetExpr
                   <|> apA3 scProcedureId
                       (optionMaybe $ scABrackets scTemplateTypeArguments)
                       (scParens (optionMaybe scVariadicExpressionList))
@@ -887,6 +889,20 @@ scMultiSetExpr = scAnn $ do
   where
     o1 x1 = apA (scParens scExpression) (\x2 -> ToMultisetExpr (loc x1) x2)
     o2 x1 = scCBrackets' (\_ -> apA scExpressionList (MultisetConstructorPExpr (loc x1)))
+    
+scSetExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
+scSetExpr = scAnn $ do
+    x1 <- scTok SET
+    o1 x1 <|> o2 x1 <|> o3 x1
+  where
+    o1 x1 = scTypeSpecifier $ \t -> do
+        x <- scVarId
+        scChar '|'
+        px <- scExpression
+        fx <- optionMaybe (scTok TYPE_QUAL *> scExpression)
+        return $ SetComprehensionExpr (loc x1) t x px fx
+    o2 x1 = apA (scParens scExpression) (\x2 -> ToSetExpr (loc x1) x2)
+    o3 x1 = scCBrackets' (\_ -> apA scExpressionList (SetConstructorPExpr (loc x1)))
 
 scQuantifiedExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scQuantifiedExpr = scAnn $ apA4 scQuantifier (sepBy1 scQVar (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)

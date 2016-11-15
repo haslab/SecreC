@@ -45,13 +45,13 @@ $simpleop        = [\.\-\,\;\:\!\?\/\^\~\(\)\[\]\{\}\*\&\%\+\<\=\>\|]
 tokens :-
 
 
-<0>       "//".*            { lineComment }
-<0>       "#".*             ;
-<0>       \/\*              { enterNewComment }
-<comment> \/\*              { embedComment    }
-<comment> \*\/              { unembedComment  }
-<comment> @newline          { bufferComment }
-<comment> .                 { bufferComment }
+<0>       "//".*                                { lineComment }
+<0>       "#".*                                 ;
+<0>       \/\*                                  { enterNewComment }
+<comment> \/\*                                  { embedComment    }
+<comment> \*\/                                  { unembedComment  }
+<comment> @newline                              { bufferComment }
+<comment> .                                     { bufferComment }
 
 <0>       $white+           ;
                         
@@ -62,92 +62,93 @@ tokens :-
 <state_string>          \\n                     { bufferChar (const '\n') }
 <state_string>          \\t                     { bufferChar (const '\t') }
 <state_string>          \\r                     { bufferChar (const '\r') }
-<state_string>          \\\.                     { bufferChar (!!1) }
+<state_string>          \\\.                    { bufferChar (!!1) }
 <state_string>          .                       { bufferChar (!!0) }
 
 -- String identifier:
 <state_string_variable> @identifier             { leaveStateStringVariable }
 
 -- Keywords:
-<0>                     nonpublic             { lexerTokenInfo NONPUBLIC }
-<0>                     readonly             { lexerTokenInfo READONLY }
-<0>                     readwrite             { lexerTokenInfo READWRITE }
-<0>                     pure             { lexerTokenInfo PURE }
-<0>                     context             { lexerTokenInfo CONTEXT }
-<0>                     numeric             { lexerTokenInfo NUMERIC }
-<0>                     primitive             { lexerTokenInfo PRIMITIVE }
-<0>                     function              { lexerTokenInfo FUNCTION }
-<0>                     havoc                 { lexerTokenInfo HAVOC }
-<0>                     \\result              { lexerAnnTokenInfo RESULT }
-<0>                     forall                { lexerAnnTokenInfo FORALL }
-<0>                     exists                { lexerAnnTokenInfo EXISTS }
-<0>                     assert                { lexerTokenInfo ASSERT }
-<0>                     const                 { lexerTokenInfo CONST }
-<0>                     bool                  { lexerTokenInfo BOOL }
-<0>                     break                 { lexerTokenInfo BREAK }
-<0>                     continue              { lexerTokenInfo CONTINUE }
-<0>                     dim                   { lexerTokenInfo DIMENSIONALITY }
-<0>                     do                    { lexerTokenInfo DO }
-<0>                     domain                { lexerTokenInfo DOMAIN }
-<0>                     else                  { lexerTokenInfo ELSE }
-<0>                     false                 { lexerTokenInfo FALSE_B }
-<0>                     float                 { lexerTokenInfo FLOAT }
-<0>                     float32               { lexerTokenInfo FLOAT32 }
-<0>                     float64               { lexerTokenInfo FLOAT64 }
-<0>                     for                   { lexerTokenInfo FOR }
-<0>                     if                    { lexerTokenInfo IF }
-<0>                     import                { lexerTokenInfo IMPORT }
-<0>                     int                   { lexerTokenInfo INT }
-<0>                     int16                 { lexerTokenInfo INT16 }
-<0>                     int32                 { lexerTokenInfo INT32 }
-<0>                     int64                 { lexerTokenInfo INT64 }
-<0>                     int8                  { lexerTokenInfo INT8 }
-<0>                     kind                  { lexerTokenInfo KIND }
-<0>                     module                { lexerTokenInfo MODULE }
-<0>                     operator              { lexerTokenInfo OPERATOR }
-<0>                     print                 { lexerTokenInfo PRINT }
-<0>                     public                { lexerTokenInfo PUBLIC }
-<0>                     return                { lexerTokenInfo RETURN }
-<0>                     string                { lexerTokenInfo STRING }
-<0>                     struct                { lexerTokenInfo STRUCT }
-<0>                     template              { lexerTokenInfo TEMPLATE }
-<0>                     true                  { lexerTokenInfo TRUE_B }
-<0>                     type                  { lexerTokenInfo TYPE }
-<0>                     uint                  { lexerTokenInfo UINT }
-<0>                     uint16                { lexerTokenInfo UINT16 }
-<0>                     uint32                { lexerTokenInfo UINT32 }
-<0>                     uint64                { lexerTokenInfo UINT64 }
-<0>                     uint8                 { lexerTokenInfo UINT8 }
-<0>                     void                  { lexerTokenInfo VOID }
-<0>                     while                 { lexerTokenInfo WHILE }
-<0>                     xor_uint              { lexerTokenInfo XOR_UINT }
-<0>                     xor_uint16            { lexerTokenInfo XOR_UINT16 }
-<0>                     xor_uint32            { lexerTokenInfo XOR_UINT32 }
-<0>                     xor_uint64            { lexerTokenInfo XOR_UINT64 }
-<0>                     xor_uint8             { lexerTokenInfo XOR_UINT8 }
-<0>                     requires              { lexerTokenInfo REQUIRES }
-<0>                     ensures               { lexerAnnTokenInfo ENSURES }
-<0>                     multiset              { lexerAnnTokenInfo MULTISET }
-<0>                     free                  { lexerAnnTokenInfo FREE }
-<0>                     assume                { lexerAnnTokenInfo ASSUME }
-<0>                     leakage               { lexerAnnTokenInfo LEAKAGE }
-<0>                     axiom                 { lexerAnnTokenInfo AXIOM }
-<0>                     lemma                 { lexerAnnTokenInfo LEMMA }
-<0>                     invariant             { lexerAnnTokenInfo INVARIANT }
-<0>                     inline                { lexerAnnTokenInfo INLINE }
-<0>                     noinline              { lexerAnnTokenInfo NOINLINE }
-<0>                     decreases             { lexerAnnTokenInfo DECREASES }
+<0>                     nonpublic               { lexerTokenInfo NONPUBLIC }
+<0>                     readonly                { lexerTokenInfo READONLY }
+<0>                     readwrite               { lexerTokenInfo READWRITE }
+<0>                     pure                    { lexerTokenInfo PURE }
+<0>                     context                 { lexerTokenInfo CONTEXT }
+<0>                     numeric                 { lexerTokenInfo NUMERIC }
+<0>                     primitive               { lexerTokenInfo PRIMITIVE }
+<0>                     function                { lexerTokenInfo FUNCTION }
+<0>                     havoc                   { lexerTokenInfo HAVOC }
+<0>                     \\result                { lexerAnnTokenInfo RESULT }
+<0>                     forall                  { lexerAnnTokenInfo FORALL }
+<0>                     exists                  { lexerAnnTokenInfo EXISTS }
+<0>                     assert                  { lexerTokenInfo ASSERT }
+<0>                     const                   { lexerTokenInfo CONST }
+<0>                     bool                    { lexerTokenInfo BOOL }
+<0>                     break                   { lexerTokenInfo BREAK }
+<0>                     continue                { lexerTokenInfo CONTINUE }
+<0>                     dim                     { lexerTokenInfo DIMENSIONALITY }
+<0>                     do                      { lexerTokenInfo DO }
+<0>                     domain                  { lexerTokenInfo DOMAIN }
+<0>                     else                    { lexerTokenInfo ELSE }
+<0>                     false                   { lexerTokenInfo FALSE_B }
+<0>                     float                   { lexerTokenInfo FLOAT }
+<0>                     float32                 { lexerTokenInfo FLOAT32 }
+<0>                     float64                 { lexerTokenInfo FLOAT64 }
+<0>                     for                     { lexerTokenInfo FOR }
+<0>                     if                      { lexerTokenInfo IF }
+<0>                     import                  { lexerTokenInfo IMPORT }
+<0>                     int                     { lexerTokenInfo INT }
+<0>                     int16                   { lexerTokenInfo INT16 }
+<0>                     int32                   { lexerTokenInfo INT32 }
+<0>                     int64                   { lexerTokenInfo INT64 }
+<0>                     int8                    { lexerTokenInfo INT8 }
+<0>                     kind                    { lexerTokenInfo KIND }
+<0>                     module                  { lexerTokenInfo MODULE }
+<0>                     operator                { lexerTokenInfo OPERATOR }
+<0>                     print                   { lexerTokenInfo PRINT }
+<0>                     public                  { lexerTokenInfo PUBLIC }
+<0>                     return                  { lexerTokenInfo RETURN }
+<0>                     string                  { lexerTokenInfo STRING }
+<0>                     struct                  { lexerTokenInfo STRUCT }
+<0>                     template                { lexerTokenInfo TEMPLATE }
+<0>                     true                    { lexerTokenInfo TRUE_B }
+<0>                     type                    { lexerTokenInfo TYPE }
+<0>                     uint                    { lexerTokenInfo UINT }
+<0>                     uint16                  { lexerTokenInfo UINT16 }
+<0>                     uint32                  { lexerTokenInfo UINT32 }
+<0>                     uint64                  { lexerTokenInfo UINT64 }
+<0>                     uint8                   { lexerTokenInfo UINT8 }
+<0>                     void                    { lexerTokenInfo VOID }
+<0>                     while                   { lexerTokenInfo WHILE }
+<0>                     xor_uint                { lexerTokenInfo XOR_UINT }
+<0>                     xor_uint16              { lexerTokenInfo XOR_UINT16 }
+<0>                     xor_uint32              { lexerTokenInfo XOR_UINT32 }
+<0>                     xor_uint64              { lexerTokenInfo XOR_UINT64 }
+<0>                     xor_uint8               { lexerTokenInfo XOR_UINT8 }
+<0>                     requires                { lexerTokenInfo REQUIRES }
+<0>                     ensures                 { lexerAnnTokenInfo ENSURES }
+<0>                     multiset                { lexerAnnTokenInfo MULTISET }
+<0>                     set                     { lexerAnnTokenInfo SET }
+<0>                     free                    { lexerAnnTokenInfo FREE }
+<0>                     assume                  { lexerAnnTokenInfo ASSUME }
+<0>                     leakage                 { lexerAnnTokenInfo LEAKAGE }
+<0>                     axiom                   { lexerAnnTokenInfo AXIOM }
+<0>                     lemma                   { lexerAnnTokenInfo LEMMA }
+<0>                     invariant               { lexerAnnTokenInfo INVARIANT }
+<0>                     inline                  { lexerAnnTokenInfo INLINE }
+<0>                     noinline                { lexerAnnTokenInfo NOINLINE }
+<0>                     decreases               { lexerAnnTokenInfo DECREASES }
 
 -- built-in functions:
-<0>                     "size..."             { lexerTokenInfo VSIZE }
-<0>                     __bytes_from_string   { lexerTokenInfo BYTESFROMSTRING }
-<0>                     __cref                { lexerTokenInfo CREF }
-<0>                     __domainid            { lexerTokenInfo DOMAINID }
-<0>                     __ref                 { lexerTokenInfo REF }
-<0>                     __string_from_bytes   { lexerTokenInfo STRINGFROMBYTES }
-<0>                     __return              { lexerTokenInfo SYSCALL_RETURN }
-<0>                     __syscall             { lexerTokenInfo SYSCALL }
-<0>                     __builtin             { lexerTokenInfo BUILTIN }
+<0>                     "size..."               { lexerTokenInfo VSIZE }
+<0>                     __bytes_from_string     { lexerTokenInfo BYTESFROMSTRING }
+<0>                     __cref                  { lexerTokenInfo CREF }
+<0>                     __domainid              { lexerTokenInfo DOMAINID }
+<0>                     __ref                   { lexerTokenInfo REF }
+<0>                     __string_from_bytes     { lexerTokenInfo STRINGFROMBYTES }
+<0>                     __return                { lexerTokenInfo SYSCALL_RETURN }
+<0>                     __syscall               { lexerTokenInfo SYSCALL }
+<0>                     __builtin               { lexerTokenInfo BUILTIN }
 
 <0>                     @identifier             { lexerTokenInfoFunc (return . IDENTIFIER) }
 <0>                     @binarylit              { lexerTokenInfoFunc (return . BIN_LITERAL . convert_to_base 2) }
@@ -157,29 +158,29 @@ tokens :-
 <0>                     @scientificfloat        { lexerTokenInfoFunc (return . FLOAT_LITERAL . readFloat) }
 <0>                     @decimal                { lexerTokenInfoFunc (return . DEC_LITERAL . convert_to_base 10) }
 
-<0>                     ==\>                   { lexerTokenInfo IMPLIES_OP }
-<0>                     \<==\>                   { lexerTokenInfo EQUIV_OP }
-<0>                     "..."                { lexerTokenInfo VARIADIC }
-<0>                     \<\~                { lexerTokenInfo COERCE }
-<0>                     \+=                   { lexerTokenInfo ADD_ASSIGN }
-<0>                     &=                   { lexerTokenInfo AND_ASSIGN }
-<0>                     \-\-                   { lexerTokenInfo DEC_OP }
-<0>                     \/=                   { lexerTokenInfo DIV_ASSIGN }
-<0>                     ==                   { lexerTokenInfo EQ_OP }
-<0>                     >=                   { lexerTokenInfo GE_OP }
-<0>                     \+\+                   { lexerTokenInfo INC_OP }
-<0>                     &&                   { lexerTokenInfo LAND_OP }
-<0>                     \<=                   { lexerTokenInfo LE_OP }
-<0>                     \|\|                   { lexerTokenInfo LOR_OP }
-<0>                     >>                   { lexerTokenInfo SHR_OP }
-<0>                     \<\<                   { lexerTokenInfo SHL_OP }
-<0>                     \%=                   { lexerTokenInfo MOD_ASSIGN }
-<0>                     \*=                   { lexerTokenInfo MUL_ASSIGN }
-<0>                     !=                   { lexerTokenInfo NE_OP }
-<0>                     \|=                   { lexerTokenInfo OR_ASSIGN }
-<0>                     \-=                   { lexerTokenInfo SUB_ASSIGN }
-<0>                     ::                   { lexerTokenInfo TYPE_QUAL }
-<0>                     ^=                   { lexerTokenInfo XOR_ASSIGN }
+<0>                     ==\>                    { lexerTokenInfo IMPLIES_OP }
+<0>                     \<==\>                  { lexerTokenInfo EQUIV_OP }
+<0>                     "..."                   { lexerTokenInfo VARIADIC }
+<0>                     \<\~                    { lexerTokenInfo COERCE }
+<0>                     \+=                     { lexerTokenInfo ADD_ASSIGN }
+<0>                     &=                      { lexerTokenInfo AND_ASSIGN }
+<0>                     \-\-                    { lexerTokenInfo DEC_OP }
+<0>                     \/=                     { lexerTokenInfo DIV_ASSIGN }
+<0>                     ==                      { lexerTokenInfo EQ_OP }
+<0>                     >=                      { lexerTokenInfo GE_OP }
+<0>                     \+\+                    { lexerTokenInfo INC_OP }
+<0>                     &&                      { lexerTokenInfo LAND_OP }
+<0>                     \<=                     { lexerTokenInfo LE_OP }
+<0>                     \|\|                    { lexerTokenInfo LOR_OP }
+<0>                     >>                      { lexerTokenInfo SHR_OP }
+<0>                     \<\<                    { lexerTokenInfo SHL_OP }
+<0>                     \%=                     { lexerTokenInfo MOD_ASSIGN }
+<0>                     \*=                     { lexerTokenInfo MUL_ASSIGN }
+<0>                     !=                      { lexerTokenInfo NE_OP }
+<0>                     \|=                     { lexerTokenInfo OR_ASSIGN }
+<0>                     \-=                     { lexerTokenInfo SUB_ASSIGN }
+<0>                     ::                      { lexerTokenInfo TYPE_QUAL }
+<0>                     ^=                      { lexerTokenInfo XOR_ASSIGN }
 
 <0>                     $simpleop               { simpleOp }
 <0>                     @newline                { skip }

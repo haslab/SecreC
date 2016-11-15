@@ -802,6 +802,7 @@ data TcCstr
     | IsPublic Bool Type
     | IsPrivate Bool Type
     | ToMultiset Type ComplexType
+    | ToSet (Either Type Type) ComplexType -- left=base type, right=collection type
     | Resolve Type
     | Default (Maybe [(Expr,IsVariadic)]) Expr
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
@@ -1036,6 +1037,10 @@ instance (Monad m,PP m VarIdentifier) => PP m TcCstr where
         ppt <- pp t
         ppr <- pp r
         return $ text "tomultiset" <+> ppt <+> ppr
+    pp (ToSet t r) = do
+        ppt <- pp t
+        ppr <- pp r
+        return $ text "toset" <+> ppt <+> ppr
 
 instance (Monad m,PP m VarIdentifier) => PP m CheckCstr where
     pp (CheckAssertion c) = liftM (text "checkAssertion" <+>) (pp c)
@@ -1252,6 +1257,10 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         t' <- f t
         r' <- f r
         return $ ToMultiset t' r'
+    traverseVars f (ToSet t r) = do
+        t' <- f t
+        r' <- f r
+        return $ ToSet t' r'
     traverseVars f (TypeBase t b) = do
         t' <- f t
         b' <- f b
@@ -1839,6 +1848,7 @@ data BaseType
     = TyPrim Prim
     | TApp SIdentifier [(Type,IsVariadic)] DecType -- template type application
     | MSet BaseType -- multiset type
+    | Set BaseType -- set type
     | BVar VarIdentifier (Maybe DataClass)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
@@ -1849,6 +1859,7 @@ baseDataClass :: BaseType -> Maybe DataClass
 baseDataClass (TyPrim p) = if isNumericPrimType p then Just NumericClass else Just PrimitiveClass
 baseDataClass (TApp {}) = Nothing
 baseDataClass (MSet {}) = Nothing
+baseDataClass (Set {}) = Nothing
 baseDataClass (BVar v k) = k
 
 type CondExpression iden loc = (Expression iden loc)
@@ -2128,6 +2139,9 @@ instance (Monad m,PP m VarIdentifier) => PP m BaseType where
     pp (MSet t) = do
         ppt <- pp t
         return $ text "multiset" <> braces ppt
+    pp (Set t) = do
+        ppt <- pp t
+        return $ text "set" <> braces ppt
     pp (BVar v c) = do
         ppv <- pp v
         ppc <- pp c
@@ -2455,6 +2469,9 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     traverseVars f (MSet t) = do
         t' <- f t
         return $ MSet t'
+    traverseVars f (Set t) = do
+        t' <- f t
+        return $ Set t'
     traverseVars f (TApp n ts d) = do
         n' <- f n
         ts' <- mapM f ts

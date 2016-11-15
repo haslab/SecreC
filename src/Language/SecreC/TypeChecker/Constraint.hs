@@ -615,6 +615,9 @@ resolveTcCstr l mode kid k = do
     resolveTcCstr' kid (ToMultiset t x) = do
         ct <- toMultisetType l t
         unifiesComplex l x ct
+    resolveTcCstr' kid (ToSet t x) = do
+        ct <- toSetType l (isLeft t) (either id id t)
+        unifiesComplex l x ct
     resolveTcCstr' kid (Resolve t) = do
         resolve l t
     resolveTcCstr' kid (Default szs e) = do
@@ -1049,6 +1052,7 @@ equalsBase l (TApp (TIden n1) ts1 d1) (TApp (TIden n2) ts2 d2) = do
     --equalsDec l d1 d2
 equalsBase l (TyPrim p1) (TyPrim p2) = equalsPrim l p1 p2
 equalsBase l (MSet b1) (MSet b2) = equalsBase l b1 b2
+equalsBase l (Set b1) (Set b2) = equalsBase l b1 b2
 equalsBase l b1 b2 = constraintError (EqualityException "base type") l b1 pp b2 pp Nothing
 
 equalsFoldable :: (ProverK loc m,Foldable t) => loc -> t Type -> t Type -> TcM m ()
@@ -1914,6 +1918,7 @@ comparesBase l isLattice = readable2 (comparesBase' isLattice) l
         --comparesDec l d1 d2
     comparesBase' isLattice t1@(TyPrim p1) t2@(TyPrim p2) = equalsPrim l p1 p2 >> return (Comparison t1 t2 EQ EQ False)
     comparesBase' isLattice t1@(MSet b1) t2@(MSet b2) = comparesBase l isLattice b1 b2
+    comparesBase' isLattice t1@(Set b1) t2@(Set b2) = comparesBase l isLattice b1 b2
     comparesBase' isLattice t1@(BVar v1 c1) t2@(BVar v2 c2) | v1 == v2 = return (Comparison t1 t2 EQ EQ False)
     comparesBase' isLattice t1@(getReadableVar -> Just (v1,c1)) t2@(getReadableVar -> Just (v2,c2)) = do
         x <- baseToken (max c1 c2)
@@ -2331,6 +2336,7 @@ unifiesBase l = readable2 unifiesBase' l
     where
     unifiesBase' (TyPrim p1) (TyPrim p2) = equalsPrim l p1 p2
     unifiesBase' (MSet b1) (MSet b2) = unifiesBase l b1 b2
+    unifiesBase' (Set b1) (Set b2) = unifiesBase l b1 b2
     unifiesBase' d1@(getReadableVar -> Just (v1,c1)) d2@(getReadableVar -> Just (v2,c2)) | isWritable v1 == isWritable v2 = do
         let c = max c1 c2
         case compare c1 c2 of

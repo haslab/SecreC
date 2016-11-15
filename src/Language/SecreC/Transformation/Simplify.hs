@@ -287,6 +287,9 @@ simplifyDatatypeSpecifier isExpr (TemplateSpecifier l n args) = do
 simplifyDatatypeSpecifier isExpr (MultisetSpecifier l b) = do
     (ss,b') <- simplifyDatatypeSpecifier isExpr b
     return (ss,MultisetSpecifier l b')
+simplifyDatatypeSpecifier isExpr (SetSpecifier l b) = do
+    (ss,b') <- simplifyDatatypeSpecifier isExpr b
+    return (ss,SetSpecifier l b')
 
 simplifyTemplateTypeArgument :: Bool -> SimplifyT loc m TemplateTypeArgument
 simplifyTemplateTypeArgument isExpr a@(GenericTemplateTypeArgument l arg) = return ([],a)
@@ -368,6 +371,14 @@ simplifyExpression isExpr (SelectionExpr l e att) = do
 simplifyExpression isExpr (ToMultisetExpr l e) = do
     (ss,e') <- simplifyNonVoidExpression isExpr e
     return (ss,Just $ ToMultisetExpr l e')
+simplifyExpression isExpr (ToSetExpr l e) = do
+    (ss,e') <- simplifyNonVoidExpression isExpr e
+    return (ss,Just $ ToSetExpr l e')
+simplifyExpression isExpr (SetComprehensionExpr l t x px fx) = do
+    (ss1,[(t',x')]) <- simplifyQuantifierArgs [(t,x)]
+    (ss3,px') <- simplifyNonVoidExpression isExpr px
+    (ss4,fx') <- simplifyMaybe (simplifyNonVoidExpression isExpr) fx
+    return (ss1++ss3++ss4,Just $ SetComprehensionExpr l t' x' px' fx')
 simplifyExpression isExpr (ToVArrayExpr l e i) = do
     (ss1,e') <- simplifyNonVoidExpression isExpr e
     (ss2,i') <- simplifyNonVoidExpression isExpr i

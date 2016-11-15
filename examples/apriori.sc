@@ -36,26 +36,28 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
-//x //@ template <nonpublic kind K,domain D : K,type T>
-//x //@ leakage function bool lcomparison (D T[[1]] xs,D T x)
-//x //@ context<>
-//x //@ noinline;
-//x //@ {
-//x //@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
-//x //@ }
-//x 
+//x template <domain D>
+//x function set<uint> itemsof(D uint[[2]] db) {
+//x     (set int x | 0 <= x && x < shape(db)[1])
+//x }
+
+//x template <domain D>
+//x function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
+//x     if is.size() == [] then 0 else transaction(is[0],db) * transactions(is[1:],db)
+//x }
+
 //x //@ template <nonpublic kind K,domain D : K, type T>
 //x //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
 //x //@ context<>
 //x //@ noinline;
 //x //@ {
-//x //@     forall uint[[1]] is; itemset(is,db) ==> public (sum(items(is,db)) <= threshold)
+//x //@     forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) <= threshold)
 //x //@ }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
-//x //@ leakage requires public(frequents(db));
+//x //@ leakage requires lfrequents(db,threshold);
 {
   uint dbColumns = shape(db)[1]; // number of items
   uint dbRows = shape(db)[0]; // number of transactions

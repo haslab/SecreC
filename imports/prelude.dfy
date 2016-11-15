@@ -36,7 +36,7 @@ newtype int32 = x: int | true
 newtype int64 = x: int | true
 newtype float32 = x: real | true
 newtype float64 = x: real | true
-    
+
 function method Repeat<T> (x: T, sz: uint64) : seq<T>
 ensures |Repeat(x,sz)| as uint64 == sz;
 ensures forall y:T :: y in Repeat(x,sz) ==> x == y;  
@@ -45,7 +45,38 @@ decreases sz;
   if sz == 0 then [] else [x] + Repeat(x,sz-1) 
 }
 
+function method sum_int(xs: seq<int>) : int
+{
+  if |xs| == 0
+    then 0
+    else xs[0] + sum_int(xs[1..])
+}
+function method sum_uint(xs: seq<uint>) : uint
+{
+  if |xs| == 0
+    then 0
+    else xs[0] + sum_uint(xs[1..])
+}
 
+function method mul_int(xs: seq<int>, ys: seq<int>) : seq<int>
+requires |xs| == |ys|;
+ensures |mul_int(xs,ys)| == |xs|;
+ensures forall i: int :: 0 <= i < |mul_int(xs,ys)| ==> mul_int(xs,ys)[i] == xs[i] * ys[i]; 
+{
+  if |xs| == 0
+    then []
+    else [xs[0] * ys[0]] + mul_int(xs[1..],ys[1..])
+}
+
+function method mul_uint(xs: seq<uint>, ys: seq<uint>) : seq<uint>
+requires |xs| == |ys|;
+ensures |mul_uint(xs,ys)| == |xs|;
+ensures forall i: int :: 0 <= i < |mul_uint(xs,ys)| ==> mul_uint(xs,ys)[i] == xs[i] * ys[i]; 
+{
+  if |xs| == 0
+    then []
+    else [xs[0] * ys[0]] + mul_uint(xs[1..],ys[1..])
+}
 
 class Array2<T> {
   var arr2 : array2<T>;
@@ -53,62 +84,69 @@ class Array2<T> {
   function valid() : bool
   reads this`arr2;
   { this.arr2 != null }
+
+  constructor(x: int,y: int)
+  requires x >= 0;
+  requires y >= 0;
+  ensures this != null && this.valid();
+  modifies this`arr2;
+  { this.arr2 := new T[x,y]; }
+
+  constructor reshape0(x: T, m: int, n: int)
+  requires m * n == 1;
+  free ensures this != null && this.valid();
+  free ensures this.arr2.Length0 == 1 && this.arr2.Length1 == 1;
+  free ensures this.arr2[0,0] == x; 
+  {}
   
-  function size() : int
+  constructor reshape1(xs: seq<int>, m: int, n: int)
+  requires m >= 0 && n >= 0;
+  requires |xs| == m * n;
+  free ensures this != null && this.valid();
+  free ensures this.arr2.Length0 == m && this.arr2.Length1 == n;
+  free ensures forall i: int, j: int :: (0 <= i < m && 0 <= j < n) ==> i+j < |xs| && this.arr2[i,j] == xs[i+j];
+  {}
+
+  function method size() : int
   reads this`arr2;
   requires this.arr2 != null && this.valid()
   { this.arr2.Length0 * this.arr2.Length1 }
   
-  function shape() : seq<int>
+  function method shape() : seq<int>
   reads this`arr2;
   requires this.arr2 != null && this.valid()
   { [this.arr2.Length0,this.arr2.Length1] }
   
-  method cat0(xs: Array2<T>, ys: Array2<T>) returns (zs: Array2<T>)
+  constructor cat0(xs: Array2<T>, ys: Array2<T>)
   requires xs != null && xs.valid();
   requires ys != null && ys.valid();
   requires xs.arr2.Length1 == ys.arr2.Length1;
-  free ensures zs != null && zs.valid();
-  free ensures zs.arr2.Length1 == xs.arr2.Length1;
-  free ensures zs.arr2.Length0 == xs.arr2.Length0 + ys.arr2.Length0;
-  free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> zs.arr2[i,j] == xs.arr2[i,j];
-  free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> zs.arr2[i+xs.arr2.Length0,j] == ys.arr2[i,j];
+  free ensures this != null && this.valid();
+  free ensures this.arr2.Length1 == xs.arr2.Length1;
+  free ensures this.arr2.Length0 == xs.arr2.Length0 + ys.arr2.Length0;
+  free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> this.arr2[i,j] == xs.arr2[i,j];
+  free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> this.arr2[i+xs.arr2.Length0,j] == ys.arr2[i,j];
   {}
   
-  method cat1(xs: Array2<T>, ys: Array2<T>) returns (zs: Array2<T>)
+  constructor cat1(xs: Array2<T>, ys: Array2<T>)
   requires xs != null && xs.valid();
   requires ys != null && ys.valid();
   requires xs.arr2.Length0 == ys.arr2.Length0;
-  free ensures zs != null && zs.valid();
-  free ensures zs.arr2.Length0 == xs.arr2.Length0;
-  free ensures zs.arr2.Length1 == xs.arr2.Length1 + ys.arr2.Length1;
-  free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> zs.arr2[i,j] == xs.arr2[i,j];
-  free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> zs.arr2[i,j+xs.arr2.Length1] == ys.arr2[i,j];
+  free ensures this != null && this.valid();
+  free ensures this.arr2.Length0 == xs.arr2.Length0;
+  free ensures this.arr2.Length1 == xs.arr2.Length1 + ys.arr2.Length1;
+  free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> this.arr2[i,j] == xs.arr2[i,j];
+  free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> this.arr2[i,j+xs.arr2.Length1] == ys.arr2[i,j];
   {}
       
-  method reshape0(x: T, m: int, n: int) returns (ys: Array2<T>)
-  requires m * n == 1;
-  free ensures ys != null && ys.valid();
-  free ensures ys.arr2.Length0 == m && ys.arr2.Length1 == n;
-  free ensures ys.arr2[0,0] == x; 
-  {}
-  
-  method reshape1(xs: seq<int>, m: int, n: int) returns (ys: Array2<int>)
-  requires m >= 0 && n >= 0;
-  requires |xs| == m * n;
-  free ensures ys != null && ys.valid();
-  free ensures ys.arr2.Length0 == m && ys.arr2.Length1 == n;
-  free ensures forall i: int, j: int :: (0 <= i < m && 0 <= j < n) ==> i+j < |xs| && ys.arr2[i,j] == xs[i+j];
-  {}
-      
-  function project00(x: int, y: int) : T
+  function method project00(x: int, y: int) : T
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
   requires 0 <= x < this.arr2.Length0;
   requires 0 <= y < this.arr2.Length1;
   { this.arr2[x,y] }
   
-  function project10(x1: int, x2: int, y: int) : seq<T>
+  function method project10(x1: int, x2: int, y: int) : seq<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
   requires 0 <= x1 < this.arr2.Length0;
@@ -117,7 +155,7 @@ class Array2<T> {
   requires 0 <= y < this.arr2.Length1;
   ensures forall i:int :: 0 <= i < x2-x1 ==> project10(x1,x2,y)[i] == this.arr2[x1+i,y];
   
-  function project01(x: int, y1: int, y2: int) : seq<T>
+  function method project01(x: int, y1: int, y2: int) : seq<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
   requires 0 <= x < this.arr2.Length0;
@@ -126,7 +164,7 @@ class Array2<T> {
   requires y1 <= y2;
   ensures forall j:int :: 0 <= j < y2-y1 ==> project01(x,y1,y2)[j] == this.arr2[x,y1+j];
   
-  function project11(x1: int, x2: int, y1: int, y2: int) : Array2<T>
+  function method project11(x1: int, x2: int, y1: int, y2: int) : Array2<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
   requires 0 <= x1 < this.arr2.Length0;

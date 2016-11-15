@@ -231,6 +231,11 @@ tcDatatypeSpec (MultisetSpecifier l b) = do
     let t = typed $ loc b'
     tb <- typeToBaseType l t
     return $ MultisetSpecifier (Typed l $ BaseT $ MSet tb) b'
+tcDatatypeSpec (SetSpecifier l b) = do
+    b' <- tcDatatypeSpec b
+    let t = typed $ loc b'
+    tb <- typeToBaseType l t
+    return $ SetSpecifier (Typed l $ BaseT $ Set tb) b'
 
 tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM m (PrimitiveDatatype (Typed loc))
 tcPrimitiveDatatype p = do
@@ -556,21 +561,45 @@ typeSize l t = do
     tcError (locpos l) $ Halt $ GenTcError (text "No static size for type" <+> quotes (ppt)) Nothing
 
 toMultisetType :: ProverK loc m => loc -> Type -> TcM m ComplexType
-toMultisetType l t@(ComplexT (CVar v@(varIdRead -> True) isNotVoid)) = do
-    mb <- tryResolveCVar l v isNotVoid
-    case mb of
-        Just ct' -> toMultisetType l $ ComplexT ct'
-        Nothing -> toMultisetType l $ ComplexT $ CVar (v { varIdRead = False }) isNotVoid
-toMultisetType l t@(ComplexT (CVar v@(varIdWrite -> True) True)) = expandCTypeVar l v True >>= toMultisetType l . ComplexT
-toMultisetType l t@(ComplexT (CVar v isNotVoid)) = do
-    ppt <- pp t
-    throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
-toMultisetType l (ComplexT (CType s b d)) = do
-    tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
-    return $ CType s (MSet b) (indexExpr 0)
+toMultisetType l (BaseT bt) = toMultisetType l $ ComplexT $ defCType bt
+toMultisetType l (ComplexT ct) = readable1 toMultisetType' l ct
+  where
+    toMultisetType' t@(CVar v@(varIdWrite -> True) True) = do
+        expandCTypeVar l v True >>= toMultisetType l . ComplexT
+    toMultisetType' t@(CVar v isNotVoid) = do
+        ppt <- pp t
+        throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
+    toMultisetType' (CType s b d) = do
+        tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
+        return $ CType s (MSet b) (indexExpr 0)
+    toMultisetType' t = do
+        ppt <- pp t
+        genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
 toMultisetType l t = do
+        ppt <- pp t
+        genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
+
+toSetType :: ProverK loc m => loc -> Bool -> Type -> TcM m ComplexType
+toSetType l isBase (BaseT bt) = toSetType l isBase $ ComplexT $ defCType bt
+toSetType l isBase (ComplexT ct) = readable1 toSetType' l ct
+  where
+    toSetType' t@(CVar v@(varIdWrite -> True) True) = do
+        expandCTypeVar l v True >>= toSetType l isBase . ComplexT
+    toSetType' t@(CVar v isNotVoid) = do
+        ppt <- pp t
+        throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to set" <+> ppt) Nothing
+    toSetType' (CType s b d) | isBase = do
+        tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 0)
+        return $ CType s (Set b) (indexExpr 0)
+    toSetType' (CType s b d) | not isBase = do
+        tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
+        return $ CType s (Set b) (indexExpr 1)
+    toSetType' t = do
+        ppt <- pp t
+        genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to set"
+toSetType l isBase t = do
     ppt <- pp t
-    genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
+    genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to set"
 
 defaultExpr :: ProverK loc m => loc -> Type -> Maybe [(Expr,IsVariadic)] -> TcM m Expr
 defaultExpr l t@(BaseT b) szs = defaultBaseExpr l Public b
@@ -627,6 +656,7 @@ defaultBaseExpr l s b@(TyPrim p) | isFloatPrimType p = defaultBaseClassify l s $
 defaultBaseExpr l s b@(TyPrim (DatatypeBool _)) = defaultBaseClassify l s $ falseExpr
 defaultBaseExpr l s b@(TyPrim (DatatypeString _)) = defaultBaseClassify l s $ stringExpr "\"\""
 defaultBaseExpr l s b@(MSet _) = return $ MultisetConstructorPExpr (ComplexT $ CType s b $ indexExpr 0) []
+defaultBaseExpr l s b@(Set _) = return $ SetConstructorPExpr (ComplexT $ CType s b $ indexExpr 0) []
 --defaultBaseExpr l s b@(TApp tn@(TypeName _ sn) targs (DVar v)) = do
 --    dec <- resolveDVar l v
 --    defaultBaseExpr l s $ TApp tn targs dec

@@ -446,6 +446,7 @@ data DatatypeSpecifier iden loc
     = PrimitiveSpecifier loc (PrimitiveDatatype loc)
     | TemplateSpecifier loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
     | MultisetSpecifier loc (DatatypeSpecifier iden loc)
+    | SetSpecifier loc (DatatypeSpecifier iden loc)
     | VariableSpecifier loc (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
@@ -457,11 +458,13 @@ instance Location loc => Located (DatatypeSpecifier iden loc) where
     loc (PrimitiveSpecifier l _) = l
     loc (TemplateSpecifier l _ _) = l
     loc (MultisetSpecifier l _) = l
+    loc (SetSpecifier l _) = l
     loc (VariableSpecifier l _) = l
     updLoc (PrimitiveSpecifier _ x) l = PrimitiveSpecifier l x
     updLoc (TemplateSpecifier _ x y) l = TemplateSpecifier l x y
     updLoc (VariableSpecifier _ x) l = VariableSpecifier l x
     updLoc (MultisetSpecifier _ x) l = MultisetSpecifier l x
+    updLoc (SetSpecifier _ x) l = SetSpecifier l x
 
 instance PP m iden => PP m (DatatypeSpecifier iden loc) where
     pp (PrimitiveSpecifier _ prim) = pp prim
@@ -473,6 +476,9 @@ instance PP m iden => PP m (DatatypeSpecifier iden loc) where
     pp (MultisetSpecifier _ b) = do
         pp1 <- pp b
         return $ text "multiset" <> abrackets pp1
+    pp (SetSpecifier _ b) = do
+        pp1 <- pp b
+        return $ text "set" <> abrackets pp1
 
 data PrimitiveDatatype loc
     = DatatypeBool       loc
@@ -1423,10 +1429,13 @@ data Expression iden loc
     | LitPExpr loc (Literal loc)
     | ArrayConstructorPExpr loc [Expression iden loc]
     | MultisetConstructorPExpr loc [Expression iden loc]
+    | SetConstructorPExpr loc [Expression iden loc]
     | ResultExpr loc
     | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
     | BuiltinExpr loc String [(Expression iden loc,IsVariadic)]
     | ToMultisetExpr loc (Expression iden loc)
+    | ToSetExpr loc (Expression iden loc)
+    | SetComprehensionExpr loc (TypeSpecifier iden loc) (VarName iden loc) (Expression iden loc) (Maybe (Expression iden loc))
     | ToVArrayExpr loc (Expression iden loc) (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
@@ -1437,8 +1446,11 @@ instance Location loc => Located (Expression iden loc) where
     type LocOf (Expression iden loc) = loc
     loc (BuiltinExpr l _ _) = l
     loc (ToMultisetExpr l _) = l
+    loc (ToSetExpr l _) = l
+    loc (SetComprehensionExpr l _ _ _ _) = l
     loc (ToVArrayExpr l _ _) = l
     loc (MultisetConstructorPExpr l _) = l
+    loc (SetConstructorPExpr l _) = l
     loc (BinaryAssign l _ _ _) = l
     loc (LeakExpr l _) = l
     loc (QualExpr l _ _) = l
@@ -1460,9 +1472,12 @@ instance Location loc => Located (Expression iden loc) where
     loc (ResultExpr l) = l
     loc (QuantifiedExpr l _ _ _) = l
     updLoc (BuiltinExpr _ n x) l = BuiltinExpr l n x
+    updLoc (SetComprehensionExpr _ x y z w) l = SetComprehensionExpr l x y z w
     updLoc (ToMultisetExpr _ x) l = ToMultisetExpr l x
+    updLoc (ToSetExpr _ x) l = ToSetExpr l x
     updLoc (ToVArrayExpr _ x y) l = ToVArrayExpr l x y
     updLoc (MultisetConstructorPExpr _ x) l = MultisetConstructorPExpr l x
+    updLoc (SetConstructorPExpr _ x) l = SetConstructorPExpr l x
     updLoc (LeakExpr _ x) l = LeakExpr l x
     updLoc (BinaryAssign _ x y z) l = BinaryAssign l x y z
     updLoc (QualExpr _ x y) l = QualExpr l x y
@@ -1505,6 +1520,15 @@ instance PP m iden => PP m (Expression iden loc) where
     pp (ToMultisetExpr l e) = do
         ppe <- pp e
         return $ text "multiset" <> parens ppe
+    pp (ToSetExpr l e) = do
+        ppe <- pp e
+        return $ text "set" <> parens ppe
+    pp (SetComprehensionExpr l t x p f) = do
+        ppt <- pp t
+        ppx <- pp x
+        ppp <- pp p
+        ppf <- ppOpt f (liftM (\x -> text "::" <+> x) . pp)
+        return $ parens $ text "set" <+> ppt <+> ppx <+> char '|' <+> ppp <+> ppf
     pp (ToVArrayExpr l e i) = do
         ppe <- pp e
         ppi <- pp i
@@ -1512,6 +1536,9 @@ instance PP m iden => PP m (Expression iden loc) where
     pp (MultisetConstructorPExpr l es) = do
         ppes <- mapM pp es
         return $ text "multiset" <> braces (sepBy comma ppes)
+    pp (SetConstructorPExpr l es) = do
+        ppes <- mapM pp es
+        return $ text "set" <> braces (sepBy comma ppes)
     pp (BinaryAssign _ post op e) = do
         pp1 <- pp post
         pp2 <- pp op

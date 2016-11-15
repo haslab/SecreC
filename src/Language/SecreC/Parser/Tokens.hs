@@ -143,6 +143,7 @@ data Token
     | IMPLIES_OP
     | EQUIV_OP
     | MULTISET
+    | SET
     | FREE
     | ANNOTATION [String]
     | FUNCTION
@@ -254,6 +255,7 @@ instance Monad m => PP m Token where
     pp FORALL =                 return $ text "forall"
     pp EXISTS =                 return $ text "exists"
     pp MULTISET =               return $ text "multiset"
+    pp SET =                    return $ text "set"
     pp FREE =                   return $ text "free"
     pp FUNCTION =               return $ text "function"
     pp AXIOM =                  return $ text "axiom"
