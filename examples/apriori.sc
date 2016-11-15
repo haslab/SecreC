@@ -50,7 +50,7 @@ pd_a3p uint [[2]] load_db () {
 
 //@ template <domain D>
 //@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
-//@     if is.size() == [] then 0 else db[:,is[0]] * transactions(is[1:],db)
+//@     if is.size() == [] then [] else db[:,is[0]] * transactions(is[1:],db)
 //@ }
 
 //@ template <nonpublic kind K,domain D : K, type T>
