@@ -51,11 +51,11 @@ function method sum_int(xs: seq<int>) : int
     then 0
     else xs[0] + sum_int(xs[1..])
 }
-function method sum_uint(xs: seq<uint>) : uint
+function method sum_uint64(xs: seq<uint64>) : uint64
 {
   if |xs| == 0
     then 0
-    else xs[0] + sum_uint(xs[1..])
+    else xs[0] + sum_uint64(xs[1..])
 }
 
 function method mul_int(xs: seq<int>, ys: seq<int>) : seq<int>
@@ -68,14 +68,14 @@ ensures forall i: int :: 0 <= i < |mul_int(xs,ys)| ==> mul_int(xs,ys)[i] == xs[i
     else [xs[0] * ys[0]] + mul_int(xs[1..],ys[1..])
 }
 
-function method mul_uint(xs: seq<uint>, ys: seq<uint>) : seq<uint>
+function method mul_uint64(xs: seq<uint64>, ys: seq<uint64>) : seq<uint64>
 requires |xs| == |ys|;
-ensures |mul_uint(xs,ys)| == |xs|;
-ensures forall i: int :: 0 <= i < |mul_uint(xs,ys)| ==> mul_uint(xs,ys)[i] == xs[i] * ys[i]; 
+ensures |mul_uint64(xs,ys)| == |xs|;
+ensures forall i: int :: 0 <= i < |mul_uint64(xs,ys)| ==> mul_uint64(xs,ys)[i] == xs[i] * ys[i]; 
 {
   if |xs| == 0
     then []
-    else [xs[0] * ys[0]] + mul_uint(xs[1..],ys[1..])
+    else [xs[0] * ys[0]] + mul_uint64(xs[1..],ys[1..])
 }
 
 class Array2<T> {
