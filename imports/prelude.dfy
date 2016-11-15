@@ -107,12 +107,12 @@ class Array2<T> {
   free ensures forall i: int, j: int :: (0 <= i < m && 0 <= j < n) ==> i+j < |xs| && this.arr2[i,j] == xs[i+j];
   {}
 
-  function method Length0 : int
+  function method Length0() : int
   reads this`arr2;
   requires this.arr2 != null && this.valid()
   { this.arr2.Length0 }
   
-  function method Length1 : int
+  function method Length1() : int
   reads this`arr2;
   requires this.arr2 != null && this.valid()
   { this.arr2.Length1 }
