@@ -99,7 +99,7 @@ class Array2<T> {
   free ensures this.arr2[0,0] == x; 
   {}
   
-  constructor reshape1(xs: seq<int>, m: int, n: int)
+  constructor reshape1(xs: seq<T>, m: int, n: int)
   requires m >= 0 && n >= 0;
   requires |xs| == m * n;
   free ensures this != null && this.valid();
