@@ -430,6 +430,10 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
     panns <- procedureAnnsToDafny anns'
     pbody <- statementToDafny $ compoundStmt (decPos dec) body'
     let tag = text "method"
+    lift $ debugTc $ do
+        ppdec <- ppr dec
+        ppdid <- ppDafnyId did
+        liftIO $ putStrLn $ "decToDafny " ++ show ppdid ++ " " ++ ppdec
     return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLines parganns $+$ annLines pretanns $+$ annLines panns $+$ pbody)
   where did = pIdenToDafnyId pn mid
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
@@ -471,8 +475,10 @@ decToDafny l d@(targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = 
         else return Nothing
   where did = AId mid isLeak
 decToDafny l dec = do
-    ppdec <- lift $ pp dec
-    genError (decPos dec) $ text "decToDafny:" <+> ppdec
+    lift $ debugTc $ do
+        ppdec <- ppr dec
+        liftIO $ putStrLn $ "decToDafny: " ++ ppdec
+    return Nothing
 
 decClassToDafny :: DafnyK m => DecClass -> DafnyM m Doc
 decClassToDafny (DecClass _ _ rs ws) = do
