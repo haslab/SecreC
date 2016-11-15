@@ -48,9 +48,9 @@ pd_a3p uint [[2]] load_db () {
 //@     (set uint x | 0 <= x && x < shape(db)[1])
 //@ }
 
-//@ template <domain D>
+//@ template <nonpublic kind K, domain D : K>
 //@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
-//@     (size(is) == 0) ? repeat(0,shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db)
+//@     (size(is) == 0) ? repeat(classify(0),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db)
 //@ }
 
 //@ template <nonpublic kind K,domain D : K, type T>
