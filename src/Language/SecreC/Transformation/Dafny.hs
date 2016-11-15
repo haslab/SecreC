@@ -820,7 +820,7 @@ indexToDafny isLVal annK (Just pe) i (IndexSlice l e1 e2) = do
     (anne1,pe1) <- mapExpressionToDafny isLVal False annK e1
     let pe1' = maybe (int 0) id pe1
     (anne2,pe2) <- mapExpressionToDafny isLVal False annK e2
-    let pe2' = maybe (pe <> text ".Length" <> int i) id pe2
+    let pe2' = maybe (pe <> text ".Length" <> int i <> text "()") id pe2
     return (anne1++anne2,pe1' <> text "," <> pe2')
 
 -- left = expression, right = update
@@ -1093,7 +1093,7 @@ syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
                     return $ annLines annse $+$ pret <+> text ":=" <+> pe <> semi
                 (Right d,Right n) -> do
                     pret <- varToDafny ret
-                    return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py) <> semi
+                    return $ pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py) <> semi
                 (err1,err2) -> do
                     ppx <- lift $ pp x
                     ppy <- lift $ pp y
@@ -1115,7 +1115,7 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
     mbdret <- lift $ tryTcError l $ typeDim l tret >>= fullyEvaluateIndexExpr l
     case (mbdx,mbdret) of
         (Right dx,Right d@((>1) -> True)) -> do
-            return $ pret <+> text ":=" <+> text "Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum dx) <> parens (px <> comma <> sepBy comma pszs) <> semi
+            return $ pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum dx) <> parens (px <> comma <> sepBy comma pszs) <> semi
         otherwise -> do
             pptx <- lift $ pp tx
             ppret <- lift $ pp ret
