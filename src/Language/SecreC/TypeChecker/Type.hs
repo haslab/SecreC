@@ -614,7 +614,7 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
             let ct1 = CType s b $ indexExpr 1
             case szs of
                 Nothing -> addErrorM l (TypecheckerError (locpos l) . GenTcError (text "static unknown dimension without sizes") . Just) $ do
-                    let arr = ArrayConstructorPExpr (ComplexT ct) []
+                    let arr = ArrayConstructorPExpr (ComplexT ct1) []
                     case n of
                         1 -> return arr
                         otherwise -> do
@@ -631,7 +631,7 @@ defaultExpr l t@(ComplexT ct@(CType s b d)) szs = do
             let ct1 = CType s b $ indexExpr 1
             case szs of
                 Nothing -> addErrorM l (TypecheckerError (locpos l) . GenTcError (text "unknown dimension without sizes") . Just) $ do
-                    let arr = ArrayConstructorPExpr (ComplexT ct) []
+                    let arr = ArrayConstructorPExpr (ComplexT ct1) []
                     let tns = VAType (BaseT index) d
                     rep <- repeatExpr l False (indexExpr 0) (Just d) (CType Public index $ indexExpr 1)
                     let ns = ToVArrayExpr tns rep d

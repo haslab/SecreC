@@ -950,11 +950,24 @@ expressionToDafny isLVal isQExpr annK (SetConstructorPExpr l es) = do
     let pme = braces (sepBy comma pes)
     pme' <- if List.null pes then qualifiedDafny (unTyped l) (typed l) pme else return pme
     qExprToDafny isQExpr annes pme'
-expressionToDafny isLVal isQExpr annK (ArrayConstructorPExpr l es) = do
+expressionToDafny isLVal isQExpr annK e@(ArrayConstructorPExpr l es) = do
     (annes,pes) <- expressionsToDafny False annK es
-    let pae = brackets (sepBy comma pes)
-    pae' <- if List.null pes then qualifiedDafny (unTyped l) (typed l) pae else return pae
-    qExprToDafny isQExpr annes pae'
+    let Typed ll arrt = l
+    mbd <- lift $ tryTcError l $ typeDim l arrt >>= fullyEvaluateIndexExpr l
+    case mbd of
+        Right 1 -> do
+            let pae = brackets (sepBy comma pes)
+            pae' <- if List.null pes then qualifiedDafny ll (typed l) pae else return pae
+            qExprToDafny isQExpr annes pae'
+        --Right n -> do
+        --    when (isLVal && isQExpr) $ genError l $ text "expressionToDafny: unsupported array constructor in an expression context" <+> ppe
+        --    x <- lift $ genVar (VIden $ mkVarId "x" :: GIdentifier)
+        --    px <- varToDafny $ VarName (Typed ll arrt) x
+        --    let ss = px <+> text ":= new Array" <> int (fromEnum n) <> ".reshape1" <> parens ()
+        --    return (annes++ss,px)
+        otherwise -> do
+            ppe <- lift $ pp e
+            genError ll $ text "expressionToDafny: unsupported array constructor" <+> ppe
 expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     (anne,pe) <- expressionToDafny False False annK e
     let pme = text "multiset" <> parens pe
