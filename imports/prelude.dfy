@@ -135,7 +135,7 @@ class Array2<T> {
   requires 0 <= y1 < this.arr2.Length1;
   requires 0 <= y2 < this.arr2.Length1;
   requires y1 <= y2;
-  ensures project11(x1,x2,y1,y2) != null && project11(xs,ys).valid();
+  ensures project11(x1,x2,y1,y2) != null && project11(x1,x2,y1,y2).valid();
   ensures project11(x1,x2,y1,y2).arr2.Length0 == x2-x1;
   ensures project11(x1,x2,y1,y2).arr2.Length1 == y2-y1;
   ensures forall i: int, j:int :: (0 <= i < x2-x1 && 0 <= j < y2-y1) ==> project11(x1,x2,y1,y2).arr2[i,j] == this.arr2[x1+i,y1+j];
