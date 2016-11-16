@@ -1211,12 +1211,13 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sub" [x,y] = do
     (anny,py) <- expressionToDafny isLVal False annK y
     qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "-" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.mul" [x,y] = do
+    (pt,annt) <- lift (typeBase l ret) >>= typeToDafny l annK
     (annx,px) <- expressionToDafny isLVal False annK x
     (anny,py) <- expressionToDafny isLVal False annK y
     mbd <- lift $ tryTcError l $ typeDim l ret >>= fullyEvaluateIndexExpr l
     case mbd of
-        Right 0 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "*" <+> py)
-        Right n -> qExprToDafny isQExpr (annx++anny) (text "mul" <> int (fromEnum n) <> parens (px <> comma <> py))
+        Right 0 -> qExprToDafny isQExpr (annt++annx++anny) (parens $ px <+> text "*" <+> py)
+        Right n -> qExprToDafny isQExpr (annt++annx++anny) (text "mul" <> int (fromEnum n) <> char '_' <> pt <> parens (px <> comma <> py))
         otherwise -> do
             ppret <- lift $ pp ret
             genError (locpos l) $ text "builtinToDafny: unsupported mul dimension for" <+> ppret
