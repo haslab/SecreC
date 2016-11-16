@@ -64,7 +64,7 @@ pd_a3p uint [[2]] load_db () {
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
-//@ leakage requires lfrequents(db,threshold);
+//xxx //@ leakage requires lfrequents(db,threshold);
 {
   uint dbColumns = shape(db)[1]; // number of items
   uint dbRows = shape(db)[0]; // number of transactions
