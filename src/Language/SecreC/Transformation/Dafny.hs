@@ -1031,6 +1031,11 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     (annpargs,pargs) <- quantifierArgsToDafny args
     (anne,pe) <- expressionToDafny isLVal True NoK e
     return ([],parens (pq <+> pargs <+> text "::" <+> annotateExpr (annpargs++anne) pe))
+expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
+    (anncond,ppcond) <- expressionToDafny isLVal isQExpr annK econd
+    (annthen,ppthen) <- expressionToDafny isLVal isQExpr annK ethen
+    (annelse,ppelse) <- expressionToDafny isLVal isQExpr annK eelse
+    return (anncond++annthen++annelse,text "if" <+> ppcond <+> text "then" <+> ppthen <+> text "else" <+> ppelse)
 expressionToDafny isLVal isQExpr annK e = do
     ppannK <- lift $ pp annK
     ppe <- lift $ pp e

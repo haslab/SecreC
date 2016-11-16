@@ -50,8 +50,10 @@ pd_a3p uint [[2]] load_db () {
 
 //@ template <nonpublic kind K, domain D : K>
 //@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
-//@     (size(is) == 0) ? repeat(classify(0),shape(db)[0]) : db[:,is[0]]
+//@     (size(is) == 0) ? repeat(classify(0),shape(db)[0]) : db[:,is[0]] 
 //@ }
+
+//x * transactions(is[1:],db)
 
 //@ template <nonpublic kind K,domain D : K, type T>
 //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
