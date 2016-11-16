@@ -719,7 +719,7 @@ coercesDec = do
     let k = TcK (Coerces Nothing (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
     let ctx = DecCtx Nothing (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "cx") False)
-    let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
+    let dec = DecType i (DecTypeOri False) ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
     debugTc $ do
         ppd <- ppr dec
         liftIO $ putStrLn $ "added base coercion dec " ++ ppd
@@ -1705,15 +1705,24 @@ instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifi
         dict' <- f dict
         return $ DecCtx has' dict' frees'
 
-data DecTypeK = DecTypeRec ModuleTyVarId | DecTypeCtx | DecTypeOriginal
+data DecTypeK
+    = DecTypeInst ModuleTyVarId IsRec  -- instance declaration (for template instantiations)
+    | DecTypeCtx                -- context declaration
+    | DecTypeOri IsRec            -- original declarations
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 instance Binary DecTypeK
 instance Hashable DecTypeK
 
+-- annotation if declaration is a recursive invocation
+type IsRec = Bool
+
+ppIsRec False = PP.empty
+ppIsRec True = text "rec"
+
 instance Monad m => PP m DecTypeK where
-    pp DecTypeCtx = return $ text "context"
-    pp DecTypeOriginal = return $ text "original"
-    pp (DecTypeRec i) = return $ text "recursive" <+> ppid i
+    pp (DecTypeCtx) = return $ text "context"
+    pp (DecTypeOri isRec) = return $ text "original" <+> ppIsRec isRec
+    pp (DecTypeInst i isRec) = return $ text "instance" <+> ppid i <+> ppIsRec isRec
 
 decTypeKind :: DecType -> DecTypeK
 decTypeKind (DecType _ k _ _ _ _ _) = k
@@ -2405,11 +2414,15 @@ instance PP m VarIdentifier => PP m [Var] where
     pp = liftM (sepBy comma) . mapM ppVarTy
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecTypeK where
-    traverseVars f (DecTypeRec i) = do
+    traverseVars f (DecTypeInst i isRec) = do
         i' <- f i
-        return $ DecTypeRec i'
-    traverseVars f DecTypeOriginal = return DecTypeOriginal
-    traverseVars f DecTypeCtx = return DecTypeCtx
+        isRec' <- f isRec
+        return $ DecTypeInst i' isRec'
+    traverseVars f (DecTypeOri isRec) = do
+        isRec' <- f isRec
+        return $ DecTypeOri isRec'
+    traverseVars f (DecTypeCtx) = do
+        return $ DecTypeCtx
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
     traverseVars f (DecType tid isRec vs hctx bctx spes t) = do

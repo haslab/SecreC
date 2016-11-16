@@ -600,7 +600,7 @@ addTemplateOperator recop vars hctx bctx hdeps op = do
 --    unresolvedQVars l "2" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     d'' <- writeIDecVars l d'
-    let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d''
+    let dt' = DecT $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         pp1 <- ppr (entryType e)
@@ -622,7 +622,7 @@ addOperatorToRec vars hdeps op = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" dontStop l recdict False Map.empty d
-    let recdt = DecT $ DecType i (DecTypeRec i) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (DecTypeOri True) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
@@ -642,7 +642,7 @@ newOperator recop bctx op = do
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
     dict <- liftM (headNe . tDict) State.get
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
-    let td = DecT $ DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
+    let td = DecT $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
 --    noNormalFreesM e
     debugTc $ do
@@ -689,7 +689,7 @@ addTemplateProcedureFunction recpn vars hctx bctx hdeps pn@(ProcedureName (Typed
 --    unresolvedQVars l "addTemplateProcedureFunction" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     d'' <- writeIDecVars l d'
-    let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d''
+    let dt' = DecT $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -807,7 +807,7 @@ addProcedureFunctionToRec vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = 
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" dontStop l recdict False Map.empty d
-    let recdt = DecT $ DecType i (DecTypeRec i) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (DecTypeOri True) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
     dirtyGDependencies (locpos l) n
@@ -831,7 +831,7 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     dict <- liftM (headNe . tDict) State.get
     
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
-    let dt = DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
+    let dt = DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -870,7 +870,7 @@ newAxiom l tvars hdeps d = do
 --    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (headNe . tDict) State.get
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" dontStop l dict True Map.empty =<< writeIDecVars l d'
-    let dt = DecType i DecTypeOriginal tvars implicitDecCtx bctx' [] d''
+    let dt = DecType i (DecTypeOri False) tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -886,7 +886,7 @@ newLemma vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     i <- newModuleTyVarId
     d'' <- writeIDecVars l d'
-    let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d''
+    let dt' = DecT $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -1020,11 +1020,12 @@ withoutEntry e m = do
         Nothing -> m
 
 decIsOriginal :: DecType -> Bool
-decIsOriginal (DecType _ isfree _ _ _ _ _) = isfree==DecTypeOriginal
+decIsOriginal (DecType _ (DecTypeOri _) _ _ _ _ _) = True
+decIsOriginal _ = False
 
-decIsRec :: DecType -> Bool
-decIsRec (DecType _ (DecTypeRec _) _ _ _ _ _) = True
-decIsRec _ = False
+decIsInst :: DecType -> Bool
+decIsInst (DecType _ (DecTypeInst {}) _ _ _ _ _) = True
+decIsInst _ = False
 
 mkDecEnv :: (MonadIO m,Location loc) => loc -> DecType -> TcM m ModuleTcEnv
 mkDecEnv l d@(DecType i _ ts hd bd specs p@(ProcType pl n pargs pret panns body cl)) = do
@@ -1175,7 +1176,7 @@ addTemplateStruct rectn vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n)
     solve l "addTemplateStruct"
 --    unresolvedQVars l "addTemplateStruct" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
-    let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d'
+    let dt' = DecT $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     ss <- getStructsByName n False (const True) (tyIsAnn dt') (isLeakType dt')
     case ss of
@@ -1199,7 +1200,7 @@ addTemplateStructSpecialization rectn vars specials hctx bctx hdeps tn@(TypeName
     solve l "addTemplateStructSpecialization"
 --    unresolvedQVars l "addTemplateStructSpecialization" vars
     (hctx',bctx',(vars',(specials',d'))) <- splitTpltHead l hctx bctx hdeps vars (specials,d)
-    let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' specials' d'
+    let dt' = DecT $ DecType i (DecTypeOri False) vars' hctx' bctx' specials' d'
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
     return $ TypeName (Typed l dt') n
@@ -1214,7 +1215,7 @@ addStructToRec vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" dontStop l recdict False Map.empty d
-    let recdt = DecT $ DecType i (DecTypeRec i) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (DecTypeOri True) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructsByName n False (const True) (tyIsAnn recdt) (isLeakType recdt)
     case ss of
@@ -1237,7 +1238,7 @@ newStruct rectn bctx tn@(TypeName (Typed l (IDecT innerdect)) n) = do
     dict <- liftM (headNe . tDict) State.get
     --i <- newModuleTyVarId
     d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" dontStop (locpos l) dict True Map.empty innerdect
-    let dt = DecT $ DecType i DecTypeOriginal [] implicitDecCtx bctx' [] d''
+    let dt = DecT $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) dt
     debugTc $ do
         ppl <- ppr l
@@ -2493,11 +2494,11 @@ stopOnDecType = StopProxy $ \proxy x -> case proxy of
   where eq x proxy = eqTypeOf x (typeOfProxy proxy)
   
 getOriginalDec :: ProverK loc m => loc -> DecType -> TcM m DecType
-getOriginalDec l d@(DecType _ DecTypeOriginal _ _ _ _ b) = return d
-getOriginalDec l d@(DecType _ DecTypeCtx _ _ _ _ b) = return d
-getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (StructType sl sid _ cl)) = do
+getOriginalDec l d@(DecType _ (DecTypeOri _) _ _ _ _ b) = return d
+getOriginalDec l d@(DecType _ (DecTypeCtx) _ _ _ _ b) = return d
+getOriginalDec l d@(DecType j (DecTypeInst i _) _ _ _ _ (StructType sl sid _ cl)) = do
     checkStruct l True (const True) (isAnnDecClass cl) (isLeakDec d) sid i
-getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (FunType _ _ n _ _ _ _ cl)) = do
+getOriginalDec l d@(DecType j (DecTypeInst i _) _ _ _ _ (FunType _ _ n _ _ _ _ cl)) = do
     es <- case n of
         PIden pn -> checkProcedureFunctionLemma (const True) (isAnnDecClass cl) (isLeakDec d) FKind (ProcedureName l $ PIden pn)
         OIden op -> checkOperator (const True) (isAnnDecClass cl) (isLeakDec d) FKind op
@@ -2507,7 +2508,7 @@ getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (FunType _ _ n _ _ _ _ cl))
         Nothing -> do
             ppd <- pp d
             genTcError (locpos l) False $ text "could not find original function declaration for" <+> ppd
-getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (ProcType _ n _ _ _ _ cl)) = do
+getOriginalDec l d@(DecType j (DecTypeInst i _) _ _ _ _ (ProcType _ n _ _ _ _ cl)) = do
     es <- case n of
         PIden pn -> checkProcedureFunctionLemma (const True) (isAnnDecClass cl) (isLeakDec d) PKind (ProcedureName l $ PIden pn)
         OIden op -> checkOperator (const True) (isAnnDecClass cl) (isLeakDec d) PKind op
@@ -2517,7 +2518,7 @@ getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (ProcType _ n _ _ _ _ cl)) 
         Nothing -> do
             ppd <- pp d
             genTcError (locpos l) False $ text "could not find original procedure declaration for" <+> ppd
-getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (LemmaType _ _ n _ _ _ cl)) = do
+getOriginalDec l d@(DecType j (DecTypeInst i _) _ _ _ _ (LemmaType _ _ n _ _ _ cl)) = do
     es <- case n of
         PIden pn -> checkProcedureFunctionLemma (const True) (isAnnDecClass cl) (isLeakDec d) LKind (ProcedureName l $ PIden pn)
         OIden op -> checkOperator (const True) (isAnnDecClass cl) (isLeakDec d) LKind op
@@ -2529,5 +2530,11 @@ getOriginalDec l d@(DecType j (DecTypeRec i) _ _ _ _ (LemmaType _ _ n _ _ _ cl))
             genTcError (locpos l) False $ text "could not find original lemma declaration for" <+> ppd
 
 testDec j e = case entryType e of
-    DecT d -> decTypeKind d == DecTypeOriginal && decTypeTyVarId d == Just j
+    DecT d -> isOriginalDecTypeKind (decTypeKind d) && decTypeTyVarId d == Just j
+
+isOriginalDecTypeKind :: DecTypeK -> Bool
+isOriginalDecTypeKind (DecTypeOri _) = True
+isOriginalDecTypeKind _ = False
+
+
 

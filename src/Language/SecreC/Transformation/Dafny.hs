@@ -191,7 +191,7 @@ collectDafnyIds = everything Set.union (mkQ Set.empty aux)
     aux = Set.fromList . maybeToList . decDafnyId
 
 decDafnyTypes :: DecType -> [Type]
-decDafnyTypes d@(DecType tid (DecTypeRec _) _ _ _ _ _) = map (unConstrained . fst) (decTypeArgs d)
+decDafnyTypes d@(DecType tid (DecTypeInst _ _) _ _ _ _ _) = map (unConstrained . fst) (decTypeArgs d)
 decDafnyTypes d = []
 
 -- (base id,instance id,base arguments)
@@ -224,9 +224,9 @@ decDafnyIds d@(DecType tid isRec _ _ _ _ (LemmaType isLeak _ pn _ _ _ _)) | not 
 decDafnyIds dec = Nothing
 
 decDafnyRecId bid isRec = case isRec of
-    DecTypeOriginal -> bid
+    DecTypeOri _ -> bid
     DecTypeCtx -> bid
-    DecTypeRec j -> putDafnyIdModuleTyVarId j bid
+    DecTypeInst j _ -> putDafnyIdModuleTyVarId j bid
 
 decDafnyId :: DecType -> Maybe DafnyId
 decDafnyId d = fmap snd3 $ decDafnyIds d

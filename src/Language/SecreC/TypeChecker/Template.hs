@@ -91,8 +91,8 @@ decLineage :: DecType -> [ModuleTyVarId]
 decLineage (DecType i isRec _ _ _ _ _) = i : recs
     where
     recs = case isRec of
-            DecTypeOriginal -> []
-            DecTypeRec j -> [j]
+            DecTypeOri _ -> []
+            DecTypeInst j _ -> [j]
             DecTypeCtx -> []
 
 -- if ambiguous, discard recursive entries outside of the lineage
@@ -104,7 +104,7 @@ discardRecursiveEntries l es = filterM (discardRecursiveEntry l) es
 discardRecursiveEntry :: ProverK loc m => loc -> EntryInst -> TcM m Bool
 discardRecursiveEntry l (e,e',_,_,_,_,_) = do
     case decTypeK (unDecT $ entryType e) of
-        DecTypeRec i -> do
+        DecTypeInst i _ -> do
             lin <- getLineage
             return $ List.elem i $ map snd lin
         otherwise -> return True
@@ -201,21 +201,22 @@ entryInstOld (e,_,_,_,_,_,_) = e
 --discardMatchingEntry (e,e',dict,_,frees,_,_) = delFrees "discardMatchingEntry" frees
 
 mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
-mkInvocationDec l dec@(DecType j (DecTypeRec i) targs hdict bdict specs d) targs' = return dec
+mkInvocationDec l dec@(DecType j (DecTypeInst i _) targs hdict bdict specs d) targs' = return dec
 mkInvocationDec l dec@(DecType j DecTypeCtx targs hdict bdict specs d) targs' = return dec
-mkInvocationDec l dec@(DecType i DecTypeOriginal targs hdict bdict specs d) targs' = do
+mkInvocationDec l dec@(DecType j (DecTypeOri True) targs hdict bdict specs d) targs' = return dec
+mkInvocationDec l dec@(DecType i (DecTypeOri False) targs hdict bdict specs d) targs' = do
     j <- newModuleTyVarId
     ts' <- concatMapM (expandVariadicType l) targs'
     let specs' = map (,False) ts'
     let d' = replaceRecursive i j d
-    return $ DecType j (DecTypeRec i) [] hdict bdict specs' d'
+    return $ DecType j (DecTypeInst i False) [] hdict bdict specs' d'
   where
     replaceRecursive :: ModuleTyVarId -> ModuleTyVarId -> InnerDecType -> InnerDecType
     replaceRecursive i j idec = everywhere (mkT aux) idec
         where
         aux :: DecType -> DecType
-        aux (DecType x (DecTypeRec y) targs hdict bdict specs d)
-            | x==i && y==i = DecType j (DecTypeRec j) targs hdict bdict specs d
+        aux (DecType x (DecTypeOri True) targs hdict bdict specs d)
+            | x==i = DecType j (DecTypeInst i True) targs hdict bdict specs d
         aux d = d
     
 resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryInst] -> Bool -> TcM m DecType
@@ -264,7 +265,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict
     addFrees "resolveTemplateEntry" $ decTypeFrees dec
     --liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppr n ++ " " ++ ppr targs ++ " " ++ ppr pargs ++ " " ++ ppr dec
     -- prove the body (with a recursive declaration)
-    let doWrap = isTemplateDecType olddec && decIsRec dec && decIsOriginal olddec
+    let doWrap = isTemplateDecType olddec && decIsInst dec && decIsOriginal olddec
     (decrec,rec) <- if doWrap
         then do
             debugTc $ do
@@ -484,11 +485,11 @@ comparesDecIds allowReps d1@(DecT (DecType j1 isRec1 _ _ _ _ _)) d2@(DecT (DecTy
      
 compareDecTypeK :: Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering
 compareDecTypeK allowReps j1 d1 j2 d2 | j1 == j2 && d1 == d2 = if allowReps then Just LT else Just EQ
-compareDecTypeK allowReps j1 (DecTypeRec i1) j2 (DecTypeRec i2) | i1 == i2 = if allowReps
+compareDecTypeK allowReps j1 (DecTypeInst i1 _) j2 (DecTypeInst i2 _) | i1 == i2 = if allowReps
     then Just LT -- choose one of them since they are instantiations of the same declaration
     else Nothing
-compareDecTypeK allowReps j1 (DecTypeRec i1) j2 d2 | i1 == j2 = Just LT
-compareDecTypeK allowReps j1 d1 j2 (DecTypeRec i2) | i2 == j1 = Just GT
+compareDecTypeK allowReps j1 (DecTypeInst i1 _) j2 d2 | i1 == j2 = Just LT
+compareDecTypeK allowReps j1 d1 j2 (DecTypeInst i2 _) | i2 == j1 = Just GT
 compareDecTypeK allowReps j1 d1 j2 d2 = Nothing
 
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
@@ -517,7 +518,7 @@ addValidEntry l def isLattice n (e,e',_,_,_,_,_) = do
     let d' = unDecT (entryType e')
     if isLattice
         then do
-            let doWrap = isTemplateDecType d && decIsRec d' && decIsOriginal d
+            let doWrap = isTemplateDecType d && decIsInst d' && decIsOriginal d
             if doWrap
                 then do
                     ori <- getOriginalDec l d
@@ -738,15 +739,15 @@ mapErr :: (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,TDict,TDict,CstrCach
 mapErr (Left x,_,_) = Left x
 mapErr (Right (x1,x2,x3,x4,x5),y,z) = Right (x1,x2,x3,x4,y,z,x5)
 
-checkRecursiveDec :: ProverK loc m => loc -> DecType -> TcM m Bool
-checkRecursiveDec l d@(DecType _ isRec _ _ _ _ _) = do
-    case isRec of
-        DecTypeOriginal -> return False
-        DecTypeCtx -> return False
-        DecTypeRec i -> do
-            lin <- getLineage
-            let did = fromJustNote "checkRecursiveDec" $ decTypeId d
-            return $ List.elem did lin
+--checkInstDec :: ProverK loc m => loc -> DecType -> TcM m Bool
+--checkInstDec l d@(DecType _ isRec _ _ _ _ _) = do
+--    case isRec of
+--        DecTypeOri _ -> return False
+--        DecTypeCtx -> return False
+--        DecTypeRec i -> do
+--            lin <- getLineage
+--            let did = fromJustNote "checkInstDec" $ decTypeId d
+--            return $ List.elem did lin
 
 --writeTpltArgs :: ProverK loc m => loc -> 
 --writeTpltArgs
@@ -757,7 +758,7 @@ instantiateTemplateEntry :: (ProverK loc m) => loc -> Int -> TIdentifier -> Mayb
 instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec)) = limitExprC ReadOnlyExpr $ newErrorM $ liftM mapErr $ withFrees p $ do
             --doc <- liftM ppTSubsts getTSubsts
             --liftIO $ putStrLn $ "inst " ++ show doc
-            isRec <- checkRecursiveDec l olddec
+            --isRec <- checkInstRec l olddec
             debugTc $ do
                 ppp <- ppr l
                 ppl <- ppr l
@@ -766,7 +767,7 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                 ppargs <- mapM pp pargs
                 ppret <- ppr ret
                 ppte <- ppr (entryType olde)
-                liftIO $ putStrLn $ "instantiating " ++ ppp ++ " " ++ ppl ++ " " ++ ppn ++ " " ++ pptargs ++ " " ++ show ppargs ++ " " ++ ppret ++ " " ++ show isRec ++ "\n" ++ ppte
+                liftIO $ putStrLn $ "instantiating " ++ ppp ++ " " ++ ppl ++ " " ++ ppn ++ " " ++ pptargs ++ " " ++ show ppargs ++ " " ++ ppret ++ "\n" ++ ppte
             -- can't instantiate recursive variables
             (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t -- >>= writeTpltArgs l isRec
             debugTc $ do

@@ -383,9 +383,9 @@ projectSize p t i (Just x) y1 y2 = do
             liftM Just $ subtractIndexExprs p False eupp elow          
 
 structBody :: (ProverK loc m) => loc -> DecType -> TcM m InnerDecType
-structBody l d@(DecType _ DecTypeOriginal _ _ _ _ b) = return b
+structBody l d@(DecType _ (DecTypeOri _) _ _ _ _ b) = return b
 structBody l d@(DecType _ DecTypeCtx _ _ _ _ b) = return b
-structBody l d@(DecType j (DecTypeRec i) _ _ _ _ (StructType sl sid _ cl)) = do
+structBody l d@(DecType j (DecTypeInst i _) _ _ _ _ (StructType sl sid _ cl)) = do
     DecType _ _ _ _ _ _ s <- checkStruct l True (const True) (isAnnDecClass cl) (isLeakDec d) sid j
     return s
 structBody l (DVar v@(varIdRead -> True)) = resolveDVar l v >>= structBody l
