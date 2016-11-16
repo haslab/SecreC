@@ -74,7 +74,7 @@ defaultConstructorBody l ty atts = do
     let e = RVariablePExpr l v
     let def = VarStatement l $ VariableDeclaration l False True ty $ WrapNe $ VariableInitialization l v Nothing Nothing
     let bind (Attribute l t a@(AttributeName al an) szs) = do
-        x <- liftM (VarName l) $ defaultVar $ "x"++an
+        x <- liftM (VarName l) $ defaultVar $ "defx"++an
         let defx = VarStatement l $ VariableDeclaration l False False t $ WrapNe $ VariableInitialization l x szs Nothing
         let bin = ExpressionStatement l $ BinaryAssign l (SelectionExpr l e a) (BinaryAssignEqual l) (RVariablePExpr l x)
         return [defx,bin]

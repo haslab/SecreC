@@ -713,12 +713,12 @@ coercesDec = do
     let ts = [(Constrained (tyToVar $ KindT k1) Nothing,False),(Constrained (tyToVar $ KindT k2) Nothing,False),(Constrained (tyToVar $ SecT d1) Nothing,False),(Constrained (tyToVar $ SecT d2) Nothing,False),(Constrained (tyToVar $ BaseT t1) Nothing,False),(Constrained (tyToVar $ BaseT t2) Nothing,False),(Constrained (tyToVar $ IdxT n1) Nothing,False),(Constrained (tyToVar $ IdxT n2) Nothing,False)]
     let e = VarName (ComplexT $ CType d1 t1 n1) $ VIden $ (mkVarId "e") { varIdWrite = False }
     let ret = ComplexT $ CType d2 t2 n2
-    let x = VarName ret $ VIden $ mkVarId "x"
+    let x = VarName ret $ VIden $ mkVarId "cx"
     st <- getCstrState
     let kst = CstrState False False PureExpr False FKind (cstrLineage st) (cstrErr st)
     let k = TcK (Coerces Nothing (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
-    let ctx = DecCtx Nothing (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "x") False)
+    let ctx = DecCtx Nothing (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "cx") False)
     let dec = DecType i DecTypeOriginal ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
     debugTc $ do
         ppd <- ppr dec
