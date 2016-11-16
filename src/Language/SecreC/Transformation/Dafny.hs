@@ -297,13 +297,15 @@ loadDafnyId l n = do
 
 loadDafnyDec' :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
 loadDafnyDec' l dec = do
+    lift $ debugTc $ do
+        ppd <- ppr dec
+        liftIO $ putStrLn $ "loadDafnyDec': " ++ ppd
     mb <- loadDafnyDec l dec
     case mb of
         Just dec -> return dec
         Nothing -> lift $ do
-            ppl <- ppr l
-            ppd <- ppr dec
-            error $ "loadDafnyDec: " ++ ppl ++ ": " ++ ppd
+            ppd <- pp dec
+            genError (locpos l) $ text "loadDafnyDec'" <+> ppd
 
 addImport :: Maybe Identifier -> Maybe Identifier -> Map Identifier (Set Identifier) -> Map Identifier (Set Identifier)
 addImport (Just current) (Just mn) = Map.insertWith Set.union current (Set.singleton mn)
