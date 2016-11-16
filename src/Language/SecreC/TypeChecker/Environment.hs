@@ -583,19 +583,22 @@ checkTemplateArg decK isAnn isLeak (TemplateArgName l n) = do
 
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
-addTemplateOperator :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
-addTemplateOperator vars hctx bctx hdeps op = do
+addTemplateOperator :: (ProverK loc m) => Op GIdentifier (Typed loc) -> [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
+addTemplateOperator recop vars hctx bctx hdeps op = do
+    let o = funit op
+    let (Typed l (DecT recdt)) = loc recop
     let Typed l (IDecT d) = loc op
 --    unresolvedQVars l "0" vars
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
+    let did = fromJustNote "newOperator" (decTypeId recdt)
+    let i = snd did
     let o = funit op
 --    unresolvedQVars l "1" vars
     solve l "addTemplateOperator"
 --    unresolvedQVars l "2" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
-    i <- newModuleTyVarId
     d'' <- writeIDecVars l d'
     let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
@@ -672,16 +675,19 @@ checkOperator decK isAnn isLeak k op = do
   
 -- | Adds a new (possibly overloaded) template procedure to the environment
 -- adds the template constraints
-addTemplateProcedureFunction :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
-addTemplateProcedureFunction vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+addTemplateProcedureFunction :: (ProverK loc m) => ProcedureName GIdentifier (Typed loc) -> [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
+addTemplateProcedureFunction recpn vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+    let (Typed _ (DecT recdt)) = loc recpn
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
+    let did = fromJustNote "addTemplateProcedure" (decTypeId recdt)
+    let i = snd did
+                    
 --    liftIO $ putStrLn $ "entering addTemplateProc " ++ ppr pn
     solve l "addTemplateProcedure"
 --    unresolvedQVars l "addTemplateProcedureFunction" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
-    i <- newModuleTyVarId
     d'' <- writeIDecVars l d'
     let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
@@ -1160,12 +1166,15 @@ checkFrees l frees x dict = do
     
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStruct :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
-addTemplateStruct vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+addTemplateStruct :: (ProverK loc m) => TypeName GIdentifier (Typed loc) -> [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
+addTemplateStruct rectn vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+    let (Typed l (DecT recdt)) = loc rectn
+    let did = fromJustNote "newStruct" (decTypeId recdt)
+    let i = snd did
+    
     solve l "addTemplateStruct"
 --    unresolvedQVars l "addTemplateStruct" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
-    i <- newModuleTyVarId
     let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     ss <- getStructsByName n False (const True) (tyIsAnn dt') (isLeakType dt')
@@ -1181,12 +1190,15 @@ addTemplateStruct vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     
 -- Adds a new (possibly overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
-addTemplateStructSpecialization :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
-addTemplateStructSpecialization vars specials hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+addTemplateStructSpecialization :: (ProverK loc m) => TypeName GIdentifier (Typed loc) -> [(Constrained Var,IsVariadic)] -> [(Type,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
+addTemplateStructSpecialization rectn vars specials hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+    let (Typed l (DecT recdt)) = loc rectn
+    let did = fromJustNote "newStruct" (decTypeId recdt)
+    let i = snd did
+    
     solve l "addTemplateStructSpecialization"
 --    unresolvedQVars l "addTemplateStructSpecialization" vars
     (hctx',bctx',(vars',(specials',d'))) <- splitTpltHead l hctx bctx hdeps vars (specials,d)
-    i <- newModuleTyVarId
     let dt' = DecT $ DecType i DecTypeOriginal vars' hctx' bctx' specials' d'
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
@@ -1218,9 +1230,9 @@ addStructToRec vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
 newStruct :: (ProverK loc m) => TypeName GIdentifier (Typed loc) -> DecCtx -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
 newStruct rectn bctx tn@(TypeName (Typed l (IDecT innerdect)) n) = do
     let (Typed l (DecT recdt)) = loc rectn
-    -- solve the body
     let did = fromJustNote "newStruct" (decTypeId recdt)
     let i = snd did
+    -- solve the body
     bctx' <- addLineage did $ newDecCtx l "newStruct" bctx True
     dict <- liftM (headNe . tDict) State.get
     --i <- newModuleTyVarId

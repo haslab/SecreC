@@ -472,8 +472,8 @@ tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate l $ do
         let tvars' = toList tvars
         return (targs',tvars')
     s' <- tcStructureDecl
-        (\hctx hdeps hop -> addStructToRec tvars' hdeps hop >> return (hctx,hdeps))
-        (\(hctx,hdeps) bctx -> addTemplateStruct tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addStructToRec tvars' hdeps hop >>= \recop -> return (hctx,hdeps,recop))
+        (\(hctx,hdeps,recop) bctx -> addTemplateStruct recop tvars' hctx bctx hdeps)
         s
     return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate l $ do
@@ -484,8 +484,8 @@ tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplat
     tspecials' <- tcAddDeps l "tcTemplateDecl structs specs" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
     let tspecs = map (mapFst (typed . loc)) tspecials'
     (s') <- tcStructureDecl
-        (\hctx hdeps hop -> addStructToRec tvars' hdeps hop >> return (hctx,hdeps))
-        (\(hctx,hdeps) bctx -> addTemplateStructSpecialization tvars' tspecs hctx bctx hdeps)
+        (\hctx hdeps hop -> addStructToRec tvars' hdeps hop >>= \recop -> return (hctx,hdeps,recop))
+        (\(hctx,hdeps,recop) bctx -> addTemplateStructSpecialization recop tvars' tspecs hctx bctx hdeps)
         s
     return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate l $ do
@@ -494,10 +494,10 @@ tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate l $ do
         let tvars' = toList tvars
         return (targs',tvars')
     (p') <- tcProcedureDecl
-        (\hctx hdeps hop -> addOperatorToRec tvars' hdeps hop >> return (hctx,hdeps))
-        (\(hctx,hdeps) bctx -> addTemplateOperator tvars' hctx bctx hdeps)
-        (\hctx hdeps hop -> addProcedureFunctionToRec tvars' hdeps hop >> return (hctx,hdeps))
-        (\(hctx,hdeps) bctx -> addTemplateProcedureFunction tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addOperatorToRec tvars' hdeps hop >>= \recop -> return (hctx,hdeps,recop))
+        (\(hctx,hdeps,recop) bctx -> addTemplateOperator recop tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addProcedureFunctionToRec tvars' hdeps hop >>= \recop -> return (hctx,hdeps,recop))
+        (\(hctx,hdeps,recop) bctx -> addTemplateProcedureFunction recop tvars' hctx bctx hdeps)
         p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
 tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
@@ -506,10 +506,10 @@ tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
         let tvars' = toList tvars
         return (targs',tvars')
     (p') <- tcFunctionDecl
-        (\hctx hdeps hop -> addOperatorToRec tvars' hdeps hop >> return (hctx,hdeps))
-        (\(hctx,hdeps) bctx -> addTemplateOperator tvars' hctx bctx hdeps)
-        (\hctx hdeps hop -> addProcedureFunctionToRec tvars' hdeps hop >> return (hctx,hdeps))
-        (\(hctx,hdeps) bctx -> addTemplateProcedureFunction tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addOperatorToRec tvars' hdeps hop >>= \recop -> return (hctx,hdeps,recop))
+        (\(hctx,hdeps,recop) bctx -> addTemplateOperator recop tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addProcedureFunctionToRec tvars' hdeps hop >>= \recop -> return (hctx,hdeps,recop))
+        (\(hctx,hdeps,recop) bctx -> addTemplateProcedureFunction recop tvars' hctx bctx hdeps)
         p
     return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' p'
 
