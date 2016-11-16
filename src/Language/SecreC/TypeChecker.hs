@@ -111,13 +111,13 @@ tcGlobalDeclaration (GlobalKind l kd) = tcGlobal l $ do
     kd' <- tcKindDecl kd
     return $ GlobalKind (notTyped "tcGlobalDeclaration" l) kd'
 tcGlobalDeclaration (GlobalProcedure l pd) = tcGlobal l $ do
-    (pd') <- tcProcedureDecl (const addOperatorToRec) (newOperator) (const addProcedureFunctionToRec) (newProcedureFunction) pd
+    (pd') <- tcProcedureDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) pd
     return $ GlobalProcedure (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalFunction l pd) = tcGlobal l $ do
-    (pd') <- tcFunctionDecl (const addOperatorToRec) (newOperator) (const addProcedureFunctionToRec) (newProcedureFunction) pd
+    (pd') <- tcFunctionDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) pd
     return $ GlobalFunction (notTyped "tcGlobalDeclaration" l) pd'
 tcGlobalDeclaration (GlobalStructure l sd) = tcGlobal l $ do
-    (sd') <- tcStructureDecl (const addStructToRec) (newStruct) sd
+    (sd') <- tcStructureDecl (const $ addStructToRec []) (newStruct) sd
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
 tcGlobalDeclaration (GlobalTemplate l td) = tcGlobal l $ do
     td' <- tcTemplateDecl td
@@ -129,13 +129,13 @@ tcGlobalDeclaration (GlobalAnnotations l ann) = do
 
 tcGlobalAnn :: ProverK loc m => GlobalAnnotation Identifier loc -> TcM m (GlobalAnnotation GIdentifier (Typed loc))
 tcGlobalAnn (GlobalFunctionAnn l proc) = tcGlobal l $ insideAnnotation $ do
-    (proc') <- tcFunctionDecl (const addOperatorToRec) (newOperator) (const addProcedureFunctionToRec) (newProcedureFunction) proc
+    (proc') <- tcFunctionDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) proc
     return $ GlobalFunctionAnn (notTyped "tcGlobalAnn" l) proc'
 tcGlobalAnn (GlobalProcedureAnn l proc) = tcGlobal l $ insideAnnotation $ do
-    (proc') <- tcProcedureDecl (const addOperatorToRec) (newOperator) (const addProcedureFunctionToRec) (newProcedureFunction) proc
+    (proc') <- tcProcedureDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) proc
     return $ GlobalProcedureAnn (notTyped "tcGlobalAnn" l) proc'
 tcGlobalAnn (GlobalStructureAnn l proc) = tcGlobal l $ insideAnnotation $ do
-    (proc') <- tcStructureDecl (const addStructToRec) (newStruct) proc
+    (proc') <- tcStructureDecl (const $ addStructToRec []) (newStruct) proc
     return $ GlobalStructureAnn (notTyped "tcGlobalAnn" l) proc'
 tcGlobalAnn (GlobalTemplateAnn l proc) = tcGlobal l $ insideAnnotation $ do
     proc' <- tcTemplateDecl proc
@@ -472,8 +472,8 @@ tcTemplateDecl (TemplateStructureDeclaration l targs s) = tcTemplate l $ do
         let tvars' = toList tvars
         return (targs',tvars')
     s' <- tcStructureDecl
-        (\x y z -> return (x,y))
-        (\(x,y) z -> addTemplateStruct tvars' x z y)
+        (\hctx hdeps hop -> addStructToRec tvars' hdeps hop >> return (hctx,hdeps))
+        (\(hctx,hdeps) bctx -> addTemplateStruct tvars' hctx bctx hdeps)
         s
     return $ TemplateStructureDeclaration (notTyped "tcTemplateDecl" l) targs' s'
 tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplate l $ do
@@ -484,8 +484,8 @@ tcTemplateDecl (TemplateStructureSpecialization l targs tspecials s) = tcTemplat
     tspecials' <- tcAddDeps l "tcTemplateDecl structs specs" $ mapM (tcVariadicArg tcTemplateTypeArgument) tspecials
     let tspecs = map (mapFst (typed . loc)) tspecials'
     (s') <- tcStructureDecl
-        (\x y z -> return (x,y))
-        (\(x,y) z -> addTemplateStructSpecialization tvars' tspecs x z y)
+        (\hctx hdeps hop -> addStructToRec tvars' hdeps hop >> return (hctx,hdeps))
+        (\(hctx,hdeps) bctx -> addTemplateStructSpecialization tvars' tspecs hctx bctx hdeps)
         s
     return $ TemplateStructureSpecialization (notTyped "tcTemplateDecl" l) targs' tspecials' s'
 tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate l $ do
@@ -494,10 +494,10 @@ tcTemplateDecl (TemplateProcedureDeclaration l targs p) = tcTemplate l $ do
         let tvars' = toList tvars
         return (targs',tvars')
     (p') <- tcProcedureDecl
-        (\x y z -> return (x,y))
-        (\(x,y) z -> addTemplateOperator tvars' x z y)
-        (\x y z -> return (x,y))
-        (\(x,y) z -> addTemplateProcedureFunction tvars' x z y)
+        (\hctx hdeps hop -> addOperatorToRec tvars' hdeps hop >> return (hctx,hdeps))
+        (\(hctx,hdeps) bctx -> addTemplateOperator tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addProcedureFunctionToRec tvars' hdeps hop >> return (hctx,hdeps))
+        (\(hctx,hdeps) bctx -> addTemplateProcedureFunction tvars' hctx bctx hdeps)
         p
     return $ TemplateProcedureDeclaration (notTyped "tcTemplateDecl" l) targs' p'
 tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
@@ -506,10 +506,10 @@ tcTemplateDecl (TemplateFunctionDeclaration l targs p) = tcTemplate l $ do
         let tvars' = toList tvars
         return (targs',tvars')
     (p') <- tcFunctionDecl
-        (\x y z -> return (x,y))
-        (\(x,y) z -> addTemplateOperator tvars' x z y)
-        (\x y z -> return (x,y))
-        (\(x,y) z -> addTemplateProcedureFunction tvars' x z y)
+        (\hctx hdeps hop -> addOperatorToRec tvars' hdeps hop >> return (hctx,hdeps))
+        (\(hctx,hdeps) bctx -> addTemplateOperator tvars' hctx bctx hdeps)
+        (\hctx hdeps hop -> addProcedureFunctionToRec tvars' hdeps hop >> return (hctx,hdeps))
+        (\(hctx,hdeps) bctx -> addTemplateProcedureFunction tvars' hctx bctx hdeps)
         p
     return $ TemplateFunctionDeclaration (notTyped "tcTemplateDecl" l) targs' p'
 

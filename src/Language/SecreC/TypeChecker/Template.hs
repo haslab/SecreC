@@ -207,8 +207,17 @@ mkInvocationDec l dec@(DecType i DecTypeOriginal targs hdict bdict specs d) targ
     j <- newModuleTyVarId
     ts' <- concatMapM (expandVariadicType l) targs'
     let specs' = map (,False) ts'
-    return $ DecType j (DecTypeRec i) [] hdict bdict specs' d
-
+    let d' = replaceRecursive i j d
+    return $ DecType j (DecTypeRec i) [] hdict bdict specs' d'
+  where
+    replaceRecursive :: ModuleTyVarId -> ModuleTyVarId -> InnerDecType -> InnerDecType
+    replaceRecursive i j idec = everywhere (mkT aux) idec
+        where
+        aux :: DecType -> DecType
+        aux (DecType x (DecTypeRec y) targs hdict bdict specs d)
+            | x==i && y==i = DecType j (DecTypeRec j) targs hdict bdict specs d
+        aux d = d
+    
 resolveTemplateEntries :: (ProverK loc m) => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> [EntryInst] -> Bool -> TcM m DecType
 resolveTemplateEntries l kid n targs pargs ret insts ko = do
     case insts of

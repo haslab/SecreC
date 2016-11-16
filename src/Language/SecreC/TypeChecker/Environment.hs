@@ -607,8 +607,8 @@ addTemplateOperator vars hctx bctx hdeps op = do
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) (OIden o) $ getLns selector env
     return $ updLoc op (Typed (unTyped $ loc op) dt')
 
-addOperatorToRec :: ProverK loc m => Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
-addOperatorToRec hdeps op = do
+addOperatorToRec :: ProverK loc m => [(Constrained Var,IsVariadic)] -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
+addOperatorToRec vars hdeps op = do
     let (Typed l (IDecT d)) = loc op
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
@@ -619,7 +619,7 @@ addOperatorToRec hdeps op = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newOp head" dontStop l recdict False Map.empty d
-    let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (DecTypeRec i) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
     dirtyGDependencies (locpos l) $ OIden o
@@ -790,8 +790,8 @@ addPArgToRec l (isConst,Left e,isVariadic) = do
     let dict = if isConst then TSubsts (Map.singleton v (IdxT e)) else mempty
     return ((isConst,VarName t $ VIden v,isVariadic),dict)
 
-addProcedureFunctionToRec :: ProverK loc m => Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
-addProcedureFunctionToRec hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+addProcedureFunctionToRec :: ProverK loc m => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
+addProcedureFunctionToRec vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
@@ -801,7 +801,7 @@ addProcedureFunctionToRec hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newProc head" dontStop l recdict False Map.empty d
-    let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (DecTypeRec i) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
     dirtyGDependencies (locpos l) n
@@ -1192,8 +1192,8 @@ addTemplateStructSpecialization vars specials hctx bctx hdeps tn@(TypeName (Type
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
     return $ TypeName (Typed l dt') n
 
-addStructToRec :: ProverK loc m => Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
-addStructToRec hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
+addStructToRec :: ProverK loc m => [(Constrained Var,IsVariadic)] -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
+addStructToRec vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     addGDependencies n
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l "newStruct head" hdeps
@@ -1202,7 +1202,7 @@ addStructToRec hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
     d' <- substFromTDict "newStruct head" dontStop l recdict False Map.empty d
-    let recdt = DecT $ DecType i (DecTypeRec i) [] (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
+    let recdt = DecT $ DecType i (DecTypeRec i) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructsByName n False (const True) (tyIsAnn recdt) (isLeakType recdt)
     case ss of
