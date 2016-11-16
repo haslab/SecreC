@@ -245,7 +245,9 @@ compileDafny isLeak isDebug dfy bpl = do
 verifOutput :: (MonadIO m) => Bool -> Bool -> Status -> m Status
 verifOutput isLeak isDafny st@(Status (Right err)) = verifErr isDafny st
 verifOutput isLeak isDafny st@(Status (Left output)) = do
-    let w = last $ lines $ show output
+    let ls = lines $ show output
+    let w = last ls
+    let errs = filter (List.isPrefixOf "Prover error:") $ init ls
     let tool = if isDafny then "Dafny" else "Boogie"
     let parser = do
         Parsec.string tool >> Parsec.space
@@ -261,14 +263,16 @@ verifOutput isLeak isDafny st@(Status (Left output)) = do
         Parsec.string "errors"
         return (verified,errors)
     let e = Parsec.parse parser "output" w
-    case e of
-        Left err -> verifErr isDafny st
-        Right (oks,kos) -> do
-            let c = if isLeak then "leakage" else "functional"
-            let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
-            case kos of
-                0 -> return $ Status $ Left res
-                otherwise -> error $ show res
+    if (List.null errs)
+        then case e of
+            Left err -> verifErr isDafny st
+            Right (oks,kos) -> do
+                let c = if isLeak then "leakage" else "functional"
+                let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
+                case kos of
+                    0 -> return $ Status $ Left res
+                    otherwise -> error $ show res
+        else verifErr isDafny st
 
 verifErr :: MonadIO m => Bool -> Status -> m Status
 verifErr isDafny (Status res) = do
