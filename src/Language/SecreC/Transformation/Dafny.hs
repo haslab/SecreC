@@ -985,7 +985,7 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
     bt <- lift $ typeBase (unTyped l) $ typed $ loc e
     (pbt,annbt) <- typeToDafny (unTyped l) annK bt
     (anne,pe) <- expressionToDafny False False annK e
-    x <- lift $ genVar (VIden $ mkVarId "x" :: GIdentifier)
+    x <- lift $ genVar (VIden $ mkVarId "xset" :: GIdentifier)
     px <- varToDafny $ VarName (Typed (unTyped l) bt) x
     let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
     annp <- genDafnyPublics (unTyped l) (hasLeakExpr me) annK pme (typed l)
