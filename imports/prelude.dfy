@@ -93,10 +93,10 @@ class Array2<T> {
   { this.arr2 := new T[x,y]; }
 
   constructor reshape0(x: T, m: uint64, n: uint64)
-  requires m * n == 1;
+  requires 0 <= m && 0 <= n;
   free ensures this != null && this.valid();
   free ensures this.Length0() == m && this.Length1() == n;
-  free ensures this.arr2[0,0] == x; 
+  free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> this.arr2[i,j] == x;
   {}
   
   constructor reshape1(xs: seq<T>, m: uint64, n: uint64)
@@ -104,7 +104,7 @@ class Array2<T> {
   requires uint64(|xs|) == m * n;
   free ensures this != null && this.valid();
   free ensures this.Length0() == m && this.Length1() == n;
-  free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> i+j < uint64(|xs|) && this.arr2[i,j] == xs[i+j];
+  free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> (i+j < uint64(|xs|) && this.arr2[i,j] == xs[i+j]);
   {}
 
   function method Length0() : uint64
