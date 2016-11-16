@@ -990,15 +990,6 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
     let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
     annp <- genDafnyPublics (unTyped l) (hasLeakExpr me) annK pme (typed l)
     qExprToDafny isQExpr (annbt++anne++annp) pme
-expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
-    (pt,annt) <- typeToDafny (unTyped l) annK (typed $ loc t)
-    ppx <- varToDafny x
-    (annpe,pppx) <- expressionToDafny False False annK px
-    (annfe,pfx) <- mapExpressionToDafny False False annK fx
-    ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
-    let pme = parens (text "set" <+> ppx <> char ':' <> pt <+> char '|' <+> pppx <+> ppfx)
-    annp <- genDafnyPublics (unTyped l) (hasLeakExpr me) annK pme (typed l)
-    qExprToDafny isQExpr (annt++annpe++annfe++annp) pme
 expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = do
     es' <- lift $ concatMapM unfoldVariadicExpr es
     builtinToDafny isLVal isQExpr annK l n es'
@@ -1031,6 +1022,13 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     (annpargs,pargs) <- quantifierArgsToDafny args
     (anne,pe) <- expressionToDafny isLVal True NoK e
     return ([],parens (pq <+> pargs <+> text "::" <+> annotateExpr (annpargs++anne) pe))
+expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
+    (annarg,parg) <- quantifierArgToDafny (t,x)
+    (annpe,pppx) <- expressionToDafny isLVal True NoK px
+    (annfe,pfx) <- mapExpressionToDafny isLVal True NoK fx
+    ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
+    let pme = parens (text "set" <+> parg <+> char '|' <+> annotateExpr (annarg++annpe++annfe) pppx <+> ppfx)
+    return ([],pme)
 expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
     (anncond,ppcond) <- expressionToDafny isLVal isQExpr annK econd
     (annthen,ppthen) <- expressionToDafny isLVal isQExpr annK ethen

@@ -44,14 +44,16 @@ pd_a3p uint [[2]] load_db () {
 }
 
 //@ template <domain D>
-//@ function set<uint> itemsof(D uint[[2]] db) {
-//@     (set uint x | 0 <= x && x < shape(db)[1])
-//@ }
+//@ function set<uint> itemsof(D uint[[2]] db)
+//@ context<>
+//@ noinline;
+//@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
 //@ template <nonpublic kind K, domain D : K>
-//@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db) {
-//@     (size(is) == 0) ? repeat(classify(0),shape(db)[0]) : db[:,is[0]] 
-//@ }
+//@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db)
+//@ context<>
+//@ noinline;
+//@ { (size(is) == 0) ? repeat(classify(0),shape(db)[0]) : db[:,is[0]] }
 
 //x * transactions(is[1:],db)
 
@@ -59,9 +61,7 @@ pd_a3p uint [[2]] load_db () {
 //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
 //@ context<>
 //@ noinline;
-//@ {
-//@     forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) <= classify(threshold))
-//@ }
+//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) <= classify(threshold)) }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
