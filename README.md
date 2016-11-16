@@ -54,6 +54,10 @@ For usage instructions, see
 ```
 secrec --help
 ```
+For cabal sandboxes, use instead
+```
+cabal exec -- secrec --help
+```
 
 #### Tests:
 Before testing, make sure that you have the following packages installed:

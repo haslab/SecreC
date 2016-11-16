@@ -27,7 +27,7 @@ void printArray (T[[N]] arr) {
 
 
 pd_a3p uint [[2]] load_db () {
-    pd_a3p uint [[2]] db = reshape (repeat(classify(0),25), 5, 5);
+    pd_a3p uint [[2]] db (5,5);
     db[0, 0] = classify(1);
     db[0, 1] = classify(1);
     db[0, 3] = classify(1);
@@ -59,7 +59,7 @@ pd_a3p uint [[2]] load_db () {
 //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
 //@ context<>
 //@ noinline;
-//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) <= classify(threshold)) }
+//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
