@@ -1305,7 +1305,10 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
                 Right 0 -> qExprToDafny isQExpr (annx) $ brackets empty
-                Right n -> qExprToDafny isQExpr (annx) $ brackets $ dafnySize n px
+                Right 1 -> qExprToDafny isQExpr (annx) $ brackets $ dafnySize 1 px
+                Right n -> do
+                    let psize = px <> text ".shape()"
+                    qExprToDafny isQExpr (annx) psize
                 otherwise -> do
                     ppx <- lift $ pp x
                     pptx <- lift $ pp tx
