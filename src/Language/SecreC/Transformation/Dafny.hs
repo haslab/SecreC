@@ -1055,7 +1055,7 @@ expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (De
 expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     let pq = quantifierToDafny q
     (annpargs,pargs) <- quantifierArgsToDafny annK args
-    vs <- lift $ usedVs' q
+    vs <- lift $ liftM Set.unions $ mapM usedVs' args
     (anne,pe) <- expressionToDafny isLVal (Just vs) annK e
     let (anns,pe') = annotateExpr (annpargs++anne) vs pe
     lift $ debugTc $ do
@@ -1063,7 +1063,7 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
     (annarg,parg) <- quantifierArgToDafny annK (t,x)
-    vs <- lift $ usedVs' x
+    vs <- lift $ usedVs' (t,x)
     (annpe,pppx) <- expressionToDafny isLVal (Just vs) annK px
     (annfe,pfx) <- mapExpressionToDafny isLVal (Just vs) annK fx
     ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
