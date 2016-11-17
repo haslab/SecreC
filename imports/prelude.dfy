@@ -159,8 +159,8 @@ class Array2<T> {
   function method project10(x1: uint64, x2: uint64, y: uint64) : seq<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
-  requires 0 <= x1 < this.Length0();
-  requires 0 <= x2 < this.Length0();
+  requires 0 <= x1 <= this.Length0();
+  requires 0 <= x2 <= this.Length0();
   requires x1 <= x2;
   requires 0 <= y < this.Length1();
   ensures uint64(|project10(x1,x2,y)|) == x2-x1;
@@ -170,8 +170,8 @@ class Array2<T> {
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
   requires 0 <= x < this.Length0();
-  requires 0 <= y1 < this.Length1();
-  requires 0 <= y2 < this.Length1();
+  requires 0 <= y1 <= this.Length1();
+  requires 0 <= y2 <= this.Length1();
   requires y1 <= y2;
   ensures uint64(|project01(x,y1,y2)|) == y2-y1;
   ensures forall j:uint64 :: 0 <= j < y2-y1 ==> project01(x,y1,y2)[j] == this.arr2[x,y1+j];
@@ -179,11 +179,11 @@ class Array2<T> {
   function method project11(x1: uint64, x2: uint64, y1: uint64, y2: uint64) : Array2<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
-  requires 0 <= x1 < this.Length0();
-  requires 0 <= x2 < this.Length0();
+  requires 0 <= x1 <= this.Length0();
+  requires 0 <= x2 <= this.Length0();
   requires x1 <= x2;
-  requires 0 <= y1 < this.Length1();
-  requires 0 <= y2 < this.Length1();
+  requires 0 <= y1 <= this.Length1();
+  requires 0 <= y2 <= this.Length1();
   requires y1 <= y2;
   ensures project11(x1,x2,y1,y2) != null && project11(x1,x2,y1,y2).valid();
   ensures project11(x1,x2,y1,y2).Length0() == x2-x1;
