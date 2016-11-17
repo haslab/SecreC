@@ -1061,16 +1061,16 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     let pq = quantifierToDafny q
     (annpargs,pargs) <- quantifierArgsToDafny args
     (anne,pe) <- expressionToDafny isLVal True NoK e
-    vspe <- lift $ usedVs' e
-    let (anns,pe') = annotateExpr (annpargs++anne) vspe pe
+    vs <- lift $ usedVs' q
+    let (anns,pe') = annotateExpr (annpargs++anne) vs pe
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
     (annarg,parg) <- quantifierArgToDafny (t,x)
     (annpe,pppx) <- expressionToDafny isLVal True NoK px
-    vspx <- lift $ usedVs' px
+    vs <- lift $ usedVs' x
     (annfe,pfx) <- mapExpressionToDafny isLVal True NoK fx
     ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
-    let (anns,pppx') = annotateExpr (annarg++annpe++annfe) vspx pppx
+    let (anns,pppx') = annotateExpr (annarg++annpe++annfe) vs pppx
     let pme = parens (text "set" <+> parg <+> char '|' <+> pppx' <+> ppfx)
     return (anns,pme)
 expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
