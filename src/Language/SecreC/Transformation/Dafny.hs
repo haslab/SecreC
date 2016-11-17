@@ -611,9 +611,7 @@ annLine (NoK,isFree,vs,x) = x
 
 unfreeAnn :: AnnDoc -> AnnDoc
 unfreeAnn (k,False,vs,x) = (k,False,vs,x)
-unfreeAnn (RequireK,True,vs,x) = (RequireK,False,vs,x)
-unfreeAnn (DecreaseK,True,vs,x) = (DecreaseK,False,vs,x)
-unfreeAnn a = error $ show $ text "cannot unfree" <+> annLine a
+unfreeAnn (k,True,vs,x) = (k,False,vs,x)
 
 unfreeAnns :: AnnsDoc -> AnnsDoc
 unfreeAnns = map unfreeAnn
