@@ -1058,6 +1058,8 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     vs <- lift $ usedVs' q
     (anne,pe) <- expressionToDafny isLVal (Just vs) annK e
     let (anns,pe') = annotateExpr (annpargs++anne) vs pe
+    lift $ debugTc $ do
+        liftIO $ putStrLn $ "quantifierExprToDafny " ++ show vs ++ "\n" ++ show pe ++ "\n --> \n" ++ show pe' ++ "\n"++show (annLines anns)
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
     (annarg,parg) <- quantifierArgToDafny annK (t,x)
