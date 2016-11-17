@@ -1054,16 +1054,16 @@ expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (De
     qExprToDafny isQExpr (annargs++annp) pe
 expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     let pq = quantifierToDafny q
-    (annpargs,pargs) <- quantifierArgsToDafny args
+    (annpargs,pargs) <- quantifierArgsToDafny annK args
     vs <- lift $ usedVs' q
-    (anne,pe) <- expressionToDafny isLVal (Just vs) NoK e
+    (anne,pe) <- expressionToDafny isLVal (Just vs) annK e
     let (anns,pe') = annotateExpr (annpargs++anne) vs pe
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
-    (annarg,parg) <- quantifierArgToDafny (t,x)
+    (annarg,parg) <- quantifierArgToDafny annK (t,x)
     vs <- lift $ usedVs' x
-    (annpe,pppx) <- expressionToDafny isLVal (Just vs) NoK px
-    (annfe,pfx) <- mapExpressionToDafny isLVal (Just vs) NoK fx
+    (annpe,pppx) <- expressionToDafny isLVal (Just vs) annK px
+    (annfe,pfx) <- mapExpressionToDafny isLVal (Just vs) annK fx
     ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
     let (anns,pppx') = annotateExpr (annarg++annpe++annfe) vs pppx
     let pme = parens (text "set" <+> parg <+> char '|' <+> pppx' <+> ppfx)
@@ -1098,15 +1098,15 @@ quantifierToDafny :: Quantifier (Typed Position) -> Doc
 quantifierToDafny (ForallQ _) = text "forall"
 quantifierToDafny (ExistsQ _) = text "exists"
 
-quantifierArgsToDafny :: DafnyK m => [(TypeSpecifier GIdentifier (Typed Position),VarName GIdentifier (Typed Position))] -> DafnyM m (AnnsDoc,Doc)
-quantifierArgsToDafny xs = do
-    (anns,vs) <- Utils.mapAndUnzipM quantifierArgToDafny xs
+quantifierArgsToDafny :: DafnyK m => AnnKind -> [(TypeSpecifier GIdentifier (Typed Position),VarName GIdentifier (Typed Position))] -> DafnyM m (AnnsDoc,Doc)
+quantifierArgsToDafny annK xs = do
+    (anns,vs) <- Utils.mapAndUnzipM (quantifierArgToDafny annK) xs
     return (concat anns,sepBy comma vs)
 
-quantifierArgToDafny :: DafnyK m => (TypeSpecifier GIdentifier (Typed Position),VarName GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,Doc)
-quantifierArgToDafny (t,v) = do
+quantifierArgToDafny :: DafnyK m => AnnKind -> (TypeSpecifier GIdentifier (Typed Position),VarName GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,Doc)
+quantifierArgToDafny annK (t,v) = do
     pv <- varToDafny v
-    (pt,anns) <- typeToDafny (unTyped $ loc v) NoK (typed $ loc v)
+    (pt,anns) <- typeToDafny (unTyped $ loc v) annK (typed $ loc v)
     return (anns,pv <> char ':' <> pt)
 
 expressionsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,[Doc])
