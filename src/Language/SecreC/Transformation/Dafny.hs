@@ -444,7 +444,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
     (pret,pretanns) <- typeToDafny l RequireK ret
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns
-    (pbodyanns,pbody) <- expressionToDafny False False RequireK body
+    (pbodyanns,pbody) <- expressionToDafny False Nothing RequireK body
     let fanns = unfreeAnns $ pretanns ++ parganns ++ panns ++ pbodyanns
     let tag = if isLeak then text "function" else text "function method"
     return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLines fanns $+$ vbraces pbody)
@@ -628,21 +628,21 @@ procedureAnnToDafny (RequiresAnn l isFree isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        (anne,pe) <- expressionToDafny False False RequireK e
+        (anne,pe) <- expressionToDafny False Nothing RequireK e
         req <- annExpr isFree isLeak leakMode RequireK vs pe
         return $ anne ++ req
 procedureAnnToDafny (EnsuresAnn l isFree isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        (anne,pe) <- expressionToDafny False False EnsureK e
+        (anne,pe) <- expressionToDafny False Nothing EnsureK e
         ens <- annExpr isFree isLeak leakMode EnsureK vs pe
         return $ anne ++ ens
 procedureAnnToDafny (InlineAnn l isInline) = withInAnn True $ return []
 procedureAnnToDafny (PDecreasesAnn l e) = withInAnn True $ do
     leakMode <- getLeakMode
     vs <- lift $ usedVs' e
-    (anne,pe) <- expressionToDafny False False EnsureK e
+    (anne,pe) <- expressionToDafny False Nothing EnsureK e
     decr <- annExpr False False leakMode DecreaseK vs pe
     return $ anne ++ decr
 
@@ -654,7 +654,7 @@ statementToDafny (CompoundStatement _ ss) = do
     pss <- statementsToDafny ss
     return $ vbraces pss
 statementToDafny (IfStatement _ c s1 s2) = do
-    (annc,pc) <- expressionToDafny False False StmtK c
+    (annc,pc) <- expressionToDafny False Nothing StmtK c
     ps1 <- statementToDafny s1
     ps2 <- mapM statementToDafny s2
     ppo <- ppOpt ps2 (return . (text "else" <+>))
@@ -662,17 +662,17 @@ statementToDafny (IfStatement _ c s1 s2) = do
 statementToDafny (BreakStatement l) = return $ text "break" <> semicolon
 statementToDafny (ContinueStatement l) = return $ text "continue" <> semicolon
 statementToDafny (ReturnStatement l e) = do
-    (anne,pe) <- mapExpressionToDafny False False StmtK e
+    (anne,pe) <- mapExpressionToDafny False Nothing StmtK e
     return $ annLines anne $+$ text "return" <+> ppid pe <> semicolon
 statementToDafny (ExpressionStatement _ (BinaryAssign l le (BinaryAssignEqual _) re)) = do
-    (pres,pre) <- expressionToDafny False False StmtK re
+    (pres,pre) <- expressionToDafny False Nothing StmtK re
     (post,pass) <- assignmentToDafny StmtK le (Left pre)
     return $ annLines pres $+$ pass <> semicolon $+$ annLines post
 statementToDafny es@(ExpressionStatement (Typed l _) e) = do
     let t = typed $ loc e
     case t of
         ComplexT Void -> do
-            (anne,pe) <- expressionToDafny False False StmtK e
+            (anne,pe) <- expressionToDafny False Nothing StmtK e
             let ppe = if (pe==empty) then pe else pe <> semicolon
             return $ annLines anne $+$ ppe
         otherwise -> do
@@ -684,7 +684,7 @@ statementToDafny es@(ExpressionStatement (Typed l _) e) = do
 statementToDafny (AssertStatement l e) = do
     leakMode <- getLeakMode
     vs <- lift $ usedVs' e
-    (anne,pe) <- expressionToDafny False False StmtK e
+    (anne,pe) <- expressionToDafny False Nothing StmtK e
     assert <- annExpr False False leakMode StmtK vs pe
     return $ annLines anne $+$ annLines assert
 statementToDafny (AnnStatement l ss) = withInAnn True $ liftM (annLines . concat) $ mapM statementAnnToDafny ss
@@ -693,7 +693,7 @@ statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) =
     pvd <- liftM vcat $ mapM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
     return $ annLines annst $+$ pvd
 statementToDafny (WhileStatement l e anns s) = do
-    (anne,pe) <- expressionToDafny False False InvariantK e
+    (anne,pe) <- expressionToDafny False Nothing InvariantK e
     annl <- loopAnnsToDafny anns
     ps <- statementToDafny s
     return $ text "while" <+> pe $+$ annLines anne $+$ annLines annl $+$ vbraces (ps)    
@@ -722,14 +722,14 @@ loopAnnToDafny (DecreasesAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        (anne,pe) <- expressionToDafny False False InvariantK e
+        (anne,pe) <- expressionToDafny False Nothing InvariantK e
         decrease <- annExpr False isLeak leakMode DecreaseK vs pe
         return $ anne ++ decrease
 loopAnnToDafny (InvariantAnn l isFree isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        (anne,pe) <- expressionToDafny False False InvariantK e
+        (anne,pe) <- expressionToDafny False Nothing InvariantK e
         inv <- annExpr isFree isLeak leakMode InvariantK vs pe
         return $ anne ++ inv
 
@@ -738,14 +738,14 @@ statementAnnToDafny (AssumeAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        (anne,pe) <- expressionToDafny False False StmtK e
+        (anne,pe) <- expressionToDafny False Nothing StmtK e
         assume <- annExpr True isLeak leakMode StmtK vs pe
         return $ anne ++ assume
 statementAnnToDafny (AssertAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        (anne,pe) <- expressionToDafny False False StmtK e
+        (anne,pe) <- expressionToDafny False Nothing StmtK e
         assert <- annExpr False isLeak leakMode StmtK vs pe
         return $ anne++assert
 statementAnnToDafny (EmbedAnn l isLeak e) = withInAnn True $ do
@@ -761,7 +761,7 @@ checkDafnyShape :: DafnyK m => Position -> Bool -> Set VarIdentifier -> Sizes GI
 checkDafnyShape l isFree vs (Sizes szs) e = case Foldable.toList szs of
     [] -> return []
     (ds@(all (not . snd) -> True)) -> do
-        (anns,des) <- Utils.mapAndUnzipM (expressionToDafny False False StmtK) (map fst ds)
+        (anns,des) <- Utils.mapAndUnzipM (expressionToDafny False Nothing StmtK) (map fst ds)
         let check = case des of
                         [de] -> dafnySize 0 e <+> text "==" <+> de
                         des -> e <> text ".shape()" <+> text "==" <+> brackets (sepBy comma des)
@@ -781,7 +781,7 @@ varInitToDafny isConst isHavoc pty (VariableInitialization l v sz ini) = do
     pv <- varToDafny v
     let def = text "var" <+> pv <> char ':' <> pty <> semicolon
     annp <- genDafnyAssumptions (unTyped $ loc v) False StmtK vvs pv (typed $ loc v)
-    (annsini,pini) <- mapExpressionToDafny False False StmtK ini
+    (annsini,pini) <- mapExpressionToDafny False Nothing StmtK ini
     annsize <- case (sz) of
         (Just szs) -> do
             let isFree = if isJust ini then False else True
@@ -846,16 +846,16 @@ type AnnDoc = (AnnKind,Bool,Set VarIdentifier,Doc)
 
 indexToDafny :: DafnyK m => Bool -> AnnKind -> Maybe Doc -> Int -> Index GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 indexToDafny isLVal annK isClass i (IndexInt l e) = do
-    (anne,pe) <- expressionToDafny isLVal False annK e
+    (anne,pe) <- expressionToDafny isLVal Nothing annK e
     return (anne,pe)
 indexToDafny isLVal annK Nothing i (IndexSlice l e1 e2) = do
-    (anne1,pe1) <- mapExpressionToDafny isLVal False annK e1
-    (anne2,pe2) <- mapExpressionToDafny isLVal False annK e2
+    (anne1,pe1) <- mapExpressionToDafny isLVal Nothing annK e1
+    (anne2,pe2) <- mapExpressionToDafny isLVal Nothing annK e2
     return (anne1++anne2,ppid pe1 <> text ".." <> ppid pe2)
 indexToDafny isLVal annK (Just pe) i (IndexSlice l e1 e2) = do
-    (anne1,pe1) <- mapExpressionToDafny isLVal False annK e1
+    (anne1,pe1) <- mapExpressionToDafny isLVal Nothing annK e1
     let pe1' = maybe (int 0) id pe1
-    (anne2,pe2) <- mapExpressionToDafny isLVal False annK e2
+    (anne2,pe2) <- mapExpressionToDafny isLVal Nothing annK e2
     let pe2' = maybe (pe <> text ".Length" <> int i <> text "()") id pe2
     return (anne1++anne2,pe1' <> text "," <> pe2')
 
@@ -865,31 +865,31 @@ assignmentToDafny annK se@(SelectionExpr l e att) (Left pre) = do
     did <- tAttDec (unTyped $ loc e) (pp se) (typed $ loc e)
     psn <- ppDafnyIdM did
     patt <- structAttToDafny (unTyped l) False psn $ fmap typed att
-    (annse,_) <- expressionToDafny True False annK se
+    (annse,_) <- expressionToDafny True Nothing annK se
     (ann,doc) <- assignmentToDafny annK e (Right $ char '.' <> parens (patt <+> text ":=" <+> pre))
     return (annse++ann,doc)
 assignmentToDafny annK se@(SelectionExpr l e att) (Right upd) = do
     did <- tAttDec (unTyped $ loc e) (pp se) (typed $ loc e)
     psn <- ppDafnyIdM did
     patt <- structAttToDafny (unTyped l) False psn $ fmap typed att
-    (annse,pse) <- expressionToDafny True False annK se
+    (annse,pse) <- expressionToDafny True Nothing annK se
     (ann,doc) <- assignmentToDafny annK e (Right $ char '.' <> parens (patt <+> text ":=" <+> pse <> upd))
     return (annse++ann,doc)
 assignmentToDafny annK se@(PostIndexExpr l e (Foldable.toList -> [i])) (Left pre) = do
     (anni,pi) <- indexToDafny True annK Nothing 0 i
-    (annse,_) <- expressionToDafny True False annK se
+    (annse,_) <- expressionToDafny True Nothing annK se
     (ann,doc) <- assignmentToDafny annK e (Right $ brackets (text "int" <> parens pi <+> text ":=" <+> pre))
     return (anni++annse++ann,doc)
 assignmentToDafny annK se@(PostIndexExpr l e (Foldable.toList -> [i])) (Right upd) = do
     (anni,pi) <- indexToDafny True annK Nothing 0 i
-    (annse,pse) <- expressionToDafny True False annK se
+    (annse,pse) <- expressionToDafny True Nothing annK se
     (ann,doc) <- assignmentToDafny annK e (Right $ brackets (text "int" <> parens pi <+> text ":=" <+> pse <> upd))
     return (anni++annse++ann,doc)
 assignmentToDafny annK e@(RVariablePExpr {}) (Left pre) = do
-    (anne,pe) <- expressionToDafny True False annK e
+    (anne,pe) <- expressionToDafny True Nothing annK e
     return (anne,pe <+> text ":=" <+> pre)
 assignmentToDafny annK e@(RVariablePExpr {}) (Right upd) = do
-    (anne,pe) <- expressionToDafny True False annK e
+    (anne,pe) <- expressionToDafny True Nothing annK e
     return (anne,pe <+> text ":=" <+> pe <> upd)
 assignmentToDafny annK e pre = do
     ppannK <- lift $ pp annK
@@ -923,25 +923,25 @@ hasLeakExpr = everything (||) (mkQ False aux)
     aux (LeakExpr {}) = True
     aux _ = False
 
-projectionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+projectionToDafny :: DafnyK m => Bool -> IsQExpr -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 projectionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> is)) = do
-    vsse <- lift $ usedVs' se
-    (anne,pe) <- expressionToDafny isLVal False annK e
+    vs <- lift $ usedVs' se
+    (anne,pe) <- expressionToDafny isLVal Nothing annK e
     let Typed _ t = loc e
     mbd <- lift $ tryTcError l $ typeDim l t >>= fullyEvaluateIndexExpr l
     case (mbd,is) of
         (Right 1,[i]) -> do
-            (anne,pe) <- expressionToDafny isLVal False annK e
+            (anne,pe) <- expressionToDafny isLVal Nothing annK e
             (anni,pi) <- indexToDafny isLVal annK Nothing 0 i
             let pse = pe <> brackets pi
-            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vsse pse (typed l)
-            qExprToDafny isQExpr (anne++anni++annp) vsse pse
+            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vs pse (typed l)
+            qExprToDafny isQExpr (anne++anni++annp) pse
         (Right n,is) -> do
-            (anne,pe) <- expressionToDafny isLVal False annK e
+            (anne,pe) <- expressionToDafny isLVal Nothing annK e
             (concat -> annis,pis) <- Utils.mapAndUnzipM (\(idx,i) -> indexToDafny isLVal annK (Just pe) i idx) (zip is [0..])
             let pse = pe <> text ".project" <> ppIndexIds is <> parens (sepBy comma pis)
-            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vsse pse (typed l)
-            qExprToDafny isQExpr (anne++annis++annp) vsse pse
+            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vs pse (typed l)
+            qExprToDafny isQExpr (anne++annis++annp) pse
         otherwise -> do
             ppannK <- lift $ pp annK
             ppe <- lift $ pp e
@@ -953,48 +953,45 @@ ppIndexIds [] = empty
 ppIndexIds (IndexInt {}:xs) = int 0 <> ppIndexIds xs
 ppIndexIds (IndexSlice {}:xs) = int 1 <> ppIndexIds xs
 
-expressionToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+type IsQExpr = Maybe (Set VarIdentifier)
+
+expressionToDafny :: DafnyK m => Bool -> IsQExpr -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 expressionToDafny isLVal isQExpr annK se@(PostIndexExpr {}) = do
     projectionToDafny isLVal isQExpr annK se
 expressionToDafny isLVal isQExpr annK se@(SelectionExpr l e att) = do
     vs <- lift $ usedVs' se
-    (anne,pe) <- expressionToDafny isLVal False annK e
+    (anne,pe) <- expressionToDafny isLVal Nothing annK e
     did <- tAttDec (unTyped $ loc e) (pp se) (typed $ loc e)
     psn <- ppDafnyIdM did
     patt <- structAttToDafny (unTyped l) False psn $ fmap typed att
     let pse = pe <> char '.' <> patt
     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vs pse (typed l)
     -- always assert equality of projection, if it is a base type, since we don't do so when declaring the struct variable
-    qExprToDafny isQExpr (anne++annp) vs pse
+    qExprToDafny isQExpr (anne++annp) pse
 expressionToDafny isLVal isQExpr annK e@(RVariablePExpr l v) = do
     vs <- lift $ usedVs' e
     pv <- varToDafny v
     annp <- genDafnyAssumptions (unTyped $ loc v) (hasLeakExpr e) annK vs pv (typed $ loc v)
-    qExprToDafny isQExpr annp vs pv
+    qExprToDafny isQExpr annp pv
 expressionToDafny isLVal isQExpr annK le@(LitPExpr l lit) = do
-    vs <- lift $ usedVs' le
     (anns,pe) <- literalToDafny annK lit
-    qExprToDafny isQExpr anns vs pe
+    qExprToDafny isQExpr anns pe
 expressionToDafny isLVal isQExpr annK le@(LeakExpr l e) = do
-    vs <- lift $ usedVs' le
-    (anne,pe) <- expressionToDafny False False annK e
-    qExprToDafny isQExpr anne vs (text "Leak" <> parens pe)
+    (anne,pe) <- expressionToDafny False Nothing annK e
+    qExprToDafny isQExpr anne (text "Leak" <> parens pe)
 expressionToDafny isLVal isQExpr annK (QualExpr l e _) = do
     expressionToDafny isLVal isQExpr annK e
 expressionToDafny isLVal isQExpr annK e@(MultisetConstructorPExpr l es) = do
-    vs <- lift $ usedVs' e
     (annes,pes) <- expressionsToDafny False annK es
     let pme = text "multiset" <> braces (sepBy comma pes)
     pme' <- if List.null pes then qualifiedDafny (unTyped l) (typed l) pme else return pme
-    qExprToDafny isQExpr annes vs pme'
+    qExprToDafny isQExpr annes pme'
 expressionToDafny isLVal isQExpr annK e@(SetConstructorPExpr l es) = do
-    vs <- lift $ usedVs' e
     (annes,pes) <- expressionsToDafny False annK es
     let pme = braces (sepBy comma pes)
     pme' <- if List.null pes then qualifiedDafny (unTyped l) (typed l) pme else return pme
-    qExprToDafny isQExpr annes vs pme'
+    qExprToDafny isQExpr annes pme'
 expressionToDafny isLVal isQExpr annK e@(ArrayConstructorPExpr l es) = do
-    vs <- lift $ usedVs' e
     (annes,pes) <- expressionsToDafny False annK es
     let Typed ll arrt = l
     mbd <- lift $ tryTcError l $ typeDim l arrt >>= fullyEvaluateIndexExpr l
@@ -1002,7 +999,7 @@ expressionToDafny isLVal isQExpr annK e@(ArrayConstructorPExpr l es) = do
         Right 1 -> do
             let pae = brackets (sepBy comma pes)
             pae' <- if List.null pes then qualifiedDafny ll (typed l) pae else return pae
-            qExprToDafny isQExpr annes vs pae'
+            qExprToDafny isQExpr annes pae'
         --Right n -> do
         --    when (isLVal && isQExpr) $ genError l $ text "expressionToDafny: unsupported array constructor in an expression context" <+> ppe
         --    x <- lift $ genVar (VIden $ mkVarId "x" :: GIdentifier)
@@ -1014,20 +1011,20 @@ expressionToDafny isLVal isQExpr annK e@(ArrayConstructorPExpr l es) = do
             genError ll $ text "expressionToDafny: unsupported array constructor" <+> ppe
 expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     vs <- lift $ usedVs' me
-    (anne,pe) <- expressionToDafny False False annK e
+    (anne,pe) <- expressionToDafny False Nothing annK e
     let pme = text "multiset" <> parens pe
     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
-    qExprToDafny isQExpr (anne++annp) vs pme
+    qExprToDafny isQExpr (anne++annp) pme
 expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
     vs <- lift $ usedVs' me
     bt <- lift $ typeBase (unTyped l) $ typed $ loc e
     (pbt,annbt) <- typeToDafny (unTyped l) annK bt
-    (anne,pe) <- expressionToDafny False False annK e
+    (anne,pe) <- expressionToDafny False Nothing annK e
     x <- lift $ genVar (VIden $ mkVarId "xset" :: GIdentifier)
     px <- varToDafny $ VarName (Typed (unTyped l) bt) x
     let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
-    qExprToDafny isQExpr (annbt++anne++annp) vs pme
+    qExprToDafny isQExpr (annbt++anne++annp) pme
 expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = do
     es' <- lift $ concatMapM unfoldVariadicExpr es
     builtinToDafny isLVal isQExpr annK l n es'
@@ -1042,7 +1039,7 @@ expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ 
             pn <- ppDafnyIdM did
             let pe = pn <> parens (sepBy comma pargs)
             annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr e || not (isFunType $ DecT dec)) annK vs pe (typed l)
-            qExprToDafny isQExpr (annargs++annp) vs pe
+            qExprToDafny isQExpr (annargs++annp) pe
         --Just (mbdec,ss) -> do
         --    -- load the lemma separately (to check its body)
         --    mapM_ (loadDafnyDec' (unTyped l)) mbdec
@@ -1056,19 +1053,19 @@ expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (De
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)
     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr e || not (isFunType $ DecT dec)) annK vs pe (typed l)
-    qExprToDafny isQExpr (annargs++annp) vs pe
+    qExprToDafny isQExpr (annargs++annp) pe
 expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     let pq = quantifierToDafny q
     (annpargs,pargs) <- quantifierArgsToDafny args
-    (anne,pe) <- expressionToDafny isLVal True NoK e
     vs <- lift $ usedVs' q
+    (anne,pe) <- expressionToDafny isLVal (Just vs) NoK e
     let (anns,pe') = annotateExpr (annpargs++anne) vs pe
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
     (annarg,parg) <- quantifierArgToDafny (t,x)
-    (annpe,pppx) <- expressionToDafny isLVal True NoK px
     vs <- lift $ usedVs' x
-    (annfe,pfx) <- mapExpressionToDafny isLVal True NoK fx
+    (annpe,pppx) <- expressionToDafny isLVal (Just vs) NoK px
+    (annfe,pfx) <- mapExpressionToDafny isLVal (Just vs) NoK fx
     ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
     let (anns,pppx') = annotateExpr (annarg++annpe++annfe) vs pppx
     let pme = parens (text "set" <+> parg <+> char '|' <+> pppx' <+> ppfx)
@@ -1083,9 +1080,9 @@ expressionToDafny isLVal isQExpr annK e = do
     ppe <- lift $ pp e
     genError (unTyped $ loc e) $ text "expressionToDafny:" <+> ppid isLVal <+> ppannK <+> ppe
 
-qExprToDafny :: DafnyK m => Bool -> AnnsDoc -> Set VarIdentifier -> Doc -> DafnyM m (AnnsDoc,Doc)
-qExprToDafny True anne vs e = return $ annotateExpr anne vs e
-qExprToDafny False anne vs e = return (anne,e)
+qExprToDafny :: DafnyK m => IsQExpr -> AnnsDoc -> Doc -> DafnyM m (AnnsDoc,Doc)
+qExprToDafny (Just vs) anne e = return $ annotateExpr anne vs e
+qExprToDafny Nothing anne e = return (anne,e)
 
 annotateExpr :: AnnsDoc -> Set VarIdentifier -> Doc -> (AnnsDoc,Doc)
 annotateExpr anne vs pe = (anne',pppre (pppost pe))
@@ -1116,10 +1113,10 @@ quantifierArgToDafny (t,v) = do
 
 expressionsToDafny :: (Foldable f,DafnyK m) => Bool -> AnnKind -> f (Expression GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,[Doc])
 expressionsToDafny isLVal annK es = do
-    (annes,es') <- Utils.mapAndUnzipM (expressionToDafny isLVal False annK) $ Foldable.toList es
+    (annes,es') <- Utils.mapAndUnzipM (expressionToDafny isLVal Nothing annK) $ Foldable.toList es
     return (concat annes,es')
 
-mapExpressionToDafny :: (Functor f,Traversable f,Foldable f,DafnyK m) => Bool -> Bool -> AnnKind -> f (Expression GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,f Doc)
+mapExpressionToDafny :: (Functor f,Traversable f,Foldable f,DafnyK m) => Bool -> IsQExpr -> AnnKind -> f (Expression GIdentifier (Typed Position)) -> DafnyM m (AnnsDoc,f Doc)
 mapExpressionToDafny isLVal isQExpr annK es = do
     rs <- mapM (expressionToDafny isLVal isQExpr annK) es
     return (concat $ Foldable.toList $ fmap fst rs,fmap snd rs)
@@ -1130,7 +1127,7 @@ procCallArgsToDafny isLVal annK es = do
     return (concat annes,es')
     
 procCallArgToDafny :: DafnyK m => Bool -> AnnKind -> (Expression GIdentifier (Typed Position),IsVariadic) -> DafnyM m (AnnsDoc,Doc)
-procCallArgToDafny isLVal annK (e,False) = expressionToDafny isLVal False annK e
+procCallArgToDafny isLVal annK (e,False) = expressionToDafny isLVal Nothing annK e
 procCallArgToDafny isLVal annK (e,True) = do
     ppe <- lift $ pp e
     genError (unTyped $ loc e) $ text "unsupported variadic procedure argument" <+> ppe
@@ -1148,9 +1145,8 @@ sysParamsToDafny params = Nothing
 
 syscallToDafny :: DafnyK m => Position -> String -> [SyscallParameter GIdentifier (Typed Position)] -> DafnyM m Doc
 syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
-    vs <- lift $ usedVs' (x,y,n,ret)
-    (annx,px) <- expressionToDafny False False StmtK x
-    (anny,py) <- expressionToDafny False False StmtK y
+    (annx,px) <- expressionToDafny False Nothing StmtK x
+    (anny,py) <- expressionToDafny False Nothing StmtK y
     let tx = typed $ loc x
     case tx of
         ComplexT (CType s b d) -> do
@@ -1159,7 +1155,7 @@ syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
             case (mbd,mbn) of
                 (Right 1,Right 0) -> do
                     pret <- varToDafny ret
-                    (annse,pe) <- qExprToDafny False (annx++anny) vs (parens $ px <+> char '+' <+> py)
+                    (annse,pe) <- qExprToDafny Nothing (annx++anny) (parens $ px <+> char '+' <+> py)
                     return $ annLines annse $+$ pret <+> text ":=" <+> pe <> semi
                 (Right d,Right n) -> do
                     pret <- varToDafny ret
@@ -1176,8 +1172,8 @@ syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
             pptx <- lift $ pp tx
             genError l $ text "syscallToDafny: unsupported cat type" <+> ppx <+> ppy <+> ppn <+> pptx
 syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
-    (annx,px) <- expressionToDafny False False StmtK x
-    (concat -> annszs,pszs) <- Utils.mapAndUnzipM (expressionToDafny False False StmtK) szs
+    (annx,px) <- expressionToDafny False Nothing StmtK x
+    (concat -> annszs,pszs) <- Utils.mapAndUnzipM (expressionToDafny False Nothing StmtK) szs
     pret <- varToDafny ret
     let tx = typed $ loc x
     let tret = typed $ loc ret
@@ -1195,132 +1191,114 @@ syscallToDafny l n params = do
     ppparams <- lift $ liftM (sepBy comma) $ mapM pp params
     genError l $ text "syscallToDafny: unexpected" <+> ppn <+> ppparams
 
-builtinToDafny :: DafnyK m => Bool -> Bool -> AnnKind -> Typed Position -> String -> [Expression GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
+builtinToDafny :: DafnyK m => Bool -> IsQExpr -> AnnKind -> Typed Position -> String -> [Expression GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.eq" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "==" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "==" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.neq" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "!=" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "!=" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.band" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
     (annx,px) <- expressionToDafny isLVal isQExpr annK x
     (anny,py) <- expressionToDafny isLVal isQExpr annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "&&" <+> py)
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "&&" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.bor" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "||" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "||" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.lt" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "<" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "<" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.le" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "<=" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "<=" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.gt" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text ">" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text ">" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.ge" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text ">=" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text ">=" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.implies" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
     (annx,px) <- expressionToDafny isLVal isQExpr annK x
     (anny,py) <- expressionToDafny isLVal isQExpr annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "==>" <+> py)
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "==>" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.subset" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "<=" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "<=" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.in" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "in" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.union" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "+" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "+" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.add" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "+" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "+" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sum" [xs] = do
-    vs <- lift $ usedVs' xs
     (pret,annpret) <- typeToDafny l annK ret
-    (annxs,pxs) <- expressionToDafny isLVal False annK xs
-    qExprToDafny isQExpr (annpret++annxs) vs (parens $ text "sum_" <> pret <> parens pxs)
+    (annxs,pxs) <- expressionToDafny isLVal Nothing annK xs
+    qExprToDafny isQExpr (annpret++annxs) (parens $ text "sum_" <> pret <> parens pxs)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.sub" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "-" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "-" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.mul" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
     (pt,annt) <- lift (typeBase l ret) >>= typeToDafny l annK
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
     mbd <- lift $ tryTcError l $ typeDim l ret >>= fullyEvaluateIndexExpr l
     case mbd of
-        Right 0 -> qExprToDafny isQExpr (annt++annx++anny) vs (parens $ px <+> text "*" <+> py)
-        Right n -> qExprToDafny isQExpr (annt++annx++anny) vs (text "mul" <> int (fromEnum n) <> char '_' <> pt <> parens (px <> comma <> py))
+        Right 0 -> qExprToDafny isQExpr (annt++annx++anny) (parens $ px <+> text "*" <+> py)
+        Right n -> qExprToDafny isQExpr (annt++annx++anny) (text "mul" <> int (fromEnum n) <> char '_' <> pt <> parens (px <> comma <> py))
         otherwise -> do
             ppret <- lift $ pp ret
             genError (locpos l) $ text "builtinToDafny: unsupported mul dimension for" <+> ppret
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.div" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
-    qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> text "/" <+> py)
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
+    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "/" <+> py)
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.declassify" [x] = do -- we ignore security types
     vs <- lift $ usedVs' x
-    (annx,px) <- expressionToDafny isLVal False annK x
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
     leakMode <- getLeakMode
     inAnn <- getInAnn
     if leakMode && not inAnn
         then do
             let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px)
-            qExprToDafny isQExpr (annx++[assert]) vs px
-        else qExprToDafny isQExpr annx vs px
+            qExprToDafny isQExpr (annx++[assert]) px
+        else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.classify" [x] = do -- we ignore security types
-    expressionToDafny isLVal False annK x
+    expressionToDafny isLVal Nothing annK x
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.reclassify" [x] = do -- we ignore security types
     vs <- lift $ usedVs' x
-    (annx,px) <- expressionToDafny isLVal False annK x
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
     leakMode <- getLeakMode
     inAnn <- getInAnn
     isPub <- lift $ liftM isJust $ tryTcErrorMaybe l $ isPublic l False ret
     if leakMode && not inAnn && isPub
         then do
             let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px)
-            qExprToDafny isQExpr (annx++[assert]) vs px
-        else qExprToDafny isQExpr annx vs px
+            qExprToDafny isQExpr (annx++[assert]) px
+        else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.cat" [x,y] = do
-    vs <- lift $ usedVs' (x,y)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (anny,py) <- expressionToDafny isLVal False annK y
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (anny,py) <- expressionToDafny isLVal Nothing annK y
     let tx = typed $ loc x
     case tx of
         ComplexT (CType s b d) -> do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case (mbd) of
-                (Right 1) -> qExprToDafny isQExpr (annx++anny) vs (parens $ px <+> char '+' <+> py)
+                (Right 1) -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> char '+' <+> py)
                 (err1) -> do
                     ppx <- lift $ pp x
                     ppy <- lift $ pp y
@@ -1331,15 +1309,14 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.cat" [x,y] = do
             pptx <- lift $ pp tx
             genError l $ text "builtinToDafny: unsupported cat type" <+> ppx <+> ppy <+> pptx
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.size" [x] = do
-    vs <- lift $ usedVs' x
-    (annx,px) <- expressionToDafny isLVal False annK x
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
     let tx = typed $ loc x
     case tx of
-        BaseT b -> qExprToDafny isQExpr (annx) vs (dafnySize 0 px)
+        BaseT b -> qExprToDafny isQExpr (annx) (dafnySize 0 px)
         ComplexT (CType s b d) -> do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
-                Right n -> qExprToDafny isQExpr (annx) vs $ dafnySize n px
+                Right n -> qExprToDafny isQExpr (annx) $ dafnySize n px
                 otherwise -> do
                     ppx <- lift $ pp x
                     pptx <- lift $ pp tx
@@ -1349,19 +1326,18 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.size" [x] = do
             pptx <- lift $ pp tx
             genError l $ text "builtinToDafny: unknown size" <+> ppx <+> pptx
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
-    vs <- lift $ usedVs' x
-    (annx,px) <- expressionToDafny isLVal False annK x
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
     let tx = typed $ loc x
     case tx of
-        BaseT b -> qExprToDafny isQExpr (annx) vs (brackets empty)
+        BaseT b -> qExprToDafny isQExpr (annx) (brackets empty)
         ComplexT (CType s b d) -> do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
-                Right 0 -> qExprToDafny isQExpr (annx) vs $ brackets empty
-                Right 1 -> qExprToDafny isQExpr (annx) vs $ brackets $ dafnySize 1 px
+                Right 0 -> qExprToDafny isQExpr (annx) $ brackets empty
+                Right 1 -> qExprToDafny isQExpr (annx) $ brackets $ dafnySize 1 px
                 Right n -> do
                     let psize = px <> text ".shape()"
-                    qExprToDafny isQExpr (annx) vs psize
+                    qExprToDafny isQExpr (annx) psize
                 otherwise -> do
                     ppx <- lift $ pp x
                     pptx <- lift $ pp tx
@@ -1371,10 +1347,9 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
             pptx <- lift $ pp tx
             genError l $ text "builtinToDafny: unknown shape" <+> ppx <+> pptx
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.repeat" [x,sz] = do
-    vs <- lift $ usedVs' (x,sz)
-    (annx,px) <- expressionToDafny isLVal False annK x
-    (annsz,psz) <- expressionToDafny isLVal False annK sz
-    qExprToDafny isQExpr (annx++annsz) vs (text "Repeat" <> parens (px <> comma <> psz))
+    (annx,px) <- expressionToDafny isLVal Nothing annK x
+    (annsz,psz) <- expressionToDafny isLVal Nothing annK sz
+    qExprToDafny isQExpr (annx++annsz) (text "Repeat" <> parens (px <> comma <> psz))
 builtinToDafny isLVal isQExpr annK (Typed l ret) n es = do
     ppannK <- lift $ pp annK
     ppret <- lift $ pp ret
