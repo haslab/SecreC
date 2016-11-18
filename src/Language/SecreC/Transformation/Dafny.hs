@@ -7,7 +7,7 @@ import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.Prover.Base
 import Language.SecreC.Utils as Utils
-import Language.SecreC.Pretty
+import Language.SecreC.Pretty as PP
 import Language.SecreC.Position
 import Language.SecreC.Location
 import Language.SecreC.Error
@@ -571,7 +571,9 @@ genDafnyArrays l annK vs pv tv = do
                     readarr <- case inD of
                         Nothing -> return []
                         Just (PId {}) -> return []
-                        otherwise -> return [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n) <+> comma <+> pv <> text ".arr" <> int (fromEnum n))]
+                        otherwise -> return
+                            [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n))
+                            ,(ReadsK,True,vs,pv <> text ".arr" <> int (fromEnum n))]
                     let notnull = [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")]
                     return $ readarr++notnull
                 otherwise -> return []
@@ -656,7 +658,14 @@ annLinesC cl anns = (anns',vcat $ map annLine xs)
     where (anns',xs) = List.partition ((>cl) . annKindClass . fst4) anns
 
 annLinesProcC :: AnnsDoc -> Doc
-annLinesProcC anns = let ([],d) = annLinesC ProcKC anns in d
+annLinesProcC anns = d
+    where
+    (reads,anns') = List.partition ((==ReadsK) . fst4) anns
+    reads' = Set.fromList $ map fou4 reads
+    readk = case Set.toList reads' of
+                [] -> []
+                xs -> [(ReadsK,True,Set.empty,PP.sepBy PP.comma xs)]
+    ([],d) = annLinesC ProcKC (readk++anns')
 
 procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
