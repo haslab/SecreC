@@ -567,9 +567,13 @@ genDafnyArrays l annK vs pv tv = do
             mbd <- lift $ tryTcError l $ typeDim l tv >>= fullyEvaluateIndexExpr l
             case mbd of
                 Right n@((>1) -> True) -> do
-                    let readarr = (ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n) <+> comma <+> pv <> text ".arr" <> int (fromEnum n))
-                    let notnull = (annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")
-                    return [readarr,notnull]
+                    inD <- State.gets inDecl
+                    readarr <- case inD of
+                        Nothing -> return []
+                        Just (PId {}) -> return []
+                        otherwise -> return [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n) <+> comma <+> pv <> text ".arr" <> int (fromEnum n))]
+                    let notnull = [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")]
+                    return $ readarr++notnull
                 otherwise -> return []
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
