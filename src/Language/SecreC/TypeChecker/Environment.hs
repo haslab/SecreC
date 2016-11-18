@@ -641,7 +641,7 @@ newOperator recop bctx op = do
     let i = snd did
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
     dict <- liftM (headNe . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newOp body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newOp body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
     let td = DecT $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
 --    noNormalFreesM e
@@ -830,7 +830,7 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     bctx' <- addLineage did $ newDecCtx l "newProcedureFunction" bctx True
     dict <- liftM (headNe . tDict) State.get
     
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newProc body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newProc body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
     let dt = DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
@@ -869,7 +869,7 @@ newAxiom l tvars hdeps d = do
     bctx' <- newDecCtx l "newAxiom" explicitDecCtx True
 --    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (headNe . tDict) State.get
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" dontStop l dict True Map.empty =<< writeIDecVars l d'
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" dontStop l dict True Map.empty =<< writeIDecVars l d'
     let dt = DecType i (DecTypeOri False) tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
@@ -1237,7 +1237,7 @@ newStruct rectn bctx tn@(TypeName (Typed l (IDecT innerdect)) n) = do
     bctx' <- addLineage did $ newDecCtx l "newStruct" bctx True
     dict <- liftM (headNe . tDict) State.get
     --i <- newModuleTyVarId
-    d'' <- trySimplify simplifyInnerDecType =<< substFromTDict "newStruct body" dontStop (locpos l) dict True Map.empty innerdect
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newStruct body" dontStop (locpos l) dict True Map.empty innerdect
     let dt = DecT $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) dt
     debugTc $ do

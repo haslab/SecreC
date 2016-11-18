@@ -430,13 +430,14 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
             genError p $ text "procedureToDafny: unsupported return type" <+> ppret
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns'
-    pbody <- statementToDafny $ compoundStmt (decPos dec) body'
+    (annb,pbody) <- statementToDafny $ compoundStmt (decPos dec) body'
     let tag = text "method"
     lift $ debugTc $ do
         ppdec <- ppr dec
         ppdid <- ppDafnyId did
         liftIO $ putStrLn $ "decToDafny " ++ show ppdid ++ " " ++ ppdec
-    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLines parganns $+$ annLines pretanns $+$ annLines panns $+$ pbody)
+    let anns' = parganns ++ pretanns ++ panns ++annb
+    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC anns' $+$ pbody)
   where did = pIdenToDafnyId pn mid
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
@@ -447,17 +448,20 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
     (pbodyanns,pbody) <- expressionToDafny False Nothing RequireK body
     let fanns = unfreeAnns $ pretanns ++ parganns ++ panns ++ pbodyanns
     let tag = if isLeak then text "function" else text "function method"
-    return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLines fanns $+$ vbraces pbody)
+    return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
 decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns
-    pbody <- case body of 
-        Just ss -> liftM vbraces $ statementToDafny $ compoundStmt noloc ss
-        Nothing -> return empty
-    return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLines parganns $+$ annLines panns $+$ pbody)
+    (annsb,pbody) <- case body of 
+        Just ss -> do
+            (annsb,pss) <- statementToDafny $ compoundStmt noloc ss
+            return (annsb,vbraces pss)
+        Nothing -> return ([],empty)
+    let anns' = parganns++panns++annsb
+    return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLinesProcC anns' $+$ pbody)
   where did = LId (funit pn) mid isLeak
 decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
     psn <- ppDafnyIdM did
@@ -473,7 +477,7 @@ decToDafny l d@(targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = 
             panns <- procedureAnnsToDafny anns
             pn <- ppDafnyIdM did
             State.modify $ \env -> env { axiomIds = Set.insert did $ axiomIds env }
-            return $ Just (p,text "lemma" <+> pn <+> ptargs <+> pargs $+$ annLines panns $+$ annLines parganns)
+            return $ Just (p,text "lemma" <+> pn <+> ptargs <+> pargs $+$ annLinesProcC panns $+$ annLinesProcC parganns)
         else return Nothing
   where did = AId mid isLeak
 decToDafny l dec = do
@@ -556,7 +560,10 @@ genDafnyArrays l annK vs pv tv = do
         ComplexT (CType s b d) -> do
             mbd <- lift $ tryTcError l $ typeDim l tv >>= fullyEvaluateIndexExpr l
             case mbd of
-                Right ((>1) -> True) -> return [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")]
+                Right n@((>1) -> True) -> do
+                    let readarr = (ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n) <+> comma <+> pv <> text ".arr" <> int (fromEnum n))
+                    let notnull = (annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")
+                    return [readarr,notnull]
                 otherwise -> return []
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
@@ -607,6 +614,7 @@ annLine (StmtK,True,vs,x) = text "assume" <+> x <> semicolon
 annLine (StmtK,False,vs,x) = text "assert" <+> x <> semicolon
 annLine (InvariantK,isFree,vs,x) = ppFree isFree $ text "invariant" <+> x <> semicolon
 annLine (DecreaseK,isFree,vs,x) = text "decreases" <+> x <> semicolon
+annLine (ReadsK,_,vs,x) = text "reads" <+> x <> semicolon
 annLine (NoK,isFree,vs,x) = x
 
 unfreeAnn :: AnnDoc -> AnnDoc
@@ -616,7 +624,29 @@ unfreeAnn (k,True,vs,x) = (k,False,vs,x)
 unfreeAnns :: AnnsDoc -> AnnsDoc
 unfreeAnns = map unfreeAnn
 
-annLines = vcat . map annLine
+data AnnKindClass = ExprKC | StmtKC | ProcKC
+  deriving (Eq,Ord,Show)
+
+annKindClass :: AnnKind -> AnnKindClass
+annKindClass EnsureK = ProcKC
+annKindClass RequireK = ProcKC
+annKindClass StmtK = StmtKC
+annKindClass InvariantK = StmtKC
+annKindClass DecreaseK = ProcKC
+annKindClass ReadsK = ProcKC
+annKindClass NoK = ExprKC
+
+annLines :: AnnKind -> AnnsDoc -> (AnnsDoc,Doc)
+annLines c anns = annLinesC (annKindClass c) anns
+
+-- the input boolean determines if we are in a procedure context or not
+-- if not in a procedure context, we postpone procedure annotations
+annLinesC :: AnnKindClass -> AnnsDoc -> (AnnsDoc,Doc)
+annLinesC cl anns = (anns',vcat $ map annLine xs)
+    where (anns',xs) = List.partition ((>cl) . annKindClass . fst4) anns
+
+annLinesProcC :: AnnsDoc -> Doc
+annLinesProcC anns = let ([],d) = annLinesC ProcKC anns in d
 
 procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
@@ -644,35 +674,46 @@ procedureAnnToDafny (PDecreasesAnn l e) = withInAnn True $ do
     decr <- annExpr False False leakMode DecreaseK vs pe
     return $ anne ++ decr
 
-statementsToDafny :: DafnyK m => [Statement GIdentifier (Typed Position)] -> DafnyM m Doc
-statementsToDafny = liftM vcat . mapM statementToDafny
+statementsToDafny :: DafnyK m => [Statement GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
+statementsToDafny ss = do
+    (anns,docs) <- Utils.mapAndUnzipM statementToDafny ss
+    return (concat anns,vcat docs)
 
-statementToDafny :: DafnyK m => Statement GIdentifier (Typed Position) -> DafnyM m Doc
+addAnnsC :: DafnyK m => AnnKindClass -> AnnsDoc -> Doc -> DafnyM m (AnnsDoc,Doc)
+addAnnsC c anns doc = do
+    let (anns1,anns2) = annLinesC c anns
+    return (anns1,anns2 $+$ doc)
+
+statementToDafny :: DafnyK m => Statement GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 statementToDafny (CompoundStatement _ ss) = do
-    pss <- statementsToDafny ss
-    return $ vbraces pss
+    (anns,pss) <- statementsToDafny ss
+    return (anns,vbraces pss)
 statementToDafny (IfStatement _ c s1 s2) = do
-    (annc,pc) <- expressionToDafny False Nothing StmtK c
-    ps1 <- statementToDafny s1
-    ps2 <- mapM statementToDafny s2
+    (ann1,pc) <- expressionToDafny False Nothing StmtK c
+    (annthen,ps1) <- statementToDafny s1
+    (concat -> annelse,ps2) <- Utils.mapAndUnzipM statementToDafny s2
+    let annthen' = map (\(x,y,z,w) -> (x,y,z,pc <+> text "==>" <+> w)) annthen
+    let annelse' = map (\(x,y,z,w) -> (x,y,z,char '!' <> parens (pc <+> text "==>" <+> w))) annelse
     ppo <- ppOpt ps2 (return . (text "else" <+>))
-    return $ annLines annc $+$ text "if" <+> pc <+> ps1 $+$ ppo
-statementToDafny (BreakStatement l) = return $ text "break" <> semicolon
-statementToDafny (ContinueStatement l) = return $ text "continue" <> semicolon
+    addAnnsC StmtKC (ann1++annthen'++annelse') $ text "if" <+> pc <+> ps1 $+$ ppo
+statementToDafny (BreakStatement l) = return ([],text "break" <> semicolon)
+statementToDafny (ContinueStatement l) = return ([],text "continue" <> semicolon)
 statementToDafny (ReturnStatement l e) = do
     (anne,pe) <- mapExpressionToDafny False Nothing StmtK e
-    return $ annLines anne $+$ text "return" <+> ppid pe <> semicolon
+    addAnnsC StmtKC anne $ text "return" <+> ppid pe <> semicolon
 statementToDafny (ExpressionStatement _ (BinaryAssign l le (BinaryAssignEqual _) re)) = do
     (pres,pre) <- expressionToDafny False Nothing StmtK re
     (post,pass) <- assignmentToDafny StmtK le (Left pre)
-    return $ annLines pres $+$ pass <> semicolon $+$ annLines post
+    let (anns1,pres') = annLinesC StmtKC pres
+    let (anns2,post') = annLinesC StmtKC post
+    return (anns1++anns2,pres' $+$ pass <> semicolon $+$ post')
 statementToDafny es@(ExpressionStatement (Typed l _) e) = do
     let t = typed $ loc e
     case t of
         ComplexT Void -> do
             (anne,pe) <- expressionToDafny False Nothing StmtK e
             let ppe = if (pe==empty) then pe else pe <> semicolon
-            return $ annLines anne $+$ ppe
+            addAnnsC StmtKC anne ppe
         otherwise -> do
             let tl = Typed l (StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void)
             eres <- lift $ liftM (VarName (Typed l t)) $ genVar (VIden $ mkVarId "eres")
@@ -684,22 +725,25 @@ statementToDafny (AssertStatement l e) = do
     vs <- lift $ usedVs' e
     (anne,pe) <- expressionToDafny False Nothing StmtK e
     assert <- annExpr False False leakMode StmtK vs pe
-    return $ annLines anne $+$ annLines assert
-statementToDafny (AnnStatement l ss) = withInAnn True $ liftM (annLines . concat) $ mapM statementAnnToDafny ss
+    addAnnsC StmtKC (anne++assert) empty
+statementToDafny (AnnStatement l ss) = withInAnn True $ do
+    anns <- concatMapM statementAnnToDafny ss
+    addAnnsC StmtKC anns empty
 statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) = do
     (t',annst) <- typeToDafny (unTyped $ loc t) StmtK (typed $ loc t)
-    pvd <- liftM vcat $ mapM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
-    return $ annLines annst $+$ pvd
+    (concat -> anns,vcat -> pvd) <- Utils.mapAndUnzipM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
+    addAnnsC StmtKC (annst++anns) pvd
 statementToDafny (WhileStatement l e anns s) = do
     (anne,pe) <- expressionToDafny False Nothing InvariantK e
     annl <- loopAnnsToDafny anns
-    ps <- statementToDafny s
-    return $ text "while" <+> pe $+$ annLines anne $+$ annLines annl $+$ vbraces (ps)    
+    let (annw,annl') = annLinesC StmtKC annl
+    (ann2,ps) <- statementToDafny s
+    addAnnsC StmtKC (anne++annw++ann2) $ text "while" <+> pe $+$ annl' $+$ vbraces ps
 statementToDafny (SyscallStatement l n params) = do
-    (concat -> ss,concat -> params') <- lift $ Utils.mapAndUnzipM simplifySyscallParameter params
-    pss <- statementsToDafny ss
-    psys <- syscallToDafny (unTyped l) n params'
-    return $ pss $+$ psys
+    (concat -> ss,concat -> params') <- lift $ runSimplify $ Utils.mapAndUnzipM simplifySyscallParameter params
+    (anns1,pss) <- statementsToDafny ss
+    (anns2,psys) <- syscallToDafny (unTyped l) n params'
+    addAnnsC StmtKC (anns1++anns2) (pss $+$ psys)
 statementToDafny s = do
     pps <- lift $ pp s
     genError (unTyped $ loc s) $ text "statementToDafny:" <+> pps
@@ -738,21 +782,21 @@ statementAnnToDafny (AssumeAnn l isLeak e) = withInAnn True $ do
         vs <- lift $ usedVs' e
         (anne,pe) <- expressionToDafny False Nothing StmtK e
         assume <- annExpr True isLeak leakMode StmtK vs pe
-        return $ anne ++ assume
+        return (anne++assume)
 statementAnnToDafny (AssertAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
         (anne,pe) <- expressionToDafny False Nothing StmtK e
         assert <- annExpr False isLeak leakMode StmtK vs pe
-        return $ anne++assert
+        return (anne++assert)
 statementAnnToDafny (EmbedAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
-        ann <- statementToDafny e
+        (anns,ann) <- statementToDafny e
         call <- annExpr False isLeak leakMode NoK vs ann
-        return $ call
+        return $ anns++call
 
 -- checks that a dafny expression has a given shape
 checkDafnyShape :: DafnyK m => Position -> Bool -> Set VarIdentifier -> Sizes GIdentifier (Typed Position) -> Doc -> DafnyM m AnnsDoc
@@ -769,7 +813,7 @@ checkDafnyShape l isFree vs (Sizes szs) e = case Foldable.toList szs of
         ppe <- lift $ pp e
         genError l $ text "checkDafnyShape: unsupported array size" <+> ppszs <+> text "for" <+> ppe
     
-varInitToDafny :: DafnyK m => Bool -> Bool -> Doc -> VariableInitialization GIdentifier (Typed Position) -> DafnyM m Doc
+varInitToDafny :: DafnyK m => Bool -> Bool -> Doc -> VariableInitialization GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 varInitToDafny isConst False pty vd@(VariableInitialization l v sz (Just e)) = do
     ppvd <- lift $ pp vd
     genError (unTyped l) $ text "varInitToDafny: cannot convert default expression at" <+> ppvd
@@ -786,7 +830,9 @@ varInitToDafny isConst isHavoc pty (VariableInitialization l v sz ini) = do
             checkDafnyShape (unTyped l) isFree vs szs pv
         otherwise -> return []
     assign <- ppOpt pini (\e -> return $ pv <+> text ":=" <+> e <+> semicolon)
-    return $ def $+$ annLines annsini $+$ assign $+$ annLines (annp ++ annsize)
+    let (anns1,annsini') = annLinesC StmtKC annsini
+    let (anns2,annsize') = annLinesC StmtKC $ annp ++ annsize
+    return (anns1++anns2,def $+$ annsini' $+$ assign $+$ annsize')
 
 typeToDafny :: DafnyK m => Position -> AnnKind -> Type -> DafnyM m (Doc,AnnsDoc)
 typeToDafny l annK (BaseT b) = baseTypeToDafny l annK b
@@ -833,8 +879,8 @@ complexTypeToDafny l annK t = do
     ppt <- lift $ pp t
     genError l $ text "complexTypeToDafny:" <+> ppt
 
-data AnnKind = StmtK | EnsureK | RequireK | InvariantK | DecreaseK | NoK
-  deriving Show
+data AnnKind = StmtK | EnsureK | RequireK | InvariantK | DecreaseK | NoK | ReadsK
+  deriving (Show,Eq)
 instance Monad m => PP m AnnKind where
     pp = return . text . show
 
@@ -1059,7 +1105,7 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     (anne,pe) <- expressionToDafny isLVal (Just vs) annK e
     let (anns,pe') = annotateExpr (annpargs++anne) vs pe
     lift $ debugTc $ do
-        liftIO $ putStrLn $ "quantifierExprToDafny " ++ show vs ++ "\n" ++ show pe ++ "\n --> \n" ++ show pe' ++ "\n"++show (annLines anns)
+        liftIO $ putStrLn $ "quantifierExprToDafny " ++ show vs ++ "\n" ++ show pe ++ "\n --> \n" ++ show pe'
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
     (annarg,parg) <- quantifierArgToDafny annK (t,x)
@@ -1091,7 +1137,7 @@ annotateExpr anne vs pe = (anne',pppre (pppost pe))
     where
     pppre = maybe id (\p x -> parens (p <+> text "==>" <+> x)) (ands pre)
     pppost = maybe id (\p x -> parens (p <+> text "&&" <+> x)) (ands post)
-    (deps,anne') = List.partition (\(_,_,evs,_) -> not $ Set.null $ Set.intersection evs vs) anne
+    (deps,anne') = List.partition (\(k,_,evs,_) -> k /= ReadsK && not (Set.null $ Set.intersection evs vs)) anne
     (map fou4 -> pre,map fou4 -> post) = List.partition snd4 deps
     ands [] = Nothing
     ands (x:xs) = case ands xs of
@@ -1145,7 +1191,7 @@ sysParamsToDafny xs | not (null xs) && all ispush (init xs) && isret (last xs) =
     unret (SyscallReturn _ ret) = ret
 sysParamsToDafny params = Nothing
 
-syscallToDafny :: DafnyK m => Position -> String -> [SyscallParameter GIdentifier (Typed Position)] -> DafnyM m Doc
+syscallToDafny :: DafnyK m => Position -> String -> [SyscallParameter GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
 syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
     (annx,px) <- expressionToDafny False Nothing StmtK x
     (anny,py) <- expressionToDafny False Nothing StmtK y
@@ -1158,10 +1204,11 @@ syscallToDafny l "core.cat" (sysParamsToDafny -> Just ([x,y,n],ret)) = do
                 (Right 1,Right 0) -> do
                     pret <- varToDafny ret
                     (annse,pe) <- qExprToDafny Nothing (annx++anny) (parens $ px <+> char '+' <+> py)
-                    return $ annLines annse $+$ pret <+> text ":=" <+> pe <> semi
+                    addAnnsC StmtKC annse $ pret <+> text ":=" <+> pe <> semi
                 (Right d,Right n) -> do
                     pret <- varToDafny ret
-                    return $ pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py) <> semi
+                    (annse,pe) <- qExprToDafny Nothing (annx++anny) (parens $ px <+> char '+' <+> py)
+                    addAnnsC StmtKC annse $ pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".cat" <> int (fromEnum n) <> parens (px <> comma <> py) <> semi
                 (err1,err2) -> do
                     ppx <- lift $ pp x
                     ppy <- lift $ pp y
@@ -1183,7 +1230,7 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
     mbdret <- lift $ tryTcError l $ typeDim l tret >>= fullyEvaluateIndexExpr l
     case (mbdx,mbdret) of
         (Right dx,Right d@((>1) -> True)) -> do
-            return $ pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum dx) <> parens (px <> comma <> sepBy comma pszs) <> semi
+            return (annszs,pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum dx) <> parens (px <> comma <> sepBy comma pszs) <> semi)
         otherwise -> do
             pptx <- lift $ pp tx
             ppret <- lift $ pp ret

@@ -2700,7 +2700,7 @@ unifiesExpr l e1 e2 = do
 --    debugTc $ liftIO $ putStrLn $ "unifiesExpr " ++ show (e1) ++ "\n\n" ++ show (e2)
     pp1 <- pp e1
     pp2 <- pp e2
-    addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ readable2 (readable2List [tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] unifiesExpr') l e1 e2
+    addErrorM l (TypecheckerError (locpos l) . (UnificationException "expression") (pp1) (pp2) . Just) $ readable2 (readable2List [runSimplify . tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] unifiesExpr') l e1 e2
   where
     unifiesExpr' e1@(getReadableVar -> Just v1@(VarName t1 n1)) e2@(getReadableVar -> Just v2@(VarName t2 n2)) | isWritable v1 == isWritable v2 = do
         o <- chooseWriteVar l n1 n2
@@ -2829,7 +2829,7 @@ equalsExpr l e1 e2 = do
     pp2 <- pp e2
     addErrorM l
         (TypecheckerError (locpos l) . (EqualityException "expression") (pp1) (pp2) . Just)
-        (readable2 (readable2List [tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] equalsExpr') l e1 e2)
+        (readable2 (readable2List [runSimplify . tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] equalsExpr') l e1 e2)
   where
     equalsExpr' e1 e2 | e1 == e2 = return ()
     equalsExpr' (UnaryExpr ret1 o1 e1) (UnaryExpr ret2 o2 e2) = do
@@ -2919,7 +2919,7 @@ comparesExpr :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m (Compari
 comparesExpr l isLattice e1 e2 = do
     pp1 <- pp e1
     pp2 <- pp e2
-    addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp1) (pp2) . Just) (readable2 (readable2List [tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] comparesExpr') l e1 e2)
+    addErrorM l (TypecheckerError (locpos l) . (ComparisonException "expression") (pp1) (pp2) . Just) (readable2 (readable2List [runSimplify . tryInlineExpr l,tryProjectExpr l,tryVArraySizeExpr l] comparesExpr') l e1 e2)
   where
 --    comparesExpr' :: (ProverK loc m) => Bool -> Bool -> loc -> Bool -> Expr -> Expr -> TcM m (Comparison (TcM m))
     comparesExpr' e1 e2 | e1 == e2 = return (Comparison e1 e2 EQ EQ False)
