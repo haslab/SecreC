@@ -88,7 +88,8 @@ data DafnySt = DafnySt {
     , imports :: Map Identifier (Set Identifier)
     , leakageMode :: Bool -- True=leakage, False=correctness
     , axiomIds :: Set DafnyId
-    , inDecl :: Maybe DafnyId
+    , inDecl :: Maybe DafnyId -- decl id
+    , decResult :: Maybe Doc --result expression
     , inAnn :: Bool -- inside an annotation
     , currentModule :: Maybe Identifier
     }
@@ -115,11 +116,22 @@ getInDecl = State.gets inDecl
 insideDecl :: DafnyK m => DafnyId -> DafnyM m x -> DafnyM m x
 insideDecl b m = do
     o <- getInDecl
-    State.modify $ \env -> env { inDecl = Just b }
+    State.modify $ \env -> env { inDecl = Just (b) }
     x <- m
     State.modify $ \env -> env { inDecl = o }
     return x
-    
+
+getResult :: DafnyK m => DafnyM m (Maybe Doc)
+getResult = State.gets decResult
+
+withResult :: DafnyK m => Doc -> DafnyM m x -> DafnyM m x
+withResult res m = do
+    o <- getResult
+    State.modify $ \env -> env { decResult = Just res }
+    x <- m
+    State.modify $ \env -> env { decResult = o }
+    return x
+
 getInAnn :: DafnyK m => DafnyM m Bool
 getInAnn = State.gets inAnn
     
@@ -132,7 +144,7 @@ withInAnn b m = do
     return x
 
 toDafny :: DafnyK m => FilePath -> Bool -> [DafnyId] -> TcM m (Doc,[String])
-toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing False Nothing) $ do
+toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing) $ do
     dfy <- liftIO $ readFile prelude
     loadAxioms
     mapM_ (loadDafnyId noloc) entries
@@ -448,13 +460,15 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
-    (pret,pretanns) <- typeToDafny l RequireK ret
-    pcl <- decClassToDafny cl
-    panns <- procedureAnnsToDafny anns
-    (pbodyanns,pbody) <- expressionToDafny False Nothing RequireK body
-    let fanns = unfreeAnns $ pretanns ++ parganns ++ panns ++ pbodyanns
-    let tag = if isLeak then text "function" else text "function method"
-    return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
+    let result = ppn <+> pargs
+    withResult result $ do
+        (pret,pretanns) <- typeToDafny l RequireK ret
+        pcl <- decClassToDafny cl
+        panns <- procedureAnnsToDafny anns
+        (pbodyanns,pbody) <- expressionToDafny False Nothing RequireK body
+        let fanns = unfreeAnns $ pretanns ++ parganns ++ panns ++ pbodyanns
+        let tag = if isLeak then text "function" else text "function method"
+        return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
 decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
@@ -567,7 +581,7 @@ genDafnyArrays l annK vs pv tv = do
             mbd <- lift $ tryTcError l $ typeDim l tv >>= fullyEvaluateIndexExpr l
             case mbd of
                 Right n@((>1) -> True) -> do
-                    inD <- State.gets inDecl
+                    inD <- getInDecl
                     readarr <- case inD of
                         Nothing -> return []
                         Just (PId {}) -> return []
@@ -1143,6 +1157,14 @@ expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
     let annthen' = addAnnsCond ppcond annthen
     let annelse' = addAnnsCond (char '!' <> parens ppcond) annelse
     return (anncond++annthen'++annelse',text "if" <+> ppcond <+> text "then" <+> ppthen <+> text "else" <+> ppelse)
+expressionToDafny isLVal isQExpr annK e@(ResultExpr l) = do
+    mb <- getResult
+    case mb of
+        Just result -> return ([],result)
+        otherwise -> do
+            ppannK <- lift $ pp annK
+            ppe <- lift $ pp e
+            genError (unTyped $ loc e) $ text "expressionToDafny:" <+> ppid isLVal <+> ppannK <+> ppe
 expressionToDafny isLVal isQExpr annK e = do
     ppannK <- lift $ pp annK
     ppe <- lift $ pp e
