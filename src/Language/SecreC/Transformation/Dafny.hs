@@ -1074,7 +1074,9 @@ expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
     (anncond,ppcond) <- expressionToDafny isLVal isQExpr annK econd
     (annthen,ppthen) <- expressionToDafny isLVal isQExpr annK ethen
     (annelse,ppelse) <- expressionToDafny isLVal isQExpr annK eelse
-    return (anncond++annthen++annelse,text "if" <+> ppcond <+> text "then" <+> ppthen <+> text "else" <+> ppelse)
+    let annthen' = map (\(x,y,z,w) -> (x,y,z,ppcond <+> text "==>" <+> w)) annthen
+    let annelse' = map (\(x,y,z,w) -> (x,y,z,char '!' <> parens (ppcond <+> text "==>" <+> w))) annelse
+    return (anncond++annthen'++annelse',text "if" <+> ppcond <+> text "then" <+> ppthen <+> text "else" <+> ppelse)
 expressionToDafny isLVal isQExpr annK e = do
     ppannK <- lift $ pp annK
     ppe <- lift $ pp e
