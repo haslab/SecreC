@@ -661,11 +661,12 @@ annLinesProcC :: AnnsDoc -> Doc
 annLinesProcC anns = d
     where
     (reads,anns') = List.partition ((==ReadsK) . fst4) anns
+    anns'' = List.nub anns'
     reads' = Set.fromList $ map fou4 reads
     readk = case Set.toList reads' of
                 [] -> []
                 xs -> [(ReadsK,True,Set.empty,PP.sepBy PP.comma xs)]
-    ([],d) = annLinesC ProcKC (readk++anns')
+    ([],d) = annLinesC ProcKC (readk++anns'')
 
 procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
