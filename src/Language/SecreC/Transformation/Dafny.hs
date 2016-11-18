@@ -412,6 +412,12 @@ fIdenToDafnyId :: PIdentifier -> ModuleTyVarId -> Bool -> DafnyId
 fIdenToDafnyId (PIden n) mid isLeak = FId (PIden n) mid isLeak
 fIdenToDafnyId (OIden n) mid isLeak = FId (OIden $ funit n) mid isLeak
 
+addAnnsCond :: Doc -> AnnsDoc -> AnnsDoc
+addAnnsCond c anns = map add anns
+    where
+    add ann@(ReadsK,_,_,_) = ann
+    add (x,y,z,w) = (x,y,z,c <+> text "==>" <+> parens w)
+
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
@@ -692,8 +698,8 @@ statementToDafny (IfStatement _ c s1 s2) = do
     (ann1,pc) <- expressionToDafny False Nothing StmtK c
     (annthen,ps1) <- statementToDafny s1
     (concat -> annelse,ps2) <- Utils.mapAndUnzipM statementToDafny s2
-    let annthen' = map (\(x,y,z,w) -> (x,y,z,pc <+> text "==>" <+> w)) annthen
-    let annelse' = map (\(x,y,z,w) -> (x,y,z,char '!' <> parens (pc <+> text "==>" <+> w))) annelse
+    let annthen' = addAnnsCond pc annthen
+    let annelse' = addAnnsCond (char '!' <> parens pc) annelse
     ppo <- ppOpt ps2 (return . (text "else" <+>))
     addAnnsC StmtKC (ann1++annthen'++annelse') $ text "if" <+> pc <+> ps1 $+$ ppo
 statementToDafny (BreakStatement l) = return ([],text "break" <> semicolon)
@@ -1120,8 +1126,8 @@ expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
     (anncond,ppcond) <- expressionToDafny isLVal isQExpr annK econd
     (annthen,ppthen) <- expressionToDafny isLVal isQExpr annK ethen
     (annelse,ppelse) <- expressionToDafny isLVal isQExpr annK eelse
-    let annthen' = map (\(x,y,z,w) -> (x,y,z,ppcond <+> text "==>" <+> w)) annthen
-    let annelse' = map (\(x,y,z,w) -> (x,y,z,char '!' <> parens (ppcond <+> text "==>" <+> w))) annelse
+    let annthen' = addAnnsCond ppcond annthen
+    let annelse' = addAnnsCond (char '!' <> parens ppcond) annelse
     return (anncond++annthen'++annelse',text "if" <+> ppcond <+> text "then" <+> ppthen <+> text "else" <+> ppelse)
 expressionToDafny isLVal isQExpr annK e = do
     ppannK <- lift $ pp annK

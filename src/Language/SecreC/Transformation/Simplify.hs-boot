@@ -20,28 +20,28 @@ import Data.Typeable
 
 type SimplifyK loc m = ProverK loc m
 
-type SimplifyM loc m = ReaderT (Maybe (Expression GIdentifier (Typed loc))) (TcM m)
-type SimplifyCont loc m a = SimplifyK loc m => a -> SimplifyM loc m ([Statement GIdentifier (Typed loc)],a)
+type SimplifyM m = (TcM m)
+type SimplifyCont loc m a = SimplifyK loc m => a -> SimplifyM m ([Statement GIdentifier (Typed loc)],a)
 type SimplifyT loc m a = SimplifyCont loc m (a GIdentifier (Typed loc))
 
-type SimplifyG loc m a = SimplifyK loc m => a GIdentifier (Typed loc) -> SimplifyM loc m (a GIdentifier (Typed loc))
+type SimplifyG loc m a = SimplifyK loc m => a GIdentifier (Typed loc) -> SimplifyM m (a GIdentifier (Typed loc))
 
-tryRunSimplify :: SimplifyK Position m => (a -> SimplifyM loc m a) -> (a -> TcM m a)
+tryRunSimplify :: SimplifyK Position m => (a -> SimplifyM m a) -> (a -> TcM m a)
 
-runSimplify :: SimplifyK Position m => SimplifyM loc m a -> TcM m a
+runSimplify :: SimplifyK Position m => SimplifyM m a -> TcM m a
 
-simplifyExpression :: SimplifyK loc m => Bool -> Expression GIdentifier (Typed loc) -> SimplifyM loc m ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc)))
+simplifyExpression :: SimplifyK loc m => Bool -> Expression GIdentifier (Typed loc) -> SimplifyM m ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc)))
 
-simplifyStmts :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [Statement GIdentifier (Typed loc)] -> SimplifyM loc m [Statement GIdentifier (Typed loc)]
+simplifyStmts :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [Statement GIdentifier (Typed loc)] -> SimplifyM m [Statement GIdentifier (Typed loc)]
 
-simplifyInnerDecType :: SimplifyK Position m => InnerDecType -> SimplifyM Position m InnerDecType
+simplifyInnerDecType :: SimplifyK Position m => InnerDecType -> SimplifyM m InnerDecType
 
-trySimplify :: SimplifyK Position m => (a -> SimplifyM loc m a) -> (a -> SimplifyM loc m a)
+trySimplify :: SimplifyK Position m => (a -> SimplifyM m a) -> (a -> SimplifyM m a)
 
 simplifyNonVoidExpression :: Bool -> SimplifyT loc m Expression
 
-inlineExpr :: SimplifyK loc m => loc -> Expr -> SimplifyM loc m Expr
+inlineExpr :: SimplifyK loc m => loc -> Expr -> SimplifyM m Expr
 
-tryInlineExpr :: SimplifyK loc m => loc -> Expr -> SimplifyM loc m (Maybe Expr)
+tryInlineExpr :: SimplifyK loc m => loc -> Expr -> SimplifyM m (Maybe Expr)
 
-tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> SimplifyM loc m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))
+tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> SimplifyM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))
