@@ -459,9 +459,10 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
   where did = pIdenToDafnyId pn mid
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
-    (pargs,parganns) <- procedureArgsToDafny l False args
-    let result = ppn <+> pargs
+    pvars <- liftM (parens . sepBy comma) $ mapM (varToDafny . fmap (Typed l) . snd3) args
+    let result = ppn <+> pvars
     withResult result $ do
+        (pargs,parganns) <- procedureArgsToDafny l False args
         (pret,pretanns) <- typeToDafny l RequireK ret
         pcl <- decClassToDafny cl
         panns <- procedureAnnsToDafny anns
