@@ -10,6 +10,7 @@ domain pd_a3p shared3p;
 
 template<domain D>
 function D uint sum (D uint[[1]] xs)
+//@ context<>
 //@ inline;
 {
     __builtin("core.sum",xs) :: D uint
@@ -17,6 +18,7 @@ function D uint sum (D uint[[1]] xs)
 
 template <domain D >
 function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
+//@ context<>
 //@ inline;
 //@ requires size(x) == size(y);
 //@ ensures size(\result) == size(x);
