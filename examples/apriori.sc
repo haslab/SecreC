@@ -19,7 +19,7 @@ template <domain D >
 function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
 //@ inline;
 //@ requires size(x) == size(y);
-//@ ensures size(x*y) == size(x);
+//@ ensures size(\result) == size(x);
 {
     __builtin("core.mul",x,y) :: D uint[[1]]
 }
