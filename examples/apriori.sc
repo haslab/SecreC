@@ -18,7 +18,8 @@ function D uint sum (D uint[[1]] xs)
 template <domain D >
 function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
 //@ inline;
-//@ requires shape(x) == shape(y);
+//@ requires size(x) == size(y);
+//@ ensures size(x*y) == size(x);
 {
     __builtin("core.mul",x,y) :: D uint[[1]]
 }
