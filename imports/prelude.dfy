@@ -95,7 +95,7 @@ class Array2<T> {
   constructor reshape0(x: T, m: uint64, n: uint64)
   requires 0 <= m && 0 <= n;
   free ensures this != null && this.valid();
-  free ensures this.arr2.Length0 == m && this.arr2.Length1 == n;
+  free ensures this.Length0() == m && this.Length1() == n;
   free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> this.arr2[i,j] == x;
   {}
   
@@ -103,29 +103,31 @@ class Array2<T> {
   requires m >= 0 && n >= 0;
   requires uint64(|xs|) == m * n;
   free ensures this != null && this.valid();
-  free ensures this.arr2.Length0 == m && this.arr2.Length1 == n;
+  free ensures this.Length0() == m && this.Length1() == n;
   free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> (i+j < uint64(|xs|) && this.arr2[i,j] == xs[i+j]);
   {}
 
   function method Length0() : uint64
   reads this`arr2;
-  requires this.arr2 != null && this.valid()
+  requires this.arr2 != null && this.valid();
+  ensures this.Length0() == uint64(this.arr2.Length0);
   { uint64(this.arr2.Length0) }
   
   function method Length1() : uint64
   reads this`arr2;
-  requires this.arr2 != null && this.valid()
+  requires this.arr2 != null && this.valid();
+  ensures this.Length1() == uint64(this.arr2.Length1);
   { uint64(this.arr2.Length1) }
 
   function method size() : uint64
   reads this`arr2;
   requires this.arr2 != null && this.valid()
-  { this.arr2.Length0 * this.arr2.Length1 }
+  { this.Length0() * this.Length1() }
   
   function method shape() : seq<uint64>
   reads this`arr2;
   requires this.arr2 != null && this.valid()
-  { [this.arr2.Length0,this.arr2.Length1] }
+  { [this.Length0(),this.Length1()] }
   
   constructor cat0(xs: Array2<T>, ys: Array2<T>)
   requires xs != null && xs.valid();
@@ -152,26 +154,26 @@ class Array2<T> {
   function method project00(x: uint64, y: uint64) : T
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
-  requires 0 <= x < this.arr2.Length0;
-  requires 0 <= y < this.arr2.Length1;
+  requires 0 <= x < this.Length0();
+  requires 0 <= y < this.Length1();
   { this.arr2[x,y] }
   
   function method project10(x1: uint64, x2: uint64, y: uint64) : seq<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
-  requires 0 <= x1 <= this.arr2.Length0;
-  requires 0 <= x2 <= this.arr2.Length0;
+  requires 0 <= x1 <= this.Length0();
+  requires 0 <= x2 <= this.Length0();
   requires x1 <= x2;
-  requires 0 <= y < this.arr2.Length1;
+  requires 0 <= y < this.Length1();
   ensures uint64(|project10(x1,x2,y)|) == x2-x1;
   ensures forall i:uint64 :: 0 <= i < x2-x1 ==> project10(x1,x2,y)[i] == this.arr2[x1+i,y];
   
   function method project01(x: uint64, y1: uint64, y2: uint64) : seq<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
-  requires 0 <= x < this.arr2.Length0;
-  requires 0 <= y1 <= this.arr2.Length1;
-  requires 0 <= y2 <= this.arr2.Length1;
+  requires 0 <= x < this.Length0();
+  requires 0 <= y1 <= this.Length1();
+  requires 0 <= y2 <= this.Length1();
   requires y1 <= y2;
   ensures uint64(|project01(x,y1,y2)|) == y2-y1;
   ensures forall j:uint64 :: 0 <= j < y2-y1 ==> project01(x,y1,y2)[j] == this.arr2[x,y1+j];
@@ -179,15 +181,15 @@ class Array2<T> {
   function method project11(x1: uint64, x2: uint64, y1: uint64, y2: uint64) : Array2<T>
   reads this`arr2, this.arr2;
   requires this.arr2 != null && this.valid();
-  requires 0 <= x1 <= this.arr2.Length0;
-  requires 0 <= x2 <= this.arr2.Length0;
+  requires 0 <= x1 <= this.Length0();
+  requires 0 <= x2 <= this.Length0();
   requires x1 <= x2;
-  requires 0 <= y1 <= this.arr2.Length1;
-  requires 0 <= y2 <= this.arr2.Length1;
+  requires 0 <= y1 <= this.Length1();
+  requires 0 <= y2 <= this.Length1();
   requires y1 <= y2;
   ensures project11(x1,x2,y1,y2) != null && project11(x1,x2,y1,y2).valid();
-  ensures project11(x1,x2,y1,y2).arr2.Length0 == x2-x1;
-  ensures project11(x1,x2,y1,y2).arr2.Length1 == y2-y1;
+  ensures project11(x1,x2,y1,y2).Length0() == x2-x1;
+  ensures project11(x1,x2,y1,y2).Length1() == y2-y1;
   ensures forall i: uint64, j:uint64 :: (0 <= i < x2-x1 && 0 <= j < y2-y1) ==> project11(x1,x2,y1,y2).arr2[i,j] == this.arr2[x1+i,y1+j];
 }
 
