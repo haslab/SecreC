@@ -55,9 +55,9 @@ pd_a3p uint [[2]] load_db () {
 //@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
 //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
-//@ axiom <domain D,type T> (uint[[1]] is, D uint[[2]] db)
-//@ requires set(is) <= itemsof(db);
-//@ ensures forall uint i; i < size(is) ==> is[i] < shape(db)[1];
+//x //@ axiom <domain D,type T> (uint[[1]] is, D uint[[2]] db)
+//x //@ requires set(is) <= itemsof(db);
+//x //@ ensures forall uint i; i < size(is) ==> is[i] < shape(db)[1];
 
 //@ template <nonpublic kind K, domain D : K>
 //@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db)
@@ -92,13 +92,14 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 
   // compute the itemsets of size 1
   for (uint i = 0; i < dbColumns; i=i+1)
-  //@ invariant shape(F) == {i,1};
+  //@ invariant shape(F)[0] <= i;
+  //@ invariant shape(F)[1] == 1;
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
       F = cat (F, reshape(i, 1, 1));
-      F_cache = cat (F_cache, reshape (z, 1, dbRows));
+      //F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }
   
