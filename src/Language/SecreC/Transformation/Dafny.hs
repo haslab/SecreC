@@ -587,6 +587,7 @@ genDafnyArrays l annK vs pv tv = do
                         Nothing -> return []
                         Just (PId {}) -> return []
                         Just (LId {}) -> return []
+                        Just (AId {}) -> return []
                         otherwise -> return
                             [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n))
                             ,(ReadsK,True,vs,pv <> text ".arr" <> int (fromEnum n))]
