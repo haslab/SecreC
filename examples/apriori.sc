@@ -10,7 +10,7 @@ domain pd_a3p shared3p;
 
 template<domain D>
 function D uint sum (D uint[[1]] xs)
-//@ context<>
+context<>
 //@ inline;
 {
     __builtin("core.sum",xs) :: D uint
@@ -18,7 +18,7 @@ function D uint sum (D uint[[1]] xs)
 
 template <domain D >
 function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
-//@ context<>
+context<>
 //@ inline;
 //@ requires size(x) == size(y);
 //@ ensures size(\result) == size(x);
@@ -52,7 +52,7 @@ pd_a3p uint [[2]] load_db () {
 //@ function set<uint> itemsof(D uint[[2]] db)
 //@ context<>
 //@ noinline;
-//@ ensures forall uint i; i in \result ==> i < shape(db)[1];
+//@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
 //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
 //@ axiom <domain D,type T> (uint[[1]] is, D uint[[2]] db)
