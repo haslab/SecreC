@@ -82,6 +82,8 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   uint dbRows = shape(db)[0]; // number of transactions
 
   uint [[2]] F (0, 1); // frequent itemsets
+  //@ assert shape(F)[0] == 0;
+  //@ assert shape(F)[1] == 0;
   pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
 
   uint [[2]] F_new; // new frequent itemsets based on existing ones in F
@@ -91,17 +93,17 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   pd_a3p uint [[1]] C_dot (dbRows); // column data (dot product) for the new candidate itemset C
 
   // compute the itemsets of size 1
-  for (uint i = 0; i < dbColumns; i=i+1)
-  //@ invariant shape(F)[0] <= i;
-  //@ invariant shape(F)[1] == 1;
-  {
-    pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
-    pd_a3p uint frequence = sum (z); // frequency of item i
-    if (declassify (frequence >= classify(threshold))) {
-      F = cat (F, reshape(i, 1, 1));
-      //F_cache = cat (F_cache, reshape (z, 1, dbRows));
-    }
-  }
+  //x for (uint i = 0; i < dbColumns; i=i+1)
+  //x //@ invariant shape(F)[0] <= i;
+  //x //@ invariant shape(F)[1] == 1;
+  //x {
+  //x   pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
+  //x   pd_a3p uint frequence = sum (z); // frequency of item i
+  //x   if (declassify (frequence >= classify(threshold))) {
+  //x     F = cat (F, reshape(i, 1, 1));
+  //x     //F_cache = cat (F_cache, reshape (z, 1, dbRows));
+  //x   }
+  //x }
   
   //// until we find itemsets with length setSize
   //for (uint k = 1; k < setSize; k=k+1)
