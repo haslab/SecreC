@@ -165,8 +165,8 @@ class Array2<T> {
   requires 0 <= x2 <= this.Length0();
   requires x1 <= x2;
   requires 0 <= y < this.Length1();
-  ensures uint64(|project10(x1,x2,y)|) == x2-x1;
-  ensures forall i:uint64 :: 0 <= i < x2-x1 ==> project10(x1,x2,y)[i] == this.arr2[x1+i,y];
+  ensures uint64(|this.project10(x1,x2,y)|) == x2-x1;
+  ensures forall i:uint64 :: 0 <= i < x2-x1 ==> this.project10(x1,x2,y)[i] == this.arr2[x1+i,y];
   
   function method project01(x: uint64, y1: uint64, y2: uint64) : seq<T>
   reads this`arr2, this.arr2;
