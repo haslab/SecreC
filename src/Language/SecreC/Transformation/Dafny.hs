@@ -869,6 +869,7 @@ varInitToDafny isConst isHavoc pty (VariableInitialization l v sz ini) = do
     assign <- ppOpt pini (\e -> return $ pv <+> text ":=" <+> e <+> semicolon)
     let (anns1,annsini') = annLinesC StmtKC annsini
     let (anns2,annsize') = annLinesC StmtKC $ annp ++ annsize
+    lift $ debugTc $ liftIO $ putStrLn $ "varInitToDafny: " ++ show (annLinesProcC anns1) ++ "\n" ++ show pv ++ "\n" ++ show (annLinesProcC anns2)
     return (anns1++anns2,def $+$ annsini' $+$ assign $+$ annsize')
 
 typeToDafny :: DafnyK m => Position -> AnnKind -> Type -> DafnyM m (Doc,AnnsDoc)

@@ -82,8 +82,6 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   uint dbRows = shape(db)[0]; // number of transactions
 
   uint [[2]] F (0, 1); // frequent itemsets
-  //@ assert shape(F)[0] == 0;
-  //@ assert shape(F)[1] == 1;
   pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
 
   uint [[2]] F_new; // new frequent itemsets based on existing ones in F
