@@ -52,7 +52,12 @@ pd_a3p uint [[2]] load_db () {
 //@ function set<uint> itemsof(D uint[[2]] db)
 //@ context<>
 //@ noinline;
+//@ ensures forall uint i; i in \result ==> i < shape(db)[1];
 //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
+
+//@ axiom <domain D,type T> (uint[[1]] is, D uint[[2]] db)
+//@ requires set(is) <= itemsof(db);
+//@ ensures forall uint i; i < size(is) ==> is[i] < shape(db)[1];
 
 //@ template <nonpublic kind K, domain D : K>
 //@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db)
