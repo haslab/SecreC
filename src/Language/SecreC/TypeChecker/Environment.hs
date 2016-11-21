@@ -600,7 +600,7 @@ addTemplateOperator recop vars hctx bctx hdeps op = do
 --    unresolvedQVars l "2" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     d'' <- writeIDecVars l d'
-    let dt' = DecT $ DecType i (DecTypeOri False) vars' (dropCtxRecs hctx') (dropCtxRecs bctx') [] d''
+    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         pp1 <- ppr (entryType e)
@@ -642,7 +642,7 @@ newOperator recop bctx op = do
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
     dict <- liftM (headNe . tDict) State.get
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newOp body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
-    let td = DecT $ DecType i (DecTypeOri False) [] implicitDecCtx (dropCtxRecs bctx') [] d''
+    let td = DecT $ dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
 --    noNormalFreesM e
     debugTc $ do
@@ -689,7 +689,7 @@ addTemplateProcedureFunction recpn vars hctx bctx hdeps pn@(ProcedureName (Typed
 --    unresolvedQVars l "addTemplateProcedureFunction" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     d'' <- writeIDecVars l d'
-    let dt' = DecT $ DecType i (DecTypeOri False) vars' (dropCtxRecs hctx') (dropCtxRecs bctx') [] d''
+    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -727,15 +727,17 @@ newDecCtx l msg (DecCtx (Just recs) dict frees) doTop = do
     updateHeadTDict l ("newDecCtx True"++msg) $ const $ return $ ((),d'')
     return $ DecCtx (Just recs) dict frees
 
-substRecs :: Data a => Map DecType VarIdentifier -> a -> a
+substRecs :: Data a => Map ModuleTyVarId VarIdentifier -> a -> a
 substRecs recs = everywhere (mkT aux)
     where
     aux :: DecType -> DecType
-    aux d = case Map.lookup d recs of
-        Just d' -> DVar d'
+    aux d = case decTypeTyVarId d of
+        Just did -> case Map.lookup did recs of
+            Just d' -> DVar d'
+            Nothing -> d
         Nothing -> d
 
-addTCstrGraphToRec :: ProverK loc m => loc -> TCstrGraph -> TcM m (Map DecType VarIdentifier)
+addTCstrGraphToRec :: ProverK loc m => loc -> TCstrGraph -> TcM m (Map ModuleTyVarId VarIdentifier)
 addTCstrGraphToRec l g = do
     i <- newModuleTyVarId
     foldr (aux i) (return Map.empty) (map (unLoc . snd) $ Graph.labNodes g)
@@ -744,13 +746,13 @@ addTCstrGraphToRec l g = do
         xs <- addTCstrToRec l i k
         liftM (Map.union xs) m
 
-addTCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TCstr -> TcM m (Map DecType VarIdentifier)
+addTCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TCstr -> TcM m (Map ModuleTyVarId VarIdentifier)
 addTCstrToRec l i (TcK k st) = addTcCstrToRec l i k st
 addTCstrToRec l i k = do
     ppk <- pp k
     genTcError (locpos l) False $ text "addTCstrToRec" <+> ppk
     
-addTcCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TcCstr -> CstrState -> TcM m (Map DecType VarIdentifier)
+addTcCstrToRec :: ProverK loc m => loc -> ModuleTyVarId -> TcCstr -> CstrState -> TcM m (Map ModuleTyVarId VarIdentifier)
 addTcCstrToRec l i (PDec dk es n ts ps ret (DVar v)) st = do
     j <- newModuleTyVarId
     let (isRead,isWrite) = case cstrExprC st of
@@ -767,7 +769,7 @@ addTcCstrToRec l i (PDec dk es n ts ps ret (DVar v)) st = do
     let dec = DecType j DecTypeCtx [] hctx implicitDecCtx (concat ts) idec
     env <- mkDecEnv l dec
     addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env Map.empty
-    return $ Map.singleton dec v
+    return $ Map.singleton j v
 addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
     j <- newModuleTyVarId
     let (isRead,isWrite) = case cstrExprC st of
@@ -779,7 +781,7 @@ addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
     let dec = DecType j DecTypeCtx [] implicitDecCtx implicitDecCtx ts idec
     env <- mkDecEnv l dec
     addHeadTDict l "addTcCstrToRec" $ TDict Graph.empty Set.empty emptyTSubsts env Map.empty
-    return $ Map.singleton dec v
+    return $ Map.singleton j v
 addTcCstrToRec l i k st = do
     ppk <- pp k
     genTcError (locpos l) False $ text "addTcCstrToRec" <+> ppk
@@ -831,7 +833,7 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     dict <- liftM (headNe . tDict) State.get
     
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newProc body" dontStop l dict True Map.empty =<< writeIDecVars l innerdect
-    let dt = DecType i (DecTypeOri False) [] implicitDecCtx (dropCtxRecs bctx') [] d''
+    let dt = dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -840,8 +842,15 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ getLns selector env
     return $ ProcedureName (Typed l $ DecT dt) n
 
+dropDecRecs :: DecType -> DecType
+dropDecRecs (DecType i k ts hctx bctx vs b) = substRecs recs $ DecType i k ts hctx' bctx' vs b
+    where
+    hctx' = dropCtxRecs hctx
+    bctx' = dropCtxRecs bctx
+    recs = maybe Map.empty id (dCtxExplicit hctx) `Map.union` maybe Map.empty id (dCtxExplicit bctx)
+
 dropCtxRecs :: DecCtx -> DecCtx
-dropCtxRecs ctx = ctx { dCtxDict = dropPureTDictRecs $ dCtxDict ctx }
+dropCtxRecs ctx = ctx { dCtxExplicit = fmap (const Map.empty) (dCtxExplicit ctx), dCtxDict = dropPureTDictRecs $ dCtxDict ctx }
 dropPureTDictRecs :: PureTDict -> PureTDict
 dropPureTDictRecs d = d { pureRec = mempty }
 
@@ -875,7 +884,7 @@ newAxiom l tvars hdeps d = do
 --    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (headNe . tDict) State.get
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newAxiom body" dontStop l dict True Map.empty =<< writeIDecVars l d'
-    let dt = DecType i (DecTypeOri False) tvars implicitDecCtx (dropCtxRecs bctx') [] d''
+    let dt = dropDecRecs $ DecType i (DecTypeOri False) tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -891,7 +900,7 @@ newLemma vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     i <- newModuleTyVarId
     d'' <- writeIDecVars l d'
-    let dt' = DecT $ DecType i (DecTypeOri False) vars' (dropCtxRecs hctx') (dropCtxRecs bctx') [] d''
+    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
     let e = EntryEnv (locpos l) dt'
     debugTc $ do
         ppe <- ppr (entryType e)
@@ -1181,7 +1190,7 @@ addTemplateStruct rectn vars hctx bctx hdeps tn@(TypeName (Typed l (IDecT d)) n)
     solve l "addTemplateStruct"
 --    unresolvedQVars l "addTemplateStruct" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
-    let dt' = DecT $ DecType i (DecTypeOri False) vars' (dropCtxRecs hctx') (dropCtxRecs bctx') [] d'
+    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d'
     let e = EntryEnv (locpos l) dt'
     ss <- getStructsByName n False (const True) (tyIsAnn dt') (isLeakType dt')
     case ss of
@@ -1205,7 +1214,7 @@ addTemplateStructSpecialization rectn vars specials hctx bctx hdeps tn@(TypeName
     solve l "addTemplateStructSpecialization"
 --    unresolvedQVars l "addTemplateStructSpecialization" vars
     (hctx',bctx',(vars',(specials',d'))) <- splitTpltHead l hctx bctx hdeps vars (specials,d)
-    let dt' = DecT $ DecType i (DecTypeOri False) vars' (dropCtxRecs hctx') (dropCtxRecs bctx') specials' d'
+    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' specials' d'
     let e = EntryEnv (locpos l) dt'
     modifyModuleEnv $ \env -> env { structs = Map.update (\s -> Just $ Map.insert i e s) n (structs env) }
     return $ TypeName (Typed l dt') n
@@ -1243,7 +1252,7 @@ newStruct rectn bctx tn@(TypeName (Typed l (IDecT innerdect)) n) = do
     dict <- liftM (headNe . tDict) State.get
     --i <- newModuleTyVarId
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTDict "newStruct body" dontStop (locpos l) dict True Map.empty innerdect
-    let dt = DecT $ DecType i (DecTypeOri False) [] implicitDecCtx (dropCtxRecs bctx') [] d''
+    let dt = DecT $ dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) dt
     debugTc $ do
         ppl <- ppr l

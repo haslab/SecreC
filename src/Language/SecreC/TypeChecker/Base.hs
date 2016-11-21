@@ -1679,7 +1679,7 @@ iDecTyKind (AxiomType {}) = AKind
 iDecTyKind (StructType {}) = TKind
 iDecTyKind (LemmaType {}) = LKind
 
-data DecCtx = DecCtx { dCtxExplicit :: Maybe (Map DecType VarIdentifier), dCtxDict :: PureTDict, dCtxFrees :: Frees }
+data DecCtx = DecCtx { dCtxExplicit :: Maybe (Map ModuleTyVarId VarIdentifier), dCtxDict :: PureTDict, dCtxFrees :: Frees }
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 instance Binary DecCtx
 instance Hashable DecCtx
