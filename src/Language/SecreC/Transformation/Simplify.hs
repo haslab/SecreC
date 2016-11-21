@@ -786,9 +786,10 @@ simplifyStmts ret ss = do
 
 simplifyStatements :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [Statement GIdentifier (Typed loc)] -> SimplifyM m [Statement GIdentifier (Typed loc)]
 simplifyStatements ret [] = return []
-simplifyStatements ret (s:ss) = do
-    ss1 <- simplifyStatement ret s
-    ss2 <- simplifyStatements ret ss
+simplifyStatements ret [s] = simplifyStatement ret s
+simplifyStatements ret (s1:s2:ss) = do
+    ss1 <- simplifyStatement Nothing s1
+    ss2 <- simplifyStatements ret (s2:ss)
     return (ss1++ss2)
 
 simplifyStatement :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> Statement GIdentifier (Typed loc) -> SimplifyM m [Statement GIdentifier (Typed loc)]
@@ -817,8 +818,14 @@ simplifyStatement ret (AssertStatement l e) = do
     return (ss++s')
 simplifyStatement ret (ExpressionStatement l e) = do
     (ss,e') <- simplifyExpression False e
-    let s' = maybe [] (\e -> [ExpressionStatement l e]) e'
-    return (ss++s')
+    case (ret,e') of
+        (Just v,Just e') -> do
+            let s' = [ExpressionStatement l $ BinaryAssign (loc v) (varExpr v) (BinaryAssignEqual l) e']
+            return (ss++s')
+        (Nothing,Just e') -> do
+            let s' = [ExpressionStatement l e']
+            return (ss++s')
+        (Nothing,Nothing) -> return ss
 simplifyStatement ret (VarStatement l v) = do
     simplifyVariableDeclaration v
 simplifyStatement ret (WhileStatement l c ann s) = do
