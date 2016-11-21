@@ -54,7 +54,7 @@ pd_a3p uint [[2]] load_db () {
 //x //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
 //@ function bool IsItemSet (uint[[1]] is, uint n)
-//@ { forall uint i; i < |is| ==> is[i] < n }
+//@ { forall uint i; i < size(is) ==> is[i] < n }
 
 //x //@ axiom <> (set<uint> xs, set<uint> ys)
 //x //@ requires xs <= ys;
