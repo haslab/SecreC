@@ -207,6 +207,13 @@ context<>
 //@ }
 
 //@ template<domain D,type T>
+//@ function D bool in (D T x, D T[[1]] y)
+//@ context<>
+//@ {
+//@     __builtin("core.in",x,y) :: D bool
+//@ }
+
+//@ template<domain D,type T>
 //@ function D bool in (D T x, D set<T> y)
 //@ context<>
 //@ {

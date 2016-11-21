@@ -53,6 +53,9 @@ pd_a3p uint [[2]] load_db () {
 //@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
 //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
+//@ function IsItemSet (uint[[1]] is, uint n)
+//@ { forall uint i; i in is ==> i < n }
+
 //x //@ axiom <> (set<uint> xs, set<uint> ys)
 //x //@ requires xs <= ys;
 //x //@ ensures forall uint i; in(i,xs) ==> in(i,ys);
@@ -64,7 +67,8 @@ pd_a3p uint [[2]] load_db () {
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //x //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
-//@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
+//X //@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
+//@ requires IsItemSet(is,shape(db)[1]);
 //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 0) ? repeat(classify(1),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db) }
 
@@ -74,7 +78,8 @@ pd_a3p uint [[2]] load_db () {
 
 //@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
-//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
+//@ { forall uint[[1]] is; IsItemSet(is,shape(db)[1]) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
+//x //@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
