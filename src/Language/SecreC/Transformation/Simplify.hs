@@ -712,8 +712,10 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
                 reqs' <- simplifyStatementAnns True reqs
                 ss <- simplifyStatements (Just res) body'
                 debugTc $ do
+                    ppn <- ppr n
                     ppres <- ppr res
-                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppres 
+                    pps <- ppr ss
+                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppn ++ " " ++ ppres ++ "\n" ++ ppss
                 ens' <- simplifyStatementAnns True ens
                 return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++ens'),Just $ varExpr res)
             Nothing -> do
