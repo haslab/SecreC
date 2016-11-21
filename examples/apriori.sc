@@ -57,10 +57,9 @@ pd_a3p uint [[2]] load_db () {
 //@ requires xs <= ys;
 //@ ensures forall uint i; in(i,xs) ==> in(i,ys);
 
-//@ function bool lfrequentsLemma(uint[[1]] is, pd_a3p uint[[2]] db)
+//@ axiom <> (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ requires set(is) <= itemsof(db);
 //@ ensures forall uint i; in(i,set(is)) ==> i < shape(db)[1];
-//@ { true }
 
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
@@ -75,7 +74,7 @@ pd_a3p uint [[2]] load_db () {
 
 //@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
-//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> lfrequentsLemma(is,db) && public (sum(transactions(is,db)) >= classify(threshold)) }
+//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
