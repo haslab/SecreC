@@ -5,6 +5,7 @@ module Language.SecreC.Transformation.Dafny where
 import Language.SecreC.Syntax
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Constraint
+import Language.SecreC.TypeChecker.Template
 import Language.SecreC.Prover.Base
 import Language.SecreC.Utils as Utils
 import Language.SecreC.Pretty as PP
@@ -81,7 +82,7 @@ putDafnyIdModuleTyVarId tid (AId _ isLeak) = AId tid isLeak
 dafnyIdModule :: DafnyId -> Maybe Identifier
 dafnyIdModule = fmap fst . modTyName . dafnyIdModuleTyVarId
 
-type DafnyEntry = ([Type],Position,DafnyId,Doc)
+type DafnyEntry = ([Type],Position,DafnyId,Doc,DecType)
 
 data DafnySt = DafnySt {
       dafnies :: Map (Maybe Identifier) (Map DafnyId (Map DafnyId DafnyEntry)) -- generated Dafny entries (top-level variables, types, functions, methods), grouped by module, grouped by base ids
@@ -255,8 +256,8 @@ printDafnyModules xs = do
 printDafnyModule :: DafnyK m => Maybe Identifier -> Map DafnyId DafnyEntry -> Map Identifier (Set Identifier) -> DafnyM m (Doc,Doc)
 printDafnyModule mn xs imports = do
     let (types,rest) = Map.partitionWithKey (\k v -> isTypeDafnyId k) xs
-    let cmp (_,p1,_,_) (_,p2,_,_) = compare p1 p2
-    let fourth (x,y,z,w) = w
+    let cmp (_,p1,_,_,_) (_,p2,_,_,_) = compare p1 p2
+    let fourth (x,y,z,w,q) = w
     let defstypes = vcat $ map fourth $ List.sortBy cmp $ Map.elems types
     let defsrest = vcat $ map fourth $ List.sortBy cmp $ Map.elems rest
     ppmn <- lift $ ppModuleName mn
@@ -337,11 +338,11 @@ loadDafnyDec l dec = do
                 case Map.lookup mn docs of
                     Just docs -> case Map.lookup bid docs of
                         Just dids -> case Map.lookup did dids of
-                            Just (_,_,did',_) -> return $ Just did'
+                            Just (_,_,did',_,_) -> return $ Just did'
                             Nothing -> do
-                                mb <- findEntry (decPos dec) (Map.toList dids) fid
+                                mb <- findEntry (decPos dec) (Map.toList dids) fid dec
                                 case mb of
-                                    Just entry@(_,_,did',_) -> do
+                                    Just entry@(_,_,did',_,_) -> do
                                         State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did entry) bid) mn $ dafnies env }
                                         return $ Just did'
                                     Nothing -> newEntry l dec fid
@@ -349,25 +350,29 @@ loadDafnyDec l dec = do
                     Nothing -> newEntry l dec fid
         Nothing -> return Nothing
                    
-findEntry :: DafnyK m => Position -> [(DafnyId,DafnyEntry)] -> (DafnyId,DafnyId,[Type]) -> DafnyM m (Maybe DafnyEntry)
-findEntry l [] fid = return Nothing
-findEntry l ((did',(ts',p',uid',doc')):es) fid@(bid,did,ts) = do
-    (ok,_) <- lift $ tcWith l "findEntry" $ tryCstrBool l $ equalsList l ts' ts
-    if ok
-        then return $ Just (ts,p',uid',empty)
-        else findEntry l es fid
+findEntry :: DafnyK m => Position -> [(DafnyId,DafnyEntry)] -> (DafnyId,DafnyId,[Type]) -> DecType -> DafnyM m (Maybe DafnyEntry)
+findEntry l [] fid dec = return Nothing
+findEntry l ((did',(ts',p',uid',doc',dec')):es) fid@(bid,did,ts) dec = do
+    (same,_) <- lift $ tcWith l "findEntry" $ tryCstrBool l $ sameTemplateDecs l dec dec'
+    if same
+        then return $ Just (ts,p',uid',doc',dec)
+        else do
+            (ok,_) <- lift $ tcWith l "findEntry" $ tryCstrBool l $ equalsList l ts' ts
+            if ok
+                then return $ Just (ts,p',uid',empty,dec')
+                else findEntry l es fid dec
 
 newEntry :: DafnyK m => Position -> DecType -> (DafnyId,DafnyId,[Type]) -> DafnyM m (Maybe DafnyId)
 newEntry l dec (bid,did,ts) = do
     let mn = dafnyIdModule bid
-    State.modify $ \env -> env { dafnies = Map.alter (Just . Map.alter (Just . Map.insert did (ts,noloc,did,empty) . maybe Map.empty id) bid . maybe Map.empty id) mn $ dafnies env }
+    State.modify $ \env -> env { dafnies = Map.alter (Just . Map.alter (Just . Map.insert did (ts,noloc,did,empty,dec) . maybe Map.empty id) bid . maybe Map.empty id) mn $ dafnies env }
     mb <- decToDafny l dec
     case mb of
         Nothing -> do
             State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.delete bid) bid) mn $ dafnies env }
             return Nothing
         Just (p,doc) -> do
-            State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did (ts,p,did,doc)) bid) mn $ dafnies env }
+            State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did (ts,p,did,doc,dec)) bid) mn $ dafnies env }
             return $ Just did
             
 

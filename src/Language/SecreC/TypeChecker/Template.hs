@@ -430,7 +430,7 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
         ppe <- pp (entryType e) 
         return $ (locpos $ entryLoc e,ppe)
     defs <- mapM f [(e1),(e2)]
-    ord <- compareTwice l e1 e1' e2 e2' (compareTemplateEntries def l isLattice n) (compareTemplateEntries def l isLattice n)
+    ord <- compareTwice l e1 e1' e2 e2' (compareTemplateEntries def l isLattice) (compareTemplateEntries def l isLattice)
     let (o,isLat,ko) = compOrdering ord 
     ord' <- if (mappend o isLat == EQ) 
         then do
@@ -442,8 +442,13 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
         else return ord
     return ord'
     
-compareTemplateEntries :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> EntryEnv -> EntryEnv -> TcM m (Comparison (TcM m))
-compareTemplateEntries def l isLattice n e1 e2 = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
+sameTemplateDecs :: (ProverK Position m) => Position -> DecType -> DecType -> TcM m ()
+sameTemplateDecs l d1 d2 = do
+    Comparison _ _ o1 o2 _ <- compareTemplateEntries PP.empty l True (EntryEnv l $ DecT d1) (EntryEnv l $ DecT d2)
+    when (o1 == EQ && o2 == EQ) $ return ()
+    
+compareTemplateEntries :: (ProverK loc m) => Doc -> loc -> Bool -> EntryEnv -> EntryEnv -> TcM m (Comparison (TcM m))
+compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
     debugTc $ do
         pp1 <- ppr e1
         pp2 <- ppr e2
@@ -456,8 +461,8 @@ compareTemplateEntries def l isLattice n e1 e2 = liftM fst $ tcProveTop l "compa
                 return $ Comparison e1 e2 EQ EQ False
             otherwise -> do
                 State.modify $ \env -> env { localDeps = Set.empty, globalDeps = Set.empty }
-                (targs1,pargs1,ret1) <- templateArgs (entryLoc e1) n (entryType e1)
-                (targs2,pargs2,ret2) <- templateArgs (entryLoc e2) n (entryType e2)
+                (targs1,pargs1,ret1) <- templateArgs (entryLoc e1) (entryType e1)
+                (targs2,pargs2,ret2) <- templateArgs (entryLoc e2) (entryType e2)
                 unless (isJust ret1 == isJust ret2) $ do
                     ppe1 <- ppr e1
                     ppe2 <- ppr e2
@@ -522,7 +527,7 @@ addValidEntry l def isLattice n (e,e',_,_,_,_,_) = do
             if doWrap
                 then do
                     ori <- getOriginalDec l d
-                    o <- compareTemplateEntries def l isLattice n (EntryEnv (entryLoc e) $ DecT ori) e'
+                    o <- compareTemplateEntries def l isLattice (EntryEnv (entryLoc e) $ DecT ori) e'
                     case o of
                         Comparison _ _ _ EQ _ -> return (Set.fromList $ decLineage d)
                         otherwise -> return (Set.empty::Set ModuleTyVarId)
@@ -769,7 +774,7 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                 ppte <- ppr (entryType olde)
                 liftIO $ putStrLn $ "instantiating " ++ ppp ++ " " ++ ppl ++ " " ++ ppn ++ " " ++ pptargs ++ " " ++ show ppargs ++ " " ++ ppret ++ "\n" ++ ppte
             -- can't instantiate recursive variables
-            (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l n t -- >>= writeTpltArgs l isRec
+            (tplt_targs,tplt_pargs,tplt_ret) <- templateArgs l t -- >>= writeTpltArgs l isRec
             debugTc $ do
                 pptargs <- ppr tplt_targs
                 pppargs <- mapM (ppVariadicPArgs ppVarTy) tplt_pargs
@@ -898,11 +903,11 @@ templateIdentifier (DecT t) = templateIdentifier' t
 --hasCondsDecType _ = return False
  
 -- | Extracts a head signature from a template type declaration (template arguments,procedure arguments, procedure return type)
-templateArgs :: (MonadIO m,Location loc) => loc -> TIdentifier -> Type -> TcM m (Maybe [(Constrained Type,IsVariadic)],Maybe [(Bool,Var,IsVariadic)],Maybe Type)
-templateArgs l (TIden name) t = case t of
-    DecT d@(DecType _ isRec args hcstrs cstrs specs body) -> do 
+templateArgs :: (MonadIO m,Location loc) => loc -> Type -> TcM m (Maybe [(Constrained Type,IsVariadic)],Maybe [(Bool,Var,IsVariadic)],Maybe Type)
+templateArgs l t = case t of
+    DecT d@(DecType _ isRec args hcstrs cstrs specs body@(StructType {})) -> do 
         return (Just $ decTypeArgs d,Nothing::Maybe [(Bool,Var,IsVariadic)],Nothing::Maybe Type)
-templateArgs l name t = case t of
+templateArgs l t = case t of
     DecT d@(DecType _ isRec args hcstrs cstrs specs (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ decTypeArgs d,Just vars,Just ret)
     DecT d@(DecType _ isRec args hcstrs cstrs specs (FunType isLeak _ n vars ret ann stmts _)) -> do -- include the return type

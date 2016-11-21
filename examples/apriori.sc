@@ -63,11 +63,13 @@ pd_a3p uint [[2]] load_db () {
 //@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db)
 //@ context<>
 //@ noinline;
-//@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
+//x //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
+//@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
 //x //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 0) ? repeat(classify(1),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db) }
 
 //@ axiom <nonpublic kind K,domain D : K> (uint[[1]] is, D uint[[2]] db)
+//@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
 //@ ensures size(transactions(is,db)) == shape(db)[0];
 
 //@ template <nonpublic kind K,domain D : K, type T>
