@@ -20,8 +20,8 @@ template <domain D >
 function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
 context<>
 //@ inline;
-//@ requires size(x) == size(y);
-//@ ensures size(\result) == size(x);
+//x //@ requires size(x) == size(y);
+//x //@ ensures size(\result) == size(x);
 {
     __builtin("core.mul",x,y) :: D uint[[1]]
 }
@@ -64,7 +64,7 @@ pd_a3p uint [[2]] load_db () {
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //x //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
-//x //@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
+//@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
 //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 0) ? repeat(classify(1),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db) }
 
