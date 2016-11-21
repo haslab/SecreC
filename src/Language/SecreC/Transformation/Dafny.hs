@@ -564,6 +564,10 @@ dafnySize n x = if n > 1
     then x <> text ".size()"
     else text "uint64" <> parens (char '|' <> x <> char '|') 
 
+dafnyShape n x = if n > 1
+    then x <> text ".shape()"
+    else brackets (text "uint64" <> parens (char '|' <> x <> char '|'))
+
 qualifiedDafny :: DafnyK m => Position -> Type -> Doc -> DafnyM m Doc
 qualifiedDafny l t x = do
     (pt,annst) <- typeToDafny l NoK t
@@ -616,9 +620,12 @@ genDafnyPublics l False annK vs pv tv = whenLeakMode $ do
                     mb <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
                     case mb of
                         Right 0 -> return []
-                        Right n -> do
-                            let psize = dafnySize n pv
+                        Right 1 -> do
+                            let psize = dafnySize 1 pv
                             return [(annK,True,vs,text publick <> parens psize)]
+                        Right n -> do
+                            let pshape = dafnyShape n pv
+                            return [(annK,True,vs,text publick <> parens pshape)]
                         otherwise -> do
                             ppt <- lift $ pp t
                             genError l $ text "genPublicSize:" <+> pv <+> ppt
@@ -1429,10 +1436,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.shape" [x] = do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
                 Right 0 -> qExprToDafny isQExpr (annx) $ brackets empty
-                Right 1 -> qExprToDafny isQExpr (annx) $ brackets $ dafnySize 1 px
-                Right n -> do
-                    let psize = px <> text ".shape()"
-                    qExprToDafny isQExpr (annx) psize
+                Right n -> qExprToDafny isQExpr (annx) $ dafnyShape n px
                 otherwise -> do
                     ppx <- lift $ pp x
                     pptx <- lift $ pp tx

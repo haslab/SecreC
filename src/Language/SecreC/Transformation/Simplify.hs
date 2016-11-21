@@ -711,6 +711,9 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
                 let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
                 reqs' <- simplifyStatementAnns True reqs
                 ss <- simplifyStatements (Just res) body'
+                debugTc $ do
+                    ppres <- ppr res
+                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppres 
                 ens' <- simplifyStatementAnns True ens
                 return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++ens'),Just $ varExpr res)
             Nothing -> do
