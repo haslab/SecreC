@@ -48,33 +48,23 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
-//@ template <domain D>
-//@ function set<uint> itemsof(D uint[[2]] db)
-//@ context<>
+//@ function set<uint> itemsof(pd_a3p uint[[2]] db)
 //@ noinline;
 //@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
 //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
-//x //@ axiom <domain D,type T> (uint[[1]] is, D uint[[2]] db)
-//x //@ requires set(is) <= itemsof(db);
-//x //@ ensures forall uint i; i < size(is) ==> is[i] < shape(db)[1];
-
-//@ template <nonpublic kind K, domain D : K>
-//@ function D uint[[1]] transactions (uint[[1]] is, D uint[[2]] db)
-//@ context<>
+//@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //x //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
 //@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
 //x //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 0) ? repeat(classify(1),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db) }
 
-//@ axiom <nonpublic kind K,domain D : K> (uint[[1]] is, D uint[[2]] db)
+//@ axiom <> (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
 //@ ensures size(transactions(is,db)) == shape(db)[0];
 
-//@ template <nonpublic kind K,domain D : K, type T>
-//@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
-//@ context<>
+//@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
 

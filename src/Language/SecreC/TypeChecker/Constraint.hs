@@ -3053,6 +3053,12 @@ tryTcError l m = catchError (liftM Right $ newErrorM topm) (return . Left)
         solveTop l "tryTcError"
         return x
 
+tryTcErrorBool :: ProverK loc m => loc -> TcM m a -> TcM m Bool
+tryTcErrorBool l m = do
+    mb <- tryTcError l m
+    case mb of
+        Right x -> return True
+        Left _ -> return False
 
 tryTcErrorMaybe :: ProverK loc m => loc -> TcM m a -> TcM m (Maybe a)
 tryTcErrorMaybe l m = do

@@ -353,11 +353,11 @@ loadDafnyDec l dec = do
 findEntry :: DafnyK m => Position -> [(DafnyId,DafnyEntry)] -> (DafnyId,DafnyId,[Type]) -> DecType -> DafnyM m (Maybe DafnyEntry)
 findEntry l [] fid dec = return Nothing
 findEntry l ((did',(ts',p',uid',doc',dec')):es) fid@(bid,did,ts) dec = do
-    (same,_) <- lift $ tcWith l "findEntry" $ tryCstrBool l $ sameTemplateDecs l dec dec'
+    same <- lift $ tryTcErrorBool l $ sameTemplateDecs l dec dec'
     if same
         then return $ Just (ts,p',uid',doc',dec)
         else do
-            (ok,_) <- lift $ tcWith l "findEntry" $ tryCstrBool l $ equalsList l ts' ts
+            ok <- lift $ tryTcErrorBool l $ equalsList l ts' ts
             if ok
                 then return $ Just (ts,p',uid',empty,dec')
                 else findEntry l es fid dec
