@@ -907,7 +907,6 @@ templateArgs :: (MonadIO m,Location loc) => loc -> Type -> TcM m (Maybe [(Constr
 templateArgs l t = case t of
     DecT d@(DecType _ isRec args hcstrs cstrs specs body@(StructType {})) -> do 
         return (Just $ decTypeArgs d,Nothing::Maybe [(Bool,Var,IsVariadic)],Nothing::Maybe Type)
-templateArgs l t = case t of
     DecT d@(DecType _ isRec args hcstrs cstrs specs (ProcType _ n vars ret ann stmts _)) -> do -- include the return type
         return (Just $ decTypeArgs d,Just vars,Just ret)
     DecT d@(DecType _ isRec args hcstrs cstrs specs (FunType isLeak _ n vars ret ann stmts _)) -> do -- include the return type
