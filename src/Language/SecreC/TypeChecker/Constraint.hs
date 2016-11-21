@@ -120,11 +120,13 @@ solve l msg = do
 
 defaultSolveMode :: ProverK Position m => TcM m SolveMode
 defaultSolveMode = do
+    inCtx <- getInCtx
     doAll <- getDoAll
     doSolve <- getDoSolve
-    case (doAll,doSolve) of
-        (True,True) -> return $ SolveMode (AllFail True) SolveAll
-        (True,False) -> return $ SolveMode (AllFail False) SolveGlobal
+    case (inCtx,doAll,doSolve) of
+        (True,_,_) -> return $ SolveMode (AllFail True) SolveAll
+        (_,True,True) -> return $ SolveMode (AllFail True) SolveAll
+        (_,True,False) -> return $ SolveMode (AllFail False) SolveGlobal
         otherwise -> return $ SolveMode (AllFail False) SolveLocal
     
 -- | solves all constraints in the top environment
