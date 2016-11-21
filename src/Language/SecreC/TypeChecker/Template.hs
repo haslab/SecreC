@@ -517,14 +517,17 @@ addValidEntry l def isLattice n (e,e',_,_,_,_,_) = do
     let d = unDecT (entryType e)
     let d' = unDecT (entryType e')
     let doWrap = isTemplateDecType d && decIsInst d' && decIsOriginal d
-    if doWrap
+    if isLattice
         then do
-            ori <- getOriginalDec l d
-            o <- compareTemplateEntries def l isLattice n (EntryEnv (entryLoc e) $ DecT ori) e'
-            case o of
-                Comparison _ _ _ EQ _ -> return (Set.fromList $ decLineage d)
-                otherwise -> return (Set.empty::Set ModuleTyVarId)
-        else return (Set.empty::Set ModuleTyVarId)
+            if doWrap
+                then do
+                    ori <- getOriginalDec l d
+                    o <- compareTemplateEntries def l isLattice n (EntryEnv (entryLoc e) $ DecT ori) e'
+                    case o of
+                        Comparison _ _ _ EQ _ -> return (Set.fromList $ decLineage d)
+                        otherwise -> return (Set.empty::Set ModuleTyVarId)
+                else return (Set.empty::Set ModuleTyVarId)
+        else return (Set.fromList $ decLineage d)
 
 unifyTemplateTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m ()
 unifyTemplateTypeArgs l lhs rhs = do
