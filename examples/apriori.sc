@@ -57,6 +57,10 @@ pd_a3p uint [[2]] load_db () {
 //@ requires xs <= ys;
 //@ ensures forall uint i; in(i,xs) ==> in(i,ys);
 
+//@ axiom <> (set<uint> xs, pd_a3p uint[[2]] db)
+//@ requires xs <= itemsof(db);
+//@ ensures forall uint i; in(i,xs) ==> i < shape(db)[1];
+
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //x //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
