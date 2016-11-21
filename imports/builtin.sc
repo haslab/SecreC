@@ -306,9 +306,9 @@ context<>
 
 template <domain D, type T, dim N { N > 0 } >
 D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
-context< /*@ uint sum(ns...) @*/ >
+context< /*@ uint product(ns...) @*/ >
 //@ inline;
-//@ requires sum(ns...) == size(arr);
+//@ requires product(ns...) == size(arr);
 {
     havoc D T[[size...(ns)]] ret;
     __syscall("core.reshape",arr,ns...,__return ret);
