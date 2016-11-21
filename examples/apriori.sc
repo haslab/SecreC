@@ -94,14 +94,15 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
+  //@ invariant shape(F_cache)[0] <= i;
+  //@ invariant shape(F_cache)[1] == shape(db)[0];
+  //x //@ invariant forall uint j; j <= j ==> F_cache[j] == transactions(F[j],db);
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
       F = cat (F, reshape(i, 1, 1));
-      //@ assert shape(F)[0] <= i+1;
-      //@ assert shape(F)[1] == 1;
-      //F_cache = cat (F_cache, reshape (z, 1, dbRows));
+      F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }
   
