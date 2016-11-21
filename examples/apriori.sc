@@ -64,10 +64,11 @@ pd_a3p uint [[2]] load_db () {
 //@ context<>
 //@ noinline;
 //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
-//x //@ requires size(is) != 0 ==> size(db[:,is[0]]) == shape(db)[0];
-//@ free requires size(is) != 0 ==> size(transactions(is[1:],db)::D uint[[1]]) == shape(db)[0];
-//@ ensures size(\result) == shape(db)[0];
+//x //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 0) ? repeat(classify(1),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db) }
+
+//@ axiom <nonpublic kind K,domain D : K> (uint[[1]] is, D uint[[2]] db)
+//@ ensures size(transactions(is,db)) == shape(db)[0];
 
 //@ template <nonpublic kind K,domain D : K, type T>
 //@ leakage function bool lfrequents (D uint[[2]] db, uint threshold)
