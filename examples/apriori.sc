@@ -74,7 +74,7 @@ pd_a3p uint [[2]] load_db () {
 
 //@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
-//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
+//@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> i < shape(db)[1] && public (sum(transactions(is,db)) >= classify(threshold)) }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
