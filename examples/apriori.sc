@@ -64,6 +64,8 @@ pd_a3p uint [[2]] load_db () {
 //@ context<>
 //@ noinline;
 //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
+//@ requires |is] != 0 ==> size(db[:,is[0]]) == shape(db)[0];
+//@ requires |is] != 0 ==> size(transactions(is[1:],db)) == shape(db)[0];
 //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 0) ? repeat(classify(1),shape(db)[0]) : db[:,is[0]] * transactions(is[1:],db) }
 
@@ -96,7 +98,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant shape(F)[1] == 1;
   //@ invariant shape(F_cache)[0] <= i;
   //@ invariant shape(F_cache)[1] == shape(db)[0];
-  //x //@ invariant forall uint j; j <= j ==> F_cache[j] == transactions(F[j],db);
+  //x //@ invariant forall uint j; j <= i ==> F_cache[j] == sum(transactions(F[j],db));
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
