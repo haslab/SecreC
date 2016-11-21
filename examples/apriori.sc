@@ -48,12 +48,12 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
-//@ function set<uint> itemsof(pd_a3p uint[[2]] db)
-//@ noinline;
-//@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
-//@ { (set uint x | 0 <= x && x < shape(db)[1]) }
+//x //@ function set<uint> itemsof(pd_a3p uint[[2]] db)
+//x //@ noinline;
+//x //@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
+//x //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
-//@ function IsItemSet (uint[[1]] is, uint n)
+//@ function bool IsItemSet (uint[[1]] is, uint n)
 //@ { forall uint i; i in is ==> i < n }
 
 //x //@ axiom <> (set<uint> xs, set<uint> ys)
