@@ -121,7 +121,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       //@ assert Frequents(Fresh,db,threshold);
       F = cat (F, Fresh);
       //@ assert forall uint x; x < shape(F_new)[0] ==> F[x,:] == F_new[x,:];
-      //@ assert F[shape(F_new),:] == Fresh[0,:];
+      //@ assert F[shape(F_new)[0],:] == Fresh[0,:];
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }
