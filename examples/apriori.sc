@@ -82,7 +82,6 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   uint dbRows = shape(db)[0]; // number of transactions
 
   uint [[2]] F (0, 1); // frequent itemsets
-  havoc uint[[2]] Fresh;
   pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
 
   uint [[2]] F_new; // new frequent itemsets based on existing ones in F
@@ -107,9 +106,9 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
       F_new = F;
-      Fresh = reshape(i,1,1);
+      havoc uint[[2]] Fresh = reshape(i,1,1);
       F = cat (F, Fresh);
-      //@ assume set(Fresh) = set{{i}};
+      //@ assume set(Fresh) == set{{i}};
       //@ assume set(F) == set(F_new) + set(Fresh);
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
