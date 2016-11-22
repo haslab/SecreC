@@ -106,7 +106,7 @@ whenLeakMode m = do
 withLeakMode :: DafnyK m => Bool -> DafnyM m x -> DafnyM m x
 withLeakMode b m = do
     o <- getLeakMode
-    State.modify $ \env -> env { leakageMode = b }
+    State.modify $ \env -> env { leakageMode = o && b }
     x <- m
     State.modify $ \env -> env { leakageMode = o }
     return x
@@ -476,7 +476,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
         let tag = if isLeak then text "function" else text "function method"
         return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
-decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     pcl <- decClassToDafny cl
@@ -489,7 +489,7 @@ decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)
     let anns' = parganns++panns++annsb
     return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLinesProcC anns' $+$ pbody)
   where did = LId (funit pn) mid isLeak
-decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = withLeakMode False $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     psn <- ppDafnyIdM did
     patts <- structAttsToDafny l psn atts
     return $ Just (p,text "datatype" <+> psn <+> char '=' <+> psn <> parens patts)
