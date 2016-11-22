@@ -110,6 +110,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       F = cat (F, Fresh);
       //@ assert shape(F)[0] == shape(F_new)[0] + 1;
       //x //@ assert forall uint j; j < shape(Fresh)[0] ==> IsItemSetOf(F[j,:],db);
+      //@ assert Fresh[0,0] == i;
       //@ assert F[shape(F_new)[0],0] == i;
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
