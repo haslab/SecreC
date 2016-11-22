@@ -798,7 +798,7 @@ data TcCstr
         Cond -- condition
     | NotEqual -- expressions not equal
         Expr Expr
-    | TypeBase Type BaseType
+    | TypeBase Type Type
     | IsPublic Bool Type
     | IsPrivate Bool Type
     | ToMultiset Type ComplexType

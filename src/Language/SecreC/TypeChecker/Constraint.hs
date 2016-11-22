@@ -573,8 +573,8 @@ resolveTcCstr l mode kid k = do
     resolveTcCstr' kid k@(Assigns t1 t2) = do
         assigns l t1 t2
     resolveTcCstr' kid k@(TypeBase t x) = do
-        BaseT b <- typeBase l t
-        unifiesBase l x b
+        b <- typeBase l t
+        unifies l x b
     resolveTcCstr' kid k@(SupportedPrint t xs) = do
         isSupportedPrint l t xs
     resolveTcCstr' kid k@(ProjectStruct t a x) = do
