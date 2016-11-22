@@ -20,8 +20,6 @@ template <domain D >
 function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
 context<>
 //@ inline;
-//x //@ requires size(x) == size(y);
-//x //@ ensures size(\result) == size(x);
 {
     __builtin("core.mul",x,y) :: D uint[[1]]
 }
@@ -48,40 +46,35 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
-//x //@ function set<uint> itemsof(pd_a3p uint[[2]] db)
-//x //@ noinline;
-//x //@ ensures forall uint i; in(i,\result) ==> i < shape(db)[1];
-//x //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
-
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
+//@ requires size(is) > 0;
 //@ { forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
-
-//x //@ axiom <> (set<uint> xs, set<uint> ys)
-//x //@ requires xs <= ys;
-//x //@ ensures forall uint i; in(i,xs) ==> in(i,ys);
-//x 
-//x //@ axiom <> (uint[[1]] is, pd_a3p uint[[2]] db)
-//x //@ requires set(is) <= itemsof(db);
-//x //@ ensures forall uint i; in(i,set(is)) ==> i < shape(db)[1];
 
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
-//x //@ requires forall uint i; i < size(is) ==> is[i] < shape(db)[1];
-//X //@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
-//@ requires size(is) > 0;
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
-//x //@ axiom <> (uint[[1]] is, pd_a3p uint[[2]] db)
-//x //@ requires forall uint i; in(i,set(is)) ==> i < shape(db)[1];
-//x //@ ensures size(transactions(is,db)) == shape(db)[0];
+//@ function pd_a3p uint frequency (uint[[1]] is, pd_a3p uint[[2]] db)
+//@ noinline;
+//@ requires IsItemSetOf(is,db);
+//@ { sum(transactions(is,db)) }
+
+//X //@ lemma TransactionSet (uint[[1]] xs, uint[[2]] ys, pd_a3p uint[[2]] db)
+//X //@ requires IsItemSetOf(xs,db);
+//X //@ requires IsItemSetOf(ys,db);
+//X //@ requires set(xs) == set(ys);
+//X //@ ensures transactions(xs,db) == transactions(ys,db);
+//X //@ ensures frequency(xs,db) == frequency(ys,db);
 
 //@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
-//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
-//x //@ { forall uint[[1]] is; set(is) <= itemsof(db) ==> public (sum(transactions(is,db)) >= classify(threshold)) }
+//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
+
+//@ function set<uint[[1]]> Fset (uint[[2]] F)
+//@ { set uint i; i < shape(F)[0]; F[i,:] }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
@@ -104,7 +97,8 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
+  //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
+  //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
   //@ invariant shape(F_cache)[0] == shape(F)[0];
   //@ invariant shape(F_cache)[1] == shape(db)[0];
   //x //@ invariant forall uint j; classify((j < shape(F_cache)[0])::bool) ==> F_cache[j,:] == transactions(F[j,:],db);
@@ -112,9 +106,9 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
+      F_new = F;
       F = cat (F, reshape(i, 1, 1));
-      //@ assert F[shape(F)[0]-1,:] == {i};
-      //@ assert IsItemSetOf({i},db);
+      //@ assert Fset(F) == Fset(F_new) + {i};
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }

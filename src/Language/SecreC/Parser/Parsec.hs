@@ -899,7 +899,7 @@ scSetExpr = scAnn $ do
         x <- scVarId
         scChar '|'
         px <- scExpression
-        fx <- optionMaybe (scTok TYPE_QUAL *> scExpression)
+        fx <- optionMaybe (scChar ';' *> scExpression)
         return $ SetComprehensionExpr (loc x1) t x px fx
     o2 x1 = apA (scParens scExpression) (\x2 -> ToSetExpr (loc x1) x2)
     o3 x1 = scCBrackets' (\_ -> apA scExpressionList (SetConstructorPExpr (loc x1)))
