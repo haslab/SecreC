@@ -94,7 +94,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant forall uint[[1]] is; in(is,set(F)) ==> IsItemSetOf(is,db);
+  //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
   //x //@ invariant forall uint j; j <= i ==> ((IsItemSetOf(F[j,:],db) && declassify(frequency({j},db)) >= threshold) <==> {j} in Fset(F));
   //x //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
   //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
@@ -108,8 +108,9 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       F_new = F;
       havoc uint[[2]] Fresh = reshape(i,1,1);
       F = cat (F, Fresh);
-      //@ assume set(Fresh) == set{{i}};
-      //@ assume set(F) == set(F_new) + set(Fresh);
+      //@ assert shape(F)[0] == shape(F_new)[0] + 1;
+      //@ assert Fresh == {i};
+      //@ assert F[shape(F_new)[0],:] == {i};
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }
