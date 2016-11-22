@@ -97,7 +97,9 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
+  //@ invariant forall uint[[1]] is; is in Fset(F) ==> IsItemSetOf(is,db);
+  //x //@ invariant forall uint j; j <= i ==> ((IsItemSetOf(F[j,:],db) && declassify(frequency({j},db)) >= threshold) <==> {j} in Fset(F));
+  //x //@ invariant Fset(F) == (set uint j; j <= i declassify(frequency({j},db)) >= threshold);
   //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
   //@ invariant shape(F_cache)[0] == shape(F)[0];
   //@ invariant shape(F_cache)[1] == shape(db)[0];
