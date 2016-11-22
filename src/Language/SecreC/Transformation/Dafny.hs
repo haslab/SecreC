@@ -1072,7 +1072,10 @@ expressionToDafny isLVal isQExpr annK le@(LitPExpr l lit) = do
     qExprToDafny isQExpr anns pe
 expressionToDafny isLVal isQExpr annK le@(LeakExpr l e) = do
     (anne,pe) <- expressionToDafny False Nothing annK e
-    qExprToDafny isQExpr anne (text "Leak" <> parens pe)
+    leakMode <- getLeakMode
+    if leakMode
+        then qExprToDafny isQExpr anne (text "Leak" <> parens pe)
+        else qExprToDafny isQExpr anne (text "true")
 expressionToDafny isLVal isQExpr annK (QualExpr l e _) = do
     expressionToDafny isLVal isQExpr annK e
 expressionToDafny isLVal isQExpr annK e@(MultisetConstructorPExpr l es) = do
