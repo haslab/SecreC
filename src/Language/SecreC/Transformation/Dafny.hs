@@ -588,7 +588,7 @@ genDafnyArrays :: DafnyK m => Position -> AnnKind -> Set VarIdentifier -> Doc ->
 genDafnyArrays l annK vs pv tv = do
     case tv of
         ComplexT (CType s b d) -> do
-            mbd <- lift $ tryTcError l d >>= fullyEvaluateIndexExpr l
+            mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
             case mbd of
                 Right n@((>1) -> True) -> do
                     inD <- getInDecl
