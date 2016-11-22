@@ -73,6 +73,16 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
+//@ function bool Frequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold)
+//@ {
+//@     forall uint i; i < shape(F)[0] ==> IsItemSetOf(F[j,:],db) && declassify(frequency(F[j,:],db)) >= threshold
+//@ }
+
+//@ lemma FrequentsCat(uint[[2]] xs, uint[[2]] ys, pd_a3p uint[[2]] db, uint threshold)
+//@ requires Frequents(xs,db,threshold);
+//@ requires Frequents(ys,db,threshold);
+//@ ensures Frequents(cat(xs,ys),db,threshold);
+
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
@@ -94,7 +104,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
+  //@ invariant Frequents(F,db,threshold);
   //x //@ invariant forall uint j; j <= i ==> ((IsItemSetOf(F[j,:],db) && declassify(frequency({j},db)) >= threshold) <==> {j} in Fset(F));
   //x //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
   //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
@@ -107,11 +117,9 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     if (declassify (frequence >= classify(threshold))) {
       F_new = F;
       havoc uint[[2]] Fresh = reshape(i,1,1);
+      //@ assert Frequents(Fresh,db,threshold);
+      //@ FrequentsCat(F,Fresh,db,threshold);
       F = cat (F, Fresh);
-      //@ assert shape(F)[0] == shape(F_new)[0] + 1;
-      //x //@ assert forall uint j; j < shape(Fresh)[0] ==> IsItemSetOf(F[j,:],db);
-      //@ assert Fresh[0,0] == i;
-      //@ assert F[shape(F_new)[0],0] == i;
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }
