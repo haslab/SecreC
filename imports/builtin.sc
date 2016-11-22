@@ -72,18 +72,18 @@ context<>
 
 // addition
 
-//@ template<domain D,type T>
-//@ function D set<T> operator + (D set<T> x, D set<T> y)
+//@ template<domain D,domain D1,type T1,dim N1>
+//@ function D set<T> operator + (D set<D1 T1[[N1]]> x, D set<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.union",x,y) :: D set<T>
+//@     __builtin("core.union",x,y) :: D set<D1 T1[[N1]]>
 //@ }
 
-//@ template<domain D,type T>
-//@ function D multiset<T> operator + (D multiset<T> x, D multiset<T> y)
+//@ template<domain D,domain D1,type T1,dim N1>
+//@ function D multiset<T> operator + (D multiset<D1 T1[[N1]]> x, D multiset<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.union",x,y) :: D multiset<T>
+//@     __builtin("core.union",x,y) :: D multiset<D1 T1[[N1]]>
 //@ }
 
 template<domain D, primitive type T>
