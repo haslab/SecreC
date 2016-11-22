@@ -48,11 +48,11 @@ pd_a3p uint [[2]] load_db () {
 
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
-//@ requires size(is) > 0;
-//@ { forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
+//@ { size(is) > 0 && forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
 
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
+
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
