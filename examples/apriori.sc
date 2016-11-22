@@ -54,6 +54,7 @@ pd_a3p uint [[2]] load_db () {
 //x //@ { (set uint x | 0 <= x && x < shape(db)[1]) }
 
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
+//@ noinline;
 //@ { forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
 
 //x //@ axiom <> (set<uint> xs, set<uint> ys)
