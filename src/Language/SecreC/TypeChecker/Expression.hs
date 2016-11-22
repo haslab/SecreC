@@ -47,7 +47,9 @@ tcBoolExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 tcBoolExpr e = limitExprC ReadOnlyExpr $ do
     let l = loc e
     e' <- tcExpr e
-    tcCstrM_ l $ TypeBase (typed $ loc e') (BaseT bool)
+    k <- newKindVar "k" Nothing False Nothing
+    s <- newDomainTyVar "s" k False Nothing
+    topTcCstrM_ l $ Unifies (typed $ loc e') (ComplexT $ CType s bool $ indexExpr 0)
     return e'
 
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
