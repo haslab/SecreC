@@ -43,6 +43,13 @@ import Text.PrettyPrint as PP
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcGuard e = limitExprC ReadOnlyExpr $ tcExprTy (BaseT bool) e
 
+tcBoolExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcBoolExpr e = limitExprC ReadOnlyExpr $ do
+    let l = loc e
+    e' <- tcExpr e
+    tcCstrM_ l $ TypeBase (typed $ loc e') bool
+    return e'
+
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcAnnGuard e = limitExprC ReadOnlyExpr $ insideAnnotation $ do
     e' <- tcExpr e
@@ -179,8 +186,8 @@ tcExpr (VArraySizeExpr l e) = do
 tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
     vs' <- mapM (tcQVar l) vs
-    e' <- tcGuard e
-    return $ QuantifiedExpr (Typed l $ BaseT bool) q' vs' e'
+    e' <- tcBoolExpr e
+    return $ QuantifiedExpr (Typed l $ typed $ loc e') q' vs' e'
 tcExpr le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
     e' <- limitExprC ReadOnlyExpr $ tcExpr e
     topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
@@ -239,7 +246,7 @@ tcExpr me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     return $ ToSetExpr (Typed l $ ComplexT set) e'
 tcExpr me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     (t',x') <- tcQVar l (t,x)
-    px' <- tcGuard px
+    px' <- tcBoolExpr px
     fx' <- mapM tcExpr fx
     let setb = maybe (typed $ loc t') (typed . loc) fx'
     ComplexT set <- newTyVar True False Nothing
