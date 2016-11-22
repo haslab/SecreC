@@ -315,7 +315,7 @@ scVariableDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (VariableDeclar
 scVariableDeclaration = do
     isConst <- scConst
     isHavoc <- scHavoc
-    scTypeSpecifier $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) isConst isHavoc x1 x2) <?> "variable declaration"
+    scTypeSpecifierCont $ \x1 -> apA scVariableInitializations (\x2 -> VariableDeclaration (loc x1) isConst isHavoc x1 x2) <?> "variable declaration"
 
 scProcedureParameter :: (Monad m,MonadCatch m) => ScParserT m (ProcedureParameter Identifier Position)
 scProcedureParameter =
@@ -339,15 +339,18 @@ scVariadicExpressionList1 = apA (sepBy1 scVariadicExpression (scChar ',')) fromL
 
 -- ** Types                                                                     
 
-scTypeSpecifier :: (Monad m,MonadCatch m) => (TypeSpecifier Identifier Position -> ScParserT m a) -> ScParserT m a
-scTypeSpecifier cont = (scMaybeCont scSecTypeSpecifier $ \x1 -> do
+scTypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (TypeSpecifier Identifier Position)
+scTypeSpecifier = scTypeSpecifierCont return
+
+scTypeSpecifierCont :: (Monad m,MonadCatch m) => (TypeSpecifier Identifier Position -> ScParserT m a) -> ScParserT m a
+scTypeSpecifierCont cont = (scMaybeCont scSecTypeSpecifier $ \x1 -> do
     x2 <- scDatatypeSpecifier
     x3 <- optionMaybe scDimtypeSpecifier
     let t = TypeSpecifier (maybe (loc x2) loc x1) x1 x2 x3
     cont t) <?> "type specifier"
 
 scVariadicTypeSpecifier :: (Monad m,MonadCatch m) => ((TypeSpecifier Identifier Position,IsVariadic) -> ScParserT m a) -> ScParserT m a
-scVariadicTypeSpecifier cont = scTypeSpecifier $ \t -> do
+scVariadicTypeSpecifier cont = scTypeSpecifierCont $ \t -> do
     scMaybeCont (scTok VARIADIC) $ \b -> cont (t,isJust b)
 
 scSecTypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (SecTypeSpecifier Identifier Position)
@@ -356,8 +359,8 @@ scSecTypeSpecifier = (apA (scTok PUBLIC) (\x1 -> PublicSpecifier (loc x1)) <?> "
 
 scDatatypeSpecifier :: (Monad m,MonadCatch m) => ScParserT m (DatatypeSpecifier Identifier Position)
 scDatatypeSpecifier = (apA scPrimitiveDatatype (\x1 -> PrimitiveSpecifier (loc x1) x1) <?> "primitive type specifier")
-                  <|> scAnn (apA2 (scTok MULTISET) (scABrackets scDatatypeSpecifier) (\x1 x2 -> MultisetSpecifier (loc x1) x2) <?> "multiset type specifier")
-                  <|> scAnn (apA2 (scTok SET) (scABrackets scDatatypeSpecifier) (\x1 x2 -> SetSpecifier (loc x1) x2) <?> "set type specifier")
+                  <|> scAnn (apA2 (scTok MULTISET) (scABrackets scTypeSpecifier) (\x1 x2 -> MultisetSpecifier (loc x1) x2) <?> "multiset type specifier")
+                  <|> scAnn (apA2 (scTok SET) (scABrackets scTypeSpecifier) (\x1 x2 -> SetSpecifier (loc x1) x2) <?> "set type specifier")
                   <||> (scTemplateStructDatatypeSpecifier <?> "template type specifier")
                   <||> (apA scTypeId (\x1 -> VariableSpecifier (loc x1) x1) <?> "named type specifier")
 
@@ -481,7 +484,7 @@ scCtxPArg = do
     (scVar x1 <* lookAhead (scOneOf ",)")) <||> (scType x1 <* lookAhead (scOneOf ",)")) <||> (scExpr x1 <* lookAhead (scOneOf ",)"))
   where
     scVar x1 = apA2 scTemplateArgId scVariadic (\x2 x3 -> CtxVarPArg (loc x2) x1 x2 x3)
-    scType x1 = scTypeSpecifier (\x2 -> apA scVariadic (\x3 -> CtxTypePArg (loc x2) x1 x2 x3))
+    scType x1 = scTypeSpecifierCont (\x2 -> apA scVariadic (\x3 -> CtxTypePArg (loc x2) x1 x2 x3))
     scExpr x1 = apA scVariadicExpression (\(x2,isVariadic) -> CtxExprPArg (loc x2) x1 x2 isVariadic)
 
 scTemplateQuantifiers :: (Monad m,MonadCatch m) => ScParserT m [TemplateQuantifier Identifier Position]
@@ -516,7 +519,7 @@ scAttributeList :: (Monad m,MonadCatch m) => ScParserT m [Attribute Identifier P
 scAttributeList = many scAttribute <?> "attribute list"
 
 scAttribute :: (Monad m,MonadCatch m) => ScParserT m (Attribute Identifier Position)
-scAttribute = scTypeSpecifier $ \x1 -> apA3 scAttributeId (optionMaybe scSizes) (scChar ';') (\x2 x3 x4 -> Attribute (loc x1) x1 x2 x3) <?> "attribute"
+scAttribute = scTypeSpecifierCont $ \x1 -> apA3 scAttributeId (optionMaybe scSizes) (scChar ';') (\x2 x3 x4 -> Attribute (loc x1) x1 x2 x3) <?> "attribute"
 
 -- ** Procedures                                
 
@@ -525,7 +528,7 @@ scReturnTypeSpecifier cont = ((apA (scTok VOID) (\x1 -> ReturnType (loc x1) Noth
                          <|> scTySize <|> cont (ReturnType noloc Nothing))
                           <?> "return type specifier"
     where
-    scTySize = scTypeSpecifier $ \x1 -> do
+    scTySize = scTypeSpecifierCont $ \x1 -> do
         cont $ ReturnType (loc x1) (Just x1)
 
 scProcedureDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureDeclaration Identifier Position)
@@ -553,7 +556,7 @@ scFunctionDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (FunctionDeclar
 scFunctionDeclaration = do
     isLeak <- scLeak
     x0 <- scTok FUNCTION
-    scTypeSpecifier $ \x1 -> do
+    scTypeSpecifierCont $ \x1 -> do
         (o1 isLeak x0 x1 <|> o2 isLeak x0 x1) <?> "function definition"
   where
     o1 isLeak x0 x1 = apA6 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundExpression (\x2 x3 xc x4 x5 x6 -> OperatorFunDeclaration (loc x0) isLeak x1 x3 xc x4 x5 (unLoc x6))
@@ -727,7 +730,7 @@ scQualifiedExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Ident
 scQualifiedExpression = scFoldl
     (\qe (t) -> return $ QualExpr (loc qe) qe t)
     scConditionalExpression
-    (scTok TYPE_QUAL *> scTypeSpecifier return) <?> "qualified expression"
+    (scTok TYPE_QUAL *> scTypeSpecifier) <?> "qualified expression"
 
 scConditionalExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scConditionalExpression = (do
@@ -895,9 +898,9 @@ scSetExpr = scAnn $ do
     x1 <- scTok SET
     o1 x1 <|> o2 x1 <|> o3 x1
   where
-    o1 x1 = scTypeSpecifier $ \t -> do
+    o1 x1 = scTypeSpecifierCont $ \t -> do
         x <- scVarId
-        scChar '|'
+        scChar ';'
         px <- scExpression
         fx <- optionMaybe (scChar ';' *> scExpression)
         return $ SetComprehensionExpr (loc x1) t x px fx
@@ -907,7 +910,7 @@ scSetExpr = scAnn $ do
 scQuantifiedExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scQuantifiedExpr = scAnn $ apA4 scQuantifier (sepBy1 scQVar (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)
     where
-    scQVar = scTypeSpecifier $ \x -> do
+    scQVar = scTypeSpecifierCont $ \x -> do
         y <- scVarId
         return (x,y)
     

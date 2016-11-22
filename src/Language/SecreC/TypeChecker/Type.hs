@@ -227,14 +227,14 @@ tcDatatypeSpec (VariableSpecifier l tn) = do
     tn' <- tcTypeName tn
     return $ VariableSpecifier (Typed l $ typed $ loc tn') tn'
 tcDatatypeSpec (MultisetSpecifier l b) = do
-    b' <- tcDatatypeSpec b
+    b' <- tcTypeSpec b False False
     let t = typed $ loc b'
-    tb <- typeToBaseType l t
+    tb <- typeToComplexType l t
     return $ MultisetSpecifier (Typed l $ BaseT $ MSet tb) b'
 tcDatatypeSpec (SetSpecifier l b) = do
-    b' <- tcDatatypeSpec b
+    b' <- tcTypeSpec b False False
     let t = typed $ loc b'
-    tb <- typeToBaseType l t
+    tb <- typeToComplexType l t
     return $ SetSpecifier (Typed l $ BaseT $ Set tb) b'
 
 tcPrimitiveDatatype :: (MonadIO m,Location loc) => PrimitiveDatatype loc -> TcM m (PrimitiveDatatype (Typed loc))
@@ -560,7 +560,7 @@ typeSize l t = do
     ppt <- pp t
     tcError (locpos l) $ Halt $ GenTcError (text "No static size for type" <+> quotes (ppt)) Nothing
 
-toMultisetType :: ProverK loc m => loc -> Type -> TcM m ComplexType
+toMultisetType :: ProverK loc m => loc -> Type -> TcM m BaseType
 toMultisetType l (BaseT bt) = toMultisetType l $ ComplexT $ defCType bt
 toMultisetType l (ComplexT ct) = readable1 toMultisetType' l ct
   where
@@ -569,9 +569,9 @@ toMultisetType l (ComplexT ct) = readable1 toMultisetType' l ct
     toMultisetType' t@(CVar v isNotVoid) = do
         ppt <- pp t
         throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
-    toMultisetType' (CType s b d) = do
+    toMultisetType' ct@(CType s b d) = do
         tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
-        return $ CType s (MSet b) (indexExpr 0)
+        return (MSet ct)
     toMultisetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
@@ -579,7 +579,7 @@ toMultisetType l t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
 
-toSetType :: ProverK loc m => loc -> Bool -> Type -> TcM m ComplexType
+toSetType :: ProverK loc m => loc -> Bool -> Type -> TcM m BaseType
 toSetType l isBase (BaseT bt) = toSetType l isBase $ ComplexT $ defCType bt
 toSetType l isBase (ComplexT ct) = readable1 toSetType' l ct
   where
@@ -588,12 +588,21 @@ toSetType l isBase (ComplexT ct) = readable1 toSetType' l ct
     toSetType' t@(CVar v isNotVoid) = do
         ppt <- pp t
         throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to set" <+> ppt) Nothing
-    toSetType' (CType s b d) | isBase = do
-        tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 0)
-        return $ CType s (Set b) (indexExpr 0)
-    toSetType' (CType s b d) | not isBase = do
-        tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
-        return $ CType s (Set b) (indexExpr 0)
+    toSetType' ct@(CType s b d) | isBase = do
+        return (Set ct) 
+    toSetType' ct@(CType s b d) | not isBase = do
+        --tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
+        dim <- tryTcError l $ fullyEvaluateIndexExpr l d
+        case dim of
+            Right 0 -> do
+                ppct <- pp ct
+                genTcError (locpos l) False $ text "cannot convert type with dimension 0" <+> ppct <+> text "to set"
+            Right n -> do
+                let ct' = CType s b (indexExpr $ pred n)
+                return (Set ct')
+            Left err -> do
+                ppct <- pp ct
+                genTcError (locpos l) False $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to set"
     toSetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to set"

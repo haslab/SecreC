@@ -445,8 +445,8 @@ instance PP m iden => PP m (SecTypeSpecifier iden loc) where
 data DatatypeSpecifier iden loc
     = PrimitiveSpecifier loc (PrimitiveDatatype loc)
     | TemplateSpecifier loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
-    | MultisetSpecifier loc (DatatypeSpecifier iden loc)
-    | SetSpecifier loc (DatatypeSpecifier iden loc)
+    | MultisetSpecifier loc (TypeSpecifier iden loc)
+    | SetSpecifier loc (TypeSpecifier iden loc)
     | VariableSpecifier loc (TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
@@ -1527,8 +1527,8 @@ instance PP m iden => PP m (Expression iden loc) where
         ppt <- pp t
         ppx <- pp x
         ppp <- pp p
-        ppf <- ppOpt f (liftM (\x -> text "::" <+> x) . pp)
-        return $ parens $ text "set" <+> ppt <+> ppx <+> char '|' <+> ppp <+> ppf
+        ppf <- ppOpt f (liftM (\x -> text ";" <+> x) . pp)
+        return $ parens $ text "set" <+> ppt <+> ppx <+> char ';' <+> ppp <+> ppf
     pp (ToVArrayExpr l e i) = do
         ppe <- pp e
         ppi <- pp i

@@ -801,8 +801,8 @@ data TcCstr
     | TypeBase Type Type
     | IsPublic Bool Type
     | IsPrivate Bool Type
-    | ToMultiset Type ComplexType
-    | ToSet (Either Type Type) ComplexType -- left=base type, right=collection type
+    | ToMultiset Type BaseType
+    | ToSet (Either Type Type) BaseType -- left=base type, right=collection type
     | Resolve Type
     | Default (Maybe [(Expr,IsVariadic)]) Expr
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
@@ -1856,8 +1856,8 @@ instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m,Vars GIdentifier m
 data BaseType
     = TyPrim Prim
     | TApp SIdentifier [(Type,IsVariadic)] DecType -- template type application
-    | MSet BaseType -- multiset type
-    | Set BaseType -- set type
+    | MSet ComplexType -- multiset type
+    | Set ComplexType -- set type
     | BVar VarIdentifier (Maybe DataClass)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 

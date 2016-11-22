@@ -314,10 +314,10 @@ simplifyDatatypeSpecifier isExpr (TemplateSpecifier l n args) = do
     (ss,args') <- simplifyList (simplifyVariadic (simplifyTemplateTypeArgument isExpr)) args
     return (ss,TemplateSpecifier l n args')
 simplifyDatatypeSpecifier isExpr (MultisetSpecifier l b) = do
-    (ss,b') <- simplifyDatatypeSpecifier isExpr b
+    (ss,b') <- simplifyTypeSpecifier isExpr b
     return (ss,MultisetSpecifier l b')
 simplifyDatatypeSpecifier isExpr (SetSpecifier l b) = do
-    (ss,b') <- simplifyDatatypeSpecifier isExpr b
+    (ss,b') <- simplifyTypeSpecifier isExpr b
     return (ss,SetSpecifier l b')
 
 simplifyTemplateTypeArgument :: Bool -> SimplifyT loc m TemplateTypeArgument

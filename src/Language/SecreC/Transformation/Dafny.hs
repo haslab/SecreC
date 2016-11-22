@@ -895,10 +895,10 @@ baseTypeToDafny :: DafnyK m => Position -> AnnKind -> BaseType -> DafnyM m (Doc,
 baseTypeToDafny l annK (BVar v _) = liftM (,[]) $ dafnyGIdM $ VIden v
 baseTypeToDafny l annK (TyPrim prim) = liftM (,[]) $ lift $ pp prim
 baseTypeToDafny l annK (MSet b) = do
-    (b',anns) <- baseTypeToDafny l annK b
+    (b',anns) <- complexTypeToDafny l annK b
     return (text "multiset" <> abrackets b',anns)
 baseTypeToDafny l annK (Set b) = do
-    (b',anns) <- baseTypeToDafny l annK b
+    (b',anns) <- complexTypeToDafny l annK b
     return (text "set" <> abrackets b',anns)
 baseTypeToDafny l annK (TApp _ args dec@(decTypeTyVarId -> Just mid)) = do
     did <- loadDafnyDec' l dec
@@ -1113,15 +1113,32 @@ expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
     qExprToDafny isQExpr (anne++annp) pme
 expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
+    let ll = unTyped l
     vs <- lift $ usedVs' me
-    bt <- lift $ typeBase (unTyped l) $ typed $ loc e
-    (pbt,annbt) <- typeToDafny (unTyped l) annK bt
-    (anne,pe) <- expressionToDafny False Nothing annK e
-    x <- lift $ genVar (VIden $ mkVarId "xset" :: GIdentifier)
-    px <- varToDafny $ VarName (Typed (unTyped l) bt) x
-    let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
-    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
-    qExprToDafny isQExpr (annbt++anne++annp) pme
+    let te = typed $ loc e
+    case te of
+        ComplexT (CType s b d) -> do
+            mbd <- lift $ tryTcError l $ typeDim l te >>= fullyEvaluateIndexExpr l
+            case mbd of
+                Right 1 -> do
+                    let bt = ComplexT $ CType s b $ indexExpr 0
+                    (pbt,annbt) <- typeToDafny (unTyped l) annK bt
+                    (anne,pe) <- expressionToDafny False Nothing annK e
+                    x <- lift $ genVar (VIden $ mkVarId "xset" :: GIdentifier)
+                    px <- varToDafny $ VarName (Typed ll bt) x
+                    let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
+                    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
+                    qExprToDafny isQExpr (annbt++anne++annp) pme
+                Right n -> do
+                    (anne,pe) <- expressionToDafny False Nothing annK e
+                    x <- lift $ genVar (VIden $ mkVarId "i" :: GIdentifier)
+                    px <- varToDafny $ VarName (Typed (unTyped l) $ BaseT uint64) x
+                    let pme = parens (text "set" <+> px <> char ':' <> text "uint64" <+> char '|' <+> px <+> text "<" <+> parens (dafnyShape n pe <> brackets (int 0)) <+> text "::" <+> pe <> brackets (sepBy comma $ px : replicate (fromEnum $ pred n) (text ":")))
+                    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
+                    qExprToDafny isQExpr (anne++annp) pme
+                otherwise -> do
+                    ppme <- lift $ pp me
+                    genError ll $ text "expressionToDafny: unsupported set expression" <+> ppme
 expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = do
     es' <- lift $ concatMapM unfoldVariadicExpr es
     builtinToDafny isLVal isQExpr annK l n es'

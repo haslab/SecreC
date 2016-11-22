@@ -238,22 +238,22 @@ tcExpr (BuiltinExpr l n args) = do
     return $ BuiltinExpr (Typed l ret) n args'
 tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     e' <- tcExpr e
-    ComplexT mset <- newTyVar True False Nothing
+    mset <- newBaseTyVar Nothing False Nothing
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
-    return $ ToMultisetExpr (Typed l $ ComplexT mset) e'
+    return $ ToMultisetExpr (Typed l $ BaseT mset) e'
 tcExpr me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     e' <- tcExpr e
-    ComplexT set <- newTyVar True False Nothing
+    set <- newBaseTyVar Nothing False Nothing
     topTcCstrM_ l $ ToSet (Right $ typed $ loc e') set
-    return $ ToSetExpr (Typed l $ ComplexT set) e'
+    return $ ToSetExpr (Typed l $ BaseT set) e'
 tcExpr me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     (t',x') <- tcQVar l (t,x)
     px' <- tcBoolExpr px
     fx' <- mapM tcExpr fx
     let setb = maybe (typed $ loc t') (typed . loc) fx'
-    ComplexT set <- newTyVar True False Nothing
+    set <- newBaseTyVar Nothing False Nothing
     topTcCstrM_ l $ ToSet (Left setb) set
-    return $ SetComprehensionExpr (Typed l $ ComplexT set) t' x' px' fx'
+    return $ SetComprehensionExpr (Typed l $ BaseT set) t' x' px' fx'
 tcExpr me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
     e' <- tcExpr e
     i' <- tcIndexExpr False i
@@ -373,24 +373,18 @@ tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> Tc
 tcMultisetLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" Nothing False Nothing
-    s <- newDomainTyVar "s" k False Nothing
-    b <- newBaseTyVar Nothing False Nothing
-    let t = ComplexT $ CType s (MSet b) (indexExpr 0)
-    let bt = ComplexT $ CType s b (indexExpr 0)
-    xs <- tcCoercesN l True es'' bt
+    ct@(ComplexT bt) <- newTyVar False False Nothing
+    let t = BaseT (MSet bt)
+    xs <- tcCoercesN l True es'' ct
     return $ MultisetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
 tcSetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
 tcSetLiteral l es = do
     es' <- mapM tcExpr es
     let es'' = fmap (fmap typed) es'
-    k <- newKindVar "k" Nothing False Nothing
-    s <- newDomainTyVar "s" k False Nothing
-    b <- newBaseTyVar Nothing False Nothing
-    let t = ComplexT $ CType s (Set b) (indexExpr 0)
-    let bt = ComplexT $ CType s b (indexExpr 0)
-    xs <- tcCoercesN l True es'' bt
+    ct@(ComplexT bt) <- newTyVar False False Nothing
+    let t = BaseT $ Set bt
+    xs <- tcCoercesN l True es'' ct
     return $ SetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
 tcVarName :: (ProverK loc m) => Bool -> VarName Identifier loc -> TcM m (VarName GIdentifier (Typed loc))

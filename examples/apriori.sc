@@ -62,12 +62,16 @@ pd_a3p uint [[2]] load_db () {
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
+//xxxx //@ lemma TransactionSet (uint[[1]] xs, uint[[2]] ys, pd_a3p uint[[2]] db)
+//xxxx //@ requires IsItemSetOf(xs,db);
+//xxxx //@ requires IsItemSetOf(ys,db);
+//xxxx //@ requires set(xs) == set(ys);
+//xxxx //@ ensures transactions(xs,db) == transactions(ys,db);
+//xxxx //@ ensures frequency(xs,db) == frequency(ys,db);
+
 //@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
-
-//@ function set<uint[[1]]> Fset (uint[[2]] F)
-//@ { set uint i; i < shape(F)[0]; F[i,:] }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
@@ -90,9 +94,9 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant forall uint[[1]] is; in(is,Fset(F)) ==> IsItemSetOf(is,db);
+  //@ invariant forall uint[[1]] is; in(is,set(F)) ==> IsItemSetOf(is,db);
   //x //@ invariant forall uint j; j <= i ==> ((IsItemSetOf(F[j,:],db) && declassify(frequency({j},db)) >= threshold) <==> {j} in Fset(F));
-  //x //@ invariant Fset(F) == (set uint j; j <= i declassify(frequency({j},db)) >= threshold);
+  //x //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
   //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
   //@ invariant shape(F_cache)[0] == shape(F)[0];
   //@ invariant shape(F_cache)[1] == shape(db)[0];
@@ -103,7 +107,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     if (declassify (frequence >= classify(threshold))) {
       F_new = F;
       F = cat (F, reshape(i, 1, 1));
-      //@ assert Fset(F) == Fset(F_new) + {i};
+      //@ assert set(F) == set(F_new) + set{{i}};
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }

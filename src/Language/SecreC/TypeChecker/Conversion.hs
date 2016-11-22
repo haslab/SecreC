@@ -234,10 +234,10 @@ baseType2DatatypeSpecifier l b@(BVar v c) = do
     let tl = Typed l $ BaseT b
     return $ VariableSpecifier tl (TypeName tl (VIden v))
 baseType2DatatypeSpecifier l t@(MSet b) = do
-    b' <- baseType2DatatypeSpecifier l b
+    b' <- type2TypeSpecifierNonVoid l $ ComplexT b
     return $ MultisetSpecifier (Typed l $ BaseT t) b'
 baseType2DatatypeSpecifier l t@(Set b) = do
-    b' <- baseType2DatatypeSpecifier l b
+    b' <- type2TypeSpecifierNonVoid l $ ComplexT b
     return $ SetSpecifier (Typed l $ BaseT t) b'
 --baseType2DatatypeSpecifier l t = genError (locpos l) $ text "baseType2DatatypeSpecifier:" <+> pp t
 
