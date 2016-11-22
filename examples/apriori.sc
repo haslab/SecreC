@@ -62,12 +62,12 @@ pd_a3p uint [[2]] load_db () {
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
-//X //@ lemma TransactionSet (uint[[1]] xs, uint[[2]] ys, pd_a3p uint[[2]] db)
-//X //@ requires IsItemSetOf(xs,db);
-//X //@ requires IsItemSetOf(ys,db);
-//X //@ requires set(xs) == set(ys);
-//X //@ ensures transactions(xs,db) == transactions(ys,db);
-//X //@ ensures frequency(xs,db) == frequency(ys,db);
+//xxxx //@ lemma TransactionSet (uint[[1]] xs, uint[[2]] ys, pd_a3p uint[[2]] db)
+//xxxx //@ requires IsItemSetOf(xs,db);
+//xxxx //@ requires IsItemSetOf(ys,db);
+//xxxx //@ requires set(xs) == set(ys);
+//xxxx //@ ensures transactions(xs,db) == transactions(ys,db);
+//xxxx //@ ensures frequency(xs,db) == frequency(ys,db);
 
 //@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
