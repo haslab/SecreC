@@ -206,15 +206,15 @@ context<>
 //@     __builtin("core.subset",x,y) :: D bool
 //@ }
 
-//@ template<domain D,type T>
-//@ function D bool in (D T x, D set<T> y)
+//@ template<domain D,domain D1,type T1, dim N1>
+//@ function D bool in (D1 T1[[N1]] x, D set<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
 //@     __builtin("core.in",x,y) :: D bool
 //@ }
 
-//@ template<domain D,type T>
-//@ function D bool in (D T x, D multiset<T> y)
+//@ template<domain D,domain D1,type T1, dim N1>
+//@ function D bool in (D1 T1[[N1]] x, multiset<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
 //@     __builtin("core.in",x,y) :: D bool
