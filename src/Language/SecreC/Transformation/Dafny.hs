@@ -588,7 +588,7 @@ genDafnyArrays :: DafnyK m => Position -> AnnKind -> Set VarIdentifier -> Doc ->
 genDafnyArrays l annK vs pv tv = do
     case tv of
         ComplexT (CType s b d) -> do
-            mbd <- lift $ tryTcError l $ typeDim l tv >>= fullyEvaluateIndexExpr l
+            mbd <- lift $ tryTcError l d >>= fullyEvaluateIndexExpr l
             case mbd of
                 Right n@((>1) -> True) -> do
                     inD <- getInDecl
@@ -603,6 +603,7 @@ genDafnyArrays l annK vs pv tv = do
                     let notnull = [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")]
                     return $ readarr++notnull
                 otherwise -> return []
+        otherwise -> return []
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyPublics l True annK vs pv tv = return []
