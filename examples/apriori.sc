@@ -104,7 +104,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant forall uint j; classify((j < shape(F)[0])::bool) ==> IsItemSetOf(F[j,:],db);
+  //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
   //@ invariant shape(F_cache)[0] == shape(F)[0];
   //@ invariant shape(F_cache)[1] == shape(db)[0];
   //x //@ invariant forall uint j; classify((j < shape(F_cache)[0])::bool) ==> F_cache[j,:] == transactions(F[j,:],db);
