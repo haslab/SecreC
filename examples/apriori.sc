@@ -106,8 +106,10 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
       F_new = F;
-      F = cat (F, reshape(i, 1, 1));
-      //@ assume set(F) == set(F_new) + set{{i}};
+      uint[[2]] Fresh = reshape(i,1,1);
+      F = cat (F, Fresh);
+      //@ assume set(Fresh) = set{{i}};
+      //@ assume set(F) == set(F_new) + set(Fresh);
       F_cache = cat (F_cache, reshape (z, 1, dbRows));
     }
   }
