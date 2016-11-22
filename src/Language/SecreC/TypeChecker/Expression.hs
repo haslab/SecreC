@@ -47,7 +47,7 @@ tcBoolExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 tcBoolExpr e = limitExprC ReadOnlyExpr $ do
     let l = loc e
     e' <- tcExpr e
-    tcCstrM_ l $ TypeBase (typed $ loc e') bool
+    tcCstrM_ l $ TypeBase (typed $ loc e') (BaseT bool)
     return e'
 
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
