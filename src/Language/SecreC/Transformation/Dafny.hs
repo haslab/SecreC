@@ -1131,15 +1131,22 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
                     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
                     qExprToDafny isQExpr (annbt++anne++annp) pme
                 Right n -> do
+                    x <- lift $ genVar (VIden $ mkVarId "iset" :: GIdentifier)
+                    let vx = VarName (Typed (unTyped l) $ BaseT uint64) x
+                    px <- varToDafny vx
                     (anne,pe) <- expressionToDafny False Nothing annK e
-                    x <- lift $ genVar (VIden $ mkVarId "i" :: GIdentifier)
-                    px <- varToDafny $ VarName (Typed (unTyped l) $ BaseT uint64) x
-                    let pme = parens (text "set" <+> px <> char ':' <> text "uint64" <+> char '|' <+> px <+> text "<" <+> parens (dafnyShape n pe <> brackets (int 0)) <+> text "::" <+> pe <> brackets (sepBy comma $ px : replicate (fromEnum $ pred n) (text ":")))
+                    let idxs = fromListNe [IndexInt l (varExpr vx),IndexSlice l Nothing Nothing]
+                    (annproj,proje) <- projectionToDafny isLVal isQExpr annK $ PostIndexExpr l e idxs
+                    let pme = parens (text "set" <+> px <> char ':' <> text "uint64" <+> char '|' <+> px <+> text "<" <+> parens (dafnyShape n pe <> brackets (int 0)) <+> text "::" <+> proje)
                     annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
-                    qExprToDafny isQExpr (anne++annp) pme
+                    qExprToDafny isQExpr (annproj++anne++annp) pme
                 otherwise -> do
                     ppme <- lift $ pp me
                     genError ll $ text "expressionToDafny: unsupported set expression" <+> ppme
+
+--projectionToDafny :: DafnyK m => Bool -> IsQExpr -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+--projectionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> is))
+                    
 expressionToDafny isLVal isQExpr annK be@(BuiltinExpr l n es) = do
     es' <- lift $ concatMapM unfoldVariadicExpr es
     builtinToDafny isLVal isQExpr annK l n es'
