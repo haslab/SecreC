@@ -89,7 +89,7 @@ pd_a3p uint [[2]] load_db () {
 //@ function bool AllFrequents(uint[[2]] F,uint i)
 //@ noinline;
 //@ {
-//@     forall uint j; (j <= i && declassify(frequency({j},db)) >= threshold) ==> {j} in set(F);
+//@     forall uint j; (j <= i && declassify(frequency({j},db)) >= threshold) ==> in({j},set(F))
 //@ }
 
 // database rows = transaction no, database column = item no
@@ -133,9 +133,8 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       Fresh_cache = reshape (z, 1, dbRows);
       F_cache = cat (Fold_cache, Fresh_cache);
       //@ assert forall uint x; x < shape(Fold_cache)[0] ==> declassify(F_cache[x,:] == Fold_cache[x,:]);
-      //@ assert F_cache[shape(Fold_cache)[0],:] == Fresh_cache[0,:];
-      
-      //@ assert {i} in set(F);
+      //@ assert F_cache[shape(Fold_cache)[0],:] == Fresh_cache[0,:];      
+      //@ assert in({i},set(F));
     }
   }
   
