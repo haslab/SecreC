@@ -116,6 +116,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 
   // compute the itemsets of size 1
   for (uint i = 0; i < dbColumns; i=i+1)
+  //@ invariant i <= dbColumns;
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
   //@ invariant FrequentsCache(F,F_cache,db,threshold);
@@ -126,7 +127,6 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     if (declassify (frequence >= classify(threshold))) {
       Fold = F;
       Fresh = reshape(i,1,1);
-      //x //@ assert Frequents(Fresh,db,threshold);
       F = cat (Fold, Fresh);
       //@ assert forall uint x; x < shape(Fold)[0] ==> F[x,:] == Fold[x,:];
       //@ assert F[shape(Fold)[0],:] == Fresh[0,:];
