@@ -77,15 +77,15 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ {
 //@     forall uint i; i < shape(F)[0]
-//@            ==> IsItemSetOf(F[i,:],db)
+//@            ==> (IsItemSetOf(F[i,:],db)
 //@            &&  declassify(frequency(F[i,:],db)) >= threshold
-//@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db))
+//@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db)))
 //@ }
 
-//@ lemma FrequentsCat(uint[[2]] xs, uint[[2]] ys, pd_a3p uint[[2]] db, uint threshold)
-//@ requires Frequents(xs,db,threshold);
-//@ requires Frequents(ys,db,threshold);
-//@ ensures Frequents(cat(xs,ys),db,threshold);
+//x //@ lemma FrequentsCat(uint[[2]] xs, uint[[2]] ys, pd_a3p uint[[2]] db, uint threshold)
+//x //@ requires Frequents(xs,db,threshold);
+//x //@ requires Frequents(ys,db,threshold);
+//x //@ ensures Frequents(cat(xs,ys),db,threshold);
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
