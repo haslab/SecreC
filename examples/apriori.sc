@@ -113,13 +113,13 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant Frequents(F,F_cache,db,threshold);
   //x //@ invariant forall uint j; j <= i ==> ((IsItemSetOf(F[j,:],db) && declassify(frequency({j},db)) >= threshold) <==> {j} in Fset(F));
   //x //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
   //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
   //@ invariant shape(F_cache)[0] == shape(F)[0];
   //@ invariant shape(F_cache)[1] == shape(db)[0];
   //x //@ invariant forall uint j; classify((j < shape(F_cache)[0])::bool) ==> F_cache[j,:] == transactions(F[j,:],db);
+  //@ invariant Frequents(F,F_cache,db,threshold);
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
@@ -135,8 +135,6 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       F_cache = cat (Fold_cache, Fresh_cache);
       //@ assert forall uint x; x < shape(Fold_cache)[0] ==> declassify(F_cache[x,:] == Fold_cache[x,:]);
       //@ assert F_cache[shape(Fold_cache)[0],:] == Fresh_cache[0,:];
-      
-      //@ assert shape(F)[0] == shape(F_cache)[0];
     }
   }
   
