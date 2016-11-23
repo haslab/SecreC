@@ -78,7 +78,7 @@ pd_a3p uint [[2]] load_db () {
 //@ {
 //@     shape(F)[0] == shape(Fcache)[0]
 //@     &&
-//@     shape(Fcache)[1] == shape(db)[0];
+//@     shape(Fcache)[1] == shape(db)[0]
 //@     &&
 //@     forall uint i; i < shape(F)[0]
 //@            ==> IsItemSetOf(F[i,:],db)
