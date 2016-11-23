@@ -73,10 +73,13 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool Frequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold)
+//@ function bool Frequents(uint[[2]] F, pd_a3p uint[[2]] Fcache, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ {
-//@     forall uint i; i < shape(F)[0] ==> IsItemSetOf(F[i,:],db) && declassify(frequency(F[i,:],db)) >= threshold
+//@     forall uint i; i < shape(F)[0]
+//@            ==> IsItemSetOf(F[i,:],db)
+//@            &&  declassify(frequency(F[i,:],db)) >= threshold
+//@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db))
 //@ }
 
 //@ lemma FrequentsCat(uint[[2]] xs, uint[[2]] ys, pd_a3p uint[[2]] db, uint threshold)
@@ -93,7 +96,11 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   uint dbRows = shape(db)[0]; // number of transactions
 
   uint [[2]] F (0, 1); // frequent itemsets
+  havoc uint[[2]] Fold;
+  havoc uint[[2]] Fresh;
   pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
+  havoc pd_a3p uint[[2]] Fold_cache;
+  havoc pd_a3p uint[[2]] Fresh_cache;
 
   uint [[2]] F_new; // new frequent itemsets based on existing ones in F
   pd_a3p uint [[2]] F_newcache (0, dbRows); // cached column data for newly generated frequent itemsets
@@ -116,13 +123,17 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
     if (declassify (frequence >= classify(threshold))) {
-      F_new = F;
-      havoc uint[[2]] Fresh = reshape(i,1,1);
+      Fold = F;
+      Fresh = reshape(i,1,1);
       //x //@ assert Frequents(Fresh,db,threshold);
-      F = cat (F, Fresh);
-      //@ assert forall uint x; x < shape(F_new)[0] ==> F[x,:] == F_new[x,:];
-      //@ assert F[shape(F_new)[0],:] == Fresh[0,:];
-      F_cache = cat (F_cache, reshape (z, 1, dbRows));
+      F = cat (Fold, Fresh);
+      //@ assert forall uint x; x < shape(Fold)[0] ==> F[x,:] == Fold[x,:];
+      //@ assert F[shape(Fold)[0],:] == Fresh[0,:];
+      Fold_cache = F_cache;
+      Fresh_cache = reshape (z, 1, dbRows);
+      F_cache = cat (Fold_cache, Fresh_cache);
+      //@ assert forall uint x; x < shape(Fold_cache)[0] ==> F_cache[x,:] == Fold_cache[x,:];
+      //@ assert F_cache[shape(Fold_cache)[0],:] == Fresh_cache[0,:];
     }
   }
   
