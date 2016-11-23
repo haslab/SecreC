@@ -132,7 +132,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       Fold_cache = F_cache;
       Fresh_cache = reshape (z, 1, dbRows);
       F_cache = cat (Fold_cache, Fresh_cache);
-      //@ assert forall uint x; classify(x < shape(Fold_cache)[0]) ==> F_cache[x,:] == Fold_cache[x,:];
+      //@ assert forall uint x; x < shape(Fold_cache)[0] ==> declassify(F_cache[x,:] == Fold_cache[x,:]);
       //@ assert F_cache[shape(Fold_cache)[0],:] == Fresh_cache[0,:];
     }
   }
