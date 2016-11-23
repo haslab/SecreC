@@ -69,11 +69,11 @@ pd_a3p uint [[2]] load_db () {
 //xxxx //@ ensures transactions(xs,db) == transactions(ys,db);
 //xxxx //@ ensures frequency(xs,db) == frequency(ys,db);
 
-//@ leakage function bool lfrequents (pd_a3p uint[[2]] db, uint threshold)
+//@ leakage function bool LeakFrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool Frequents(uint[[2]] F, pd_a3p uint[[2]] Fcache, pd_a3p uint[[2]] db, uint threshold)
+//@ function bool FrequentsCache(uint[[2]] F, pd_a3p uint[[2]] Fcache, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ {
 //@     shape(F)[0] == shape(Fcache)[0]
@@ -86,15 +86,16 @@ pd_a3p uint [[2]] load_db () {
 //@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db))
 //@ }
 
-//x //@ lemma FrequentsCat(uint[[2]] xs, uint[[2]] ys, pd_a3p uint[[2]] db, uint threshold)
-//x //@ requires Frequents(xs,db,threshold);
-//x //@ requires Frequents(ys,db,threshold);
-//x //@ ensures Frequents(cat(xs,ys),db,threshold);
+//@ function bool AllFrequents(uint[[2]] F,uint i)
+//@ noinline;
+//@ {
+//@     forall uint j; (j <= i && declassify(frequency({j},db)) >= threshold) ==> {j} in set(F);
+//@ }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
-//@ leakage requires lfrequents(db,threshold);
+//@ leakage requires LeakFrequents(db,threshold);
 {
   uint dbColumns = shape(db)[1]; // number of items
   uint dbRows = shape(db)[0]; // number of transactions
@@ -116,7 +117,8 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //@ invariant Frequents(F,F_cache,db,threshold);
+  //@ invariant FrequentsCache(F,F_cache,db,threshold);
+  //@ invariant AllFrequents(F,i);
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
@@ -132,6 +134,8 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       F_cache = cat (Fold_cache, Fresh_cache);
       //@ assert forall uint x; x < shape(Fold_cache)[0] ==> declassify(F_cache[x,:] == Fold_cache[x,:]);
       //@ assert F_cache[shape(Fold_cache)[0],:] == Fresh_cache[0,:];
+      
+      //@ assert {i} in set(F);
     }
   }
   
