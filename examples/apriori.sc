@@ -75,11 +75,12 @@ pd_a3p uint [[2]] load_db () {
 
 //@ function bool Frequents(uint[[2]] F, pd_a3p uint[[2]] Fcache, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
+//@ requires shape(F)[0] == shape(Fcache)[0];
 //@ {
 //@     forall uint i; i < shape(F)[0]
-//@            ==> (IsItemSetOf(F[i,:],db)
+//@            ==> IsItemSetOf(F[i,:],db)
 //@            &&  declassify(frequency(F[i,:],db)) >= threshold
-//@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db)))
+//@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db))
 //@ }
 
 //x //@ lemma FrequentsCat(uint[[2]] xs, uint[[2]] ys, pd_a3p uint[[2]] db, uint threshold)
