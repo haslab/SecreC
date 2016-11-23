@@ -75,8 +75,11 @@ pd_a3p uint [[2]] load_db () {
 
 //@ function bool Frequents(uint[[2]] F, pd_a3p uint[[2]] Fcache, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
-//@ requires shape(F)[0] == shape(Fcache)[0];
 //@ {
+//@     shape(F)[0] == shape(Fcache)[0]
+//@     &&
+//@     shape(Fcache)[1] == shape(db)[0];
+//@     &&
 //@     forall uint i; i < shape(F)[0]
 //@            ==> IsItemSetOf(F[i,:],db)
 //@            &&  declassify(frequency(F[i,:],db)) >= threshold
@@ -113,12 +116,6 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
-  //x //@ invariant forall uint j; j <= i ==> ((IsItemSetOf(F[j,:],db) && declassify(frequency({j},db)) >= threshold) <==> {j} in Fset(F));
-  //x //@ invariant Fset(F) == (set uint j; j <= i && IsItemSetOf({j},db) && declassify(frequency({j},db)) >= threshold);
-  //x //@ invariant forall uint j; j < shape(F)[0] ==> IsItemSetOf(F[j,:],db);
-  //@ invariant shape(F_cache)[0] == shape(F)[0];
-  //@ invariant shape(F_cache)[1] == shape(db)[0];
-  //x //@ invariant forall uint j; classify((j < shape(F_cache)[0])::bool) ==> F_cache[j,:] == transactions(F[j,:],db);
   //@ invariant Frequents(F,F_cache,db,threshold);
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
