@@ -86,7 +86,7 @@ pd_a3p uint [[2]] load_db () {
 //@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db))
 //@ }
 
-//@ function bool AllFrequents(uint[[2]] F,pd_a3p uint[[2]] db,uint i)
+//@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint i)
 //@ noinline;
 //@ {
 //@     forall uint j; (j <= i && declassify(frequency({j},db)) >= threshold) ==> in({j},set(F))
@@ -118,7 +118,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant shape(F)[0] <= i;
   //@ invariant shape(F)[1] == 1;
   //@ invariant FrequentsCache(F,F_cache,db,threshold);
-  //@ invariant AllFrequents(F,db,i);
+  //@ invariant AllFrequents(F,db,threshold,i);
   {
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     pd_a3p uint frequence = sum (z); // frequency of item i
