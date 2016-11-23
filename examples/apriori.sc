@@ -88,9 +88,9 @@ pd_a3p uint [[2]] load_db () {
 
 //@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint i)
 //@ noinline;
-//@ requires i < shape(db)[1];
+//@ requires i <= shape(db)[1];
 //@ {
-//@     forall uint j; (j <= i && declassify(frequency({j},db)) >= threshold) ==> in({j},set(F))
+//@     forall uint j; (j < i && declassify(frequency({j},db)) >= threshold) ==> in({j},set(F))
 //@ }
 
 // database rows = transaction no, database column = item no
