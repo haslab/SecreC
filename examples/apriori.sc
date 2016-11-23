@@ -138,6 +138,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       //@ assert F[shape(Fold)[0],:] == {i};
     }
   }
+  //@ assert AllFrequents(F,db,threshold,dbColumns);
   
   //// until we find itemsets with length setSize
   //for (uint k = 1; k < setSize; k=k+1)
