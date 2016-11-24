@@ -149,7 +149,7 @@ verifyOpts = mconcat . map (ppOptions . either snd3 sciPPArgs . fst)
 verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
 verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
     opts <- askOpts
-    when (verify opts) $ do
+    when (verify opts /= NoneV) $ do
         let dfyfile = "out.dfy"
         let dfylfile = "out_leak.dfy"
         let bplfile = "out.bpl"
@@ -180,8 +180,12 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
               `seqStatus` shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
               `seqStatus` runBoogie True (debugVerification opts) bpllfile2
 
-        (fres,sres) <- lift $ concurrently func spec
-        let res = mappend fres sres
+        res <- lift $ case verify opts of
+            FuncV -> func
+            LeakV -> spec
+            BothV -> do
+                (fres,sres) <- concurrently func spec
+                return $ mappend fres sres
         printStatus res
 
 seqStatus :: Monad m => m Status -> m Status -> m Status

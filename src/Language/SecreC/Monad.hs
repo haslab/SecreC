@@ -39,6 +39,27 @@ import System.Exit
 
 import GHC.Generics (Generic)
 
+data VerifyOpt = NoneV | FuncV | LeakV | BothV
+    deriving (Data, Typeable,Generic,Eq,Show,Read)
+instance Binary VerifyOpt
+instance Hashable VerifyOpt
+
+instance Monad m => PP m VerifyOpt where
+    pp NoneV = return $ text "nonev"
+    pp FuncV = return $ text "funcv"
+    pp LeakV = return $ text "leakv"
+    pp BothV = return $ text "bothv"
+
+appendVerifyOpt :: VerifyOpt -> VerifyOpt -> VerifyOpt
+appendVerifyOpt x y | x == y = x
+appendVerifyOpt NoneV y = y
+appendVerifyOpt x NoneV = x
+appendVerifyOpt FuncV LeakV = BothV
+appendVerifyOpt FuncV BothV = BothV
+appendVerifyOpt LeakV FuncV = BothV
+appendVerifyOpt LeakV BothV = BothV
+appendVerifyOpt BothV _ = BothV
+
 data ContextOpt = DelayCtx | InferCtx
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
 instance Binary ContextOpt
@@ -77,13 +98,19 @@ appendCoercionOpt ExtendedC _ = ExtendedC
 appendCoercionOpt _ ExtendedC = ExtendedC
 appendCoercionOpt x y = min x y
 
+preprocessArgs :: [String] -> [String]
+preprocessArgs xs = List.map preprocessArg xs
+    where
+    preprocessArg "--verify" = "--verify=bothv"
+    preprocessArg x = x
+
 -- | SecreC options
 data Options
     = Opts  { 
           inputs                :: [FilePath]
         , outputs               :: [FilePath]
         , paths                 :: [FilePath]
-        , verify                :: Bool
+        , verify                :: VerifyOpt
         , simplify              :: Bool
         , typeCheck             :: Bool
         , debugLexer            :: Bool
@@ -117,7 +144,7 @@ instance Monoid Options where
         { inputs = inputs x ++ inputs y
         , outputs = outputs x ++ outputs y
         , paths = List.nub $ paths x ++ paths y
-        , verify = verify x || verify y
+        , verify = verify x `appendVerifyOpt` verify y
         , simplify = simplify x && simplify y
         , typeCheck = typeCheck x || typeCheck y
         , debugLexer = debugLexer x || debugLexer y
@@ -148,7 +175,7 @@ defaultOptions = Opts
     , entryPoints = []
     , outputs = []
     , paths = []
-    , verify = False
+    , verify = NoneV
     , simplify = True
     , typeCheck = True
     , debugLexer = False

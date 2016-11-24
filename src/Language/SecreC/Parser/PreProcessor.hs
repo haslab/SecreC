@@ -95,7 +95,7 @@ parsePPArg = do
 
 cmdArgsRunPP :: MonadIO m => Mode (CmdArgs a) -> [String] -> PPParserT u m a
 cmdArgsRunPP m xs = do
-    args <- case process m xs of
+    args <- case process m (preprocessArgs xs) of
             Left err -> unexpected $ "Error parsing pre-processor options " ++ show xs ++": " ++ show err
             Right x -> return x
     liftIO $ cmdArgsApply args
@@ -176,6 +176,14 @@ backtrackMsg = PP.text "Control ambiguities arising from implicit coercions" $+$
     $+$ PP.text "fullb" <+> PP.char '=' <+> PP.text "Backtrack and try all options (Default)"
     )
 
+verifyMsg :: Doc
+verifyMsg = PP.text "Verify annotations" $+$ PP.nest 4 (
+        PP.text "bothv" <+> PP.char '=' <+> PP.text "Verify both functional correctness and leakage properties"
+    $+$ PP.text "leakv" <+> PP.char '=' <+> PP.text "Verify only leakage properties"
+    $+$ PP.text "funcv" <+> PP.char '=' <+> PP.text "Verify only functional correctness properties"
+    $+$ PP.text "nonev" <+> PP.char '=' <+> PP.text "Do not verify annotations (Default)"
+    )
+
 optionsDecl  :: Options
 optionsDecl  = Opts { 
       inputs                = inputs defaultOptions &= args &= typ "FILE.sc"
@@ -189,7 +197,7 @@ optionsDecl  = Opts {
     
     -- Verification
     , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
-    , verify    = verify defaultOptions &= help "Verify annotations" &= groupname "Verification"
+    , verify    = verify defaultOptions &= help (show verifyMsg) &= groupname "Verification"
 
     -- Debugging
     , debug   = debug defaultOptions &= help "Prints developer debugging information" &= groupname "Debugging"
@@ -225,9 +233,9 @@ processOpts opts = opts
     { outputs = parsePaths $ outputs opts
     , paths = parsePaths $ paths opts
     , entryPoints = parsePaths $ entryPoints opts
-    , typeCheck = typeCheck opts || verify opts
-    , checkAssertions = if verify opts then False else checkAssertions opts
-    , simplify = if verify opts then True else simplify opts
+    , typeCheck = if verify opts /= NoneV then True else typeCheck opts
+    , checkAssertions = if verify opts /= NoneV then False else checkAssertions opts
+    , simplify = if verify opts /= NoneV then True else simplify opts
     , backtrack = if (implicitCoercions opts > OffC) then backtrack opts else NoneB
     }
 
