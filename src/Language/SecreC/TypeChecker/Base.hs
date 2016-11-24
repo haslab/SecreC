@@ -1915,6 +1915,7 @@ data Type
     | SysT SysType
     | VArrayT VArrayType -- for variadic array types
     | IdxT Expr -- for index expressions
+    | WhileT (Map VarIdentifier Type) (Map VarIdentifier Type) -- read/write variables for while loops
 --    | CondType Type Cond -- a type with an invariant
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
   
@@ -2191,6 +2192,10 @@ instance (Monad m,PP m VarIdentifier) => PP m Type where
     pp (SysT s) = pp s
     pp (IdxT e) = pp e
     pp (VArrayT a) = pp a
+    pp (WhileT rs ws) = do
+        prs <- liftM (sepBy space) $ mapM (pp . mapFst VIden) $ Map.toList rs
+        pws <- liftM (sepBy space) $ mapM (pp . mapFst VIden) $ Map.toList ws
+        return $ prs <+> pws
 --    pp (CondType t c) = ppConstrained pp (Constrained t $ Just c)
 
 isVATy :: Type -> Bool
@@ -2608,6 +2613,10 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     traverseVars f (VArrayT a) = do
         a' <- f a
         return $ VArrayT a'
+    traverseVars f (WhileT x y) = do
+        x' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList x
+        y' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList y
+        return $ WhileT x' y'
 --    traverseVars f (CondType t c) = do
 --        t' <- f t
 --        c' <- f c
@@ -2630,6 +2639,12 @@ data DecClass
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Binary DecClass
 instance Hashable DecClass
+
+decClassReads :: DecClass -> Map VarIdentifier Type
+decClassReads (DecClass _ _ rs _) = either (const Map.empty) id rs
+
+decClassWrites :: DecClass -> Map VarIdentifier Type
+decClassWrites (DecClass _ _ _ ws) = either (const Map.empty) id ws
 
 addDecClassVars :: (Either Bool (Map VarIdentifier Type)) -> (Either Bool (Map VarIdentifier Type)) -> DecClass -> DecClass
 addDecClassVars r2 w2 (DecClass isAnn isInline r1 w1) = DecClass isAnn isInline (joinVs r1 r2) (joinVs w1 w2)

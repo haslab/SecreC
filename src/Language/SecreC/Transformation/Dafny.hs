@@ -460,7 +460,8 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
         ppdid <- ppDafnyId did
         liftIO $ putStrLn $ "decToDafny " ++ show ppdid ++ " " ++ ppdec
     let anns' = parganns ++ pretanns ++ panns ++annb
-    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC anns' $+$ pbody)
+    annframes <- genDafnyFrames p EnsureK (decClassReads cl)
+    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC annframes $+$ annLinesProcC anns' $+$ pbody)
   where did = pIdenToDafnyId pn mid
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
@@ -604,6 +605,14 @@ genDafnyArrays l annK vs pv tv = do
                     return $ readarr++notnull
                 otherwise -> return []
         otherwise -> return []
+
+genDafnyFrames :: DafnyK m => Position -> AnnKind -> Map VarIdentifier Type -> DafnyM m AnnsDoc
+genDafnyFrames p annK vs = concatMapM (genDafnyFrame p annK) $ Map.toList vs
+
+genDafnyFrame :: DafnyK m => Position -> AnnKind -> (VarIdentifier,Type) -> DafnyM m AnnsDoc
+genDafnyFrame p annK (v,t) = do
+    pv <- varToDafny $ VarName (Typed p t) (VIden v)
+    return [(annK,True,Set.singleton v,pv <+> text "==" <+> text "old" <> parens pv)]
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyPublics l True annK vs pv tv = return []
@@ -783,13 +792,14 @@ statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) =
     (t',annst) <- typeToDafny (unTyped $ loc t) StmtK (typed $ loc t)
     (concat -> anns,vcat -> pvd) <- Utils.mapAndUnzipM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
     addAnnsC StmtKC (annst++anns) pvd
-statementToDafny (WhileStatement l e anns s) = do
+statementToDafny (WhileStatement (Typed l (WhileT rs ws)) e anns s) = do
+    annframes <- genDafnyFrames l InvariantK rs
     (anne,pe) <- expressionToDafny False Nothing InvariantK e
     annl <- loopAnnsToDafny anns
     let (annw,annl') = annLinesC StmtKC annl
     (ann2,ps) <- statementToDafny s
     (anns,pw) <- addAnnsC StmtKC (anne++annw++ann2) $ annl' $+$ vbraces ps
-    return (anns,text "while" <+> pe $+$ pw)
+    return (anns,text "while" <+> pe $+$ annLinesProcC annframes $+$ pw)
 statementToDafny (SyscallStatement l n params) = do
     (concat -> ss,concat -> params') <- lift $ runSimplify $ Utils.mapAndUnzipM simplifySyscallParameter params
     (anns1,pss) <- statementsToDafny ss

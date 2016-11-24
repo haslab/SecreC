@@ -1971,15 +1971,19 @@ onlyLeak l doc m = do
 --nonTok v = varIdTok v == False
 tokVar v = v { varIdRead = False, varIdWrite = False }
 
-getDecClass :: MonadIO m => TcM m DecClass
+getDecClass :: Monad m => TcM m DecClass
 getDecClass = State.gets decClass
---getDecClass (Just gid) = do
---    opts <- askOpts
---    cl@(DecClass isAnn isInline rs ws) <- State.gets decClass
---    let es = entryPoints opts
---    isEntry <- liftM or $ mapM (\e -> liftM (e ==) $ gIdenBase gid) es
---    return $ DecClass isAnn (if isEntry then False else isInline) rs ws
 
+withReadsWrites :: Monad m => TcM m a -> TcM m (a,Map VarIdentifier Type,Map VarIdentifier Type)
+withReadsWrites m = do
+    DecClass isAnn isInline rs ws <- getDecClass
+    x <- m
+    let mkEmpty (Left b) = Left b
+        mkEmpty (Right xs) = Left $ not $ Map.null xs
+    State.modify $ \env -> env { decClass = DecClass isAnn isInline (mkEmpty rs) (mkEmpty ws) }
+    new <- getDecClass
+    State.modify $ \env -> env { decClass = addDecClassVars rs ws new }
+    return (x,decClassReads new,decClassWrites new)
 
 checkLeak :: ProverK loc m => loc -> Bool -> TcM m a -> TcM m (Bool,a)
 checkLeak l False m = do
