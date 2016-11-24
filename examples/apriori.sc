@@ -122,10 +122,12 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant FrequentsCache(F,F_cache,db,threshold);
   //@ invariant AllFrequents(F,db,threshold,i);
   {
+    //@ assert IsItemSetOf({i},db);
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
     //@ assert z == transactions({i},db);
     pd_a3p uint frequence = sum (z); // frequency of item i
     //@ assert frequence == frequency({i},db);
+    //@ assert public (frequency({i},db) >= classify(threshold));
     if (declassify (frequence >= classify(threshold))) {
       Fold = F;
       Fresh = reshape(i,1,1);
