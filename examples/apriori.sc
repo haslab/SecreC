@@ -121,6 +121,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant shape(F)[1] == 1;
   //@ invariant FrequentsCache(F,F_cache,db,threshold);
   //@ invariant AllFrequents(F,db,threshold,i);
+  //@ leakage invariant LeakFrequents(db,threshold);
   {
     //@ assert IsItemSetOf({i},db);
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
