@@ -788,7 +788,8 @@ statementToDafny (WhileStatement l e anns s) = do
     annl <- loopAnnsToDafny anns
     let (annw,annl') = annLinesC StmtKC annl
     (ann2,ps) <- statementToDafny s
-    addAnnsC StmtKC (anne++annw++ann2) $ text "while" <+> pe $+$ annl' $+$ vbraces ps
+    (anns,pw) <- addAnnsC StmtKC (anne++annw++ann2) $ annl' $+$ vbraces ps
+    return (anns,text "while" <+> pe $+$ pw)
 statementToDafny (SyscallStatement l n params) = do
     (concat -> ss,concat -> params') <- lift $ runSimplify $ Utils.mapAndUnzipM simplifySyscallParameter params
     (anns1,pss) <- statementsToDafny ss
