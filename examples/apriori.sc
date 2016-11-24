@@ -121,14 +121,14 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant shape(F)[1] == 1;
   //@ invariant FrequentsCache(F,F_cache,db,threshold);
   //@ invariant AllFrequents(F,db,threshold,i);
-  //@ leakage invariant LeakFrequents(db,threshold);
+  //x //@ leakage invariant LeakFrequents(db,threshold);
   {
-    //@ assert IsItemSetOf({i},db);
+    //x //@ assert IsItemSetOf({i},db);
     pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
-    //@ assert z == transactions({i},db);
+    //x //@ assert z == transactions({i},db);
     pd_a3p uint frequence = sum (z); // frequency of item i
-    //@ assert frequence == frequency({i},db);
-    //@ leakage assert public (frequence >= classify(threshold));
+    //x //@ assert frequence == frequency({i},db);
+    //x //@ leakage assert public (frequence >= classify(threshold));
     if (declassify (frequence >= classify(threshold))) {
       Fold = F;
       Fresh = reshape(i,1,1);
