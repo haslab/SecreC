@@ -589,7 +589,7 @@ tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
 tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
 tcGlobal l m = do
-    State.modify $ \e -> e { decClass = DecClass False False (Left False) (Left False) }
+    State.modify $ \e -> e { decClass = DecClass False False emptyDecClassVars emptyDecClassVars }
     debugTc $ do
         opts <- askOpts
         liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l) ++ " " ++ show (implicitCoercions opts)
@@ -602,7 +602,7 @@ tcGlobal l m = do
     --    liftIO $ putStrLn $ "substituting tcGlobal " ++ pprid (locpos l) ++ "\n" ++ pprd
     x' <- substFromTDict "tcGlobal" dontStop l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
-    State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False (Left False) (Left False), localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
+    State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
     liftIO resetGlobalEnv
     liftIO resetTyVarId
     return x'

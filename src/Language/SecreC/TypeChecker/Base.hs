@@ -544,7 +544,7 @@ emptyTcEnv = TcEnv
     , exprC = ReadOnlyExpr
     , isLeak = False
     , localConsts = Map.empty
-    , decClass = DecClass False False (Left False) (Left False)
+    , decClass = DecClass False False emptyDecClassVars emptyDecClassVars
     , moduleEnv = (mempty,mempty)
     , isDef = False
     }
@@ -719,7 +719,7 @@ coercesDec = do
     let k = TcK (Coerces Nothing (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
     let ctx = DecCtx Nothing (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "cx") False)
-    let dec = DecType i (DecTypeOri False) ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True (Left False) (Left False))
+    let dec = DecType i (DecTypeOri False) ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True emptyDecClassVars emptyDecClassVars)
     debugTc $ do
         ppd <- ppr dec
         liftIO $ putStrLn $ "added base coercion dec " ++ ppd
@@ -1915,7 +1915,7 @@ data Type
     | SysT SysType
     | VArrayT VArrayType -- for variadic array types
     | IdxT Expr -- for index expressions
-    | WhileT (Map VarIdentifier Type) (Map VarIdentifier Type) -- read/write variables for while loops
+    | WhileT DecClassVars DecClassVars -- read/write variables for while loops
 --    | CondType Type Cond -- a type with an invariant
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
   
@@ -2193,8 +2193,8 @@ instance (Monad m,PP m VarIdentifier) => PP m Type where
     pp (IdxT e) = pp e
     pp (VArrayT a) = pp a
     pp (WhileT rs ws) = do
-        prs <- liftM (sepBy space) $ mapM (pp . mapFst VIden) $ Map.toList rs
-        pws <- liftM (sepBy space) $ mapM (pp . mapFst VIden) $ Map.toList ws
+        prs <- pp rs
+        pws <- pp ws
         return $ prs <+> pws
 --    pp (CondType t c) = ppConstrained pp (Constrained t $ Just c)
 
@@ -2395,13 +2395,19 @@ instance (Monad m,PP m VarIdentifier) => PP m DecClass where
         ppw <- pp w
         return $ text "annotation" <+> ppInline inline <+> ppr <+> ppw
 
-traverseDecClassVars :: (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> Either Bool (Map VarIdentifier Type) -> VarsM GIdentifier m (Either Bool (Map VarIdentifier Type))
-traverseDecClassVars f (Left x) = do
-    x' <- f x
-    return $ Left x'
-traverseDecClassVars f (Right y) = do
+type DecClassVars = (Map VarIdentifier (Type,Bool),Bool)
+
+emptyDecClassVars :: DecClassVars
+emptyDecClassVars = (Map.empty,False)
+
+isGlobalDecClassVars :: DecClassVars -> Bool
+isGlobalDecClassVars (xs,b) = b || not (Map.null $ Map.filter snd xs)
+
+traverseDecClassVars :: (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> DecClassVars -> VarsM GIdentifier m DecClassVars
+traverseDecClassVars f (y,b) = do
     y' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $ f $ Map.fromList . map (mapFst VIden) $ Map.toList y
-    return $ Right y'
+    b' <- f b
+    return (y',b')
 
 ppInline True = text "inline"
 ppInline False = text "noinline"
@@ -2614,8 +2620,8 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         a' <- f a
         return $ VArrayT a'
     traverseVars f (WhileT x y) = do
-        x' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList x
-        y' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList y
+        x' <- traverseDecClassVars f x
+        y' <- traverseDecClassVars f y
         return $ WhileT x' y'
 --    traverseVars f (CondType t c) = do
 --        t' <- f t
@@ -2634,25 +2640,26 @@ data DecClass
     = DecClass
         Bool -- is an annotation
         Bool -- perform inlining
-        (Either Bool (Map VarIdentifier Type)) -- read global variables
-        (Either Bool (Map VarIdentifier Type)) -- written global variables
+        DecClassVars -- read variables (isglobal)
+        DecClassVars -- written variables (isglobal)
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Binary DecClass
 instance Hashable DecClass
 
-decClassReads :: DecClass -> Map VarIdentifier Type
-decClassReads (DecClass _ _ rs _) = either (const Map.empty) id rs
+decClassReads :: DecClass -> DecClassVars
+decClassReads (DecClass _ _ rs _) = rs
 
-decClassWrites :: DecClass -> Map VarIdentifier Type
-decClassWrites (DecClass _ _ _ ws) = either (const Map.empty) id ws
+decClassWrites :: DecClass -> DecClassVars
+decClassWrites (DecClass _ _ _ ws) = ws
 
-addDecClassVars :: (Either Bool (Map VarIdentifier Type)) -> (Either Bool (Map VarIdentifier Type)) -> DecClass -> DecClass
+addDecClassVars :: DecClassVars -> DecClassVars -> DecClass -> DecClass
 addDecClassVars r2 w2 (DecClass isAnn isInline r1 w1) = DecClass isAnn isInline (joinVs r1 r2) (joinVs w1 w2)
       where
-      joinVs (Left b) (Right vs) = if Map.null vs then Left b else Right vs
-      joinVs (Right vs) (Left b) = if Map.null vs then Left b else Right vs
-      joinVs (Left b1) (Left b2) = Left $ b1 || b1
-      joinVs (Right vs1) (Right vs2) = Right $ Map.union vs1 vs2
+      --joinVs (Left b) (Right vs) = if Map.null (Map.filter snd vs) then Left b else Right vs
+      --joinVs (Right vs) (Left b) = if Map.null (Map.filter snd vs) then Left b else Right vs
+      --joinVs (Left b1) (Left b2) = Left $ b1 || b1
+      joinVs (vs1,b1) (vs2,b2) = (Map.unionWith add vs1 vs2,b1 || b2)
+          where add (x1,y1) (x2,y2) = (x1,y1 || y2)
 
 data StmtClass
     -- | The execution of the statement may end because of reaching a return statement

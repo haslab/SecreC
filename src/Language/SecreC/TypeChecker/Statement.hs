@@ -138,7 +138,7 @@ tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
 tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for" $ do
-    ((startE',whileE',incE',ann',bodyS',t'),rs,ws) <- withReadsWrites $ do
+    ((startE',whileE',incE',ann',bodyS',t'),rs,ws) <- withDecClassVars $ do
         startE' <- tcStmtBlock l "forinit" $ tcForInitializer startE
         whileE' <- tcStmtBlock l "forguard" $ mapM (tcGuard) whileE
         incE' <- withExprC ReadWriteExpr $ tcStmtBlock l "forinc" $ mapM (tcExpr) incE
@@ -147,7 +147,7 @@ tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for
         return (startE',whileE',incE',ann',bodyS',t')
     return (ForStatement (Typed l $ WhileT rs ws) startE' whileE' incE' ann' bodyS',t')
 tcStmt ret (WhileStatement l condE ann bodyS) = do
-    ((ann',condE',bodyS',t'),rs,ws) <- withReadsWrites $ do
+    ((ann',condE',bodyS',t'),rs,ws) <- withDecClassVars $ do
         ann' <- mapM tcLoopAnn ann
         condE' <- tcStmtBlock l "whileguard" $ tcGuard condE
         (bodyS',t') <- tcLocal l "tcStmt while body" $ tcLoopBodyStmt ret l bodyS
@@ -164,7 +164,7 @@ tcStmt ret (PrintStatement (l::loc) argsE) = do
     let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
 tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal l "tcStmt dowhile" $ do
-    ((ann',bodyS',t',condE'),rs,ws) <- withReadsWrites $ do
+    ((ann',bodyS',t',condE'),rs,ws) <- withDecClassVars $ do
         ann' <- mapM tcLoopAnn ann
         (bodyS',t') <- tcLoopBodyStmt ret l bodyS
         condE' <- tcGuard condE

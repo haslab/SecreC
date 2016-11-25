@@ -257,10 +257,10 @@ checkConst n@(VIden vn) = do
                 otherwise -> n
     return n'
 
-registerVar :: Monad m => Bool -> GIdentifier -> Type -> TcM m ()
-registerVar isWrite (VIden v) t = if isWrite
-    then chgDecClassM $ addDecClassVars (Right Map.empty) (Right $ Map.singleton v t)
-    else chgDecClassM $ addDecClassVars (Right $ Map.singleton v t) (Right Map.empty)
+registerVar :: Monad m => Bool -> Bool -> GIdentifier -> Type -> TcM m ()
+registerVar isGlobal isWrite (VIden v) t = if isWrite
+    then chgDecClassM $ addDecClassVars emptyDecClassVars (Map.singleton v (t,isGlobal),isGlobal)
+    else chgDecClassM $ addDecClassVars (Map.singleton v (t,isGlobal),isGlobal) emptyDecClassVars
 
 checkVariable :: (ProverK loc m) => Bool -> Bool -> Bool -> Scope -> VarName VarIdentifier loc -> TcM m (VarName GIdentifier (Typed loc))
 checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
@@ -271,12 +271,12 @@ checkVariable isWrite cConst isAnn scope v@(VarName l n) = do
             when cConst $ unless isConst $ do
                 ppv <- pp v
                 genTcError (locpos l) False $ text "expected variable" <+> ppv <+> text "to be a constant"
+            unless isConst $ registerVar isGlobal isWrite n (entryType e) -- consts don't count as global variables for reads/writes
             when isGlobal $ do
                 decK <- State.gets decKind
                 when (decK == AKind || decK == LKind) $ do
                     ppv <- pp v
                     genTcError (locpos l) False $ text "cannot read/write global variable" <+> ppv <+> text "inside an axiom/lemma"
-                unless isConst $ registerVar isWrite n (entryType e) -- consts don't count as global variables for reads/writes
             when (isWrite && isConst) $ do
                 ppn <- pp n
                 tcError (locpos l) $ AssignConstVariable (ppn)
@@ -558,7 +558,7 @@ checkTemplateArg decK isAnn isLeak (TemplateArgName l n) = do
                 ppn <- pp n
                 genTcError (locpos l) False $ text "Unexpected domain" <+> quotes (ppn) <+> text "without kind."
         (Nothing,Nothing,Just (isGlobal,(b,b2,e))) -> do
-            when isGlobal $ registerVar False vn (entryType e)
+            registerVar isGlobal False vn (entryType e)
             return $ TemplateArgName (Typed l $ varNameToType $ VarName (entryType e) vn) vn
         (mb1,mb2,mb3) -> do
             ppn <- pp n
@@ -759,7 +759,7 @@ addTcCstrToRec l i (PDec dk es n ts ps ret (DVar v)) st = do
                                 PureExpr -> (False,False)
                                 ReadOnlyExpr -> (True,False)
                                 ReadWriteExpr -> (True,True)
-    let decclass = DecClass (cstrIsAnn st) True (Left isRead) (Left isWrite)
+    let decclass = DecClass (cstrIsAnn st) True (Map.empty,isRead) (Map.empty,isWrite)
     (ps',substs) <- mapAndUnzipM (addPArgToRec l) ps
     let idec = case cstrDecK st of
                         PKind -> ProcType (locpos l) n ps' ret [] Nothing decclass
@@ -776,7 +776,7 @@ addTcCstrToRec l i (TDec dk es n ts (DVar v)) st = do
                                 PureExpr -> (False,False)
                                 ReadOnlyExpr -> (True,False)
                                 ReadWriteExpr -> (True,True)
-    let decclass = DecClass (cstrIsAnn st) True (Left isRead) (Left isWrite)
+    let decclass = DecClass (cstrIsAnn st) True (Map.empty,isRead) (Map.empty,isWrite)
     let idec = StructType (locpos l) n Nothing decclass
     let dec = DecType j DecTypeCtx [] implicitDecCtx implicitDecCtx ts idec
     env <- mkDecEnv l dec
@@ -1974,16 +1974,16 @@ tokVar v = v { varIdRead = False, varIdWrite = False }
 getDecClass :: Monad m => TcM m DecClass
 getDecClass = State.gets decClass
 
-withReadsWrites :: Monad m => TcM m a -> TcM m (a,Map VarIdentifier Type,Map VarIdentifier Type)
-withReadsWrites m = do
+withDecClassVars :: Monad m => TcM m a -> TcM m (a,DecClassVars,DecClassVars)
+withDecClassVars m = do
     DecClass isAnn isInline rs ws <- getDecClass
     x <- m
-    let mkEmpty (Left b) = Left b
-        mkEmpty (Right xs) = Left $ not $ Map.null xs
     State.modify $ \env -> env { decClass = DecClass isAnn isInline (mkEmpty rs) (mkEmpty ws) }
     new <- getDecClass
     State.modify $ \env -> env { decClass = addDecClassVars rs ws new }
     return (x,decClassReads new,decClassWrites new)
+  where
+    mkEmpty xs = (Map.empty,isGlobalDecClassVars xs)
 
 checkLeak :: ProverK loc m => loc -> Bool -> TcM m a -> TcM m (Bool,a)
 checkLeak l False m = do

@@ -292,7 +292,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict
         otherwise -> do
             let tycl@(DecClass isAnn isInline rs ws) = tyDecClass $ DecT decrec
             exprC <- getExprC
-            let isEmpty = either not Map.null
+            let isEmpty = not . isGlobalDecClassVars
             case exprC of
                 PureExpr -> unless (isEmpty rs && isEmpty ws) $ genTcError (locpos p) False $ text "procedure" <+> ppdecrec <+> text "not pure" <+> def
                 ReadOnlyExpr -> unless (isEmpty ws) $ genTcError (locpos p) False $ text "procedure" <+> ppdecrec <+> text "not read-only" <+> def

@@ -515,9 +515,9 @@ decToDafny l dec = do
 
 decClassToDafny :: DafnyK m => DecClass -> DafnyM m Doc
 decClassToDafny (DecClass _ _ rs ws) = do
-    let ppVar (v,t) = varToDafny $ VarName (Typed noloc t) $ VIden v
-    prs <- mapM ppVar $ either (const []) Map.toList rs
-    pws <- mapM ppVar $ either (const []) Map.toList ws
+    let ppVar (v,(t,_)) = varToDafny $ VarName (Typed noloc t) $ VIden v
+    prs <- mapM ppVar $ Map.toList (Map.filter snd $ fst rs)
+    pws <- mapM ppVar $ Map.toList (Map.filter snd $ fst ws)
     let pr = if null prs then empty else text "reads" <+> sepBy space prs
     let pw = if null pws then empty else text "modifies" <+> sepBy space pws
     return $ pr $+$ pw
@@ -606,8 +606,8 @@ genDafnyArrays l annK vs pv tv = do
                 otherwise -> return []
         otherwise -> return []
 
-genDafnyFrames :: DafnyK m => Position -> AnnKind -> Map VarIdentifier Type -> DafnyM m AnnsDoc
-genDafnyFrames p annK vs = concatMapM (genDafnyFrame p annK) $ Map.toList vs
+genDafnyFrames :: DafnyK m => Position -> AnnKind -> DecClassVars -> DafnyM m AnnsDoc
+genDafnyFrames p annK (vs,_) = concatMapM (genDafnyFrame p annK) $ Map.toList $ Map.map fst vs
 
 genDafnyFrame :: DafnyK m => Position -> AnnKind -> (VarIdentifier,Type) -> DafnyM m AnnsDoc
 genDafnyFrame p annK (v,t) = do
