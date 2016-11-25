@@ -1904,22 +1904,22 @@ tcLocal l msg m = do
     let dropTest v (_,b) = if b then True else isJust (Map.lookup (VIden v) (localVars env))
     let dropLocals (xs,b) = (Map.filterWithKey dropTest xs,b)
     x <- m
-    debugTc $ do
-        ppl <- ppr l
-        DecClass _ _ rs ws <- State.gets decClass
-        prs <- pp rs
-        pws <- pp ws
-        liftIO $ putStrLn $ "tcLocal 1" ++ msg ++ ppl ++ " " ++ show prs ++ " : " ++ show pws
+    --debugTc $ do
+    --    ppl <- ppr l
+    --    DecClass _ _ rs ws <- State.gets decClass
+    --    prs <- pp rs
+    --    pws <- pp ws
+    --    liftIO $ putStrLn $ "tcLocal 1" ++ msg ++ ppl ++ " " ++ show prs ++ " : " ++ show pws
     State.modify $ \e -> e
         { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env
         , decClass = let DecClass isAnn isInline rs ws = decClass e in DecClass isAnn isInline (dropLocals rs) (dropLocals ws)
         }
-    debugTc $ do
-        ppl <- ppr l
-        DecClass _ _ rs ws <- State.gets decClass
-        prs <- pp rs
-        pws <- pp ws
-        liftIO $ putStrLn $ "tcLocal 2" ++ msg ++ ppl ++ " " ++ show prs ++ " : " ++ show pws
+    --debugTc $ do
+    --    ppl <- ppr l
+    --    DecClass _ _ rs ws <- State.gets decClass
+    --    prs <- pp rs
+    --    pws <- pp ws
+    --    liftIO $ putStrLn $ "tcLocal 2" ++ msg ++ ppl ++ " " ++ show prs ++ " : " ++ show pws
     return x
 
 tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
@@ -1994,8 +1994,8 @@ getDecClass = State.gets decClass
 withDecClassVars :: Monad m => TcM m a -> TcM m (a,DecClassVars,DecClassVars)
 withDecClassVars m = do
     DecClass isAnn isInline rs ws <- getDecClass
-    x <- m
     State.modify $ \env -> env { decClass = DecClass isAnn isInline (mkEmpty rs) (mkEmpty ws) }
+    x <- m
     new <- getDecClass
     State.modify $ \env -> env { decClass = addDecClassVars rs ws new }
     return (x,decClassReads new,decClassWrites new)
