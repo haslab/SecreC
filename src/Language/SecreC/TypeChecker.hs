@@ -190,7 +190,7 @@ tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(
     hdeps <- getDeps
     ann' <- tcProcedureAnns ann
     let tret = ComplexT Void
-    s' <- mapM (tcStmtsRet l tret) body
+    s' <- tcLocal l "lemma" $ mapM (tcStmtsRet l tret) body
     cl <- getDecClass
     let idec = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (fmap (map (fmap (fmap locpos))) s') cl
     let lemma' = ProcedureName (Typed pl idec) $ PIden $ mkVarId pn
@@ -225,7 +225,7 @@ tcFunctionDecl addOpToRec addOp _ _ (OperatorFunDeclaration l isLeak ret op ps b
     rec <- addOpToRec explicitDecCtx hdeps recop'
     
     ann' <- tcProcedureAnns ann
-    s' <- tcExprTy tret s
+    s' <- tcLocal l "fun" $ tcExprTy tret s
     dropLocalVar vret
     cl' <- getDecClass
     let tproc = IDecT $ FunType isLeak (locpos l) (OIden $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl'
@@ -252,7 +252,7 @@ tcFunctionDecl _ _ addProcToRec addProc (FunDeclaration l isLeak ret (ProcedureN
     rec <- addProcToRec explicitDecCtx hdeps recproc'
     
     ann' <- tcProcedureAnns ann
-    s' <- tcExprTy tret s
+    s' <- tcLocal l "fun" $ tcExprTy tret s
     dropLocalVar vret
     cl' <- getDecClass
     let tproc = IDecT $ FunType isLeak (locpos l) (PIden $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ fmap (fmap locpos) s') cl'
@@ -290,7 +290,7 @@ tcProcedureDecl addOpToRec addOp _ _ (OperatorDeclaration l ret op ps bctx@(Temp
     
     ann' <- tcProcedureAnns ann
     mapM_ dropLocalVar vret
-    s' <- tcStmtsRet l tret s
+    s' <- tcLocal l "proc" $ tcStmtsRet l tret s
     cl' <- getDecClass
     let tproc = IDecT $ ProcType (locpos l) (OIden $ fmap typed top) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl'
     let op' = updLoc top (Typed l tproc)
@@ -319,7 +319,7 @@ tcProcedureDecl _ _ addProcToRec addProc (ProcedureDeclaration l ret (ProcedureN
     
     ann' <- tcProcedureAnns ann
     mapM_ dropLocalVar vret
-    s' <- tcStmtsRet l tret s
+    s' <- tcLocal l "proc" $ tcStmtsRet l tret s
     cl' <- getDecClass
     let tproc = IDecT $ ProcType (locpos l) (PIden $ mkVarId pn) vars' tret (map (fmap (fmap locpos)) ann') (Just $ map (fmap (fmap locpos)) s') cl'
     let proc' = ProcedureName (Typed pl tproc) $ PIden $ mkVarId pn
@@ -380,7 +380,7 @@ tcStructureDecl addStructToRec addStruct (StructureDeclaration l (TypeName tl tn
     let recty' = TypeName (Typed tl rect) $ TIden $ mkVarId tn
     rec <- addStructToRec explicitDecCtx hdeps recty'
     
-    atts' <- mapM tcAttribute atts
+    atts' <- tcLocal l "struct" $ mapM tcAttribute atts
     cl' <- getDecClass
     let t = IDecT $ StructType (locpos l) (TIden $ mkVarId tn) (Just $ map (fmap typed) atts') cl'
     let ty' = TypeName (Typed tl t) $ TIden $ mkVarId tn
