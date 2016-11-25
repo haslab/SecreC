@@ -1902,8 +1902,12 @@ tcLocal :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
 tcLocal l msg m = do
     env <- State.get
     x <- m
-    State.modify $ \e -> e { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env }
+    State.modify $ \e -> e
+        { localConsts = localConsts env, localVars = localVars env, localDeps = localDeps env
+        , decClass = let DecClass isAnn isInline rs ws = decClass e in DecClass isAnn isInline (dropLocals rs) (dropLocals ws)
+        }
     return x
+  where dropLocals (xs,b) = (Map.filter snd xs,b)
 
 tcError :: (MonadIO m) => Position -> TypecheckerErr -> TcM m a
 tcError pos msg = throwTcError pos $ TypecheckerError pos msg  
