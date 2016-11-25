@@ -145,6 +145,13 @@ tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for
         ann' <- mapM tcLoopAnn ann
         (bodyS',t') <- tcLocal l "tcStmt for body" $ tcLoopBodyStmt ret l bodyS
         return (startE',whileE',incE',ann',bodyS',t')
+    debugTc $ do
+        ppl <- ppr l
+        pprs <- pp rs
+        ppws <- pp ws
+        locals <- State.gets (Map.keys . localVars)
+        pplocals <- pp locals
+        liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws ++ "\n" ++ show pplocals
     return (ForStatement (Typed l $ WhileT rs ws) startE' whileE' incE' ann' bodyS',t')
 tcStmt ret (WhileStatement l condE ann bodyS) = do
     ((ann',condE',bodyS',t'),rs,ws) <- withDecClassVars $ do
@@ -152,6 +159,11 @@ tcStmt ret (WhileStatement l condE ann bodyS) = do
         condE' <- tcStmtBlock l "whileguard" $ tcGuard condE
         (bodyS',t') <- tcLocal l "tcStmt while body" $ tcLoopBodyStmt ret l bodyS
         return (ann',condE',bodyS',t')
+    debugTc $ do
+        ppl <- ppr l
+        pprs <- pp rs
+        ppws <- pp ws
+        liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws
     return (WhileStatement (Typed l $ WhileT rs ws) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
     argsE' <- withExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr)) argsE
@@ -169,6 +181,11 @@ tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal l "tcStmt dowhile" $ d
         (bodyS',t') <- tcLoopBodyStmt ret l bodyS
         condE' <- tcGuard condE
         return (ann',bodyS',t',condE')
+    debugTc $ do
+        ppl <- ppr l
+        pprs <- pp rs
+        ppws <- pp ws
+        liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws
     return (DowhileStatement (Typed l $ WhileT rs ws) ann' bodyS' condE',t')
 tcStmt ret (AssertStatement l argE) = do
     (argE',cstrsargE) <- tcWithCstrs l "assert" $ tcGuard argE

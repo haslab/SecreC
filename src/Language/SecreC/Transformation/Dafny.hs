@@ -460,7 +460,7 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
         ppdid <- ppDafnyId did
         liftIO $ putStrLn $ "decToDafny " ++ show ppdid ++ " " ++ ppdec
     let anns' = parganns ++ pretanns ++ panns ++annb
-    annframes <- genDafnyFrames p EnsureK (decClassReads cl)
+    annframes <- genDafnyFrames p EnsureK (decClassReads cl) (decClassWrites cl)
     return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC annframes $+$ annLinesProcC anns' $+$ pbody)
   where did = pIdenToDafnyId pn mid
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
@@ -606,8 +606,8 @@ genDafnyArrays l annK vs pv tv = do
                 otherwise -> return []
         otherwise -> return []
 
-genDafnyFrames :: DafnyK m => Position -> AnnKind -> DecClassVars -> DafnyM m AnnsDoc
-genDafnyFrames p annK (vs,_) = concatMapM (genDafnyFrame p annK) $ Map.toList $ Map.map fst vs
+genDafnyFrames :: DafnyK m => Position -> AnnKind -> DecClassVars -> DecClassVars -> DafnyM m AnnsDoc
+genDafnyFrames p annK (rs,_) (ws,_) = concatMapM (genDafnyFrame p annK) $ Map.toList $ Map.map fst $ Map.difference rs ws
 
 genDafnyFrame :: DafnyK m => Position -> AnnKind -> (VarIdentifier,Type) -> DafnyM m AnnsDoc
 genDafnyFrame p annK (v,t) = do
@@ -793,7 +793,7 @@ statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) =
     (concat -> anns,vcat -> pvd) <- Utils.mapAndUnzipM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
     addAnnsC StmtKC (annst++anns) pvd
 statementToDafny (WhileStatement (Typed l (WhileT rs ws)) e anns s) = do
-    annframes <- genDafnyFrames l InvariantK rs
+    annframes <- genDafnyFrames l InvariantK rs ws
     (anne,pe) <- expressionToDafny False Nothing InvariantK e
     annl <- loopAnnsToDafny anns
     let (annw,annl') = annLinesC StmtKC annl
