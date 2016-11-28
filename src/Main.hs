@@ -289,7 +289,7 @@ axiomatizeBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath ->
 axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Axiomatizing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
-    command isDebug $ show $ text "boogaman" <+> text bpl1
+    command isDebug $ show $ text "cabal exec -- boogaman" <+> text bpl1
         <+> text "--simplify"
         <+> Pretty.sepBy space (map addaxiom axioms)
         <+> text ">" <+> text bpl2
@@ -298,7 +298,7 @@ shadowBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath -> m S
 shadowBoogaman isDebug axioms bpl1 bpl2 = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Shadowing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
-    command isDebug $ show $ text "boogaman" <+> text bpl1
+    command isDebug $ show $ text "cabal exec -- boogaman" <+> text bpl1
         <+> text "--simplify"
         <+> text "--vcgen=dafny"
 --        <+> text "--filterleakage=true"
