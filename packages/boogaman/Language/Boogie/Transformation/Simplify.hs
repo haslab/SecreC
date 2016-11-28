@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, FlexibleInstances #-}
+{-# LANGUAGE ConstrainedClassMethods, ViewPatterns, FlexibleInstances #-}
 
 module Language.Boogie.Transformation.Simplify where
 
