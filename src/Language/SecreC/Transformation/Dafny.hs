@@ -634,10 +634,10 @@ propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
 genDafnyInvariantAssumptions :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
 genDafnyInvariantAssumptions p annK xs = do
     anns <- getAssumptions
-    return $ map free $ filter isUntouched anns
+    return $ map propagate $ filter isUntouched anns
   where
     isUntouched (_,_,vs,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
-    free (annK,_,vs,pe) = (annK,True,vs,pe)
+    propagate (_,_,vs,pe) = (annK,True,vs,pe)
 
 -- generate an frame condition for every untouched variable
 genDafnyFrames :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
