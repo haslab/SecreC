@@ -93,7 +93,24 @@ data DafnySt = DafnySt {
     , decResult :: Maybe Doc --result expression
     , inAnn :: Bool -- inside an annotation
     , currentModule :: Maybe Identifier
+    , assumptions :: AnnsDoc
     }
+
+getAssumptions :: DafnyK m => DafnyM m AnnsDoc
+getAssumptions = State.gets assumptions
+
+withAssumptions :: DafnyK m => DafnyM m a -> DafnyM m a
+withAssumptions m = do
+    anns <- getAssumptions
+    x <- m
+    State.modify $ \env -> env { assumptions = anns }
+    return x
+
+dropAssumptions :: DafnyK m => Set VarIdentifier -> DafnyM m a -> DafnyM m a
+dropAssumptions xs m = do
+    let aux (_,_,vs,_) = Set.null $ Set.intersection vs xs
+    State.modify $ \env -> env { assumptions = filter aux $ assumptions env }
+    m
 
 getLeakMode :: DafnyK m => DafnyM m Bool
 getLeakMode = State.gets leakageMode
@@ -145,7 +162,7 @@ withInAnn b m = do
     return x
 
 toDafny :: DafnyK m => FilePath -> Bool -> [DafnyId] -> TcM m (Doc,[String])
-toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing) $ do
+toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing []) $ do
     dfy <- liftIO $ readFile prelude
     loadAxioms
     mapM_ (loadDafnyId noloc) entries
@@ -436,7 +453,7 @@ addAnnsCond c anns = map add anns
     add (x,y,z,w) = (x,y,z,c <+> text "==>" <+> parens w)
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
-decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pret,pretanns,anns',body') <- case ret of
@@ -460,10 +477,10 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
         ppdid <- ppDafnyId did
         liftIO $ putStrLn $ "decToDafny " ++ show ppdid ++ " " ++ ppdec
     let anns' = parganns ++ pretanns ++ panns ++annb
-    annframes <- genDafnyFrames p EnsureK (decClassReads cl) (decClassWrites cl)
+    annframes <- propagateDafnyAssumptions p EnsureK (decClassReads cl) (decClassWrites cl)
     return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC annframes $+$ annLinesProcC anns' $+$ pbody)
   where did = pIdenToDafnyId pn mid
-decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     pvars <- liftM (parens . sepBy comma) $ mapM (varToDafny . fmap (Typed l) . snd3) args
     let result = ppn <+> pvars
@@ -477,7 +494,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
         let tag = if isLeak then text "function" else text "function method"
         return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
-decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     pcl <- decClassToDafny cl
@@ -495,7 +512,7 @@ decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = withLeakM
     patts <- structAttsToDafny l psn atts
     return $ Just (p,text "datatype" <+> psn <+> char '=' <+> psn <> parens patts)
   where did = SId sn mid
-decToDafny l d@(targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l d@(targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     leakMode <- getLeakMode
     if (leakMode >= isLeak)
         then do
@@ -606,13 +623,28 @@ genDafnyArrays l annK vs pv tv = do
                 otherwise -> return []
         otherwise -> return []
 
-genDafnyFrames :: DafnyK m => Position -> AnnKind -> DecClassVars -> DecClassVars -> DafnyM m AnnsDoc
-genDafnyFrames p annK (rs,_) (ws,_) = concatMapM (genDafnyFrame p annK) $ Map.toList $ Map.map fst $ Map.difference rs ws
+propagateDafnyAssumptions :: DafnyK m => Position -> AnnKind -> DecClassVars -> DecClassVars -> DafnyM m AnnsDoc
+propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
+    let untouched = Map.toList $ Map.map fst $ Map.difference rs ws
+    frames <- genDafnyFrames p annK untouched
+    invs <- genDafnyInvariantAssumptions p annK untouched
+    return (frames++invs)
 
-genDafnyFrame :: DafnyK m => Position -> AnnKind -> (VarIdentifier,Type) -> DafnyM m AnnsDoc
-genDafnyFrame p annK (v,t) = do
-    pv <- varToDafny $ VarName (Typed p t) (VIden v)
-    return [(annK,True,Set.singleton v,pv <+> text "==" <+> text "old" <> parens pv)]
+-- propagate untouched asumptions into post-conditions or invariants
+genDafnyInvariantAssumptions :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
+genDafnyInvariantAssumptions p annK xs = do
+    anns <- getAssumptions
+    return $ filter isUntouched anns
+  where
+    isUntouched (_,_,vs,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
+
+-- generate an frame condition for every untouched variable
+genDafnyFrames :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
+genDafnyFrames p annK xs = concatMapM (genDafnyFrame p annK) xs
+    where
+    genDafnyFrame p annK (v,t) = do
+        pv <- varToDafny $ VarName (Typed p t) (VIden v)
+        return [(annK,True,Set.singleton v,pv <+> text "==" <+> text "old" <> parens pv)]
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyPublics l True annK vs pv tv = return []
@@ -749,8 +781,8 @@ statementToDafny (CompoundStatement _ ss) = do
     return (anns,vbraces pss)
 statementToDafny (IfStatement _ c s1 s2) = do
     (ann1,pc) <- expressionToDafny False Nothing StmtK c
-    (annthen,ps1) <- statementToDafny s1
-    (concat -> annelse,ps2) <- Utils.mapAndUnzipM statementToDafny s2
+    (annthen,ps1) <- withAssumptions $ statementToDafny s1
+    (concat -> annelse,ps2) <- withAssumptions $ Utils.mapAndUnzipM statementToDafny s2
     let annthen' = addAnnsCond pc annthen
     let annelse' = addAnnsCond (char '!' <> parens pc) annelse
     ppo <- ppOpt ps2 (return . (text "else" <+>))
@@ -762,7 +794,8 @@ statementToDafny (ReturnStatement l e) = do
     addAnnsC StmtKC anne $ text "return" <+> ppid pe <> semicolon
 statementToDafny (ExpressionStatement _ (BinaryAssign l le (BinaryAssignEqual _) re)) = do
     (pres,pre) <- expressionToDafny False Nothing StmtK re
-    (post,pass) <- assignmentToDafny StmtK le (Left pre)
+    leftvs <- lift $ usedVs' le    
+    (post,pass) <- dropAssumptions leftvs $ assignmentToDafny StmtK le (Left pre)
     let (anns1,pres') = annLinesC StmtKC pres
     let (anns2,post') = annLinesC StmtKC post
     return (anns1++anns2,pres' $+$ pass <> semicolon $+$ post')
@@ -792,8 +825,8 @@ statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) =
     (t',annst) <- typeToDafny (unTyped $ loc t) StmtK (typed $ loc t)
     (concat -> anns,vcat -> pvd) <- Utils.mapAndUnzipM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
     addAnnsC StmtKC (annst++anns) pvd
-statementToDafny (WhileStatement (Typed l (WhileT rs ws)) e anns s) = do
-    annframes <- genDafnyFrames l InvariantK rs ws
+statementToDafny (WhileStatement (Typed l (WhileT rs ws)) e anns s) = withAssumptions $ do
+    annframes <- propagateDafnyAssumptions l InvariantK rs ws
     (anne,pe) <- expressionToDafny False Nothing InvariantK e
     annl <- loopAnnsToDafny anns
     let (annw,annl') = annLinesC StmtKC annl
@@ -812,8 +845,14 @@ statementToDafny s = do
 loopAnnsToDafny :: DafnyK m => [LoopAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 loopAnnsToDafny xs = withInAnn True $ liftM concat $ mapM loopAnnToDafny xs
 
+addAssumptions :: DafnyK m => DafnyM m AnnsDoc -> DafnyM m AnnsDoc
+addAssumptions m = do
+    anns <- m
+    State.modify $ \env -> env { assumptions = assumptions env ++ anns }
+    return anns
+
 annExpr :: DafnyK m => Bool -> Bool -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> DafnyM m AnnsDoc
-annExpr isFree isLeak leakMode annK vs e = do
+annExpr isFree isLeak leakMode annK vs e = addAssumptions $ do
     case (leakMode,isLeak) of
         (True,True) -> return [(annK,isFree,vs,e)]
         (True,False) -> return [(annK,True,vs,e)]
