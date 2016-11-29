@@ -465,11 +465,13 @@ unfoldVariadicExpr (e,isVariadic) = do
     es <- expandVariadicExpr l False (fmap typed e,isVariadic)
     return $ map (fmap $ Typed l) es
 
-bindProcArgs :: SimplifyK loc m => Bool -> loc -> [(Bool,Var,IsVariadic)] -> [Expression GIdentifier (Typed loc)] -> SimplifyM m ([Statement GIdentifier (Typed loc)],Map GIdentifier (Expression GIdentifier (Typed loc)))
-bindProcArgs isExpr l [] [] = return ([],Map.empty)
-bindProcArgs isExpr l (v:vs) es = do
-    (es',ss,substs) <- bindProcArg isExpr l v es
-    (ss',substs') <- bindProcArgs isExpr l vs es'
+bindProcArgs :: SimplifyK loc m => Bool -> loc -> DecClassVars -> [(Bool,Var,IsVariadic)] -> [Expression GIdentifier (Typed loc)] -> SimplifyM m ([Statement GIdentifier (Typed loc)],Map GIdentifier (Expression GIdentifier (Typed loc)))
+bindProcArgs isExpr l ws [] [] = return ([],Map.empty)
+bindProcArgs isExpr l ws (v@(_,varNameId -> VIden vn,_):vs) es = do
+    -- do not create auxiliary declarations for non-written variables
+    let isExprV = if isJust (Map.lookup vn $ fst ws) then isExpr else True
+    (es',ss,substs) <- bindProcArg isExprV l v es
+    (ss',substs') <- bindProcArgs isExpr l ws vs es'
     return (ss++ss',Map.union substs substs')
 
 bindProcArg :: SimplifyK loc m => Bool -> loc -> (Bool,Var,IsVariadic) -> [Expression GIdentifier (Typed loc)] -> SimplifyM m ([Expression GIdentifier (Typed loc)],[Statement GIdentifier (Typed loc)],Map GIdentifier (Expression GIdentifier (Typed loc)))
@@ -670,7 +672,7 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineLemmaFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
         
-        (decls,substs) <- bindProcArgs False l args es'
+        (decls,substs) <- bindProcArgs False l (decClassWrites c) args es'
         ann' <- subst "inlineLemmaCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
         body' <- subst "inlineLemmaCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
         (reqs,ens) <- splitProcAnns ann'
@@ -684,7 +686,7 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
             ppes <- ppr es
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineLemmaFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
-        ([],substs) <- bindProcArgs True l args es'
+        ([],substs) <- bindProcArgs True l (decClassWrites c) args es'
         ann' <- subst "inlineLemmaCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
         (reqs,ens) <- splitProcAnns ann'
         reqs' <- simplifyStatementAnns True reqs
@@ -696,7 +698,7 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
             ppes <- ppr es
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineProcFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
-        (decls,substs) <- bindProcArgs False l args es'
+        (decls,substs) <- bindProcArgs False l (decClassWrites c) args es'
         ann' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
         body' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
         mb <- type2TypeSpecifier l ret
@@ -730,7 +732,7 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
             ppes <- ppr es
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineFunFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
-        (decls,substs) <- bindProcArgs False l args es'
+        (decls,substs) <- bindProcArgs False l (decClassWrites c) args es'
         res <- liftM (VarName (Typed l ret)) $ genVar (VIden $ mkVarId "res")
         let ssres = Map.singleton (VIden $ mkVarId "\\result") (varExpr res)
         ann' <- subst "inlineFunFalse" dontStop (substsFromMap $ Map.union substs ssres) False Map.empty $ map (fmap (fmap (updpos l))) ann
@@ -751,7 +753,7 @@ inlineProcCall withBody isExpr l n t@(DecT d) es = do
             ppes <- ppr es
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineFunTrue " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
-        (decls,substs) <- bindProcArgs True l args es'
+        (decls,substs) <- bindProcArgs True l (decClassWrites c) args es'
         body' <- subst "inlineFunTrue" dontStop (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
         (ss,Just body'') <- simplifyExpression True body'
         let ssret = Map.singleton (VIden $ mkVarId "\\result") body''

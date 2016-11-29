@@ -5,6 +5,8 @@ predicate PublicMid<T> (x: T)
 predicate DeclassifiedIn<T> (x: T)    
 predicate DeclassifiedOut<T> (x: T)
 predicate Leak<T> (x: T)
+// used to mark leakage annotations, since Dafny does not allow attributes everywhere
+function Leakage<T> (x: T) : T
     
 //newtype uint8 = x: int | 0 <= x <= 255
 //newtype uint16 = x: int | 0 <= x <= 65535

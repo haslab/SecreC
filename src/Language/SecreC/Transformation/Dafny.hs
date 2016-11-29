@@ -108,7 +108,7 @@ withAssumptions m = do
 
 dropAssumptions :: DafnyK m => Set VarIdentifier -> DafnyM m a -> DafnyM m a
 dropAssumptions xs m = do
-    let aux (_,_,vs,_) = Set.null $ Set.intersection vs xs
+    let aux (_,_,vs,_,_) = Set.null $ Set.intersection vs xs
     State.modify $ \env -> env { assumptions = filter aux $ assumptions env }
     m
 
@@ -449,8 +449,8 @@ fIdenToDafnyId (OIden n) mid isLeak = FId (OIden $ funit n) mid isLeak
 addAnnsCond :: Doc -> AnnsDoc -> AnnsDoc
 addAnnsCond c anns = map add anns
     where
-    add ann@(ReadsK,_,_,_) = ann
-    add (x,y,z,w) = (x,y,z,c <+> text "==>" <+> parens w)
+    add ann@(ReadsK,_,_,_,_) = ann
+    add (x,y,z,w,q) = (x,y,z,c <+> text "==>" <+> parens w,q)
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
@@ -616,9 +616,9 @@ genDafnyArrays l annK vs pv tv = do
                         Just (LId {}) -> return []
                         Just (AId {}) -> return []
                         otherwise -> return
-                            [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n))
-                            ,(ReadsK,True,vs,pv <> text ".arr" <> int (fromEnum n))]
-                    let notnull = [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()")]
+                            [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n),False)
+                            ,(ReadsK,True,vs,pv <> text ".arr" <> int (fromEnum n),False)]
+                    let notnull = [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()",False)]
                     return $ readarr++notnull
                 otherwise -> return []
         otherwise -> return []
@@ -636,8 +636,8 @@ genDafnyInvariantAssumptions p annK xs = do
     anns <- getAssumptions
     return $ map propagate $ filter isUntouched anns
   where
-    isUntouched (_,_,vs,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
-    propagate (_,_,vs,pe) = (annK,True,vs,pe)
+    isUntouched (_,_,vs,_,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
+    propagate (_,_,vs,pe,isLeak) = (annK,True,vs,pe,isLeak)
 
 -- generate an frame condition for every untouched variable
 genDafnyFrames :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
@@ -645,7 +645,7 @@ genDafnyFrames p annK xs = concatMapM (genDafnyFrame p annK) xs
     where
     genDafnyFrame p annK (v,t) = do
         pv <- varToDafny $ VarName (Typed p t) (VIden v)
-        return [(annK,True,Set.singleton v,pv <+> text "==" <+> text "old" <> parens pv)]
+        return [(annK,True,Set.singleton v,pv <+> text "==" <+> text "old" <> parens pv,False)]
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyPublics l True annK vs pv tv = return []
@@ -660,8 +660,8 @@ genDafnyPublics l False annK vs pv tv = whenLeakMode $ do
                             RequireK -> "PublicIn"
                             NoK -> "PublicMid"
             -- only generate publics for primitive types
-            let genPublic t@(BaseT {}) = return [(annK,True,vs,text publick <> parens pv)]
-                genPublic t@(ComplexT (CType s b d)) | isPublicSecType s && isPrimBaseType b = return [(annK,True,vs,text publick <> parens pv)]
+            let genPublic t@(BaseT {}) = return [(annK,True,vs,text publick <> parens pv,True)]
+                genPublic t@(ComplexT (CType s b d)) | isPublicSecType s && isPrimBaseType b = return [(annK,True,vs,text publick <> parens pv,True)]
                 genPublic t = return []
             -- only generate public sizes for private types
             let genPublicSize t@(ComplexT (CType s b d)) | not (isPublicSecType s) = do
@@ -670,10 +670,10 @@ genDafnyPublics l False annK vs pv tv = whenLeakMode $ do
                         Right 0 -> return []
                         Right 1 -> do
                             let psize = dafnySize 1 pv
-                            return [(annK,True,vs,text publick <> parens psize)]
+                            return [(annK,True,vs,text publick <> parens psize,True)]
                         Right n -> do
                             let pshape = dafnyShape n pv
-                            return [(annK,True,vs,text publick <> parens pshape)]
+                            return [(annK,True,vs,text publick <> parens pshape,True)]
                         otherwise -> do
                             ppt <- lift $ pp t
                             genError l $ text "genPublicSize:" <+> pv <+> ppt
@@ -692,18 +692,26 @@ isLeakageInDecl (Just (FId _ _ isLeak)) = isLeak
 isLeakageInDecl (Just (LId _ _ isLeak)) = isLeak
     
 annLine :: AnnDoc -> Doc
-annLine (EnsureK,isFree,vs,x) = ppFree isFree $ text "ensures" <+> x <> semicolon
-annLine (RequireK,isFree,vs,x) = ppFree isFree $ text "requires" <+> x <> semicolon
-annLine (StmtK,True,vs,x) = text "assume" <+> x <> semicolon
-annLine (StmtK,False,vs,x) = text "assert" <+> x <> semicolon
-annLine (InvariantK,isFree,vs,x) = ppFree isFree $ text "invariant" <+> x <> semicolon
-annLine (DecreaseK,isFree,vs,x) = text "decreases" <+> x <> semicolon
-annLine (ReadsK,_,vs,x) = text "reads" <+> x <> semicolon
-annLine (NoK,isFree,vs,x) = x
+annLine (EnsureK,isFree,vs,x,isLeak) = ppFree isFree $ text "ensures" <+> ppLeakageFun isLeak x <> semicolon
+annLine (RequireK,isFree,vs,x,isLeak) = ppFree isFree $ text "requires" <+> ppLeakageFun isLeak x <> semicolon
+annLine (StmtK,True,vs,x,isLeak) = text "assume" <+> ppLeakageAtt isLeak <+> x <> semicolon
+annLine (StmtK,False,vs,x,isLeak) = text "assert" <+> ppLeakageAtt isLeak <+> x <> semicolon
+annLine (InvariantK,isFree,vs,x,isLeak) = ppFree isFree $ text "invariant" <+> ppLeakageFun isLeak x <> semicolon
+annLine (DecreaseK,isFree,vs,x,isLeak) = text "decreases" <+> x <> semicolon
+annLine (ReadsK,_,vs,x,isLeak) = text "reads" <+> x <> semicolon
+annLine (NoK,isFree,vs,x,isLeak) = x
+
+ppLeakageAtt :: IsLeak -> Doc
+ppLeakageAtt False = empty
+ppLeakageAtt True = text "{:leakage}"
+
+ppLeakageFun :: IsLeak -> Doc -> Doc
+ppLeakageFun False d = d
+ppLeakageFun True d = text "Leakage" <> parens d
 
 unfreeAnn :: AnnDoc -> AnnDoc
-unfreeAnn (k,False,vs,x) = (k,False,vs,x)
-unfreeAnn (k,True,vs,x) = (k,False,vs,x)
+unfreeAnn (k,False,vs,x,isLeak) = (k,False,vs,x,isLeak)
+unfreeAnn (k,True,vs,x,isLeak) = (k,False,vs,x,isLeak)
 
 unfreeAnns :: AnnsDoc -> AnnsDoc
 unfreeAnns = map unfreeAnn
@@ -727,17 +735,17 @@ annLines c anns = annLinesC (annKindClass c) anns
 -- if not in a procedure context, we postpone procedure annotations
 annLinesC :: AnnKindClass -> AnnsDoc -> (AnnsDoc,Doc)
 annLinesC cl anns = (anns',vcat $ map annLine xs)
-    where (anns',xs) = List.partition ((>cl) . annKindClass . fst4) anns
+    where (anns',xs) = List.partition ((>cl) . annKindClass . fst5) anns
 
 annLinesProcC :: AnnsDoc -> Doc
 annLinesProcC anns = d
     where
-    (reads,anns') = List.partition ((==ReadsK) . fst4) anns
+    (reads,anns') = List.partition ((==ReadsK) . fst5) anns
     anns'' = List.nub anns'
-    reads' = Set.fromList $ map fou4 reads
+    reads' = Set.fromList $ map fou5 reads
     readk = case Set.toList reads' of
                 [] -> []
-                xs -> [(ReadsK,True,Set.empty,PP.sepBy PP.comma xs)]
+                xs -> [(ReadsK,True,Set.empty,PP.sepBy PP.comma xs,False)]
     ([],d) = annLinesC ProcKC (readk++anns'')
 
 procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
@@ -855,10 +863,10 @@ addAssumptions m = do
 annExpr :: DafnyK m => Bool -> Bool -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> DafnyM m AnnsDoc
 annExpr isFree isLeak leakMode annK vs e = addAssumptions $ do
     case (leakMode,isLeak) of
-        (True,True) -> return [(annK,isFree,vs,e)]
-        (True,False) -> return [(annK,True,vs,e)]
+        (True,True) -> return [(annK,isFree,vs,e,isLeak)]
+        (True,False) -> return [(annK,True,vs,e,isLeak)]
         (False,True) -> return []
-        (False,False) -> return [(annK,isFree,vs,e)]
+        (False,False) -> return [(annK,isFree,vs,e,isLeak)]
     
 loopAnnToDafny :: DafnyK m => LoopAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
 loopAnnToDafny (DecreasesAnn l isLeak e) = withInAnn True $ do
@@ -908,7 +916,7 @@ checkDafnyShape l isFree vs (Sizes szs) e = case Foldable.toList szs of
         let check = case des of
                         [de] -> dafnySize 0 e <+> text "==" <+> de
                         des -> e <> text ".shape()" <+> text "==" <+> brackets (sepBy comma des)
-        return $ concat anns ++ [(StmtK,isFree,vs,check)]
+        return $ concat anns ++ [(StmtK,isFree,vs,check,False)]
     otherwise -> do
         ppszs <- lift $ pp (Sizes szs)
         ppe <- lift $ pp e

@@ -233,6 +233,10 @@ isPublicIdExpr :: Options -> BareExpression -> Maybe (Id,PublicType)
 isPublicIdExpr vc (isPublicExpr vc -> Just (Var i,t)) = Just (i,t)
 isPublicIdExpr vc e = Nothing
 
+isLeakageExpr :: Options -> BareExpression -> Maybe BareExpression
+isLeakageExpr vc (isAnn vc "Leakage" -> Just i) = Just i
+isLeakageExpr vc _ = Nothing
+
 isLeakExpr :: Options -> BareExpression -> Maybe BareExpression
 isLeakExpr vc (isAnn vc "Leak" -> Just i) = Just i
 isLeakExpr vc _ = Nothing
@@ -253,6 +257,7 @@ replaceCanCall opts (isAnn opts "PublicMid#canCall" -> Just i) = tt
 replaceCanCall opts (isAnn opts "Leak#canCall" -> Just i) = tt
 replaceCanCall opts (isAnn opts "DeclassifiedIn#canCall" -> Just i) = tt
 replaceCanCall opts (isAnn opts "DeclassifiedOut#canCall" -> Just i) = tt
+replaceCanCall opts (isAnn opts "Leakage#canCall" -> Just i) = tt
 replaceCanCall opts e = e
 
 removeLeakageAnns :: Data a => Options -> a -> a
@@ -262,6 +267,7 @@ removeLeakageAnns opts = everywhere (mkT removeLeakageExpr)
     removeLeakageExpr (isPublicExpr opts -> Just _) = tt
     removeLeakageExpr (isLeakExpr opts -> Just _) = tt
     removeLeakageExpr (isDeclassifiedExpr opts -> Just _) = tt
+    removeLeakageExpr (isLeakageExpr opts -> Just x) = x
     removeLeakageExpr e@(Application name@(isLeakFunName opts -> True) _) = tt
     removeLeakageExpr e@(hasLeakFunName opts -> True) = error $ "user-defined leakage functions not supported on non-dual mode: " ++ show (pretty e)
     removeLeakageExpr e = e
