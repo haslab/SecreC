@@ -606,14 +606,14 @@ shadowBareStatement p opts DualE s@(Call atts is name es) | isLeakFunName opts n
     is' <- shadowDuals (shadowId opts ShadowE) rbools is
     name' <- shadowId opts DualE name
     atts' <- concatMapM (shadowAttribute opts True) atts
-    es' <- shadowDuals (shadowExpression opts ShadowE) bools es
+    es' <- shadowDuals (shadowExpression opts ShadowDualE) bools es
     let s' = Call atts' is' name' es'
     return [s']
 shadowBareStatement p opts DualE s@(Call atts is name es) | not (isLeakFunName opts name) = do -- duplicate call
     is' <- mapM (shadowId opts ShadowE) is
     name' <- shadowId opts ShadowE name
     atts' <- concatMapM (shadowAttribute opts False) atts
-    es' <- mapM (shadowExpression opts ShadowE) es
+    es' <- mapM (shadowExpression opts ShadowDualE) es
     let s' = Call atts' is' name' es'
     return [s,s']
 shadowBareStatement p opts ShadowE s@(Call atts is name es) | not (isLeakFunName opts name) = do -- shadow call arguments
