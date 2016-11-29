@@ -1592,19 +1592,19 @@ ppDafnyId (PId pn (ModuleTyVarId mn uid)) = do
     prefix <- ppModule mn
     ppn <- dafnyGId pn
     puid <- pp uid
-    let suffix = text "LeakageProc"
+    let suffix = text "ShadowProc"
     return $ prefix <> ppn <> puid <> suffix    
 ppDafnyId (FId pn (ModuleTyVarId mn uid) isLeak) = do
     prefix <- ppModule mn
     ppn <- dafnyGId pn
     puid <- pp uid
-    let suffix = if isLeak then text "LeakageFun" else text "OriginalFun"
+    let suffix = if isLeak then text "ShadowFun" else text "OriginalFun"
     return $ prefix <> ppn <> puid <> suffix
 ppDafnyId (LId pn (ModuleTyVarId mn uid) isLeak) = do
     prefix <- ppModule mn
     ppn <- dafnyGId pn
     puid <- pp uid
-    let suffix = if isLeak then text "LeakageLemma" else text "OriginalLemma"
+    let suffix = if isLeak then text "ShadowLemma" else text "OriginalLemma"
     return $ prefix <> ppn <> puid <> suffix
 ppDafnyId (SId sn (ModuleTyVarId mn uid)) = do
     prefix <- ppModule mn
@@ -1616,7 +1616,7 @@ ppDafnyId (AId (ModuleTyVarId mn uid) isLeak) = do
     prefix <- ppModule mn
     psn <- dafnyGId $ PIden $ mkVarId "axiom"
     puid <- pp uid
-    let suffix = if isLeak then text "LeakageAxiom" else text "OriginalAxiom"
+    let suffix = if isLeak then text "ShadowAxiom" else text "OriginalAxiom"
     return $ prefix <> psn <> puid <> suffix
 
 ppModuleName :: PP m VarIdentifier => Maybe (Identifier) -> m Doc
