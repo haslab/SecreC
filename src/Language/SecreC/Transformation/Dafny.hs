@@ -988,7 +988,7 @@ instance Monad m => PP m AnnKind where
 
 type AnnsDoc = [AnnDoc]
 -- (kind,isFree,used variables,dafny expression)
-type AnnDoc = (AnnKind,Bool,Set VarIdentifier,Doc)
+type AnnDoc = (AnnKind,Bool,Set VarIdentifier,Doc,IsLeak)
 
 indexToDafny :: DafnyK m => Bool -> AnnKind -> Maybe Doc -> Int -> Index GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 indexToDafny isLVal annK isClass i (IndexInt l e) = do
@@ -1274,8 +1274,8 @@ annotateExpr anne vs pe = (anne',pppre (pppost pe))
     where
     pppre = maybe id (\p x -> parens (p <+> text "==>" <+> x)) (ands pre)
     pppost = maybe id (\p x -> parens (p <+> text "&&" <+> x)) (ands post)
-    (deps,anne') = List.partition (\(k,_,evs,_) -> k /= ReadsK && not (Set.null $ Set.intersection evs vs)) anne
-    (map fou4 -> pre,map fou4 -> post) = List.partition snd4 deps
+    (deps,anne') = List.partition (\(k,_,evs,_,_) -> k /= ReadsK && not (Set.null $ Set.intersection evs vs)) anne
+    (map fou5 -> pre,map fou5 -> post) = List.partition snd5 deps
     ands [] = Nothing
     ands (x:xs) = case ands xs of
         Nothing -> Just x
@@ -1460,7 +1460,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.declassify" [x] = do -- w
     inAnn <- getInAnn
     if leakMode && not inAnn
         then do
-            let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px)
+            let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px,True)
             qExprToDafny isQExpr (annx++[assert]) px
         else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.classify" [x] = do -- we ignore security types
@@ -1473,7 +1473,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.reclassify" [x] = do -- w
     isPub <- lift $ liftM isJust $ tryTcErrorMaybe l $ isPublic l False ret
     if leakMode && not inAnn && isPub
         then do
-            let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px)
+            let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px,True)
             qExprToDafny isQExpr (annx++[assert]) px
         else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.cat" [x,y] = do

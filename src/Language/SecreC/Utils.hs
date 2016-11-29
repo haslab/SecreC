@@ -605,6 +605,12 @@ snd4 (x,y,z,w) = y
 thr4 (x,y,z,w) = z
 fou4 (x,y,z,w) = w
 
+fst5 (x,y,z,w,q) = x
+snd5 (x,y,z,w,q) = y
+thr5 (x,y,z,w,q) = z
+fou5 (x,y,z,w,q) = w
+fit5 (x,y,z,w,q) = q
+
 #if MIN_VERSION_hashable(1,2,4)
 #else
 instance Hashable Unique where
