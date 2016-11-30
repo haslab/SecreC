@@ -821,7 +821,10 @@ simplifyStatement ret (ReturnStatement l (Just e)) = do
     case (ret,e') of
         --(Just v,Just e') -> return (ss++[ExpressionStatement l $ BinaryAssign (loc v) (varExpr v) (BinaryAssignEqual l) e'])
         (Nothing,Nothing) -> return ss
-        otherwise -> genError (locpos $ unTyped l) $ text "simplifyStatement: mismamtching return type"
+        otherwise -> do
+            ppret <- pp ret
+            ppe' <- pp e'
+            genError (locpos $ unTyped l) $ text "simplifyStatement: mismamtching return type " <+> ppret <+> ppe'
 simplifyStatement ret (ReturnStatement l e) = genError (locpos $ unTyped l) $ text "simplifyStatement: return statement"
 simplifyStatement ret (AssertStatement l e) = do
     (ss,e') <- simplifyExpression False Nothing e
