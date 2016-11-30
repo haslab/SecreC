@@ -712,10 +712,11 @@ shadowPredicate p opts mode pr@(leakagePred opts -> Just (Predicate atts (SpecCl
     if isDualE mode then return [removeLeakageAnns opts pr,pr'] else return [pr']
 shadowPredicate p opts mode pr@(Predicate atts (SpecClause st isAssume e)) | isNothing (leakagePred opts pr) = do
     e' <- shadowExpression opts ShadowE e
+    let opr = Predicate atts (SpecClause st True e)
     let s' = SpecClause st True e'
     atts' <- concatMapM (shadowAttribute opts False) atts
     let pr' = Predicate atts' s'
-    if isDualE mode then return [removeLeakageAnns opts pr,pr'] else return [pr']
+    if isDualE mode then return [removeLeakageAnns opts opr,pr'] else return [pr']
 
 -- normal program with the last goto replaced pointing to the shadow label and annotations removed
 redirectBasicBlock :: Options -> Maybe Id -> Id -> BasicBlock -> BasicBlock
