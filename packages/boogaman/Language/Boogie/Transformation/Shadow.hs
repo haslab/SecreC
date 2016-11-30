@@ -439,8 +439,8 @@ shadowDuals f (True:bs) (e:es) = do
 shadowDuals f bs es = error "shadowDuals: mismatching arguments"
 
 shadowBareExpression :: MonadIO m => SourcePos -> Options -> ShadowEMode -> BareExpression -> ShadowM m BareExpression
-shadowBareExpression p opts DualE (isLeakageExpr opts -> Just e') = shadowBareExpression p opts DualE e'
-shadowBareExpression p opts ShadowE e | hasLeakageFunAnn opts e = error $ show $ text (show p) <+> text "unsupported leakage expression" <+> pretty e <+> text "in ShadowE"
+shadowBareExpression p opts mode@(isDualE -> True) (isLeakageExpr opts -> Just e') = shadowBareExpression p opts mode e'
+shadowBareExpression p opts ShadowE e | hasLeakageFunAnn opts e = error $ show $ text (show p) <+> text "unsupported leakage expression" <+> pretty e <+> text "in ShadowE mode"
 shadowBareExpression p opts DualE e | not (hasLeakageFunAnn opts e) = do
     e' <- shadowBareExpression p opts ShadowE e
     return $ BinaryExpression And (Pos noPos e) (Pos noPos e')
@@ -676,7 +676,7 @@ shadowWildcardExpression opts m (Expr e) = do
 
 leakagePred :: Options -> BareStatement -> Maybe BareStatement
 leakagePred opts p@(Predicate atts spec@(SpecClause st isAssume (Pos l e))) = case isLeakageExpr opts e of
-    Nothing -> if hasLeakageAtt atts then Just p else Nothing
+    Nothing -> if hasLeakageAtt atts || hasLeakageFunAnn opts e then Just p else Nothing
     Just e' -> Just $ Predicate atts (SpecClause st isAssume (Pos l e'))
 
 shadowPredicate :: MonadIO m => SourcePos -> Options -> ShadowEMode -> BareStatement -> ShadowM m [BareStatement]
@@ -698,7 +698,7 @@ shadowPredicate p opts mode@(isDualMode -> True) s@(leakagePred opts -> Just (Pr
             return [Assign [(shadow_ok,[])] [Pos noPos $ BinaryExpression And (Pos noPos $ Var shadow_ok) e'] ]
         else do -- in-place assertion of equality
             return [Predicate atts $ SpecClause st False e']
-shadowPredicate p opts mode@(isDualMode -> True) pr@(leakagePred opts -> Just (Predicate atts (SpecClause st isAssume e))) | hasLeakageFunAnn opts e = do
+shadowPredicate p opts mode@(isDualMode -> True) pr@(leakagePred opts -> Just (Predicate atts (SpecClause st isAssume e))) = do
     e' <- shadowExpression opts DualE e
     let s' = SpecClause st isAssume e'
     atts' <- concatMapM (shadowAttribute opts True) atts
