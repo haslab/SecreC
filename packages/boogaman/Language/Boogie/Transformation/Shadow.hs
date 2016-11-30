@@ -589,7 +589,8 @@ shadowBareStatement p opts mode s@(Assign lhs rhs) = do
         ess' <- mapM (mapM (shadowExpression opts ShadowE)) ess
         return (i',ess')
     lhs' <- mapM shadowLhs lhs
-    rhs' <- mapM (shadowExpression opts ShadowE) rhs
+    let mode' = if isDualE mode then ShadowDualE else ShadowE
+    rhs' <- mapM (shadowExpression opts mode') rhs
     let s' = Assign lhs' rhs'
     if isDualE mode
         then return [removeLeakageAnns opts s,s']
