@@ -601,7 +601,7 @@ shadowBareStatement p opts ShadowDualE s@(Call atts is name es) = do -- shadow a
     es' <- mapM (shadowExpression opts ShadowDualE) es
     let s' = Call atts' is' name' es'
     return [s']
-shadowBareStatement p opts DualE s@(Call atts is name es) | isLeakFunName opts name = do -- duplicate call arguments
+shadowBareStatement p opts DualE s@(Call atts is name es) | isLeakFunName opts name = strace opts ("shadow statement DualE leakage " ++ show (pretty s)) $ do -- duplicate call arguments
     (bools,rbools,_,_) <- getProcedure name
     is' <- shadowDuals (shadowId opts ShadowE) rbools is
     name' <- shadowId opts DualE name
@@ -609,14 +609,14 @@ shadowBareStatement p opts DualE s@(Call atts is name es) | isLeakFunName opts n
     es' <- shadowDuals (shadowExpression opts ShadowDualE) bools es
     let s' = Call atts' is' name' es'
     return [s']
-shadowBareStatement p opts DualE s@(Call atts is name es) | not (isLeakFunName opts name) = do -- duplicate call
+shadowBareStatement p opts DualE s@(Call atts is name es) | not (isLeakFunName opts name) = strace opts ("shadow statement DualE nonleakage " ++ show (pretty s)) $ do -- duplicate call
     is' <- mapM (shadowId opts ShadowE) is
     name' <- shadowId opts ShadowE name
     atts' <- concatMapM (shadowAttribute opts False) atts
     es' <- mapM (shadowExpression opts ShadowDualE) es
     let s' = Call atts' is' name' es'
     return [s,s']
-shadowBareStatement p opts ShadowE s@(Call atts is name es) | not (isLeakFunName opts name) = do -- shadow call arguments
+shadowBareStatement p opts ShadowE s@(Call atts is name es) | not (isLeakFunName opts name) = strace opts ("shadow statement ShadowE " ++ show (pretty s)) $ do -- shadow call arguments
     is' <- mapM (shadowId opts ShadowE) is
     name' <- shadowId opts ShadowE name
     atts' <- concatMapM (shadowAttribute opts False) atts
