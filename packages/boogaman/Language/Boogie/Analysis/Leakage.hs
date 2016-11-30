@@ -227,6 +227,7 @@ dafnyAppE name (unboxE -> Just e) = dafnyAppE name e
 dafnyAppE name (Coercion e _) = dafnyAppE name (unPos e)
 dafnyAppE name (Application ((==name) -> True) [unPos -> e]) = Just e
 dafnyAppE name (Application (isSuffixOf ("."++name) -> True) [tclass,heap,(boxE . unPos) -> Just e]) = Just e
+dafnyAppE name e = Nothing
 
 isAnn :: Options -> Id -> BareExpression -> Maybe BareExpression
 isAnn opts@(vcgen -> NoVCGen) name (Application ((==name) -> True) [unPos -> e]) = Just e
