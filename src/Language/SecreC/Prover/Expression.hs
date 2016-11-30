@@ -63,7 +63,7 @@ expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
     substs <- lift $ getTSubsts l
     subste <- lift $ substFromTSubsts "simplify" dontStop l substs False Map.empty e
-    (ss',mbe') <- lift $ runSimplify $ simplifyExpression False subste
+    (ss',mbe') <- lift $ runSimplify $ simplifyExpression False Nothing subste
     stmts2Prover ss'
     case mbe' of
         Nothing -> lift $ do

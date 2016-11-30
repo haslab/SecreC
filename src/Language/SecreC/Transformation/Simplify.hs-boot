@@ -30,7 +30,7 @@ tryRunSimplify :: SimplifyK Position m => (a -> SimplifyM m a) -> (a -> TcM m a)
 
 runSimplify :: SimplifyK Position m => SimplifyM m a -> TcM m a
 
-simplifyExpression :: SimplifyK loc m => Bool -> Expression GIdentifier (Typed loc) -> SimplifyM m ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc)))
+simplifyExpression :: SimplifyK loc m => Bool -> Maybe (VarName GIdentifier (Typed loc)) -> Expression GIdentifier (Typed loc) -> SimplifyM m ([Statement GIdentifier (Typed loc)],Maybe (Expression GIdentifier (Typed loc)))
 
 simplifyStmts :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [Statement GIdentifier (Typed loc)] -> SimplifyM m [Statement GIdentifier (Typed loc)]
 
