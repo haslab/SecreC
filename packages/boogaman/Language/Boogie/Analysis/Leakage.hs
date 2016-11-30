@@ -218,9 +218,19 @@ boxE :: BareExpression -> Maybe BareExpression
 boxE (Application "$Box" [e]) = Just $ unPos e
 boxE e = Nothing
 
+unboxE :: BareExpression -> Maybe BareExpression
+unboxE (Application "$Unbox" [e]) = Just $ unPos e
+unboxE e = Nothing
+
+dafnyAppE :: String -> BareExpression -> Maybe BareExpression
+dafnyAppE name (unboxE -> Just e) = dafnyAppE name e
+dafnyAppE name (Coercion e _) = dafnyAppE name (unPos e)
+dafnyAppE name (Application ((==name) -> True) [unPos -> e]) = Just e
+dafnyAppE name (Application (isSuffixOf ("."++name) -> True) [tclass,heap,(boxE . unPos) -> Just e]) = Just e
+
 isAnn :: Options -> Id -> BareExpression -> Maybe BareExpression
 isAnn opts@(vcgen -> NoVCGen) name (Application ((==name) -> True) [unPos -> e]) = Just e
-isAnn opts@(vcgen -> Dafny) name (Application (isSuffixOf ("."++name) -> True) [tclass,_,(boxE . unPos) -> Just e]) = Just e
+isAnn opts@(vcgen -> Dafny) name (dafnyAppE name -> Just e) = Just e
 isAnn opts _ e = Nothing
 
 isPublicExpr :: Options -> BareExpression -> Maybe (BareExpression,PublicType)
