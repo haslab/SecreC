@@ -355,20 +355,20 @@ simplifyExpression isExpr vret (ProcCallExpr l n@(loc -> Typed pl pt) ts es) = d
     mb <- inlineProcCall True isExpr vret (unTyped l) (fmap (const $ NoType "simpleProc") $ procedureNameId n) pt es'
     case mb of
         Right t' -> assignRetExpr vret (ss++ss',Just $ ProcCallExpr l (updLoc n $ Typed pl t') ts' es')
-        Left (ss'',res) -> assignRetExpr vret (ss++ss'++ss'',res)
+        Left (ss'',res) -> return (ss++ss'++ss'',res)
 simplifyExpression isExpr vret e@(BinaryExpr l e1 o@(loc -> Typed ol ot) e2) = do
     (ss1,e1') <- simplifyNonVoidExpression isExpr e1
     (ss2,e2') <- simplifyNonVoidExpression isExpr e2
     mb <- inlineProcCall True isExpr vret (unTyped l) (OIden $ fmap typed o) ot [(e1',False),(e2',False)]
     case mb of
         Right t' -> assignRetExpr vret (ss1++ss2,Just $ BinaryExpr l e1' (updLoc o $ Typed ol t') e2')
-        Left (ss3,res) -> assignRetExpr vret (ss1++ss2++ss3,res)
+        Left (ss3,res) -> return (ss1++ss2++ss3,res)
 simplifyExpression isExpr vret (UnaryExpr l o@(loc -> Typed ol ot) e) = do
     (ss,e') <- simplifyNonVoidExpression isExpr e
     mb <- inlineProcCall True isExpr vret (unTyped l) (OIden $ fmap typed o) ot [(e',False)]
     case mb of
         Right t' -> assignRetExpr vret (ss,Just $ UnaryExpr l (updLoc o $ Typed ol t') e')
-        Left (ss',res) -> assignRetExpr vret (ss++ss',res)
+        Left (ss',res) -> return (ss++ss',res)
 simplifyExpression isExpr vret (CondExpr l c e1 e2) = do
     (ssc,c') <- simplifyNonVoidExpression isExpr c
     (ss1,e1') <- withCondExpr c' $ simplifyNonVoidExpression isExpr e1
