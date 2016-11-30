@@ -283,12 +283,13 @@ simplifyVariableInitialization :: SimplifyK loc m => Bool -> TypeSpecifier GIden
 simplifyVariableInitialization isConst t (VariableInitialization l v szs mbe) = do
     (ss,szs') <- simplifyMaybeSizes False szs
     let def = VariableDeclaration l isConst True t $ WrapNe $ VariableInitialization l v szs' Nothing
+    let ss1 = ss++[VarStatement l def]
     case mbe of
-        Nothing -> return ss
+        Nothing -> return ss1
         Just e -> do
-            (ss',Nothing) <- simplifyExpression False (Just v) e
+            (ss2,Nothing) <- simplifyExpression False (Just v) e
             --let ass' = maybe [] (\e -> [ExpressionStatement l $ BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e]) e'
-            return ss'
+            return (ss1++ss2)
 
 simplifyReturnTypeSpecifier :: Bool -> SimplifyT loc m ReturnTypeSpecifier
 simplifyReturnTypeSpecifier isExpr (ReturnType l t) = do
@@ -777,7 +778,7 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
             ppes <- ppr es
             ppb' <- ppr body''
             liftIO $ putStrLn $ "inlinedFunTrue " ++ ppn ++ " " ++ ppes ++ " " ++ ppb'
-        return $ Left (decls++ss1++compoundStmts l (annStmts l reqs'++ss++annStmts l ens'),Just body'')
+        liftM Left $ assignRetExpr vret (decls++ss1++compoundStmts l (annStmts l reqs'++ss++annStmts l ens'),Just body'')
     inlineProcCall' es' d = do
         d' <- simplifyDecType d
         debugTc $ do
