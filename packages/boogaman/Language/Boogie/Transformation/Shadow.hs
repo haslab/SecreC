@@ -440,7 +440,7 @@ shadowDuals f bs es = error "shadowDuals: mismatching arguments"
 
 shadowBareExpression :: MonadIO m => SourcePos -> Options -> ShadowEMode -> BareExpression -> ShadowM m BareExpression
 shadowBareExpression p opts DualE (isLeakageExpr opts -> Just e') = shadowBareExpression p opts DualE e'
-shadowBareExpression p opts ShadowE e | hasLeakageFunAnn opts e = error $ show $ text (show p) <+> text "unsupported leakage expression" <+> pretty e <+> text "in ShadowE mode"
+shadowBareExpression p opts ShadowE e | hasLeakageFunAnn opts e = error $ show $ text (show p) <+> text "unsupported leakage expression" <+> pretty e <+> text "in ShadowE"
 shadowBareExpression p opts DualE e | not (hasLeakageFunAnn opts e) = do
     e' <- shadowBareExpression p opts ShadowE e
     return $ BinaryExpression And (Pos noPos e) (Pos noPos e')
