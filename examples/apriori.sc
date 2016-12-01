@@ -28,6 +28,15 @@ template <type T, dim N>
 void printArray (T[[N]] arr) {
 }
 
+template<domain D>
+private uint[[1]] snoc (D uint[[2]] xs, D uint[[1]] x)
+//@ requires shape(xs)[1] == size(x);
+//@ ensures shape(\result)[0] == shape(xs)[0] + 1;
+//@ ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] == xs[i,:];
+//@ ensures \result[shape(xs)[0],:] == x;
+{
+    return cat (xs,reshape(x,1,size(x)));
+}
 
 pd_a3p uint [[2]] load_db () {
     pd_a3p uint [[2]] db (5,5);
@@ -111,19 +120,18 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     pd_a3p uint frequence = sum (z); // frequency of item i
     //x //@ assert frequence == frequency({i},db);
     if (declassify (frequence >= classify(threshold))) {
-      uint[[2]] F_old = F;
-      uint[[2]] F_it = reshape(i,1,1);
+      //uint[[2]] F_old = F;
+      //uint[[1]] F_it = reshape(i,1,1);
       //@ assert F_it[0,:] == {i};
-      F = cat (F_old, F_it);
+      F = cat (F,{i});
       //x //@ assert forall uint x; x < shape(F_old)[0] ==> F[x,:] == F_old[x,:];
       //x //@ assert forall uint x; x < shape(F_it)[0] ==> F[shape(F_old)[0]+x,:] == F_it[x,:];
-      //@ assert F[shape(F_old)[0],:] == F_it[0,:];
+      //x //@ assert F[shape(F_old)[0],:] == F_it[0,:];
       pd_a3p uint [[2]] F_old_cache = F_cache;
       pd_a3p uint [[2]] F_it_cache = reshape (z, 1, dbRows);
       F_cache = cat (F_old_cache, F_it_cache);
       //@ assert forall uint x; x < shape(F_old_cache)[0] ==> declassify(F_cache[x,:] == F_old_cache[x,:]);
       //@ assert F_cache[shape(F_old_cache)[0],:] == F_it_cache[0,:];      
-      //x //@ assert F[shape(F_old)[0],:] == {i};
     }
   }
   //x //@ assert AllFrequents(F,db,threshold,dbColumns);
