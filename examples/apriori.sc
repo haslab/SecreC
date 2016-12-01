@@ -115,7 +115,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       uint[[2]] F_it = reshape(i,1,1);
       F = cat (F_old, F_it);
       //x //@ assert forall uint x; x < shape(F_old)[0] ==> F[x,:] == F_old[x,:];
-      //x //@ assert F[shape(F_old)[0],:] == F_it[0,:];
+      //@ assert F[shape(F_old)[0],:] == F_it[0,:];
       pd_a3p uint [[2]] F_old_cache = F_cache;
       pd_a3p uint [[2]] F_it_cache = reshape (z, 1, dbRows);
       F_cache = cat (F_old_cache, F_it_cache);
