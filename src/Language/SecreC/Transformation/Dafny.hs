@@ -616,8 +616,8 @@ genDafnyArrays l annK vs pv tv = do
                         Just (LId {}) -> return []
                         Just (AId {}) -> return []
                         otherwise -> do
-                            ann1 <- annExpr True False False annK vs (pv <> text "`arr" <> int (fromEnum n))
-                            ann2 <- annExpr True False False annK vs (pv <> text ".arr" <> int (fromEnum n))
+                            ann1 <- annExpr True False False ReadsK vs (pv <> text "`arr" <> int (fromEnum n))
+                            ann2 <- annExpr True False False ReadsK vs (pv <> text ".arr" <> int (fromEnum n))
                             return (ann1++ann2)
                     notnull <- annExpr True False False annK vs (pv <+> text "!= null &&" <+> pv <> text ".valid()")
                     return $ readarr++notnull
