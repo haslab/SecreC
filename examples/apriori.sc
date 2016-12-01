@@ -28,17 +28,6 @@ template <type T, dim N>
 void printArray (T[[N]] arr) {
 }
 
-template<domain D,type T>
-D uint[[2]] snoc (D T[[2]] xs, D T[[1]] x)
-//@ inline;
-//@ requires shape(xs)[1] == size(x);
-//@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
-//@ free ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] == xs[i,:];
-//@ free ensures \result[shape(xs)[0],:] == x;
-{
-    return cat (xs,reshape(x,1,size(x)));
-}
-
 pd_a3p uint [[2]] load_db () {
     pd_a3p uint [[2]] db (5,5);
     db[0, 0] = classify(1);
