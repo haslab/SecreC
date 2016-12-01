@@ -717,7 +717,9 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                 (reqs,ens) <- splitProcAnns ann''
                 (ss1,t') <- simplifyTypeSpecifier False t
                 let tl = notTyped "inline" l
-                let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
+                let def = case vret of
+                            Nothing -> [VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing]
+                            otherwise -> []
                 reqs' <- simplifyStatementAnns True reqs
                 ss <- simplifyStatements (Just res) body'
                 debugTc $ do
@@ -726,7 +728,7 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                     ppss <- liftM vcat $ mapM pp ss
                     liftIO $ putStrLn $ "inlineProcCall return " ++ ppn ++ " " ++ ppres ++ "\n" ++ show ppss
                 ens' <- simplifyStatementAnns True ens
-                return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++ens'),maybe (Just $ varExpr res) (const Nothing) vret)
+                return $ Left (decls++ss1++def ++ compoundStmts l (reqs'++ss++ens'),maybe (Just $ varExpr res) (const Nothing) vret)
             Nothing -> do
                 (reqs,ens) <- splitProcAnns ann'
                 reqs' <- simplifyStatementAnns True reqs
@@ -750,12 +752,14 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
         (reqs,ens) <- splitProcAnns ann'
         (ss1,t') <- simplifyTypeSpecifier False t
         let tl = notTyped "inline" l
-        let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing
+        let def = case vret of
+                    Nothing -> [VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl res Nothing Nothing]
+                    otherwise -> []
         reqs' <- simplifyStatementAnns True reqs
         (ss,body'') <- simplifyNonVoidExpression False body'
         let sbody = [ExpressionStatement tl $ BinaryAssign (loc res) (varExpr res) (BinaryAssignEqual tl) body'']
         ens' <- simplifyStatementAnns True ens
-        return $ Left (decls++ss1++[def] ++ compoundStmts l (reqs'++ss++sbody++ens'),maybe (Just $ varExpr res) (const Nothing) vret)
+        return $ Left (decls++ss1++def ++ compoundStmts l (reqs'++ss++sbody++ens'),maybe (Just $ varExpr res) (const Nothing) vret)
     inlineProcCall' es' (DecType _ _ _ _ _ _ (FunType isLeak _ _ args ret ann (Just body) c)) | isExpr && isInlineDecClass c = do
         debugTc $ do
             ppn <- ppr n
