@@ -868,7 +868,8 @@ addAssumptions m = do
     anns <- m
     ass <- getAssumptions
     -- if there is any assumption bigger than @x@, drop x
-    let anns' = anns -- List.filter (\x -> not $ any (flip supersedesAssumption x) ass) anns
+    let (rest,anns') = List.partition (\x -> any (flip supersedesAssumption x) ass) anns
+    lift $ debugTc $ liftIO $ putStrLn $ show $ text "dropped assumptions" <+> annLinesProcC rest
     State.modify $ \env -> env { assumptions = ass ++ anns' }
     return anns'
 
