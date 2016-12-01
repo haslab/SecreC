@@ -857,8 +857,10 @@ loopAnnsToDafny xs = withInAnn True $ liftM concat $ mapM loopAnnToDafny xs
 addAssumptions :: DafnyK m => DafnyM m AnnsDoc -> DafnyM m AnnsDoc
 addAssumptions m = do
     anns <- m
-    State.modify $ \env -> env { assumptions = assumptions env ++ anns }
-    return anns
+    ass <- getAssumptions
+    let anns' = List.filter (\x -> all ((fou5 x /=) . fou5) ass) anns
+    State.modify $ \env -> env { assumptions = ass ++ anns' }
+    return anns'
 
 annExpr :: DafnyK m => Bool -> Bool -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> DafnyM m AnnsDoc
 annExpr isFree isLeak leakMode annK vs e = addAssumptions $ do
