@@ -122,7 +122,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     if (declassify (frequence >= classify(threshold))) {
       //uint[[2]] F_old = F;
       //uint[[1]] F_it = reshape(i,1,1);
-      //@ assert F_it[0,:] == {i};
+      //x //@ assert F_it[0,:] == {i};
       F = cat (F,{i});
       //x //@ assert forall uint x; x < shape(F_old)[0] ==> F[x,:] == F_old[x,:];
       //x //@ assert forall uint x; x < shape(F_it)[0] ==> F[shape(F_old)[0]+x,:] == F_it[x,:];
