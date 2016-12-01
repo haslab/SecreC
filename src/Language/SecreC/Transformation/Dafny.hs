@@ -868,7 +868,7 @@ addAssumptions m = do
     anns <- m
     ass <- getAssumptions
     -- if there is any assumption bigger than @x@, drop x
-    let anns' = List.filter (\x -> not $ any (flip supersedesAssumption x) ass) anns
+    let anns' = anns -- List.filter (\x -> not $ any (flip supersedesAssumption x) ass) anns
     State.modify $ \env -> env { assumptions = ass ++ anns' }
     return anns'
 
