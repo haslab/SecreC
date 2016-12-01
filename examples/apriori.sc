@@ -122,7 +122,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
       pd_a3p uint [[2]] F_it_cache = reshape (z, 1, dbRows);
       F_cache = cat (F_old_cache, F_it_cache);
       //x //@ assert forall uint x; x < shape(F_old_cache)[0] ==> declassify(F_cache[x,:] == F_old_cache[x,:]);
-      //@ assert F_cache[shape(F_old_cache)[0],:] == F_it_cache[0,:];      
+      //x //@ assert F_cache[shape(F_old_cache)[0],:] == F_it_cache[0,:];      
       //x //@ assert F[shape(F_old)[0],:] == {i};
     }
   }
