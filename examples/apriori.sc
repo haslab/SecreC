@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --verify=leakv --entrypoints="apriori"
+#OPTIONS_SECREC --implicitcoercions=defaultsc --verify=funcv --entrypoints="apriori"
 
 module apriori;
 
