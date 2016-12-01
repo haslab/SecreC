@@ -28,8 +28,8 @@ template <type T, dim N>
 void printArray (T[[N]] arr) {
 }
 
-template<domain D>
-private uint[[1]] snoc (D uint[[2]] xs, D uint[[1]] x)
+template<domain D,type T>
+D uint[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 //@ requires shape(xs)[1] == size(x);
 //@ ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] == xs[i,:];
