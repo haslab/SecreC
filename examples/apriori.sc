@@ -88,6 +88,7 @@ pd_a3p uint [[2]] load_db () {
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
+//@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
 {
   uint dbColumns = shape(db)[1]; // number of items
@@ -127,7 +128,7 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   
   // until we find itemsets with length setSize
   for (uint k = 1; k < setSize; k=k+1)
-  //@ invariant k <= setSize;
+  //@ invariant 1 <= k && k <= setSize;
   //@ invariant shape(F)[1] == k;
   //@ invariant FrequentsCache(F,F_cache,db,threshold);
   {
@@ -136,12 +137,12 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
     uint F_size = shape(F)[0]; // number of items for k-1
     for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
     //@ invariant i <= F_size;
-    //@ invariant shape(F_new)[1] == k;
+    //@ invariant shape(F_new)[1] == k+1;
     //@ invariant FrequentsCache(F_new,F_new_cache,db,threshold);
     {
       for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
       //@ invariant i < j && j <= F_size;
-      //@ invariant shape(F_new)[1] == k;
+      //@ invariant shape(F_new)[1] == k+1;
       //@ invariant FrequentsCache(F_new,F_new_cache,db,threshold);
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
