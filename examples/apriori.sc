@@ -133,14 +133,16 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   
   // until we find itemsets with length setSize
   for (uint k = 1; k < setSize; k=k+1)
-  //x //@ invariant shape(F)[1] == k;
+  //@ invariant k <= setSize;
   {
     F_new = reshape ({}, 0, k + 1); // empty?
     F_new_cache = reshape ({}, 0, dbRows); // empty?
     uint F_size = shape(F)[0]; // number of items for k-1
     for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
+    //@ invariant i <= F_size;
     {
       for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
+      //@ invariant i < j && j <= F_size;
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
@@ -160,10 +162,10 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
           //@ assert C_dot == transactions(C,db);
           // compute the joint frequency
           pd_a3p uint frequence = sum (C_dot);
-          if (declassify (frequence >= classify(threshold))) {
-            F_new_cache = cat (F_new_cache, reshape(C_dot, 1, size(C_dot)));
-            F_new = cat (F_new, reshape(C, 1, k+1));
-          }
+          //if (declassify (frequence >= classify(threshold))) {
+          //  F_new_cache = cat (F_new_cache, reshape(C_dot, 1, size(C_dot)));
+          //  F_new = cat (F_new, reshape(C, 1, k+1));
+          //}
         }
       }
     }
