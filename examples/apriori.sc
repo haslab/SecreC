@@ -30,6 +30,7 @@ void printArray (T[[N]] arr) {
 
 template<domain D,type T>
 D uint[[2]] snoc (D T[[2]] xs, D T[[1]] x)
+//@ inline;
 //@ requires shape(xs)[1] == size(x);
 //@ ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] == xs[i,:];
