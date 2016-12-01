@@ -96,12 +96,6 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   uint [[2]] F (0, 1); // frequent itemsets
   pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
 
-  uint [[2]] F_new; // new frequent itemsets based on existing ones in F
-  pd_a3p uint [[2]] F_new_cache (0, dbRows); // cached column data for newly generated frequent itemsets
-
-  uint [[1]] C; // new candidate itemset
-  pd_a3p uint [[1]] C_dot (dbRows); // column data (dot product) for the new candidate itemset C
-
   // compute the itemsets of size 1
   for (uint i = 0; i < dbColumns; i=i+1)
   //@ invariant i <= dbColumns;
@@ -134,15 +128,21 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   // until we find itemsets with length setSize
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant k <= setSize;
+  //@ invariant shape(F)[1] == k;
+  //@ invariant FrequentsCache(F,F_cache,db,threshold);
   {
-    F_new = reshape ({}, 0, k + 1); // empty?
-    F_new_cache = reshape ({}, 0, dbRows); // empty?
+    uint [[2]] F_new (0, k + 1);
+    pd_a3p uint [[2]] F_new_cache (0, dbRows);
     uint F_size = shape(F)[0]; // number of items for k-1
     for (uint i = 0; i < F_size; i=i+1) // for each itemset in F
     //@ invariant i <= F_size;
+    //@ invariant shape(F_new)[1] == k;
+    //@ invariant FrequentsCache(F_new,F_new_cache,db,threshold);
     {
       for (uint j = i + 1; j < F_size; j=j+1) // for each other itemset in F
       //@ invariant i < j && j <= F_size;
+      //@ invariant shape(F_new)[1] == k;
+      //@ invariant FrequentsCache(F_new,F_new_cache,db,threshold);
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
@@ -154,11 +154,14 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
         }
         //itemsets are ordered by item, hence the comparison in the test
         if (prefixEqual && F[i, k-1] < F[j, k-1]) {
+          // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
+          uint [[1]] C;
           C = cat (F[i, :], F[j, k-1:k]);
           //@ assert IsItemSetOf(C,db);
           //join the two caches
-          pd_a3p uint [[1]] C_dot = F_cache[i, :] * F_cache[j, :];
+          pd_a3p uint [[1]] C_dot (dbRows); // column data (dot product) for the new candidate itemset C
+          C_dot = F_cache[i, :] * F_cache[j, :];
           //@ assert C_dot == transactions(C,db);
           // compute the joint frequency
           pd_a3p uint frequence = sum (C_dot);
