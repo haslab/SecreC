@@ -640,7 +640,7 @@ genDafnyInvariantAssumptions p annK xs = do
     isUntouched (_,_,vs,_,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
     propagate (_,_,vs,pe,isLeak) = annExpr True isLeak isLeak annK vs pe
 
--- generate an frame condition for every untouched variable
+-- generate a frame condition for every untouched variable
 genDafnyFrames :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
 genDafnyFrames p annK xs = concatMapM (genDafnyFrame p annK) xs
     where
@@ -865,12 +865,12 @@ supersedesAnnKind x y = x == y
 
 addAssumptions :: DafnyK m => DafnyM m AnnsDoc -> DafnyM m AnnsDoc
 addAssumptions m = do
-    anns <- m
     ass <- getAssumptions
+    anns <- m
     -- if there is any assumption bigger than @x@, drop x
     let (rest,anns') = List.partition (\x -> any (flip supersedesAssumption x) ass) anns
     lift $ debugTc $ liftIO $ putStrLn $ show $ text "dropped assumptions" <+> annLinesProcC rest $+$ text "because of" <> annLinesProcC anns
-    State.modify $ \env -> env { assumptions = ass ++ anns' }
+    State.modify $ \env -> env { assumptions = assumptions env ++ anns' }
     return anns'
 
 annExpr :: DafnyK m => Bool -> Bool -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> DafnyM m AnnsDoc
