@@ -615,10 +615,11 @@ genDafnyArrays l annK vs pv tv = do
                         Just (PId {}) -> return []
                         Just (LId {}) -> return []
                         Just (AId {}) -> return []
-                        otherwise -> return
-                            [(ReadsK,True,vs,pv <> text "`arr" <> int (fromEnum n),False)
-                            ,(ReadsK,True,vs,pv <> text ".arr" <> int (fromEnum n),False)]
-                    let notnull = [(annK,True,vs,pv <+> text "!= null &&" <+> pv <> text ".valid()",False)]
+                        otherwise -> do
+                            ann1 <- annExpr True False False annK vs (pv <> text "`arr" <> int (fromEnum n))
+                            ann2 <- annExpr True False False annK vs (pv <> text ".arr" <> int (fromEnum n))
+                            return (ann1++ann2)
+                    notnull <- annExpr True False False annK vs (pv <+> text "!= null &&" <+> pv <> text ".valid()")
                     return $ readarr++notnull
                 otherwise -> return []
         otherwise -> return []
@@ -634,10 +635,10 @@ propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
 genDafnyInvariantAssumptions :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
 genDafnyInvariantAssumptions p annK xs = do
     anns <- getAssumptions
-    return $ map propagate $ filter isUntouched anns
+    concatMapM propagate $ filter isUntouched anns
   where
     isUntouched (_,_,vs,_,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
-    propagate (_,_,vs,pe,isLeak) = (annK,True,vs,pe,isLeak)
+    propagate (_,_,vs,pe,isLeak) = annExpr True isLeak isLeak annK vs pe
 
 -- generate an frame condition for every untouched variable
 genDafnyFrames :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
@@ -645,7 +646,7 @@ genDafnyFrames p annK xs = concatMapM (genDafnyFrame p annK) xs
     where
     genDafnyFrame p annK (v,t) = do
         pv <- varToDafny $ VarName (Typed p t) (VIden v)
-        return [(annK,True,Set.singleton v,pv <+> text "==" <+> text "old" <> parens pv,False)]
+        annExpr True False False annK (Set.singleton v) (pv <+> text "==" <+> text "old" <> parens pv)
 
 genDafnyPublics :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyPublics l True annK vs pv tv = return []
@@ -660,8 +661,8 @@ genDafnyPublics l False annK vs pv tv = whenLeakMode $ do
                             RequireK -> "PublicIn"
                             NoK -> "PublicMid"
             -- only generate publics for primitive types
-            let genPublic t@(BaseT {}) = return [(annK,True,vs,text publick <> parens pv,True)]
-                genPublic t@(ComplexT (CType s b d)) | isPublicSecType s && isPrimBaseType b = return [(annK,True,vs,text publick <> parens pv,True)]
+            let genPublic t@(BaseT {}) = annExpr True True True annK vs (text publick <> parens pv)
+                genPublic t@(ComplexT (CType s b d)) | isPublicSecType s && isPrimBaseType b = annExpr True True True annK vs (text publick <> parens pv)
                 genPublic t = return []
             -- only generate public sizes for private types
             let genPublicSize t@(ComplexT (CType s b d)) | not (isPublicSecType s) = do
@@ -670,10 +671,10 @@ genDafnyPublics l False annK vs pv tv = whenLeakMode $ do
                         Right 0 -> return []
                         Right 1 -> do
                             let psize = dafnySize 1 pv
-                            return [(annK,True,vs,text publick <> parens psize,True)]
+                            annExpr True True True annK vs (text publick <> parens psize)
                         Right n -> do
                             let pshape = dafnyShape n pv
-                            return [(annK,True,vs,text publick <> parens pshape,True)]
+                            annExpr True True True annK vs (text publick <> parens pshape)
                         otherwise -> do
                             ppt <- lift $ pp t
                             genError l $ text "genPublicSize:" <+> pv <+> ppt
@@ -854,11 +855,20 @@ statementToDafny s = do
 loopAnnsToDafny :: DafnyK m => [LoopAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 loopAnnsToDafny xs = withInAnn True $ liftM concat $ mapM loopAnnToDafny xs
 
+supersedesAssumption :: AnnDoc -> AnnDoc -> Bool
+supersedesAssumption (annK1,isFree1,vs1,e1,isLeak1) (annK2,isFree2,vs2,e2,isLeak2) =
+    e1 == e2 && supersedesAnnKind annK1 annK2
+supersedesAnnKind :: AnnKind -> AnnKind -> Bool
+supersedesAnnKind InvariantK RequireK = True
+supersedesAnnKind InvariantK StmtK = True
+supersedesAnnKind x y = x == y
+
 addAssumptions :: DafnyK m => DafnyM m AnnsDoc -> DafnyM m AnnsDoc
 addAssumptions m = do
     anns <- m
     ass <- getAssumptions
-    let anns' = List.filter (\x -> all ((fou5 x /=) . fou5) ass) anns
+    -- if there is any assumption bigger than @x@, drop x
+    let anns' = List.filter (\x -> not $ any (flip supersedesAssumption x) ass) anns
     State.modify $ \env -> env { assumptions = ass ++ anns' }
     return anns'
 
@@ -1470,8 +1480,8 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.declassify" [x] = do -- w
     inAnn <- getInAnn
     if leakMode && not inAnn
         then do
-            let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px,True)
-            qExprToDafny isQExpr (annx++[assert]) px
+            assert <- annExpr False True True annK vs (text "DeclassifiedIn" <> parens px)
+            qExprToDafny isQExpr (annx++assert) px
         else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.classify" [x] = do -- we ignore security types
     expressionToDafny isLVal Nothing annK x
@@ -1483,8 +1493,8 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.reclassify" [x] = do -- w
     isPub <- lift $ liftM isJust $ tryTcErrorMaybe l $ isPublic l False ret
     if leakMode && not inAnn && isPub
         then do
-            let assert = (annK,False,vs,text "DeclassifiedIn" <> parens px,True)
-            qExprToDafny isQExpr (annx++[assert]) px
+            assert <- annExpr False True True annK vs (text "DeclassifiedIn" <> parens px)
+            qExprToDafny isQExpr (annx++assert) px
         else qExprToDafny isQExpr annx px
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.cat" [x,y] = do
     (annx,px) <- expressionToDafny isLVal Nothing annK x
