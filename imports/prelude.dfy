@@ -139,9 +139,9 @@ class Array2<T> {
   free ensures this.arr2.Length1 == xs.arr2.Length1;
   free ensures this.arr2.Length0 == xs.arr2.Length0 + ys.arr2.Length0;
   free ensures forall i: int, j: int :: (0 <= i < xs.arr2.Length0 && 0 <= j < xs.arr2.Length1) ==> this.arr2[i,j] == xs.arr2[i,j];
-  //free ensures forall i: uint64 :: uint64(0) <= i < xs.Length0() ==> this.project01(i,uint64(0),xs.Length1()) == xs.project01(i,uint64(0),xs.Length1());
+  free ensures forall i: uint64 :: uint64(0) <= i < xs.Length0() ==> this.project01(i,uint64(0),xs.Length1()) == xs.project01(i,uint64(0),xs.Length1());
   free ensures forall i: int, j: int :: (0 <= i < ys.arr2.Length0 && 0 <= j < ys.arr2.Length1) ==> this.arr2[i+xs.arr2.Length0,j] == ys.arr2[i,j];
-  //free ensures forall i: uint64 :: uint64(0) <= i < ys.Length0() ==> this.project01(xs.Length0() + i,uint64(0),ys.Length1()) == ys.project01(i,uint64(0),ys.Length1());
+  free ensures forall i: uint64 :: uint64(0) <= i < ys.Length0() ==> this.project01(xs.Length0() + i,uint64(0),ys.Length1()) == ys.project01(i,uint64(0),ys.Length1());
   {}
   
   constructor cat1(xs: Array2<T>, ys: Array2<T>)
