@@ -122,13 +122,14 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     return f;
 }
 
-frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
+frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,k)
+//@ requires k >= 1;
+//@ requires shape(prev.items)[1] == k;
 //@ leakage requires LeakFrequents(db,threshold);
-//@ ensures shape(\result.items)[1] == shape(prev.items)[1] + 1;
+//@ ensures shape(\result.items)[1] == k + 1;
 //@ requires FrequentsCache(prev,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
 {
-    uint k = shape(prev.items)[1];
     frequent next;
     next.items = reshape({},0,k+1);
     next.cache = reshape({},0,shape(db)[0]);
@@ -190,7 +191,7 @@ uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant shape(freq.items)[1] == k;
   //@ invariant FrequentsCache(freq,db,threshold);
   {
-      freq = apriori_k(db,threshold,freq);
+      freq = apriori_k(db,threshold,freq,k);
   }
 
   return freq.items;
