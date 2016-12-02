@@ -82,7 +82,7 @@ struct frequent {
 //@     &&
 //@     forall uint i; i < shape(f.items)[0]
 //@            ==> IsItemSetOf(f.items[i,:],db)
-//@            &&  declassify(frequency(f.items[i,:],db)) >= threshold
+//@            &&  declassify(frequency(f.items[i,:],db)::pd_a3p uint) >= threshold
 //@            &&  declassify((f.cache[i,:] == transactions(f.items[i,:],db))::pd_a3p bool)
 //@ }
 
