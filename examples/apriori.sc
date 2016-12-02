@@ -131,7 +131,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
     uint k = shape(prev.items)[1];
     frequent next;
     next.items = reshape({},0,k+1);
-    next.cache = reshape({},0,dbRows);
+    next.cache = reshape({},0,shape(db)[0]);
     uint prev_F_size = shape(prev.items)[0]; // number of items for k-1
     for (uint i = 0; i < prev_F_size; i=i+1) // for each itemset in F
     //@ invariant i <= prev_F_size;
@@ -161,7 +161,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
           C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert IsItemSetOf(C,db);
           //join the two caches
-          pd_a3p uint [[1]] C_dot (dbRows); // column data (dot product) for the new candidate itemset C
+          pd_a3p uint [[1]] C_dot (shape(db)[0]); // column data (dot product) for the new candidate itemset C
           C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ assert C_dot == transactions(C,db);
           // compute the joint frequency
