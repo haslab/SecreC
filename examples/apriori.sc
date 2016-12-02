@@ -187,8 +187,8 @@ uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   // until we find itemsets with length setSize
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
-  //@ invariant shape(F)[1] == k;
-  //@ invariant FrequentsCache(freq.items,freq.cache,db,threshold);
+  //@ invariant shape(freq.items)[1] == k;
+  //@ invariant FrequentsCache(freq,db,threshold);
   {
       freq = apriori_k(db,threshold,freq,k+1);
   }
