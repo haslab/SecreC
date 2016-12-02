@@ -121,7 +121,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
           //@ assert hasItemsOf(F,db);
           //@ assert hasItemsOf(reshape({i},1,1),db)
         F = snoc (F,{i});
-        //@ assert hasItemsOf(F,db);
+        //X //@ assert hasItemsOf(F,db);
         F_cache = snoc (F_cache,z);  
       }
     }
