@@ -53,7 +53,6 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ { (forall uint i, uint j; i < shape(F)[0] && j < shape(F)[1] ==> F[i,j] < shape(db)[1]) }
 
-
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //@ requires IsItemSetOf(is,db);
@@ -119,7 +118,10 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
       pd_a3p uint frequence = sum (z); // frequency of item i
       //x //@ assert frequence == frequency({i},db);
       if (declassify (frequence >= classify(threshold))) {
+          //@ assert hasItemsOf(F,db);
+          //@ assert hasItemsOf(reshape({i},1,1),db)
         F = snoc (F,{i});
+        //@ assert hasItemsOf(F,db);
         F_cache = snoc (F_cache,z);  
       }
     }
