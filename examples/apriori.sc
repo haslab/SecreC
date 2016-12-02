@@ -125,7 +125,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
-frequent apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
+uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
 {
@@ -186,7 +186,7 @@ frequent apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //  F_cache = F_new_cache;
   //}
 
-  return freq;
+  return freq.items;
 }
 
 
