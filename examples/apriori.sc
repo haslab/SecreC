@@ -173,9 +173,6 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
         }
       }
     }
-    
-    next.items = F;
-    next.cache = F_cache;
 }
 
 // database rows = transaction no, database column = item no
