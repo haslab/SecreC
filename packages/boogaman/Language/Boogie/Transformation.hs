@@ -75,7 +75,7 @@ transform :: Options -> Program -> IO Program
 transform opts = simplifyP opts >=> leakageP opts >=> axiomatizeP opts >=> shadowP opts
 
 simplifyP :: Options -> Program -> IO Program
-simplifyP opts p = return $ if (simplify opts || shadow opts) then S.runSimplify p else p
+simplifyP opts p = return $ if (simplify opts || shadow opts) then S.runSimplify opts p else p
 
 leakageP :: Options -> Program -> IO Program
 leakageP opts p = case filterLeakage opts of

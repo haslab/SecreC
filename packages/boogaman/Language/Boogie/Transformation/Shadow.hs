@@ -11,6 +11,7 @@ import Language.Boogie.Position
 import Language.Boogie.BasicBlocks
 import Language.Boogie.Analysis.BlockGraph
 import Language.Boogie.Analysis.Leakage
+import Language.Boogie.Analysis.Annotation
 import Language.Boogie.Transformation.Simplify
 
 import Data.Set (Set (..))

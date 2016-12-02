@@ -10,18 +10,22 @@ import Language.Boogie.PrettyAST
 import Language.Boogie.Pretty
 import Language.Boogie.BasicBlocks
 import Language.Boogie.Analysis.Leakage
+import Language.Boogie.Analysis.Annotation
+import Language.Boogie.Options hiding (simplify)
 
 import Control.Monad.Identity
+import Control.Monad.Reader (Reader(..))
+import qualified Control.Monad.Reader as Reader
 
 import Data.Maybe
 import Data.Monoid
 import Data.Generics
 import qualified Data.Set as Set
 
-runSimplify :: Simplify a => a -> a
-runSimplify x = runIdentity (simplifyId x)
+runSimplify :: Simplify a => Options -> a -> a
+runSimplify opts x = Reader.runReader (simplifyId x) opts
 
-type SimplifyM = Identity
+type SimplifyM = Reader Options
 
 class Simplify a where
     simplify :: a -> SimplifyM (Maybe a)
@@ -64,7 +68,9 @@ instance Simplify Program where
     simplify (Program decls) = liftM (fmap Program) (simplify decls)
 
 instance Simplify BareExpression where
-    simplify = return . Just
+    simplify e = do
+        opts <- Reader.ask
+        return $ Just $ gReplaceFrees opts e
 
 instance Simplify [Id] where
     simplify = simplifyList
@@ -165,10 +171,16 @@ simplifyAs empty x = do
         otherwise -> return mb
 
 instance Simplify Contract where
-    simplify (Requires free e) = liftM (fmap (Requires free)) $ simplifyAs posTT e
-    simplify (Modifies free []) = return Nothing
-    simplify c@(Modifies _ _) = return $ Just c
-    simplify (Ensures free e) = liftM (fmap (Ensures free)) $ simplifyAs posTT e
+    simplify c = Reader.ask >>= \opts -> simplify' opts c
+      where
+        simplify' opts (Requires _ (Pos p (isFreeExpr opts -> Just e))) = do
+            liftM (fmap (Requires True)) $ simplifyAs posTT (Pos p e)
+        simplify' opts (Ensures _ (Pos p (isFreeExpr opts -> Just e))) = do
+            liftM (fmap (Ensures True)) $ simplifyAs posTT (Pos p e)
+        simplify' opts (Requires free e) = liftM (fmap (Requires free)) $ simplifyAs posTT e
+        simplify' opts (Modifies free []) = return Nothing
+        simplify' opts c@(Modifies _ _) = return $ Just c
+        simplify' opts (Ensures free e) = liftM (fmap (Ensures free)) $ simplifyAs posTT e
 
 instance Simplify BareDecl where
     simplify (AxiomDecl atts e) = do
@@ -192,7 +204,13 @@ instance Simplify BareDecl where
     simplify d = return $ Just d
 
 instance Simplify SpecClause where
-    simplify (SpecClause t isAssume e) = liftM (fmap (SpecClause t isAssume)) $ simplifyAs posTT e
+    simplify e = do
+        opts <- Reader.ask
+        simplify' opts e
+      where
+        simplify' opts (SpecClause t isAssume (Pos p (isFreeExpr opts -> Just e))) = do
+            liftM (fmap (SpecClause t True)) $ simplifyAs posTT (Pos p e)
+        simplify' opts (SpecClause t isAssume e) = liftM (fmap (SpecClause t isAssume)) $ simplifyAs posTT e
 
 instance Simplify BareStatement where
     simplify (Predicate atts spec) = liftM (fmap (Predicate atts)) $ simplify spec
