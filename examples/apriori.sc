@@ -68,17 +68,17 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool FrequentsCache(uint[[2]] F, pd_a3p uint[[2]] Fcache, pd_a3p uint[[2]] db, uint threshold)
+//@ function bool FrequentsCache(frequent f, uint threshold)
 //@ noinline;
 //@ {
-//@     shape(F)[0] == shape(Fcache)[0]
+//@     shape(f.items)[0] == shape(f.cache)[0]
 //@     &&
-//@     shape(Fcache)[1] == shape(db)[0]
+//@     shape(f.cache)[1] == shape(db)[0]
 //@     &&
-//@     forall uint i; i < shape(F)[0]
-//@            ==> IsItemSetOf(F[i,:],db)
-//@            &&  declassify(frequency(F[i,:],db)) >= threshold
-//@            &&  declassify(Fcache[i,:] == transactions(F[i,:],db))
+//@     forall uint i; i < shape(f.items)[0]
+//@            ==> IsItemSetOf(f.items[i,:],db)
+//@            &&  declassify(frequency(f.items[i,:],db)) >= threshold
+//@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db))
 //@ }
 
 //@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint i)
@@ -96,60 +96,58 @@ struct frequent {
 frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures shape(\result.items)[1] == 1;
-//@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
+//@ ensures FrequentsCache(\result,db,threshold);
 //@ ensures AllFrequents(\result.items,db,threshold,shape(db)[1]);
 {
-    frequent ret;
-    uint [[2]] F (0, 1); // frequent itemsets
-    pd_a3p uint [[2]] F_cache (0, shape(db)[0]); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
+    frequent f;
+    f.items = reshape({},0,1);
+    f.cache = reshape({},0.shape(db)[0]);
     
     // compute the itemsets of size 1
     for (uint i = 0; i < shape(db)[1]; i=i+1)
     //@ invariant i <= shape(db)[1];
-    //@ invariant shape(F)[0] <= i;
-    //@ invariant shape(F)[1] == 1;
-    //@ invariant FrequentsCache(F,F_cache,db,threshold);
-    //@ invariant AllFrequents(F,db,threshold,i);
+    //@ invariant shape(f.items)[0] <= i;
+    //@ invariant shape(f.items)[1] == 1;
+    //@ invariant FrequentsCache(f,db,threshold);
+    //@ invariant AllFrequents(f.items,db,threshold,i);
     {
       //@ assert IsItemSetOf({i},db);
       pd_a3p uint [[1]] z = db[:, i]; // all transactions where an item i occurs
       pd_a3p uint frequence = sum (z); // frequency of item i
       if (declassify (frequence >= classify(threshold))) {
-        F = snoc (F,{i});
-        F_cache = snoc (F_cache,z);  
+        f.items = snoc (f.items,{i});
+        f.cache = snoc (f.cache,z);  
       }
     }
-    ret.items = F;
-    ret.cache = F_cache;
-    return ret;
+    return f;
 }
 
 frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
 //@ leakage requires LeakFrequents(db,threshold);
-//@ ensures shape(\result.items)[1] == shape(freq.items)[1] + 1;
-//@ requires FrequentsCache(prev.items,prev.cache,db,threshold);
-//@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
+//@ ensures shape(\result.items)[1] == shape(prev.items)[1] + 1;
+//@ requires FrequentsCache(prev,db,threshold);
+//@ ensures FrequentsCache(\result,db,threshold);
 {
-    uint k = shape(freq.items)[1];
+    uint k = shape(prev.items)[1];
     frequent next;
-    uint [[2]] F (0, k+1);
-    pd_a3p uint [[2]] F_cache (0, dbRows);
+    next.items = reshape({},0,k+1);
+    next.cache = reshape({},0,dbRows);
     uint prev_F_size = shape(prev.items)[0]; // number of items for k-1
     for (uint i = 0; i < prev_F_size; i=i+1) // for each itemset in F
-    //@ invariant i <= F_size;
-    //@ invariant shape(F_new)[1] == k+1;
-    //@ invariant FrequentsCache(F_new,F_new_cache,db,threshold);
+    //@ invariant i <= prev_F_size;
+    //@ invariant shape(next.items)[1] == k+1;
+    //@ invariant FrequentsCache(next,db,threshold);
     {
       for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
-      //@ invariant i < j && j <= F_size;
-      //@ invariant shape(F_new)[1] == k+1;
-      //@ invariant FrequentsCache(F_new,F_new_cache,db,threshold);
+      //@ invariant i < j && j <= prev_F_size;
+      //@ invariant shape(next.items)[1] == k+1;
+      //@ invariant FrequentsCache(next,db,threshold);
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         {
-          if (prev.items[i, n] != prev-items[j, n]) {
+          if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
         }
