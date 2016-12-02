@@ -121,6 +121,9 @@ hasOldExpr = everything (||) (mkQ False aux)
     aux (Old _) = True
     aux e = False
 
+instance Pretty SpecClause where
+    pretty (SpecClause _ isAssume e) = (if isAssume then text "assume" else text "assert") <+> pretty e
+
 instance Pretty Contract where
     pretty (Requires free e) = option free (text "free") <+>
       text "requires" <+>
