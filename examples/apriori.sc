@@ -73,7 +73,7 @@ struct frequent {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool FrequentsCache(frequent f, uint threshold)
+//@ function bool FrequentsCache(frequent f, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ {
 //@     shape(f.items)[0] == shape(f.cache)[0]
