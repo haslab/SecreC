@@ -83,7 +83,7 @@ struct frequent {
 //@     forall uint i; i < shape(f.items)[0]
 //@            ==> IsItemSetOf(f.items[i,:],db)
 //@            &&  declassify(frequency(f.items[i,:],db)) >= threshold
-//@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db)::pd_a3p bool)
+//@            &&  declassify((f.cache[i,:] == transactions(f.items[i,:],db))::pd_a3p bool)
 //@ }
 
 //@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint i)
