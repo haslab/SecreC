@@ -49,9 +49,9 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ { size(is) > 0 && forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
 
-//@ function bool hasItemsOf (uint[[2]] F, pd_a3p uint[[2]] db)
-//@ noinline;
-//@ { (forall uint i, uint j; i < shape(F)[0] && j < shape(F)[1] ==> F[i,j] < shape(db)[1]) }
+//x //@ function bool hasItemsOf (uint[[2]] F, pd_a3p uint[[2]] db)
+//x //@ noinline;
+//x //@ { (forall uint i, uint j; i < shape(F)[0] && j < shape(F)[1] ==> F[i,j] < shape(db)[1]) }
 
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
@@ -108,7 +108,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant i <= shape(db)[1];
     //@ invariant shape(F)[0] <= i;
     //@ invariant shape(F)[1] == 1;
-    //@ invariant hasItemsOf(F,db);
+    //x //@ invariant hasItemsOf(F,db);
     //@ invariant FrequentsCache(F,F_cache,db,threshold);
     //@ invariant AllFrequents(F,db,threshold,i);
     {
@@ -118,8 +118,8 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
       pd_a3p uint frequence = sum (z); // frequency of item i
       //x //@ assert frequence == frequency({i},db);
       if (declassify (frequence >= classify(threshold))) {
-          //@ assert hasItemsOf(F,db);
-          //@ assert hasItemsOf(reshape({i},1,1),db)
+          //x //@ assert hasItemsOf(F,db);
+          //x //@ assert hasItemsOf(reshape({i},1,1),db)
         F = snoc (F,{i});
         //X //@ assert hasItemsOf(F,db);
         F_cache = snoc (F_cache,z);  
