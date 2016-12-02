@@ -94,7 +94,7 @@ struct frequent {
 frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
-//@ ensures AllFrequents(F,db,threshold,dbColumns);
+//@ ensures AllFrequents(\result.items,db,threshold,dbColumns);
 {
     uint dbColumns = shape(db)[1]; // number of items
     uint dbRows = shape(db)[0]; // number of transactions
