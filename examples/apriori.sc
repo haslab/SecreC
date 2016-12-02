@@ -76,8 +76,6 @@ pd_a3p uint [[2]] load_db () {
 //@     &&
 //@     shape(Fcache)[1] == shape(db)[0]
 //@     &&
-//@     hasItemsOf(F,db)
-//@     &&
 //@     forall uint i; i < shape(F)[0]
 //@            ==> IsItemSetOf(F[i,:],db)
 //@            &&  declassify(frequency(F[i,:],db)) >= threshold
@@ -111,6 +109,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant i <= shape(db)[1];
     //@ invariant shape(F)[0] <= i;
     //@ invariant shape(F)[1] == 1;
+    //@ invariant hasItemsOf(F,db);
     //@ invariant FrequentsCache(F,F_cache,db,threshold);
     //@ invariant AllFrequents(F,db,threshold,i);
     {
