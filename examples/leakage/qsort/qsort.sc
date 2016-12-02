@@ -52,13 +52,6 @@ struct partition_result {
     private uint[[1]] rs; // > pivot
 }
 
-// append an element to the end of an array. everything is pass-by-value
-private uint[[1]] snoc (private uint[[1]] xs, private uint x)
-//@ inline;
-{
-    return cat (xs, {x});
-}
-
 // partition a list by
 // the intermediate comparisons cannot be computed from the public values. they leak the "shape" of the input.
 partition_result partition (private uint[[1]] xs, private uint p)

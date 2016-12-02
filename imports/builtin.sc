@@ -573,6 +573,16 @@ context<>
 }
 
 template<domain D,type T>
+D T[[1]] snoc (D T[[1]] xs, D T x)
+//@ inline;
+//@ free ensures size(\result) == size(xs) + 1;
+//@ free ensures forall uint i; i < size(xs) ==> reclassify((\result[i] == xs[i]) :: D bool);
+//@ free ensures \result[size(xs)] == x;
+{
+    return cat (xs, {x});
+}
+
+template<domain D,type T>
 D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
