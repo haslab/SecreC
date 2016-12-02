@@ -190,7 +190,7 @@ uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant shape(freq.items)[1] == k;
   //@ invariant FrequentsCache(freq,db,threshold);
   {
-      freq = apriori_k(db,threshold,freq,k+1);
+      freq = apriori_k(db,threshold,freq);
   }
 
   return freq.items;
