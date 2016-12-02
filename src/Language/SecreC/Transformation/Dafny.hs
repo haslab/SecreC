@@ -860,7 +860,7 @@ supersedesAssumption (annK1,isFree1,vs1,e1,isLeak1) (annK2,isFree2,vs2,e2,isLeak
     e1 == e2 && supersedesAnnKind annK1 annK2
 supersedesAnnKind :: AnnKind -> AnnKind -> Bool
 supersedesAnnKind _ InvariantK = False
-supersedesAnnKind _ EnsuresK = False
+supersedesAnnKind _ EnsureK = False
 supersedesAnnKind x y = x == y
 
 addAssumptions :: DafnyK m => DafnyM m AnnsDoc -> DafnyM m AnnsDoc
