@@ -101,7 +101,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 {
     frequent f;
     f.items = reshape({},0,1);
-    f.cache = reshape({},0.shape(db)[0]);
+    f.cache = reshape({},0,shape(db)[0]);
     
     // compute the itemsets of size 1
     for (uint i = 0; i < shape(db)[1]; i=i+1)
