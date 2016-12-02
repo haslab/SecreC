@@ -173,6 +173,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
         }
       }
     }
+    return next;
 }
 
 // database rows = transaction no, database column = item no
