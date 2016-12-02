@@ -122,7 +122,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     return f;
 }
 
-frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,k)
+frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires k >= 1;
 //@ requires shape(prev.items)[1] == k;
 //@ leakage requires LeakFrequents(db,threshold);
