@@ -45,6 +45,11 @@ pd_a3p uint [[2]] load_db () {
     return db;
 }
 
+struct frequent {
+    uint [[2]] items;
+    pd_a3p uint [[2]] cache;
+}
+
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //@ { size(is) > 0 && forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
@@ -87,11 +92,6 @@ pd_a3p uint [[2]] load_db () {
 //@ {
 //@     forall uint j; (j < i && declassify(frequency({j},db)) >= threshold) ==> in({j},set(F))
 //@ }
-
-struct frequent {
-    uint [[2]] items;
-    pd_a3p uint [[2]] cache;
-}
 
 frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
