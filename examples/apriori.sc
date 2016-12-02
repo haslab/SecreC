@@ -156,8 +156,8 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev)
           // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
           uint [[1]] C;
-          //@ assert IsItemSetOf(F[i,:],db);
-          //@ assert F[j,k-1] < dbColumns;
+          //@ assert IsItemSetOf(prev.items[i,:],db);
+          //@ assert prev.items[j,k-1] < dbColumns;
           C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert IsItemSetOf(C,db);
           //join the two caches
