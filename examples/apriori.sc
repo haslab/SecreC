@@ -129,15 +129,15 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     return ret;
 }
 
-frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, uint k)
-//@ requires k > 0;
-//@ leakage requires LeakFrequents(db,threshold);
-//@ ensures shape(\result.items)[1] == k;
-//@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
-//@ ensures AllFrequents(\result.items,db,threshold,shape(db)[1]);
-{
-    
-}
+//x frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, uint k)
+//x //@ requires k > 0;
+//x //@ leakage requires LeakFrequents(db,threshold);
+//x //@ ensures shape(\result.items)[1] == k;
+//x //@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
+//x //@ ensures AllFrequents(\result.items,db,threshold,shape(db)[1]);
+//x {
+//x     
+//x }
 
 // database rows = transaction no, database column = item no
 // result = one itemset per row
