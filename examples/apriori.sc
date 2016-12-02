@@ -102,7 +102,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     
     // compute the itemsets of size 1
     for (uint i = 0; i < shape(db)[1]; i=i+1)
-    //@ invariant i <= dbColumns;
+    //@ invariant i <= shape(db)[1];
     //@ invariant shape(F)[0] <= i;
     //@ invariant shape(F)[1] == 1;
     //@ invariant FrequentsCache(F,F_cache,db,threshold);
