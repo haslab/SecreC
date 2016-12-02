@@ -94,18 +94,14 @@ struct frequent {
 frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
-//@ ensures AllFrequents(\result.items,db,threshold,dbColumns);
+//@ ensures AllFrequents(\result.items,db,threshold,shape(db)[1]);
 {
-    uint dbColumns = shape(db)[1]; // number of items
-    uint dbRows = shape(db)[0]; // number of transactions
-
-    uint [[2]] F (0, 1); // frequent itemsets
-    pd_a3p uint [[2]] F_cache (0, dbRows); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
-    
     frequent ret;
+    uint [[2]] F (0, 1); // frequent itemsets
+    pd_a3p uint [[2]] F_cache (0, shape(db)[0]); // cached column data for corresponding frequent itemsets in F, i.e., which transactions contain the itemset
     
     // compute the itemsets of size 1
-    for (uint i = 0; i < dbColumns; i=i+1)
+    for (uint i = 0; i < shape(db)[1]; i=i+1)
     //@ invariant i <= dbColumns;
     //@ invariant shape(F)[0] <= i;
     //@ invariant shape(F)[1] == 1;
