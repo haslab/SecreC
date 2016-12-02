@@ -49,6 +49,11 @@ pd_a3p uint [[2]] load_db () {
 //@ noinline;
 //@ { size(is) > 0 && forall uint i; i < size(is) ==> is[i] < shape(db)[1] }
 
+//@ function bool hasItemsOf (uint[[2]] F, pd_a3p uint[[2]] db)
+//@ noinline;
+//@ { (forall uint i, uint j; i < shape(F)[0] && j < shape(F)[1] ==> F[i,j] < shape(db)[1]) }
+
+
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //@ requires IsItemSetOf(is,db);
@@ -71,7 +76,7 @@ pd_a3p uint [[2]] load_db () {
 //@     &&
 //@     shape(Fcache)[1] == shape(db)[0]
 //@     &&
-//@     (forall uint i, uint j; i < shape(F)[0] && j < shape(F)[1] ==> F[i,j] < shape(db)[1])
+//@     hasItemsOf(F,db)
 //@     &&
 //@     forall uint i; i < shape(F)[0]
 //@            ==> IsItemSetOf(F[i,:],db)
@@ -93,6 +98,7 @@ struct frequent {
 
 frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
+//@ ensures shape(\result.items)[1] == 1;
 //@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
 //@ ensures AllFrequents(\result.items,db,threshold,shape(db)[1]);
 {
@@ -121,6 +127,16 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     ret.items = F;
     ret.cache = F_cache;
     return ret;
+}
+
+frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, uint k)
+//@ requires k > 0;
+//@ leakage requires LeakFrequents(db,threshold);
+//@ ensures shape(\result.items)[1] == k;
+//@ ensures FrequentsCache(\result.items,\result.cache,db,threshold);
+//@ ensures AllFrequents(\result.items,db,threshold,shape(db)[1]);
+{
+    
 }
 
 // database rows = transaction no, database column = item no
