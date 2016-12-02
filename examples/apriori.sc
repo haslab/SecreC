@@ -148,7 +148,8 @@ uint [[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
           // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
           uint [[1]] C;
-          //x //@ assert IsItemSetOf(F[j, k-1:k],db);
+          //@ assert IsItemSetOf(F[i,:],db);
+          //@ assert F[j,k-1] < dbColumns;
           C = snoc (F[i, :], F[j, k-1]);
           //@ assert IsItemSetOf(C,db);
           //join the two caches
