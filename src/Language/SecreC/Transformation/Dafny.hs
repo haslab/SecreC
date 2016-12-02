@@ -693,11 +693,11 @@ isLeakageInDecl (Just (FId _ _ isLeak)) = isLeak
 isLeakageInDecl (Just (LId _ _ isLeak)) = isLeak
     
 annLine :: AnnDoc -> Doc
-annLine (EnsureK,isFree,vs,x,isLeak) = ppIsFree isFree $ text "ensures" <+> ppLeakageFun isLeak x <> semicolon
-annLine (RequireK,isFree,vs,x,isLeak) = ppIsFree isFree $ text "requires" <+> ppLeakageFun isLeak x <> semicolon
+annLine (EnsureK,isFree,vs,x,isLeak) = ppIsFree isFree (text "ensures" <+> ppLeakageFun isLeak x) <> semicolon
+annLine (RequireK,isFree,vs,x,isLeak) = ppIsFree isFree (text "requires" <+> ppLeakageFun isLeak x) <> semicolon
 annLine (StmtK,Just _,vs,x,isLeak) = text "assume" <+> ppLeakageAtt isLeak <+> x <> semicolon
 annLine (StmtK,Nothing,vs,x,isLeak) = text "assert" <+> ppLeakageAtt isLeak <+> x <> semicolon
-annLine (InvariantK,isFree,vs,x,isLeak) = ppIsFree isFree $ text "invariant" <+> ppLeakageFun isLeak x <> semicolon
+annLine (InvariantK,isFree,vs,x,isLeak) = ppIsFree isFree (text "invariant" <+> ppLeakageFun isLeak x) <> semicolon
 annLine (DecreaseK,isFree,vs,x,isLeak) = text "decreases" <+> x <> semicolon
 annLine (ReadsK,_,vs,x,isLeak) = text "reads" <+> x <> semicolon
 annLine (NoK,isFree,vs,x,isLeak) = ppIsFree (fmap (const True) isFree) x
