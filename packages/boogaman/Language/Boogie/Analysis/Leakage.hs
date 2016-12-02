@@ -216,9 +216,9 @@ publicIds opts = everything (Map.unionWith mappend) (mkQ Map.empty aux)
     aux = maybe Map.empty (uncurry Map.singleton) . isPublicIdExpr opts
 
 isPublicExpr :: Options -> BareExpression -> Maybe (BareExpression,PublicType)
-isPublicExpr vc (isAnn vc True "PublicIn" -> Just i) = Just (i,PublicIn)
-isPublicExpr vc (isAnn vc True "PublicOut" -> Just i) = Just (i,PublicOut)
-isPublicExpr vc (isAnn vc True "PublicMid" -> Just i) = Just (i,PublicMid)
+isPublicExpr vc (isAnn vc False True "PublicIn" -> Just i) = Just (i,PublicIn)
+isPublicExpr vc (isAnn vc False True "PublicOut" -> Just i) = Just (i,PublicOut)
+isPublicExpr vc (isAnn vc False True "PublicMid" -> Just i) = Just (i,PublicMid)
 isPublicExpr vc _ = Nothing
 
 isPublicIdExpr :: Options -> BareExpression -> Maybe (Id,PublicType)
@@ -226,16 +226,16 @@ isPublicIdExpr vc (isPublicExpr vc -> Just (Var i,t)) = Just (i,t)
 isPublicIdExpr vc e = Nothing
 
 isLeakageExpr :: Options -> BareExpression -> Maybe BareExpression
-isLeakageExpr vc (isAnn vc False "Leakage" -> Just i) = Just i
+isLeakageExpr vc (isAnn vc False False "Leakage" -> Just i) = Just i
 isLeakageExpr vc _ = Nothing
 
 isLeakExpr :: Options -> BareExpression -> Maybe BareExpression
-isLeakExpr vc (isAnn vc False "Leak" -> Just i) = Just i
+isLeakExpr vc (isAnn vc False False "Leak" -> Just i) = Just i
 isLeakExpr vc _ = Nothing
 
 isDeclassifiedExpr :: Options -> BareExpression -> Maybe (BareExpression,IsBenign)
-isDeclassifiedExpr vc (isAnn vc True "DeclassifiedIn" -> Just i) = Just (i,False)
-isDeclassifiedExpr vc (isAnn vc True "DeclassifiedOut" -> Just i) = Just (i,True)
+isDeclassifiedExpr vc (isAnn vc False True "DeclassifiedIn" -> Just i) = Just (i,False)
+isDeclassifiedExpr vc (isAnn vc False True "DeclassifiedOut" -> Just i) = Just (i,True)
 isDeclassifiedExpr vc _ = Nothing
 
 removeLeakageAnns :: Data a => Options -> a -> a
