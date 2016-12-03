@@ -56,9 +56,9 @@ tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression 
 tcAnnGuard e = limitExprC ReadOnlyExpr $ insideAnnotation $ do
     e' <- tcExpr e
     let (Typed l ty) = loc e'
-    k <- newKindVar "k" Nothing False Nothing
-    s <- newDomainTyVar "s" k False Nothing
-    topTcCstrM_ l $ Unifies ty (ComplexT $ CType s bool $ indexExpr 0)
+--    k <- newKindVar "k" Nothing False Nothing
+--    s <- newDomainTyVar "s" k False Nothing
+    topTcCstrM_ l $ Unifies ty (ComplexT $ CType Public bool $ indexExpr 0)
     return e'
 
 tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
@@ -188,7 +188,7 @@ tcExpr (VArraySizeExpr l e) = do
 tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
     vs' <- mapM (tcQVar l) vs
-    e' <- tcBoolExpr e
+    e' <- tcGuard e
     return $ QuantifiedExpr (Typed l $ typed $ loc e') q' vs' e'
 tcExpr le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
     e' <- limitExprC ReadOnlyExpr $ tcExpr e
@@ -248,7 +248,7 @@ tcExpr me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     return $ ToSetExpr (Typed l $ BaseT set) e'
 tcExpr me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     (t',x') <- tcQVar l (t,x)
-    px' <- tcBoolExpr px
+    px' <- tcGuard px
     fx' <- mapM tcExpr fx
     let setb = maybe (typed $ loc t') (typed . loc) fx'
     set <- newBaseTyVar Nothing False Nothing

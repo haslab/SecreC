@@ -176,6 +176,9 @@ newGlobalEnv = do
 resetGlobalEnv :: IO ()
 resetGlobalEnv = do
     g <- readIORef globalEnv
+    WeakHash.finalize $ tDeps g
+    WeakHash.finalize $ ioDeps g
+    WeakHash.finalize $ gCstrs g
     deps <- WeakHash.newSized 1024
     iodeps <- WeakHash.newSized 512
     cstrs <- WeakHash.newSized 2048

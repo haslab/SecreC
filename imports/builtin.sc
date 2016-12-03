@@ -72,18 +72,18 @@ context<>
 
 // addition
 
-//@ template<domain D,domain D1,type T1,dim N1>
-//@ function D set<D1 T1[[N1]]> operator + (D set<D1 T1[[N1]]> x, D set<D1 T1[[N1]]> y)
+//@ template<domain D1,type T1,dim N1>
+//@ function set<D1 T1[[N1]]> operator + (set<D1 T1[[N1]]> x, set<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.union",x,y) :: D set<D1 T1[[N1]]>
+//@     __builtin("core.union",x,y) :: set<D1 T1[[N1]]>
 //@ }
 
-//@ template<domain D,domain D1,type T1,dim N1>
-//@ function D multiset<D1 T1[[N1]]> operator + (D multiset<D1 T1[[N1]]> x, D multiset<D1 T1[[N1]]> y)
+//@ template<domain D1,type T1,dim N1>
+//@ function multiset<D1 T1[[N1]]> operator + (multiset<D1 T1[[N1]]> x, multiset<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.union",x,y) :: D multiset<D1 T1[[N1]]>
+//@     __builtin("core.union",x,y) :: multiset<D1 T1[[N1]]>
 //@ }
 
 template<domain D, primitive type T>
@@ -192,32 +192,32 @@ context<>
     __builtin("core.le",x,y) :: D bool
 } 
 
-//@ template<domain D,type T>
-//@ function D bool operator <= (D set<T> x, D set<T> y)
+//@ template<type T>
+//@ function bool operator <= (set<T> x, set<T> y)
 //@ context<>
 //@ {
-//@     __builtin("core.subset",x,y) :: D bool
+//@     __builtin("core.subset",x,y) :: bool
 //@ }
 
-//@ template<domain D,type T>
-//@ function D bool operator <= (D multiset<T> x, D multiset<T> y)
+//@ template<type T>
+//@ function bool operator <= (multiset<T> x, multiset<T> y)
 //@ context<>
 //@ {
-//@     __builtin("core.subset",x,y) :: D bool
+//@     __builtin("core.subset",x,y) :: bool
 //@ }
 
-//@ template<domain D,domain D1,type T1, dim N1>
-//@ function D bool in (D1 T1[[N1]] x, D set<D1 T1[[N1]]> y)
+//@ template<domain D1,type T1, dim N1>
+//@ function bool in (D1 T1[[N1]] x,set<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.in",x,y) :: D bool
+//@     __builtin("core.in",x,y) :: bool
 //@ }
 
-//@ template<domain D,domain D1,type T1, dim N1>
-//@ function D bool in (D1 T1[[N1]] x, multiset<D1 T1[[N1]]> y)
+//@ template<domain D1,type T1, dim N1>
+//@ function bool in (D1 T1[[N1]] x, multiset<D1 T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.in",x,y) :: D bool
+//@     __builtin("core.in",x,y) :: bool
 //@ }
 
 //@ template<domain D,type T>
@@ -227,18 +227,18 @@ context<>
 //@     __builtin("core.in",x,y) :: D bool
 //@ }
 
-//@ template<domain D,type T>
-//@ function D bool operator >= (D set<T> x, D set<T> y)
+//@ template<type T>
+//@ function bool operator >= (set<T> x, set<T> y)
 //@ context<>
 //@ {
-//@     __builtin("core.subset",y,x) :: D bool
+//@     __builtin("core.subset",y,x) :: bool
 //@ }
 
-//@ template<domain D,type T>
-//@ function D bool operator >= (D multiset<T> x, D multiset<T> y)
+//@ template<type T>
+//@ function bool operator >= (multiset<T> x, multiset<T> y)
 //@ context<>
 //@ {
-//@     __builtin("core.subset",y,x) :: D bool
+//@     __builtin("core.subset",y,x) :: bool
 //@ }
 
 // equality

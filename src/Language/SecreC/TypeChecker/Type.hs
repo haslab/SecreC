@@ -181,7 +181,15 @@ buildTypeSpec l tsec tdta dim False isTok = do
     td <- typeToBaseType l tdta
     dim' <- tcExprTy' (BaseT index) $ fmap (Typed l) dim
     let ct = CType ts td (fmap typed dim')
+    checkPublicCType l ct
     return $ ComplexT ct
+
+-- structs and annotation types must be public
+checkPublicCType :: ProverK loc m => loc -> ComplexType -> TcM m ()
+checkPublicCType l (CType s (MSet {}) _) = tcCstrM_ l $ Unifies (SecT s) (SecT Public)
+checkPublicCType l (CType s (Set {}) _) = tcCstrM_ l $ Unifies (SecT s) (SecT Public)
+checkPublicCType l (CType s (TApp {}) _) = tcCstrM_ l $ Unifies (SecT s) (SecT Public)
+checkPublicCType l ct = return ()
     
 zipCTypeArgs l [s] [b] [d] = return [(s,b,d)]
 zipCTypeArgs l [s] bs ds = zipCTypeArgs l (repeat s) bs ds
@@ -570,8 +578,14 @@ toMultisetType l (ComplexT ct) = readable1 toMultisetType' l ct
         ppt <- pp t
         throwTcError (locpos l) $ TypecheckerError (locpos l) $ Halt $ GenTcError (text "to convert to multiset" <+> ppt) Nothing
     toMultisetType' ct@(CType s b d) = do
-        tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
-        return (MSet ct)
+        dim <- tryTcError l $ fullyEvaluateIndexExpr l d
+        case dim of
+            Right 1 -> do
+                let ct' = CType s b (indexExpr 0)
+                return (MSet ct')
+            otherwise -> do
+                ppct <- pp ct
+                genTcError (locpos l) False $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to multiset"
     toMultisetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
@@ -591,7 +605,6 @@ toSetType l isBase (ComplexT ct) = readable1 toSetType' l ct
     toSetType' ct@(CType s b d) | isBase = do
         return (Set ct) 
     toSetType' ct@(CType s b d) | not isBase = do
-        --tcCstrM_ l $ Unifies (IdxT d) (IdxT $ indexExpr 1)
         dim <- tryTcError l $ fullyEvaluateIndexExpr l d
         case dim of
             Right 0 -> do
