@@ -4,6 +4,7 @@ module apriori;
 
 //import stdlib;
 //import shared3p;
+import axioms;
 
 kind shared3p;
 domain pd_a3p shared3p;
