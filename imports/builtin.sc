@@ -588,7 +588,7 @@ D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ free ensures forall uint i; i < shape(xs)[0] ==> reclassify((\result[i,:] == xs[i,:]) :: D bool);
-//@ free ensures reclassify(\result[shape(xs)[0],:] == x);
+//@ free ensures reclassify((\result[shape(xs)[0],:] == x) :: D T[[1]]);
 {
     return cat (xs,reshape(x,1,size(x)));
 }
