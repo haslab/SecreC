@@ -68,9 +68,9 @@ instance Simplify Program where
     simplify (Program decls) = liftM (fmap Program) (simplify decls)
 
 instance Simplify BareExpression where
-    simplify e = do
-        opts <- Reader.ask
-        return $ Just $ gReplaceFrees opts e
+    simplify e = return $ Just e --do
+--        opts <- Reader.ask
+--        return $ Just $ gReplaceFrees opts e
 
 instance Simplify [Id] where
     simplify = simplifyList
