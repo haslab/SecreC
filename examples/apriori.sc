@@ -159,6 +159,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           uint [[1]] C;
           //@ assert IsItemSetOf(prev.items[i,:],db);
           //@ assert IsItemSetOf(prev.items[j,:],db);
+          //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
           C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert IsItemSetOf(C,db);
