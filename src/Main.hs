@@ -291,6 +291,7 @@ axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do
     let addaxiom x = text "--axioms=" <> text (escape x)
     command isDebug $ show $ text "cabal exec -- boogaman" <+> text bpl1
         <+> text "--simplify"
+        <+> text "--vcgen=dafny"
         <+> Pretty.sepBy space (map addaxiom axioms)
         <+> text ">" <+> text bpl2
     
