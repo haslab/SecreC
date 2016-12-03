@@ -15,3 +15,14 @@ module axioms;
 //@ axiom <domain D,type T> (D T[[1]] xs, uint i)
 //@ requires 0 <= i && i < size(xs);
 //@ ensures multiset(xs[:i+1]) == multiset(xs[:i]) + multiset{xs[i]};
+
+//@ axiom <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
+//@ ensures set(cat(xs,ys)) == set(xs) + set(ys);
+
+//@ axiom <domain D,type T> (D T x)
+//@ ensures set({x}) == set{x};
+
+//@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
+//@ requires i < shape(xs)[0];
+//@ requires j < shape(xs)[1];
+//@ ensures xs[i,:][j] == xs[i,j];

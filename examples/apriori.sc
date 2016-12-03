@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --verify=funcv --entrypoints="apriori"
+#OPTIONS_SECREC --implicitcoercions=offc --verify=funcv --entrypoints="apriori"
 
 module apriori;
 
@@ -29,7 +29,7 @@ void printArray (T[[N]] arr) {
 }
 
 pd_a3p uint [[2]] load_db () {
-    pd_a3p uint [[2]] db (5,5);
+    pd_a3p uint [[2]] db = reshape(classify({}),5,5);
     db[0, 0] = classify(1);
     db[0, 1] = classify(1);
     db[0, 3] = classify(1);
@@ -101,7 +101,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 {
     frequent f;
     f.items = reshape({},0,1);
-    f.cache = reshape({},0,shape(db)[0]);
+    f.cache = reshape(classify({}),0,shape(db)[0]);
     
     // compute the itemsets of size 1
     for (uint i = 0; i < shape(db)[1]; i=i+1)
@@ -132,7 +132,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 {
     frequent next;
     next.items = reshape({},0,k+1);
-    next.cache = reshape({},0,shape(db)[0]);
+    next.cache = reshape(classify({}),0,shape(db)[0]);
     uint prev_F_size = shape(prev.items)[0]; // number of items for k-1
     for (uint i = 0; i < prev_F_size; i=i+1) // for each itemset in F
     //@ invariant i <= prev_F_size;
@@ -166,7 +166,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //join the two caches
           pd_a3p uint [[1]] C_dot (shape(db)[0]); // column data (dot product) for the new candidate itemset C
           C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //@ assert C_dot == transactions(C,db);
+          //@ assume C_dot == transactions(C,db);
           // compute the joint frequency
           pd_a3p uint frequence = sum (C_dot);
           //if (declassify (frequence >= classify(threshold))) {
