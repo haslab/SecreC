@@ -498,9 +498,9 @@ compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare
     return ord
 
 addTypeArgs :: ProverK loc m => loc -> [(Constrained Type,IsVariadic)] -> TcM m ()
-addTypeArgs l = mapM_ (addTypeArg l)
+addTypeArgs l = mapM_ (addTypeArg)
     where
-    addTypeArg (Constrained t c) = mapM_ (addTypeCond l) c
+    addTypeArg (Constrained t c,_) = mapM_ (addTypeCond l) c
 
 addTypeCond :: ProverK loc m => loc -> Cond -> TcM m ()
 addTypeCond l c = do
