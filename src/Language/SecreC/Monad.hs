@@ -79,6 +79,16 @@ instance Monad m => PP m BacktrackOpt where
     pp TryB = return $ text "tryb"
     pp FullB = return $ text "fullb"
 
+data MatchingOpt = InorderM | UnorderM
+    deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
+instance Binary MatchingOpt
+instance Hashable MatchingOpt
+
+instance Monad m => PP m MatchingOpt where
+    pp InorderM = return $ text "inorderm"
+    pp UnorderM = return $ text "unorderm"
+
+
 data CoercionOpt = OffC | DefaultsC | OnC | ExtendedC
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
 instance Binary CoercionOpt
@@ -123,6 +133,7 @@ data Options
         , implicitCoercions      :: CoercionOpt
         , implicitContext        :: ContextOpt
         , backtrack              :: BacktrackOpt
+        , matching               :: MatchingOpt
         , printOutput           :: Bool
         , debug :: Bool
         , writeSCI              :: Bool
@@ -157,6 +168,7 @@ instance Monoid Options where
         , implicitCoercions = implicitCoercions x `appendCoercionOpt` implicitCoercions y
         , implicitContext = implicitContext x `appendContextOpt` implicitContext y
         , backtrack = backtrack x `min` backtrack y
+        , matching = matching x `min` matching y
         , printOutput = printOutput x || printOutput y
         , debug = debug x || debug y
         , writeSCI = writeSCI x && writeSCI y
@@ -188,6 +200,7 @@ defaultOptions = Opts
     , implicitCoercions = OnC
     , implicitContext = DelayCtx
     , backtrack = FullB
+    , matching = UnorderM
     , printOutput = False
     , debug = False
     , writeSCI = True

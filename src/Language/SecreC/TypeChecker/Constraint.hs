@@ -3017,7 +3017,7 @@ checkIndex l e = do
     isValid l $ IBinOp (ILeq) (ILit $ IUint64 0) ie
 
 pDecCstrM :: (ProverK loc m) => loc -> Maybe [EntryEnv] -> Bool -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Either Expr Type,IsVariadic)])
-pDecCstrM l entries isTop isCtx doCoerce pid targs es tret = do
+pDecCstrM l entries isTop isCtx doCoerce pid targs es tret = tcMatching l $ do
     dec <- newDecVar False Nothing
     opts <- askOpts
     st <- getCstrState

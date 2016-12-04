@@ -832,6 +832,7 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                 vs <- usedVs (n,targs,pargs,ret)
                 tops <- topCstrs l
                 let tops' = mapSet (ioCstrId . unLoc) tops
+                -- only local constraints to avoid backtracking
                 (relvs,rels) <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
                 let rels' = mapSet (ioCstrId . unLoc) rels
                 buildCstrGraph l rels'

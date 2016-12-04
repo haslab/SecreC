@@ -319,6 +319,13 @@ tcNoDeps m = do
     State.modify $ \env -> env { globalDeps = g, localDeps = l }
     return x
 
+tcMatching :: ProverK loc m => loc -> TcM m a -> TcM m a
+tcMatching l m = do
+    opts <- askOpts
+    case matching opts of
+        InorderM -> tcAddDeps l "matching" m
+        UnorderM -> m
+
 tcAddDeps :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m a
 tcAddDeps l msg m = do
     (x,ks) <- tcWithCstrs l msg m

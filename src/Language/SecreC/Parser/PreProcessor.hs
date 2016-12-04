@@ -118,6 +118,7 @@ instance Monad m => PP m Options where
         pp14 <- pp (implicitCoercions opts)
         pp141 <- pp (implicitContext opts)
         pp15 <- pp (backtrack opts)
+        pp151 <- pp (matching opts)
         pp16 <- pp (writeSCI opts)
         pp17 <- pp (implicitBuiltin opts)
         pp18 <- pp (constraintStackSize opts)
@@ -144,6 +145,7 @@ instance Monad m => PP m Options where
             <+> text "--implicitcoercions=" <> pp14
             <+> text "--implicitcontext=" <> pp141
             <+> text "--backtrack=" <> pp15
+            <+> text "--matching=" <> pp151
             <+> text "--writesci=" <> pp16
             <+> text "--implicitbuiltin=" <> pp17
             <+> text "--constraintstacksize=" <> pp18
@@ -169,11 +171,17 @@ coercionMsg = PP.text "Controls implicit coercions" $+$ PP.nest 4 (
     $+$ PP.text "extendedc" <+> PP.char '=' <+> PP.text "For regular code and annotations"
     )
 
+matchingMsg :: Doc
+matchingMsg = PP.text "Constraint solving order" $+$ PP.nest 4 (
+        PP.text "inorderc" <+> PP.char '=' <+> PP.text "Code order"
+    $+$ PP.text "unorderc" <+> PP.char '=' <+> PP.text "Any order (Default)"
+    )
+
 backtrackMsg :: Doc
-backtrackMsg = PP.text "Control ambiguities arising from implicit coercions" $+$ PP.nest 4 (
-        PP.text "noneb" <+> PP.char '=' <+> PP.text "Do not allow ambiguities"
-    $+$ PP.text "tryb" <+> PP.char '=' <+> PP.text "Try first option (not exhaustive)"
-    $+$ PP.text "fullb" <+> PP.char '=' <+> PP.text "Backtrack and try all options (Default)"
+backtrackMsg = PP.text "Control ambiguities in template matching arising from template overloading and implicit coercions" $+$ PP.nest 4 (
+        PP.text "noneb" <+> PP.char '=' <+> PP.text "Do not allow multiple matches"
+    $+$ PP.text "tryb" <+> PP.char '=' <+> PP.text "Try first match (not exhaustive)"
+    $+$ PP.text "fullb" <+> PP.char '=' <+> PP.text "Backtrack and try all matches (Default)"
     )
 
 verifyMsg :: Doc
@@ -212,6 +220,7 @@ optionsDecl  = Opts {
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help (show coercionMsg) &= groupname "Verification:Typechecker"
     , implicitContext   = implicitContext defaultOptions &= help (show contextMsg) &= groupname "Verification:Typechecker"
     , backtrack   = backtrack defaultOptions &= help (show backtrackMsg) &= groupname "Verification:Typechecker"
+    , matching   = matching defaultOptions &= help (show matchingMsg) &= groupname "Verification:Typechecker"
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
