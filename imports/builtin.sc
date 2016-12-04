@@ -576,7 +576,7 @@ template<domain D,type T>
 D T[[1]] snoc (D T[[1]] xs, D T x)
 //@ inline;
 //@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> reclassify((\result[i] == xs[i]) :: D bool);
+//@ free ensures forall uint i; i < size(xs) ==> reclassify(\result[i] == xs[i]);
 //@ free ensures reclassify(\result[size(xs)] == x);
 {
     return cat (xs, {x});
@@ -587,8 +587,8 @@ D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
-//@ free ensures forall uint i; i < shape(xs)[0] ==> reclassify((\result[i,:] == xs[i,:]) :: D bool);
-//@ free ensures reclassify((\result[shape(xs)[0],:] == x) :: D bool);
+//@ free ensures forall uint i; i < shape(xs)[0] ==> reclassify(\result[i,:] == xs[i,:]);
+//@ free ensures reclassify(\result[shape(xs)[0],:] == x);
 {
     return cat (xs,reshape(x,1,size(x)));
 }
