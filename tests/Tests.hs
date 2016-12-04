@@ -29,9 +29,9 @@ buildTestTree = do
     --    tests2 <- buildTestDirectoryTree "imports/stdlib"
     --    tests3 <- buildTestDirectoryTree "examples"
     
-    tests5 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
-    tests6 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
-    return $ TestList [tests,tests5,tests6]
+    --tests5 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
+    --tests6 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
+    return $ TestList [tests]
     
 
 buildTestDirectoryTree :: FilePath -> IO Test
