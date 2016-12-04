@@ -85,7 +85,7 @@ sortEntries :: [EntryEnv] -> [EntryEnv]
 sortEntries = sortBy sortDec
     where
     sortDec :: EntryEnv -> EntryEnv -> Ordering
-    sortDec (EntryEnv _ d1) (EntryEnv _ d2) = maybe EQ id $ comparesDecIds True d1 d2
+    sortDec (EntryEnv _ d1) (EntryEnv _ d2) = maybe EQ id $ comparesDecIds True True d1 d2
 
 decLineage :: DecType -> [ModuleTyVarId]
 decLineage (DecType i isRec _ _ _ _ _) = i : recs
@@ -124,8 +124,8 @@ matchTemplate l oldentries kid n targs pargs ret check = do
     (instances,_) <- instantiateTemplateEntries Set.empty l def isLattice kid n targs pargs ret entries
     let oks = rights instances
     let errs = lefts instances
-    (insts0,ko) <- compMins (compareTemplateDecls def l isLattice n) [] False oks
-    insts <- discardRecursiveEntries l insts0
+    (insts,ko) <- compMins (compareTemplateDecls def l isLattice n) [] False oks
+--    insts <- discardRecursiveEntries l insts0
     case insts of
         [] -> do
             defs <- forM errs $ \(e,err) -> do
@@ -432,15 +432,24 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
     defs <- mapM f [(e1),(e2)]
     ord <- compareTwice l e1 e1' e2 e2' (compareTemplateEntries def l isLattice) (compareTemplateEntries def l isLattice)
     let (o,isLat,ko) = compOrdering ord 
-    ord' <- if (mappend o isLat == EQ) 
-        then do
-            let ord' = comparesDecIds True (entryType e1) (entryType e2)
-            case ord' of
-                Just EQ -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
-                Just o' -> return $ Comparison e1 e2 o' EQ ko
-                Nothing -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
-        else return ord
-    return ord'
+    let sameMatch = mappend o isLat == EQ
+    let ord' = comparesDecIds sameMatch True (entryType e1) (entryType e2)
+    case (sameMatch,ord') of
+        (True,Just EQ) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
+        (False,Just EQ) -> return ord
+        (True,Nothing) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
+        (False,Nothing) -> return ord
+        (_,Just o') -> return $ Comparison e1 e2 o' EQ ko
+    
+--    ord' <- if (mappend o isLat == EQ) 
+--        then do
+--            let ord' = comparesDecIds True (entryType e1) (entryType e2)
+--            case ord' of
+--                Just EQ -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
+--                Just o' -> return $ Comparison e1 e2 o' EQ ko
+--                Nothing -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
+--        else return ord
+--    return ord'
     
 sameTemplateDecs :: (ProverK Position m) => Position -> DecType -> DecType -> TcM m ()
 sameTemplateDecs l d1 d2 = do
@@ -454,7 +463,7 @@ compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare
         pp2 <- ppr e2
         liftIO $ putStrLn $ "compareTemplateEntries " ++ pp1 ++ "\n" ++ pp2
     ord <- do
-        let cmp = comparesDecIds False (entryType e1) (entryType e2)
+        let cmp = comparesDecIds False False (entryType e1) (entryType e2)
         case cmp of
             Just EQ -> do
                 debugTc $ liftIO $ putStrLn $ "sameEntry"
@@ -483,19 +492,19 @@ compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare
     debugTc $ liftIO $ putStrLn $ "comparedTemplateEntries " ++ show (decTypeId $ unDecT $ entryType e1) ++" "++ show (decTypeId $ unDecT $ entryType e2) ++ " " ++ show (compOrdering ord)
     return ord
 
--- favor specializations over the base template
-comparesDecIds ::  Bool -> Type -> Type -> Maybe Ordering
-comparesDecIds allowReps d1@(DecT (DecType j1 isRec1 _ _ _ _ _)) d2@(DecT (DecType j2 isRec2 _ _ _ _ _)) = do
-    compareDecTypeK allowReps j1 isRec1 j2 isRec2
+-- favor specializations over the base template, only if the specialization and base template matchings are equal
+comparesDecIds :: Bool -> Bool -> Type -> Type -> Maybe Ordering
+comparesDecIds sameMatch allowReps d1@(DecT (DecType j1 isRec1 _ _ _ _ _)) d2@(DecT (DecType j2 isRec2 _ _ _ _ _)) = do
+    compareDecTypeK sameMatch allowReps j1 isRec1 j2 isRec2
      
-compareDecTypeK :: Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering
-compareDecTypeK allowReps j1 d1 j2 d2 | j1 == j2 && d1 == d2 = if allowReps then Just LT else Just EQ
-compareDecTypeK allowReps j1 (DecTypeInst i1 _) j2 (DecTypeInst i2 _) | i1 == i2 = if allowReps
+compareDecTypeK :: Bool -> Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering
+compareDecTypeK sameMatch allowReps j1 d1 j2 d2 | j1 == j2 && d1 == d2 = if allowReps then Just LT else Just EQ
+compareDecTypeK sameMatch allowReps j1 (DecTypeInst i1 _) j2 (DecTypeInst i2 _) | i1 == i2 = if allowReps
     then Just LT -- choose one of them since they are instantiations of the same declaration
     else Nothing
-compareDecTypeK allowReps j1 (DecTypeInst i1 _) j2 d2 | i1 == j2 = Just LT
-compareDecTypeK allowReps j1 d1 j2 (DecTypeInst i2 _) | i2 == j1 = Just GT
-compareDecTypeK allowReps j1 d1 j2 d2 = Nothing
+compareDecTypeK sameMatch allowReps j1 (DecTypeInst i1 _) j2 d2 | i1 == j2 = if sameMatch then Just LT else Just GT
+compareDecTypeK sameMatch allowReps j1 d1 j2 (DecTypeInst i2 _) | i2 == j1 = if sameMatch then Just GT else Just LT
+compareDecTypeK sameMatch allowReps j1 d1 j2 d2 = Nothing
 
 -- | Try to make each of the argument types an instance of each template declaration, and returns a substitution for successful ones.
 -- Ignores templates with different number of arguments. 
@@ -509,9 +518,10 @@ instantiateTemplateEntries valids l def isLattice kid n targs pargs ret (e:es) =
         then instantiateTemplateEntries valids l def isLattice kid n targs pargs ret es
         else do
             r <- instantiateTemplateEntry l kid n targs pargs ret e
-            valids' <- case r of
-                Left _ -> return valids
-                Right ei -> liftM (Set.union valids) (addValidEntry l def isLattice n ei)
+            let valids' = valids
+            --valids' <- case r of
+            --    Left _ -> return valids
+            --    Right ei -> liftM (Set.union valids) (addValidEntry l def isLattice n ei)
             (rs,valids'') <- instantiateTemplateEntries valids' l def isLattice kid n targs pargs ret es
             return (r:rs,valids'')
 
@@ -537,7 +547,7 @@ addValidEntry l def isLattice n (e,e',_,_,_,_,_) = do
 unifyTemplateTypeArgs :: (ProverK loc m) => loc -> [(Type,IsVariadic)] -> [(Constrained Type,IsVariadic)] -> TcM m ()
 unifyTemplateTypeArgs l lhs rhs = do
 --    liftIO $ putStrLn $ "unifyTpltTyArg " ++ ppr lhs ++ " " ++ ppr (map (\(x,y) -> (unConstrainedx,y)) rhs)
-    (cs,ks) <- tcWithCstrs l "unity tplt type args" $ do
+    (cs,ks) <- tcWithCstrs l "unify tplt type args" $ do
         -- expand the passed type arguments
         ts <- concatMapM (expandVariadicType l) lhs
         -- separate procedure argument types from their conditions
