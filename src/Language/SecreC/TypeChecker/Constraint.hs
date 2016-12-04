@@ -418,10 +418,10 @@ checkCstrM l deps k = withDeps LocalScope $ do
     newTCstr l $ CheckK k st
 
 topCheckCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
-topCheckCstrM_ l deps k = newErrorM $ checkCstrM_ l deps k
+topCheckCstrM_ l deps k = tcMatching l $ newErrorM $ checkCstrM_ l deps k
 
 topCheckCstrM :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m (Maybe IOCstr)
-topCheckCstrM l deps k = newErrorM $ checkCstrM l deps k
+topCheckCstrM l deps k = tcMatching l $ newErrorM $ checkCstrM l deps k
 
 hypCstrM_ :: (ProverK loc m) => loc -> HypCstr -> TcM m ()
 hypCstrM_ l k = hypCstrM l k >> return ()
@@ -433,10 +433,10 @@ hypCstrM l k = do
     newTCstr l $ HypK k st
 
 topHypCstrM_ :: (ProverK loc m) => loc -> HypCstr -> TcM m ()
-topHypCstrM_ l k = newErrorM $ hypCstrM_ l k
+topHypCstrM_ l k = tcMatching l $ newErrorM $ hypCstrM_ l k
 
 topHypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IOCstr)
-topHypCstrM l k = newErrorM $ hypCstrM l k
+topHypCstrM l k = tcMatching l $ newErrorM $ hypCstrM l k
 
 tcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 tcCstrM_ l k = tcCstrM l k >> return ()
@@ -456,7 +456,7 @@ tcCstrM l k = do
     return k
 
 topTcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
-topTcCstrM_ l k = newErrorM $ tcCstrM_ l k
+topTcCstrM_ l k = tcMatching l $ newErrorM $ tcCstrM_ l k
     
 newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe IOCstr)
 newTCstr l k = do
