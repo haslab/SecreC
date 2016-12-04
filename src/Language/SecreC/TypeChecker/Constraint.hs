@@ -2909,7 +2909,11 @@ comparesDim l True e1 e2 = do
         (Right False,Right True) -> return (Comparison e1 e2 EQ GT ko)
         (Right False,_) -> return (Comparison e1 e2 LT EQ False)
         (_,Right False) -> return (Comparison e1 e2 GT EQ False)
-        otherwise -> comparesExpr l True e1 e2 >>= swapDimComp l
+        otherwise -> do
+            pp1 <- pp mb1
+            pp2 <- pp mb2
+            addErrorM l (TypecheckerError (locpos l) . (ComparisonException "dimension") (pp1) (pp2) . Just) $ do
+                comparesExpr l True e1 e2 >>= swapDimComp l
 comparesDim l False e1 e2 = comparesExpr l False e1 e2
     
 swapDimComp :: ProverK loc m => loc -> Comparison (TcM m) -> TcM m (Comparison (TcM m))

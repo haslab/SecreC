@@ -484,13 +484,23 @@ compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare
                 addErrorM l err $ do
                     ord2 <- if (isJust ret1)
                         -- for procedures, compare the procedure arguments
-                        then compareProcedureArgs l isLattice (concat pargs1) (concat pargs2)
+                        then do
+                            addTypeArgs l (concat targs1)
+                            addTypeArgs l (concat targs2)
+                            compareProcedureArgs l isLattice (concat pargs1) (concat pargs2)
                         -- for structs, compare the specialization types
                         else compareTypeArgs l isLattice (concat targs1) (concat targs2)
                     ord3 <- comparesList l isLattice (maybeToList ret1) (maybeToList ret2)
                     appendComparisons l [ord2,ord3]
     debugTc $ liftIO $ putStrLn $ "comparedTemplateEntries " ++ show (decTypeId $ unDecT $ entryType e1) ++" "++ show (decTypeId $ unDecT $ entryType e2) ++ " " ++ show (compOrdering ord)
     return ord
+
+addTypeArgs :: ProverK loc m => loc -> [(Constrained Type,IsVariadic)] -> TcM m ()
+addTypeArgs l = mapM_ (addTypeArg l)
+    where
+    addTypeArg l (Constrained t Nothing,_) = return ()
+    addTypeArg l (Constrained t (Just c),_) = do
+        tryAddHypothesis l "addTypeArg dim cond" LocalScope (const True) Set.empty $ HypCondition c
 
 -- favor specializations over the base template, only if the specialization and base template matchings are equal
 comparesDecIds :: Bool -> Bool -> Type -> Type -> Maybe Ordering
