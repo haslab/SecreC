@@ -359,6 +359,8 @@ compareTypeArgs :: ProverK loc m => loc -> Bool -> [(Constrained Type,IsVariadic
 compareTypeArgs l isLattice xs@[] ys@[] = return (Comparison xs ys EQ EQ False)
 compareTypeArgs l isLattice ((Constrained t1 c1,isVariadic1):xs) ((Constrained t2 c2,isVariadic2):ys) = do
     o1 <- compares l isLattice t1 t2
+    mapM_ (addTypeCond l) c1
+    mapM_ (addTypeCond l) c2
     unless (isVariadic1 == isVariadic2) $ constraintError (ComparisonException "type argument") l t1 pp t2 pp Nothing
     o2 <- compareTypeArgs l isLattice xs ys
     appendComparisons l [o1,o2]
@@ -498,9 +500,11 @@ compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare
 addTypeArgs :: ProverK loc m => loc -> [(Constrained Type,IsVariadic)] -> TcM m ()
 addTypeArgs l = mapM_ (addTypeArg l)
     where
-    addTypeArg l (Constrained t Nothing,_) = return ()
-    addTypeArg l (Constrained t (Just c),_) = do
-        tryAddHypothesis l "addTypeArg dim cond" LocalScope (const True) Set.empty $ HypCondition c
+    addTypeArg (Constrained t c) = mapM_ (addTypeCond l) c
+
+addTypeCond :: ProverK loc m => loc -> Cond -> TcM m ()
+addTypeCond l c = do
+    tryAddHypothesis l "addTypeArg dim cond" LocalScope (const True) Set.empty $ HypCondition c
 
 -- favor specializations over the base template, only if the specialization and base template matchings are equal
 comparesDecIds :: Bool -> Bool -> Type -> Type -> Maybe Ordering
