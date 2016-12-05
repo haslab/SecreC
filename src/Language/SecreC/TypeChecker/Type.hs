@@ -222,7 +222,7 @@ tcDatatypeSpec (PrimitiveSpecifier l p) = do
     p' <- tcPrimitiveDatatype p
     let t = typed $ loc p'
     return $ PrimitiveSpecifier (Typed l t) p'
-tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = tcMatching l $ do
+tcDatatypeSpec tplt@(TemplateSpecifier l n@(TypeName tl tn) args) = do
     args' <- mapM (tcVariadicArg tcTemplateTypeArgument) args
     let ts = map (mapFst (typed . loc)) args'
     let vn@(TypeName _ vnn) = bimap (TIden . mkVarId) id n
