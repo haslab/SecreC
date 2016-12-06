@@ -167,7 +167,7 @@ tcKindName :: ProverK loc m => KindName Identifier loc -> TcM m (KindName GIdent
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType $ Just NonPublicClass)) $ TIden $ mkVarId kn
 
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))
-tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withInCtx True $ tcTemplate l $ withKind AKind $ defaultInline $ withLeak isLeak $ do
+tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = tcTemplate l $ withInCtx True $ withKind AKind $ defaultInline $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
@@ -180,7 +180,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withInCtx True $ tcTemplate 
     dec2AxiomDecl l dec
 
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration GIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(TemplateContext _ mb) ann body) = withInCtx (isJust mb) $ tcTemplate l $ withKind LKind $ defaultInline $ withLeak isLeak $ do
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(TemplateContext _ mb) ann body) = tcTemplate l $ withInCtx (isJust mb) $ withKind LKind $ defaultInline $ withLeak isLeak $ do
     (tvars',hctx',vars',bctx') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         hctx' <- tcTemplateContext hctx

@@ -143,7 +143,7 @@ unresolvedVariable l n = do
     tcError (locpos l) $ halt $ UnresolvedVariable (ppn)
 
 chgInCtx :: Bool -> Maybe ([TemplateTok],Bool) -> Maybe ([TemplateTok],Bool)
-chgInCtx True Nothing = Just ([],True)
+chgInCtx True Nothing = Nothing
 chgInCtx False Nothing = Nothing
 chgInCtx b (Just (xs,_)) = Just (xs,b)
 
@@ -152,7 +152,7 @@ withInCtx b m = do
     old <- getInCtx
     State.modify $ \env -> env { inTemplate = chgInCtx b (inTemplate env) }
     x <- m
-    State.modify $ \env -> env { inTemplate = chgInCtx b (inTemplate env) }
+    State.modify $ \env -> env { inTemplate = chgInCtx old (inTemplate env) }
     return x
 
 getAllVars isAnn scope = getVarsPred isAnn scope (const True)
