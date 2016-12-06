@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=offc --backtrack=noneb --matching=gorderedm
 
 void main () {
   int [[1]] a (10) = repeat(1,10);
