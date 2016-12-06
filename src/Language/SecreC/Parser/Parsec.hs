@@ -1051,7 +1051,7 @@ parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (Module Identifier 
 parseFile fn = do
     str <- liftIO (readFile fn)
     x <- parseSecreC fn str
-    return (x,length str)
+    return (x,length $ lines str)
 
 parseSecreCIO :: Options -> String -> String -> IO (Module Identifier Position)
 parseSecreCIO opts fn str = runSecrecM opts $ parseSecreC fn str
