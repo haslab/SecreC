@@ -167,7 +167,7 @@ tcKindName :: ProverK loc m => KindName Identifier loc -> TcM m (KindName GIdent
 tcKindName (KindName kl kn) = return $ KindName (Typed kl (KType $ Just NonPublicClass)) $ TIden $ mkVarId kn
 
 tcAxiomDecl :: ProverK loc m => AxiomDeclaration Identifier loc -> TcM m (AxiomDeclaration GIdentifier (Typed loc))
-tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withKind AKind $ defaultInline $ withLeak isLeak $ do
+tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = withInCtx True $ tcTemplate l $ withKind AKind $ defaultInline $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
