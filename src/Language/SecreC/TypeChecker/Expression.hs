@@ -105,9 +105,9 @@ unifiesRet :: ProverK loc m => loc -> Maybe Type -> Type -> TcM m ()
 unifiesRet l Nothing t = return ()
 unifiesRet l (Just ret) t = topTcCstrM_ l $ Unifies ret t
 
-mkRet :: ProverK loc m => loc -> Maybe Type -> TcM m Type
-mkRet l (Just t) = return t
-mkRet l Nothing = newTyVar True False Nothing
+mkRet :: ProverK loc m => loc -> Bool -> Bool -> Maybe Type -> TcM m Type
+mkRet l isNotVoid isVariadic (Just t) = return t
+mkRet l isNotVoid isVariadic Nothing = newTyVar isNotVoid isVariadic Nothing
 
 tcExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcExpr ret (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
@@ -143,7 +143,7 @@ tcExpr ret (CondExpr l c e1 e2) = do
     let t2 = typed $ loc e2'
     ppe1' <- pp e1'
     ppe2' <- pp e2'
-    t3 <- mkRet l ret
+    t3 <- mkRet l True False ret
     [x1,x2] <- tcCoercesN l True [fmap typed e1',fmap typed e2'] t3
     let ex1 = fmap (Typed l) x1
     let ex2 = fmap (Typed l) x2
@@ -154,7 +154,7 @@ tcExpr ret (BinaryExpr l e1 op e2) = do
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     top <- tcOp op
-    v <- mkRet l ret
+    v <- mkRet l True False ret
     (dec,[(_,Left x1,_),(_,Left x2,_)]) <- pDecCstrM l Nothing True False True (OIden $ fmap typed top) Nothing [(False,Left $ fmap typed e1',False),(False,Left $ fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
 tcExpr ret pe@(PreOp l op e) = do
@@ -178,7 +178,7 @@ tcExpr ret (UnaryExpr l op e) = do
             b <- typeBase l t
             topTcCstrM_ l $ Unifies b (BaseT castty)
         otherwise -> return ()
-    v <- mkRet l ret
+    v <- mkRet l True False ret
     (dec,[(_,Left x,_)]) <- pDecCstrM l Nothing True False True (OIden $ fmap typed top) Nothing [(False,Left $ fmap typed e',False)] v
     let ex = fmap (Typed l) x
     return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
@@ -222,7 +222,7 @@ tcExpr ret call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
     es' <- limitExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr Nothing)) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
-    v <- mkRet l ret
+    v <- mkRet l False False ret
     (dec,xs) <- pDecCstrM l Nothing True False True (PIden $ procedureNameId vn) tspecs (map (\(x,y) -> (False,Left $ fmap typed x,y)) es') v
     let exs = map (\(x,Left y,z) -> (fmap (Typed l) y,z)) xs
     return $ ProcCallExpr (Typed l v) (bimap PIden (flip Typed (DecT dec)) vn) specs' exs
@@ -236,7 +236,7 @@ tcExpr ret (SelectionExpr l pe a) = limitExprC ReadOnlyExpr $ do
     pe' <- tcExpr Nothing pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    tres <- mkRet l ret
+    tres <- mkRet l True False ret
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
     return $ SelectionExpr (Typed l tres) pe' (fmap (flip Typed tres) va)
 tcExpr ret (ArrayConstructorPExpr l es) = limitExprC ReadOnlyExpr $ do
