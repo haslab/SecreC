@@ -2,6 +2,7 @@
 
 module Language.SecreC.TypeChecker.Environment where
 
+import Language.SecreC.IO
 import Language.SecreC.Location
 import Language.SecreC.Position
 import Language.SecreC.Monad
@@ -26,6 +27,7 @@ import Data.Either
 import Data.Int
 import Data.Word
 import Data.Unique
+import Data.Char
 import Data.Maybe
 import Data.Monoid hiding ((<>))
 import Data.Generics hiding (GT,typeRep)
@@ -58,6 +60,7 @@ import Safe
 
 import Text.PrettyPrint as PP hiding (float,int,equals)
 import qualified Text.PrettyPrint as Pretty hiding (equals)
+import Text.Read (readMaybe)
 
 import qualified Data.HashTable.Weak.IO as WeakHash
 import qualified System.Mem.Weak.Map as WeakMap
@@ -2581,14 +2584,22 @@ isOriginalDecTypeKind _ = False
 
 tcProgress :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
 tcProgress l msg m = do
+    
+    sz <- liftM consolesize $ shellyOutput False "tput" ["lines"]
+    let msgsz::Integer = round (realToFrac sz * 0.3 :: Float)
+    let barsz::Integer = round (realToFrac sz * 0.7 :: Float)
+        
     let p = locpos l
     opts <- askOpts
     total <- State.gets (maybe (-1) id . fmap snd . fst . moduleCount)
     when (progress opts) $
-        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad 20 msg) Bar.percentage 60 (fromIntegral $ posLine p) (fromIntegral total)
+        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad msgsz msg) Bar.percentage barsz (fromIntegral $ posLine p) (fromIntegral total)
     m
   where
-    pad n str = take n $ str ++ repeat ' '
+    consolesize :: Status -> Int
+    consolesize (Status (Left x)) = maybe 100 id (readMaybe $ filter (not . isSpace) $ show x)
+    consolesize (Status (Right err)) = 100
+    pad n str = take (fromEnum n) $ str ++ repeat ' '
 
 
 
