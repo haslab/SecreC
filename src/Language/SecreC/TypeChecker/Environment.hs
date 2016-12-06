@@ -2583,10 +2583,9 @@ tcProgress :: ProverK loc m => loc -> TcM m a -> TcM m a
 tcProgress l m = do
     let p = locpos l
     opts <- askOpts
-    total <- State.gets (fmap snd . fst . moduleCount)
-    when (progress opts) $ case total of
-        Just tot -> liftIO $ Bar.hProgressBar stderr (Bar.msg $ pprid p) Bar.percentage 60 (fromIntegral $ posLine p) (fromIntegral tot)
-        Nothing -> return ()
+    total <- State.gets (maybe (-1) id . fmap snd . fst . moduleCount)
+    when (progress opts) $
+        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pprid p) Bar.percentage 60 (fromIntegral $ posLine p) (fromIntegral total)
     m
 
 
