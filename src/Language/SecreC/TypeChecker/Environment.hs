@@ -2579,14 +2579,16 @@ isOriginalDecTypeKind :: DecTypeK -> Bool
 isOriginalDecTypeKind (DecTypeOri _) = True
 isOriginalDecTypeKind _ = False
 
-tcProgress :: ProverK loc m => loc -> TcM m a -> TcM m a
-tcProgress l m = do
+tcProgress :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
+tcProgress l msg m = do
     let p = locpos l
     opts <- askOpts
     total <- State.gets (maybe (-1) id . fmap snd . fst . moduleCount)
     when (progress opts) $
-        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pprid p) Bar.percentage 60 (fromIntegral $ posLine p) (fromIntegral total)
+        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad 20 msg) Bar.percentage 60 (fromIntegral $ posLine p) (fromIntegral total)
     m
+  where
+    pad n str = take n $ str ++ repeat ' '
 
 
 
