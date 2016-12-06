@@ -585,7 +585,7 @@ toMultisetType l (ComplexT ct) = readable1 toMultisetType' l ct
                 return (MSet ct')
             otherwise -> do
                 ppct <- pp ct
-                genTcError (locpos l) False $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to multiset"
+                genTcError (locpos l) True $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to multiset"
     toMultisetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
@@ -615,7 +615,7 @@ toSetType l isBase (ComplexT ct) = readable1 toSetType' l ct
                 return (Set ct')
             Left err -> do
                 ppct <- pp ct
-                genTcError (locpos l) False $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to set"
+                genTcError (locpos l) True $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to set"
     toSetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to set"
