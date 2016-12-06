@@ -127,8 +127,7 @@ getDoResolve :: Monad m => TcM m Bool
 getDoResolve = do
     opts <- askOpts
     inCtx <- getInCtx
-    doAll <- getDoAll
-    return (doAll || inCtx || implicitContext opts == InferCtx)
+    return (inCtx || implicitContext opts == InferCtx)
 
 isInlinableExpr :: Expression iden loc -> Bool
 isInlinableExpr (UnaryExpr {}) = True
