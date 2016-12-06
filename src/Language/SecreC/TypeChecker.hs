@@ -603,8 +603,9 @@ tcGlobal l msg m = tcProgress l msg $ do
     x' <- substFromTDict "tcGlobal" dontStop l dict False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
-    liftIO resetGlobalEnv
-    liftIO resetTyVarId
+    tcProgress l "cleanup" $ do
+        liftIO resetGlobalEnv
+        liftIO resetTyVarId
     return x'
   where
     top (WrapNe x) = return x
