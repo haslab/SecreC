@@ -2593,9 +2593,10 @@ tcProgress l msg m = do
     opts <- askOpts
     total <- State.gets (maybe (-1) id . fmap snd . fst . moduleCount)
     when (progress opts) $
-        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad msgsz msg) Bar.percentage barsz (fromIntegral $ posLine p) (fromIntegral total)
+        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad msgsz msg) lbl barsz (fromIntegral $ posLine p) (fromIntegral total)
     m
   where
+    lbl x y = Bar.exact x y ++ " " ++ Bar.percentage x y
     consolesize :: Status -> Int
     consolesize (Status (Left x)) = maybe 100 id (readMaybe $ filter (not . isSpace) $ show x)
     consolesize (Status (Right err)) = 100
