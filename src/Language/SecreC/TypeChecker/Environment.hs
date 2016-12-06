@@ -319,13 +319,6 @@ tcNoDeps m = do
     State.modify $ \env -> env { globalDeps = g, localDeps = l }
     return x
 
-tcMatching :: ProverK loc m => loc -> TcM m a -> TcM m a
-tcMatching l m = do
-    opts <- askOpts
-    case matching opts of
-        InorderM -> tcAddDeps l "matching" m
-        UnorderM -> m
-
 tcAddDeps :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m a
 tcAddDeps l msg m = do
     (x,ks) <- tcWithCstrs l msg m
@@ -2245,10 +2238,16 @@ instance ToVariable VArrayType (VarIdentifier,Type,Expr) where
 -- I.e., can it be overloaded?
 isGlobalCstr :: VarsGTcM m => TCstr -> TcM m Bool
 isGlobalCstr k = do
-    let b1 = isCheckCstr k
-    let b2 = isHypCstr k
+    b1 <- everything orM (mkQ (return False) isGlobalCheckCstr) k
+    b2 <- everything orM (mkQ (return False) isGlobalHypCstr) k
     b3 <- everything orM (mkQ (return False) isGlobalTcCstr) k
     return (b1 || b2 || b3)
+
+isGlobalCheckCstr :: VarsGTcM m => CheckCstr -> TcM m Bool
+isGlobalCheckCstr _ = return True
+
+isGlobalHypCstr :: VarsGTcM m => HypCstr -> TcM m Bool
+isGlobalHypCstr _ = return True
 
 isResolveTcCstr :: TcCstr -> Bool
 isResolveTcCstr (Resolve {}) = True

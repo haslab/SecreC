@@ -23,6 +23,13 @@ context<>
 //@     __builtin("core.reclassify",x) :: D2 T[[N]]
 //@ }
 
+//@ template <domain D>
+//@ function bool assertion (D bool x)
+//@ context<>
+//@ {
+//@     __builtin("core.reclassify",x) :: bool
+//@ }
+
 template <domain D, type T, dim N>
 function uint size (D T[[N]] x)
 context<>
@@ -308,7 +315,7 @@ template <domain D, type T, dim N { N > 0 } >
 D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint product(ns...) @*/ >
 //@ inline;
-//@ requires reclassify(product(ns...) == size(arr));
+//@ requires assertion(product(ns...) == size(arr));
 {
     havoc D T[[size...(ns)]] ret;
     __syscall("core.reshape",arr,ns...,__return ret);
@@ -577,7 +584,7 @@ D T[[1]] snoc (D T[[1]] xs, D T x)
 //@ inline;
 //@ free ensures size(\result) == size(xs) + 1;
 //@ free ensures forall uint i; i < size(xs) ==> reclassify(\result[i] == xs[i]);
-//@ free ensures reclassify(\result[size(xs)] == x);
+//@ free ensures assertion(\result[size(xs)] == x);
 {
     return cat (xs, {x});
 }
@@ -587,8 +594,8 @@ D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
-//@ free ensures forall uint i; i < shape(xs)[0] ==> reclassify(\result[i,:] == xs[i,:]);
-//@ free ensures reclassify(\result[shape(xs)[0],:] == x::D bool);
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion(\result[i,:] == xs[i,:]);
+//@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
 {
     return cat (xs,reshape(x,1,size(x)));
 }

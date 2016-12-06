@@ -172,9 +172,10 @@ coercionMsg = PP.text "Controls implicit coercions" $+$ PP.nest 4 (
     )
 
 matchingMsg :: Doc
-matchingMsg = PP.text "Constraint solving order" $+$ PP.nest 4 (
-        PP.text "inorderc" <+> PP.char '=' <+> PP.text "Code order"
-    $+$ PP.text "unorderc" <+> PP.char '=' <+> PP.text "Any order (Default)"
+matchingMsg = PP.text "Solving order for constraints" $+$ PP.nest 4 (
+        PP.text "orderedc" <+> PP.char '=' <+> PP.text "In code order for all constraints"
+    $+$ PP.text "gorderedc" <+> PP.char '=' <+> PP.text "In code order for global constraints"
+    $+$ PP.text "unorderedc" <+> PP.char '=' <+> PP.text "In any order (Default)"
     )
 
 backtrackMsg :: Doc

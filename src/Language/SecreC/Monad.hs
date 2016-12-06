@@ -79,14 +79,15 @@ instance Monad m => PP m BacktrackOpt where
     pp TryB = return $ text "tryb"
     pp FullB = return $ text "fullb"
 
-data MatchingOpt = InorderM | UnorderM
+data MatchingOpt = OrderedM | GOrderedM | UnorderedM
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
 instance Binary MatchingOpt
 instance Hashable MatchingOpt
 
 instance Monad m => PP m MatchingOpt where
-    pp InorderM = return $ text "inorderm"
-    pp UnorderM = return $ text "unorderm"
+    pp OrderedM = return $ text "orderedm"
+    pp GOrderedM = return $ text "gorderedm"
+    pp UnorderedM = return $ text "unorderedm"
 
 
 data CoercionOpt = OffC | DefaultsC | OnC | ExtendedC
@@ -200,7 +201,7 @@ defaultOptions = Opts
     , implicitCoercions = OnC
     , implicitContext = DelayCtx
     , backtrack = FullB
-    , matching = UnorderM
+    , matching = UnorderedM
     , printOutput = False
     , debug = False
     , writeSCI = True

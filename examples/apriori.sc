@@ -167,7 +167,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //join the two caches
           pd_a3p uint [[1]] C_dot = reshape(classify({}),shape(db)[0]); // column data (dot product) for the new candidate itemset C
           C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //@ assume declassify(C_dot == transactions(C,db));
+          //@ assume assertion(C_dot == transactions(C,db));
           // compute the joint frequency
           pd_a3p uint frequence = sum (C_dot);
           //if (declassify (frequence >= classify(threshold))) {
