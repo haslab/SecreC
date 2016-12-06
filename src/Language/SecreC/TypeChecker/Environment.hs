@@ -2585,7 +2585,7 @@ isOriginalDecTypeKind _ = False
 tcProgress :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
 tcProgress l msg m = do
     
-    sz <- liftM consolesize $ shellyOutput False "tput" ["lines"]
+    sz <- liftM consolesize $ shellyOutput False "tput" ["cols"]
     let msgsz::Integer = round (realToFrac sz * 0.3 :: Float)
     let barsz::Integer = round (realToFrac sz * 0.7 :: Float)
         
