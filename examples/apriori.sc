@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc --backtrack=noneb --matching=gorderedm --verify=funcv --entrypoints="apriori"
+#OPTIONS_SECREC --implicitcoercions=offc --backtrack=noneb --matching=gorderedm --promote=nop --verify=funcv --entrypoints="apriori"
 
 module apriori;
 
