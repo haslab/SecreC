@@ -896,6 +896,9 @@ instance Binary CstrState
 instance Hashable CstrState where
     hashWithSalt i (CstrState isAnn isDef expr isLeak dec line err) = i `hashWithSalt` isAnn `hashWithSalt` isDef `hashWithSalt` expr `hashWithSalt` isLeak `hashWithSalt` dec `hashWithSalt` line `hashWithSalt` err
 
+noCstrSt :: CstrState
+noCstrSt = CstrState False False ReadOnlyExpr False PKind [] (0,SecrecErrArr id)
+
 data TCstr
     = TcK
         TcCstr -- constraint

@@ -422,7 +422,7 @@ topCheckCstrM_ l deps k = topCheckCstrM l deps k >> return ()
 
 topCheckCstrM :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m (Maybe IOCstr)
 topCheckCstrM l deps k = do
-    scope <- cstrScope $ CheckK k undefined
+    scope <- cstrScope $ CheckK k noCstrSt
     tcMatching l scope $ newErrorM $ checkCstrM l deps k
 
 hypCstrM_ :: (ProverK loc m) => loc -> HypCstr -> TcM m ()
@@ -439,7 +439,7 @@ topHypCstrM_ l k = topHypCstrM l k >> return ()
 
 topHypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IOCstr)
 topHypCstrM l k = do
-    scope <- cstrScope $ HypK k undefined
+    scope <- cstrScope $ HypK k noCstrSt
     tcMatching l scope $ newErrorM $ hypCstrM l k
 
 tcMatching :: ProverK loc m => loc -> SolveScope -> TcM m a -> TcM m a
@@ -472,7 +472,7 @@ topTcCstrM_ l k = topTcCstrM l k >> return ()
 
 topTcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
 topTcCstrM l k = do
-    scope <- cstrScope $ TcK k undefined
+    scope <- cstrScope $ TcK k noCstrSt
     tcMatching l scope $ newErrorM $ tcCstrM l k
     
 newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe IOCstr)
