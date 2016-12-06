@@ -296,7 +296,7 @@ tcExpr ret me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
     x' <- tcExprTy (ComplexT $ CType s b $ indexExpr 1) e
     i' <- tcIndexExpr False i
     topTcCstrM_ l $ Unifies (IdxT $ fmap typed i') (IdxT sz)
-    return $ ToVArrayExpr (Typed l varr) (fmap (Typed l) x') i'
+    return $ ToVArrayExpr (Typed l varr) (x') i'
 tcExpr ret e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     unifiesRet l ret $ typed tl
