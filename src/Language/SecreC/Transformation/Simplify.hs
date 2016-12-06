@@ -80,9 +80,9 @@ withCondExpr c m = do
         return $ EmbedAnn l isLeak s'
 
 simplifyModuleFile :: SimplifyK Position m => Options -> TypedModuleFile -> SimplifyM m TypedModuleFile
-simplifyModuleFile opts (Left (t,args,m)) = do
+simplifyModuleFile opts (Left (t,args,m,ml)) = do
     (args',m') <- simplifyModuleWithPPArgs opts (args,m)
-    return $ Left (t,args',m')
+    return $ Left (t,args',m',ml)
 simplifyModuleFile opts (Right sci) = return $ Right sci
 
 simplifyModuleWithPPArgs :: SimplifyK loc m => Options -> (PPArgs,Module GIdentifier (Typed loc)) -> SimplifyM m (PPArgs,Module GIdentifier (Typed loc))

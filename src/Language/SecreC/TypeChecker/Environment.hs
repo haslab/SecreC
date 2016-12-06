@@ -62,7 +62,9 @@ import qualified Text.PrettyPrint as Pretty hiding (equals)
 import qualified Data.HashTable.Weak.IO as WeakHash
 import qualified System.Mem.Weak.Map as WeakMap
 
+import System.IO
 import System.Mem.Weak.Exts as Weak
+import qualified System.ProgressBar as Bar
 
 decPos :: DecType -> Position
 decPos = iDecPos . innerDec
@@ -2576,6 +2578,18 @@ testDec j e = case entryType e of
 isOriginalDecTypeKind :: DecTypeK -> Bool
 isOriginalDecTypeKind (DecTypeOri _) = True
 isOriginalDecTypeKind _ = False
+
+tcProgress :: ProverK loc m => loc -> TcM m a -> TcM m a
+tcProgress l m = do
+    let p = locpos l
+    opts <- askOpts
+    total <- State.gets (fmap snd . fst . moduleCount)
+    when (progress opts) $ case total of
+        Just tot -> liftIO $ Bar.hProgressBar stderr (Bar.msg $ pprid p) Bar.percentage 60 (fromIntegral $ posLine p) (fromIntegral tot)
+        Nothing -> return ()
+    m
+
+
 
 
 

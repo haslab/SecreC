@@ -139,18 +139,18 @@ parseModuleFile fn = do
                 Just x -> return $ Right x
   where
     parse = do
-        (args,m) <- parseFileWithBuiltin fn
+        (args,m,mlength) <- parseFileWithBuiltin fn
         t <- liftIO $ fileModificationTime fn
-        return $ Left (t,args,m)
+        return $ Left (t,args,m,mlength)
 
-parseFileWithBuiltin :: ModK m => FilePath -> SecrecM m (PPArgs,Module Identifier Position)
+parseFileWithBuiltin :: ModK m => FilePath -> SecrecM m (PPArgs,Module Identifier Position,Int)
 parseFileWithBuiltin fn = flushWarnings $ do
     opts <- ask
-    (args,m) <- parseFile fn
+    (args,m,mlength) <- parseFile fn
     let m' = if (implicitBuiltin (opts `mappend` ppOptions args) && moduleIdMb m /= Just "builtin")
         then addModuleImport (Import noloc $ ModuleName noloc "builtin") m
         else m
-    return (args,m')
+    return (args,m',mlength)
 
 -- recursively update the modification time of parent modules
 dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph
@@ -169,11 +169,11 @@ dirtyParents i g = case contextGr g i of
             else do
                 inode' <- lift $ update inode t
                 dirtyParents' (is++map snd iparents) t (insNode (i,inode') g)
-    update (Left (_,args,m)) t = return $ Left (t,args,m)
+    update (Left (_,args,m,mlength)) t = return $ Left (t,args,m,mlength)
     update (Right sci) t = do
         sciError $ "A dependency of the SecreC file " ++ show (sciFile sci) ++ " has changed"
-        (args,m) <- parseFileWithBuiltin (sciFile sci)
-        return $ Left (t,args,m)
+        (args,m,mlines) <- parseFileWithBuiltin (sciFile sci)
+        return $ Left (t,args,m,mlines)
 
 -- | Finds a file in the path from a module name
 findModule :: ModK m => [FilePath] -> ModuleName Identifier Position -> SecrecM m FilePath
@@ -201,14 +201,14 @@ fileModificationTime fn = catchIOError
     (liftM (fromEpochTime . modificationTime) $ getFileStatus fn)
     (const $ return $ UnixTime (CTime 0) 0)
 
-writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> SecrecM m ()
-writeModuleSCI ppargs menv m = do
+writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> Int -> SecrecM m ()
+writeModuleSCI ppargs menv m mlength = do
     opts <- ask
     when (writeSCI opts) $ do
         let fn = moduleFile m
         t <- liftIO $ fileModificationTime fn
         let scifn = replaceExtension fn "sci"
-        let header = SCIHeader fn t (moduleId m)
+        let header = SCIHeader fn t (moduleId m) mlength
         let body = SCIBody (map (fmap locpos) $ moduleImports m) ppargs menv
         e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
         case e of
@@ -255,27 +255,27 @@ moduleVarId m = maybe (mkVarId "main") id $ moduleIdMb m
 moduleGId :: Module GIdentifier loc -> GIdentifier
 moduleGId m = maybe (MIden $ mkVarId "main") id $ moduleIdMb m
     
-type ModuleFile = Either (UnixTime,PPArgs,Module Identifier Position) ModuleSCI
-type TypedModuleFile = Either (UnixTime,PPArgs,Module GIdentifier (Typed Position)) ModuleSCI
+type ModuleFile = Either (UnixTime,PPArgs,Module Identifier Position,Int) ModuleSCI
+type TypedModuleFile = Either (UnixTime,PPArgs,Module GIdentifier (Typed Position),Int) ModuleSCI
 
 moduleFileName :: ModuleFile -> FilePath
-moduleFileName (Left (_,_,m)) = moduleFile m
+moduleFileName (Left (_,_,m,ml)) = moduleFile m
 moduleFileName (Right sci) = sciFile sci
 
 moduleFileId :: ModuleFile -> Identifier
-moduleFileId (Left (_,_,m)) = moduleId m
+moduleFileId (Left (_,_,m,ml)) = moduleId m
 moduleFileId (Right sci) = sciId sci
 
 moduleFileImports :: ModuleFile -> [ImportDeclaration Identifier Position]
-moduleFileImports (Left (_,_,m)) = moduleImports m
+moduleFileImports (Left (_,_,m,ml)) = moduleImports m
 moduleFileImports (Right sci) = sciImports sci
 
 moduleFileModificationTime :: ModuleFile -> UnixTime
-moduleFileModificationTime (Left (t,_,_)) = t
+moduleFileModificationTime (Left (t,_,_,ml)) = t
 moduleFileModificationTime (Right sci) = sciModTime sci
 
 updModuleFileModificationTime :: ModuleFile -> UnixTime -> ModuleFile
-updModuleFileModificationTime (Left (t,a,m)) t' = Left (t',a,m)
+updModuleFileModificationTime (Left (t,a,m,ml)) t' = Left (t',a,m,ml)
 updModuleFileModificationTime (Right sci) t' = Right $ updModTime sci t'
 
 -- module interface data
@@ -287,6 +287,7 @@ data ModuleSCI = ModuleSCI {
 sciFile = sciHeaderFile . sciHeader
 sciModTime = sciHeaderModTime . sciHeader
 sciId = sciHeaderId . sciHeader
+sciLines = sciHeaderLines . sciHeader
 sciImports = sciBodyImports . sciBody
 sciPPArgs = sciBodyPPArgs . sciBody
 sciEnv = sciBodyEnv . sciBody
@@ -299,6 +300,7 @@ data SCIHeader = SCIHeader {
       sciHeaderFile :: FilePath
     , sciHeaderModTime :: UnixTime
     , sciHeaderId :: Identifier -- module identifier
+    , sciHeaderLines :: Int -- number of lines
     } deriving Generic
 instance Binary SCIHeader
 

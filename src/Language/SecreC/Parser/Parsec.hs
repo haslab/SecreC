@@ -1044,14 +1044,14 @@ scAnn m = do
 
 -- * Parsing functions
 
-parseFileIO :: Options -> String -> IO (Module Identifier Position)
+parseFileIO :: Options -> String -> IO (Module Identifier Position,Int)
 parseFileIO opts fn = runSecrecM opts $ parseFile fn
 
-parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (Module Identifier Position)
+parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (Module Identifier Position,Int)
 parseFile fn = do
     str <- liftIO (readFile fn)
     x <- parseSecreC fn str
-    return x
+    return (x,length str)
 
 parseSecreCIO :: Options -> String -> String -> IO (Module Identifier Position)
 parseSecreCIO opts fn str = runSecrecM opts $ parseSecreC fn str

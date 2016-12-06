@@ -1707,49 +1707,49 @@ coercesLitBase l lit t2 = constraintError (\x y mb -> Halt $ CoercionException "
 decToken :: MonadIO m => TcM m DecType
 decToken = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "dtok" mn (Just i) False False Nothing
     return $ DVar v
 
 kindToken :: MonadIO m => Maybe KindClass -> TcM m KindType
 kindToken cl = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "ktok" mn (Just i) False False Nothing
     return $ KVar v cl
 
 secToken :: MonadIO m => KindType -> TcM m SecType
 secToken k = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "stok" mn (Just i) False False Nothing
     return $ SVar v k
     
 baseToken :: MonadIO m => Maybe DataClass -> TcM m BaseType
 baseToken cl = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "btok" mn (Just i) False False Nothing
     return $ BVar v cl
 
 arrayToken :: MonadIO m => Type -> Expr -> TcM m VArrayType
 arrayToken b sz = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "atok" mn (Just i) False False Nothing
     return $ VAVar v b sz
 
 complexToken :: MonadIO m => TcM m ComplexType
 complexToken = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "ctok" mn (Just i) False False Nothing
     return $ CVar v False
 
 exprToken :: MonadIO m => Type -> TcM m Expr
 exprToken t = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "etok" mn (Just i) False False Nothing
     return $ RVariablePExpr t (VarName t $ VIden v)
 
@@ -1757,7 +1757,7 @@ sizeToken :: MonadIO m => TcM m Expr
 sizeToken = do
     let t = BaseT index
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v = VarIdentifier "sztok" mn (Just i) False False Nothing
     return $ RVariablePExpr t (VarName t $ VIden v)
 

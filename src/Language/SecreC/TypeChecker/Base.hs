@@ -280,7 +280,7 @@ data TcEnv = TcEnv {
     , cstrCache :: CstrCache -- cache for constraints
     , solveToCache :: Bool -- solve constraints to the cache or global state
     , lineage :: Lineage -- lineage of the constraint being processed
-    , moduleCount :: (Maybe (String,TyVarId),Int)
+    , moduleCount :: (Maybe ((String,TyVarId),Int),Int)
     , inTemplate :: Maybe ([TemplateTok],Bool) -- if typechecking inside a template, global constraints are delayed (templates tokens, with context flag)
     , decKind :: DecKind -- if typechecking inside a declaration
     , exprC :: ExprClass -- type of expression
@@ -1429,13 +1429,13 @@ instance (Vars GIdentifier m loc,Vars GIdentifier m a) => Vars GIdentifier m (Lo
 newModuleTyVarId :: MonadIO m => TcM m ModuleTyVarId
 newModuleTyVarId = do
     i <- liftIO newTyVarId
-    m <- State.gets (fst . moduleCount)
+    m <- State.gets (fmap fst . fst . moduleCount)
     return $ ModuleTyVarId m i
 
 freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 freshVarId n doc = do
     i <- liftIO newTyVarId
-    mn <- State.gets (fst . moduleCount)
+    mn <- State.gets (fmap fst . fst . moduleCount)
     let v' = VarIdentifier n mn (Just i) True True doc
     return v'
 

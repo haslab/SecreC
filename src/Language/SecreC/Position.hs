@@ -64,6 +64,10 @@ startPos fn = Pos fn 1 1 0
 defPos :: Position
 defPos = UnhelpfulPos "<no location info>"
     
+posLine :: Position -> Int
+posLine (Pos _ l _ _) = l
+posLine (UnhelpfulPos _) = (-1)
+    
 posFileName :: Position -> String
 posFileName (Pos fn _ _ _) = fn
-posFileName (UnhelpfulPos str) = error "no file name"
+posFileName (UnhelpfulPos str) = "nofile"

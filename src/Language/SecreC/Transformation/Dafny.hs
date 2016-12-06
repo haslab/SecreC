@@ -199,7 +199,7 @@ isAxiomDafnyId (AId {}) = True
 isAxiomDafnyId _ = False
 
 entryPointsTypedModuleFile :: DafnyK m => TypedModuleFile -> TcM m [DafnyId]
-entryPointsTypedModuleFile (Left (_,_,m)) = return $ Set.toList $ collectDafnyIds m
+entryPointsTypedModuleFile (Left (_,_,m,_)) = return $ Set.toList $ collectDafnyIds m
 entryPointsTypedModuleFile (Right sci) = do
     let env = sciEnv sci
     let decE = decDafnyId . unDecT . entryType
@@ -1403,8 +1403,8 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
             return (annszs,pret <+> text ":=" <+> text "new Array" <> int (fromEnum d) <> text ".reshape" <> int (fromEnum dx) <> parens (px <> comma <> sepBy comma pszs) <> semi)
         otherwise -> do
             pptx <- lift $ pp tx
-            ppret <- lift $ pp ret
-            genError l $ text "syscallToDafny: unsupported reshape type" <+> pptx <+> int (length szs) <+> ppret
+            pptret <- lift $ pp tret
+            genError l $ text "syscallToDafny: unsupported reshape type" <+> pptx <+> int (length szs) <+> pptret
 syscallToDafny l n params = do
     ppn <- lift $ pp n
     ppparams <- lift $ liftM (sepBy comma) $ mapM pp params

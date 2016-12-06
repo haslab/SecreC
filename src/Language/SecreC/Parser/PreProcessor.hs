@@ -130,6 +130,7 @@ instance Monad m => PP m Options where
         pp23 <- pp (forceRecomp opts)
         pp24 <- (mapM pp $ entryPoints opts)
         pp25 <- pp (defaults opts)
+        pp26 <- pp (progress opts)
         return $ PP.sepBy PP.space pp1
             <+> text "--outputs=" <> PP.sepBy (PP.char ':') pp2
             <+> text "--paths=" <> PP.sepBy (PP.char ':') pp3
@@ -158,6 +159,7 @@ instance Monad m => PP m Options where
             <+> text "--forcerecomp" <> pp23
             <+> text "--entrypoints" <> PP.sepBy (PP.char ':') pp24
             <+> text "--defaults" <> pp25
+            <+> text "--progress" <> pp26
 
 contextMsg :: Doc
 contextMsg = PP.text "Controls template constraint resolution" $+$ PP.nest 4 (
@@ -206,6 +208,7 @@ optionsDecl  :: Options
 optionsDecl  = Opts { 
       inputs                = inputs defaultOptions &= args &= typ "FILE.sc"
     , outputs               = outputs defaultOptions &= typ "FILE1.sc:...:FILE2.sc" &= help "Output SecreC files"
+    , progress              = progress defaultOptions &= help "Show progress bar"
     , paths                 = paths defaultOptions &= typ "DIR1:...:DIRn" &= help "Import paths for input SecreC program"
     , implicitBuiltin       = implicitBuiltin defaultOptions &= name "builtin" &= help "Implicitly import the builtin module"
     

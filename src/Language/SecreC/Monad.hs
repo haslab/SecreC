@@ -165,6 +165,7 @@ data Options
         , forceRecomp           :: Bool
         , entryPoints           :: [String]
         , defaults              :: Bool
+        , progress              :: Bool
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
@@ -201,6 +202,7 @@ instance Monoid Options where
         , forceRecomp = forceRecomp x || forceRecomp y
         , entryPoints = entryPoints x ++ entryPoints y
         , defaults = defaults x && defaults y
+        , progress = progress x || progress y
         }
 
 defaultOptions :: Options
@@ -219,6 +221,7 @@ defaultOptions = Opts
     , debugVerification = False
     , constraintStackSize = 100
     , evalTimeOut = 5
+    , progress = False
     , implicitCoercions = OnC
     , promote = LocalP
     , implicitContext = DelayCtx

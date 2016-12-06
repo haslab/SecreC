@@ -20,9 +20,9 @@ type DefaultM m = StateT (Set Identifier) m
 
 defaultModuleFile :: DefaultK m => ModuleFile -> m ModuleFile
 defaultModuleFile (Right x) = return $ Right x
-defaultModuleFile (Left (x,y,m)) = do
+defaultModuleFile (Left (x,y,m,ml)) = do
     m' <- defaultModule m
-    return $ Left (x,y,m')
+    return $ Left (x,y,m',ml)
 
 defaultModule :: Monad m => Module Identifier Position -> m (Module Identifier Position)
 defaultModule (Module l mn p) = do

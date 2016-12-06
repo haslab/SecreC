@@ -15,16 +15,16 @@ import Language.SecreC.Syntax
 import Control.Monad.Reader
 import Control.Monad.Catch
 
-parseFileIO :: Options -> String -> IO (PPArgs,Module Identifier Position)
+parseFileIO :: Options -> String -> IO (PPArgs,Module Identifier Position,Int)
 parseFileIO opts fn = do
     pps <- runSecrecM opts $ runPP fn
-    ast <- Parsec.parseFileIO opts fn
-    return (pps,ast)
+    (ast,ml) <- Parsec.parseFileIO opts fn
+    return (pps,ast,ml)
 
-parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (PPArgs,Module Identifier Position)
+parseFile :: (MonadIO m,MonadCatch m) => String -> SecrecM m (PPArgs,Module Identifier Position,Int)
 parseFile s = do
     opts <- ask
     pps <- runPP s
-    ast <- Parsec.parseFile s
-    return (pps,ast)
+    (ast,ml) <- Parsec.parseFile s
+    return (pps,ast,ml)
     

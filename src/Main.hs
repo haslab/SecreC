@@ -105,11 +105,11 @@ resolveOutput :: [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModu
 resolveOutput inputs outputs modules = do
     inputs' <- mapM canonicalPath inputs
     let db = zipLeft inputs' outputs
-    let res (Left (time,ppargs,m)) = case List.lookup (moduleFile m) db of
-            Just (Just o) -> return (Left (time,ppargs,m),OutputFile o) -- input with matching output
-            Just Nothing -> return (Left (time,ppargs,m),OutputStdout) -- intput without matching output
+    let res (Left (time,ppargs,m,ml)) = case List.lookup (moduleFile m) db of
+            Just (Just o) -> return (Left (time,ppargs,m,ml),OutputFile o) -- input with matching output
+            Just Nothing -> return (Left (time,ppargs,m,ml),OutputStdout) -- intput without matching output
             Nothing -> do
-                return (Left (time,ppargs,m),NoOutput) -- non-input loaded module
+                return (Left (time,ppargs,m,ml),NoOutput) -- non-input loaded module
         res (Right sci) = do
             return (Right sci,NoOutput)
     mapM res modules
@@ -127,14 +127,14 @@ passes secrecIns secrecOuts modules = runTcM $ failTcM (noloc::Position) $ local
 typecheck :: [ModuleFile] -> TcM IO (Maybe [TypedModuleFile])
 typecheck modules = flushTcWarnings $ do
     opts <- askOpts
-    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr3) $ lefts $ modules) <+> text str <> char '.'
+    let printMsg str = liftIO $ putStrLn $ show $ text "Modules" <+> Pretty.sepBy (char ',') (map (text . moduleId . thr4) $ lefts $ modules) <+> text str <> char '.'
     if (typeCheck opts)
         then do
             modules' <- if defaults opts
                 then mapM defaultModuleFile modules
                 else return modules
             debugTc $ do
-                x <- mapM (\(Left (x,y,z)) -> pp z) $ filter (either (const True) (const False)) modules'
+                x <- mapM (\(Left (x,y,z,w)) -> pp z) $ filter (either (const True) (const False)) modules'
                 liftIO $ putStrLn $ show $ text "defaults" <+> vcat x
             typedModules <- mapM (tcModuleFile) modules'
             printMsg "are well-typed"
@@ -144,7 +144,7 @@ typecheck modules = flushTcWarnings $ do
             return Nothing
 
 verifyOpts :: [(TypedModuleFile,OutputType)] -> Options
-verifyOpts = mconcat . map (ppOptions . either snd3 sciPPArgs . fst)
+verifyOpts = mconcat . map (ppOptions . either snd4 sciPPArgs . fst)
 
 verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
 verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
@@ -327,7 +327,7 @@ output :: Options -> [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(Typed
 output opts secrecIns secrecOuts modules = do
     moduleso <- resolveOutput secrecIns secrecOuts modules
     forM_ moduleso $ \(mfile,o) -> case mfile of
-        Left (time,ppargs,m) -> case o of
+        Left (time,ppargs,m,ml) -> case o of
             NoOutput -> do
                 when (printOutput opts) $ hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
                 return ()

@@ -56,23 +56,23 @@ import Text.PrettyPrint as PP hiding (float,int,equals)
 import qualified Text.PrettyPrint as Pretty hiding (equals)
 
 tcModuleFile :: ProverK Position m => ModuleFile -> TcM m TypedModuleFile
-tcModuleFile (Left (t,args,m)) = do
-    (args',m') <- tcModuleWithPPArgs (args,m)
-    return $ Left (t,args',m')
+tcModuleFile (Left (t,args,m,ml)) = do
+    (args',m',ml) <- tcModuleWithPPArgs (args,m,ml)
+    return $ Left (t,args',m',ml)
 tcModuleFile (Right sci) = do
     State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (mappend x y,sciEnv sci) }
     return $ Right sci
 
-tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc) -> TcM m (PPArgs,Module GIdentifier (Typed loc))
-tcModuleWithPPArgs (ppargs,x) = localOptsTcM (`mappend` ppOptions ppargs) $ do
+tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc,Int) -> TcM m (PPArgs,Module GIdentifier (Typed loc),Int)
+tcModuleWithPPArgs (ppargs,x,mlength) = localOptsTcM (`mappend` ppOptions ppargs) $ do
     debugTc $ liftIO $ putStrLn $ "typechecking args ..." ++ show ppargs
-    x' <- tcModule x
+    x' <- tcModule x mlength
     menv <- State.gets (snd . moduleEnv)
-    TcM $ lift $ writeModuleSCI ppargs menv x
-    return (ppargs,x')
+    TcM $ lift $ writeModuleSCI ppargs menv x mlength
+    return (ppargs,x',mlength)
 
-tcModule :: (ProverK loc m) => Module Identifier loc -> TcM m (Module GIdentifier (Typed loc))
-tcModule m@(Module l name prog) = failTcM l $ do
+tcModule :: (ProverK loc m) => Module Identifier loc -> Int -> TcM m (Module GIdentifier (Typed loc))
+tcModule m@(Module l name prog) mlength = failTcM l $ do
     opts' <- TcM $ State.lift Reader.ask
     debugTc $ liftIO $ putStrLn $ "typechecking ..." ++ show opts'
     when (debugTypechecker opts') $ do
@@ -80,7 +80,7 @@ tcModule m@(Module l name prog) = failTcM l $ do
         liftIO $ hPutStrLn stderr ("Typechecking module " ++ ppm ++ "...")
     -- reset module typechecking environment and increment module count
     State.modify $ \env -> env
-        { moduleCount = (Just (moduleId m,TyVarId 0),succ $ snd $ moduleCount env)
+        { moduleCount = (Just ((moduleId m,TyVarId 0),mlength),succ $ snd $ moduleCount env)
         , moduleEnv = let (x,y) = moduleEnv env in (x `mappend` y,mempty)
         }
     liftIO resetTyVarId
@@ -612,6 +612,6 @@ tcGlobal l m = do
         ppxs <- mapM pp $ Foldable.toList xs
         error $ "tcGlobal: " ++ show (vcat ppxs)
 
-incModuleBlock :: (Maybe (Identifier,TyVarId),Int) -> (Maybe (Identifier,TyVarId),Int)
-incModuleBlock = mapFst (fmap (mapSnd inc))
+incModuleBlock :: (Maybe ((Identifier,TyVarId),Int),Int) -> (Maybe ((Identifier,TyVarId),Int),Int)
+incModuleBlock = mapFst (fmap (mapFst $ mapSnd inc))
     where inc (TyVarId j) = TyVarId (succ j)
