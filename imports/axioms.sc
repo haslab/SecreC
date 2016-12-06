@@ -25,4 +25,4 @@ module axioms;
 //@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j < shape(xs)[1];
-//@ ensures reclassify(xs[i,:][j] == xs[i,j]);
+//@ ensures assertion<D>(xs[i,:][j] == xs[i,j]);

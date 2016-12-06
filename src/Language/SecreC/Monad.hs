@@ -39,6 +39,25 @@ import System.Exit
 
 import GHC.Generics (Generic)
 
+data PromoteOpt = NoP | LocalP | GlobalP
+    deriving (Data, Typeable,Generic,Eq,Show,Read)
+instance Binary PromoteOpt
+instance Hashable PromoteOpt
+
+instance Monad m => PP m PromoteOpt where
+    pp NoP = return $ text "nop"
+    pp LocalP = return $ text "localp"
+    pp GlobalP = return $ text "globalp"
+
+appendPromoteOpt :: PromoteOpt -> PromoteOpt -> PromoteOpt
+appendPromoteOpt x y | x == y = x
+appendPromoteOpt LocalP y = y
+appendPromoteOpt x LocalP = x
+appendPromoteOpt NoP y = NoP
+appendPromoteOpt x NoP = NoP
+appendPromoteOpt GlobalP y = y
+appendPromoteOpt x GlobalP = x
+
 data VerifyOpt = NoneV | FuncV | LeakV | BothV
     deriving (Data, Typeable,Generic,Eq,Show,Read)
 instance Binary VerifyOpt
@@ -132,6 +151,7 @@ data Options
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
         , implicitCoercions      :: CoercionOpt
+        , promote           :: PromoteOpt
         , implicitContext        :: ContextOpt
         , backtrack              :: BacktrackOpt
         , matching               :: MatchingOpt
@@ -167,6 +187,7 @@ instance Monoid Options where
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
         , implicitCoercions = implicitCoercions x `appendCoercionOpt` implicitCoercions y
+        , promote = promote x `appendPromoteOpt` promote y
         , implicitContext = implicitContext x `appendContextOpt` implicitContext y
         , backtrack = backtrack x `min` backtrack y
         , matching = matching x `min` matching y
@@ -199,6 +220,7 @@ defaultOptions = Opts
     , constraintStackSize = 100
     , evalTimeOut = 5
     , implicitCoercions = OnC
+    , promote = LocalP
     , implicitContext = DelayCtx
     , backtrack = FullB
     , matching = UnorderedM

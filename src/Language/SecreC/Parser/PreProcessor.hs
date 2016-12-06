@@ -117,6 +117,7 @@ instance Monad m => PP m Options where
         pp13 <- pp (debugVerification opts)
         pp14 <- pp (implicitCoercions opts)
         pp141 <- pp (implicitContext opts)
+        pp142 <- pp (promote opts)
         pp15 <- pp (backtrack opts)
         pp151 <- pp (matching opts)
         pp16 <- pp (writeSCI opts)
@@ -143,6 +144,7 @@ instance Monad m => PP m Options where
             <+> text "--debugtransformation=" <> pp12
             <+> text "--debugverify=" <> pp13
             <+> text "--implicitcoercions=" <> pp14
+            <+> text "--promote=" <> pp142
             <+> text "--implicitcontext=" <> pp141
             <+> text "--backtrack=" <> pp15
             <+> text "--matching=" <> pp151
@@ -176,6 +178,13 @@ matchingMsg = PP.text "Solving order for constraints" $+$ PP.nest 4 (
         PP.text "orderedc" <+> PP.char '=' <+> PP.text "In code order for all constraints"
     $+$ PP.text "gorderedc" <+> PP.char '=' <+> PP.text "In code order for global constraints"
     $+$ PP.text "unorderedc" <+> PP.char '=' <+> PP.text "In any order (Default)"
+    )
+
+promoteMsg :: Doc
+promoteMsg = PP.text "Promote constraints when matching template instantiations" $+$ PP.nest 4 (
+        PP.text "lpromote" <+> PP.char '=' <+> PP.text "Promote only local constraints"
+    $+$ PP.text "gpromote" <+> PP.char '=' <+> PP.text "Promote global constraints"
+    $+$ PP.text "nopromote" <+> PP.char '=' <+> PP.text "Do not promote constraints"
     )
 
 backtrackMsg :: Doc
@@ -219,6 +228,7 @@ optionsDecl  = Opts {
     -- Typechecker
     , defaults   = defaults defaultOptions &= help "Generate default variable initializations" &= groupname "Verification:Typechecker"
     , implicitCoercions   = implicitCoercions defaultOptions &= name "implicit" &= help (show coercionMsg) &= groupname "Verification:Typechecker"
+    , promote      = promote defaultOptions &= help (show promoteMsg) &= groupname "Verification:TypeChecker"
     , implicitContext   = implicitContext defaultOptions &= help (show contextMsg) &= groupname "Verification:Typechecker"
     , backtrack   = backtrack defaultOptions &= help (show backtrackMsg) &= groupname "Verification:Typechecker"
     , matching   = matching defaultOptions &= help (show matchingMsg) &= groupname "Verification:Typechecker"

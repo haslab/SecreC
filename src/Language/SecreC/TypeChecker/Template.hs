@@ -828,38 +828,41 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                         withDependencies ks $ tcCstrM_ l $ IsValid c
                 return ()
             -- try to make progress on general constraints that may be bound to bindings of this instance
-            let promote = do
-                vs <- usedVs (n,targs,pargs,ret)
-                tops <- topCstrs l
-                let tops' = mapSet (ioCstrId . unLoc) tops
-                -- only local constraints to avoid backtracking
-                (relvs,rels) <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope SolveLocal)
-                let rels' = mapSet (ioCstrId . unLoc) rels
-                buildCstrGraph l rels'
-                debugTc $ do
-                    ppl <- ppr l
-                    ppvs <- ppr vs
-                    pprels' <- ppr rels'
-                    liftIO $ putStrLn $ "tpltVars " ++ ppl ++ " " ++ ppvs
-                    liftIO $ putStrLn $ "relVars " ++ ppl ++ " " ++ pprels'
-                    dicts <- State.gets tDict
-                    ss <- ppConstraints (tCstrs $ headNe dicts)
-                    liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "tpltCstrs " ++ ppl ++ " [" ++ show ss ++ "\n]"
-                    forM_ (tail $ Foldable.toList dicts) $ \d -> do
-                        ssd <- ppConstraints (tCstrs d)
-                        liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
-                    --doc <- liftM ppTSubsts $ getTSubsts l
-                    --liftIO $ putStrLn $ show doc
-                return rels'
+            let promotem NoP = return (Set.empty::Set Int)
+                promotem p = do
+                    vs <- usedVs (n,targs,pargs,ret)
+                    tops <- topCstrs l
+                    let tops' = mapSet (ioCstrId . unLoc) tops
+                    -- only local constraints to avoid backtracking
+                    let scope = case p of { LocalP -> SolveLocal; GlobalP -> SolveGlobal }
+                    (relvs,rels) <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope scope)
+                    let rels' = mapSet (ioCstrId . unLoc) rels
+                    buildCstrGraph l rels'
+                    debugTc $ do
+                        ppl <- ppr l
+                        ppvs <- ppr vs
+                        pprels' <- ppr rels'
+                        liftIO $ putStrLn $ "tpltVars " ++ ppl ++ " " ++ ppvs
+                        liftIO $ putStrLn $ "relVars " ++ ppl ++ " " ++ pprels'
+                        dicts <- State.gets tDict
+                        ss <- ppConstraints (tCstrs $ headNe dicts)
+                        liftIO $ putStrLn $ (concat $ replicate (length dicts) ">") ++ "tpltCstrs " ++ ppl ++ " [" ++ show ss ++ "\n]"
+                        forM_ (tail $ Foldable.toList dicts) $ \d -> do
+                            ssd <- ppConstraints (tCstrs d)
+                            liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
+                        --doc <- liftM ppTSubsts $ getTSubsts l
+                        --liftIO $ putStrLn $ show doc
+                    return rels'
             mode <- defaultSolveMode
             ok <- orError $ tcWith (locpos p) "instantiate" $ do
                 st <- getCstrState
+                opts <- askOpts
                 ppn <- ppr n
                 ppp <- ppr l
                 ppl <- ppr l
                 addDicts >> matchName >> proveHead
                 solveWith p ("instantiate with names " ++ ppn ++ " " ++ ppp ++ " " ++ ppl ++ " " ++ show mode) mode
-                ((promoted,_),cache) <- withCstrState (locpos p) st $ onFrees p $ onCache $ tcProveWith l "promote" (mode { solveFail = FirstFail False }) $ promote
+                ((promoted,_),cache) <- withCstrState (locpos p) st $ onFrees p $ onCache $ tcProveWith l "promote" (mode { solveFail = FirstFail False }) $ promotem $ promote opts
                 return (cache)
             --ks <- ppConstraints =<< liftM (maybe Graph.empty tCstrs . headMay . tDict) State.get
             --liftIO $ putStrLn $ "instantiate with names " ++ ppr n ++ " " ++ show ks
