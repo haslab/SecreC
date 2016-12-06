@@ -198,12 +198,12 @@ tcExpr ret (BytesFromStringExpr l e) = do
     e' <- limitExprC ReadOnlyExpr $ tcExprTy (BaseT string) e
     return $ BytesFromStringExpr (Typed l t) e'
 tcExpr ret (VArraySizeExpr l e) = do
-    let t = BaseT index
-    unifiesRet l ret t
+    let bt = BaseT index
+    unifiesRet l ret bt
     e' <- withExprC ReadOnlyExpr $ tcExpr Nothing e
     let t = typed $ loc e'
     unless (isVATy t) $ genTcError (locpos l) False $ text "size... expects a variadic array but got" <+> quotes (ppid e)
-    return $ VArraySizeExpr (Typed l t) e'
+    return $ VArraySizeExpr (Typed l bt) e'
 tcExpr ret qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
     vs' <- mapM (tcQVar l) vs
@@ -293,11 +293,10 @@ tcExpr ret me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
     let varr = VAType (ComplexT $ CType s b $ indexExpr 0) sz
     unifiesRet l ret varr
     
-    e' <- tcExpr Nothing e
+    x' <- tcExprTy (ComplexT $ CType s b $ indexExpr 1) e
     i' <- tcIndexExpr False i
     topTcCstrM_ l $ Unifies (IdxT $ fmap typed i') (IdxT sz)
-    x <- tcCoerces l True Nothing (fmap typed e') (ComplexT $ CType s b (indexExpr 1))
-    return $ ToVArrayExpr (Typed l varr) (fmap (Typed l) x) i'
+    return $ ToVArrayExpr (Typed l varr) (fmap (Typed l) x') i'
 tcExpr ret e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
     unifiesRet l ret $ typed tl
