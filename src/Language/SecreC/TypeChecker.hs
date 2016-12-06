@@ -101,25 +101,25 @@ tcProgram (Program l imports globals) = do
     return $ Program (notTyped "tcProgram" l) imports' globals'
 
 tcGlobalDeclaration :: (ProverK loc m) => GlobalDeclaration Identifier loc -> TcM m (GlobalDeclaration GIdentifier (Typed loc))
-tcGlobalDeclaration (GlobalVariable l vd) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalVariable l vd) = tcGlobal l "variable" $ do
     vd' <- tcVarDecl GlobalScope vd
     return $ GlobalVariable (notTyped "tcGlobalDeclaration" l) vd'
-tcGlobalDeclaration (GlobalDomain l dd) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalDomain l dd) = tcGlobal l "domain" $ do
     dd' <- tcDomainDecl dd
     return $ GlobalDomain (notTyped "tcGlobalDeclaration" l) dd'
-tcGlobalDeclaration (GlobalKind l kd) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalKind l kd) = tcGlobal l "kind" $ do
     kd' <- tcKindDecl kd
     return $ GlobalKind (notTyped "tcGlobalDeclaration" l) kd'
-tcGlobalDeclaration (GlobalProcedure l pd) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalProcedure l pd) = tcGlobal l "procedure" $ do
     (pd') <- tcProcedureDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) pd
     return $ GlobalProcedure (notTyped "tcGlobalDeclaration" l) pd'
-tcGlobalDeclaration (GlobalFunction l pd) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalFunction l pd) = tcGlobal l "function" $ do
     (pd') <- tcFunctionDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) pd
     return $ GlobalFunction (notTyped "tcGlobalDeclaration" l) pd'
-tcGlobalDeclaration (GlobalStructure l sd) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalStructure l sd) = tcGlobal l "struct" $ do
     (sd') <- tcStructureDecl (const $ addStructToRec []) (newStruct) sd
     return $ GlobalStructure (notTyped "tcGlobalDeclaration" l) sd'
-tcGlobalDeclaration (GlobalTemplate l td) = tcGlobal l $ do
+tcGlobalDeclaration (GlobalTemplate l td) = tcGlobal l "template" $ do
     td' <- tcTemplateDecl td
     let res = GlobalTemplate (notTyped "tcGlobalDeclaration" l) td'
     return res
@@ -128,22 +128,22 @@ tcGlobalDeclaration (GlobalAnnotations l ann) = do
     return $ GlobalAnnotations (notTyped "tcGlobalAnnotation" l) ann'
 
 tcGlobalAnn :: ProverK loc m => GlobalAnnotation Identifier loc -> TcM m (GlobalAnnotation GIdentifier (Typed loc))
-tcGlobalAnn (GlobalFunctionAnn l proc) = tcGlobal l $ insideAnnotation $ do
+tcGlobalAnn (GlobalFunctionAnn l proc) = tcGlobal l "annotation function" $ insideAnnotation $ do
     (proc') <- tcFunctionDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) proc
     return $ GlobalFunctionAnn (notTyped "tcGlobalAnn" l) proc'
-tcGlobalAnn (GlobalProcedureAnn l proc) = tcGlobal l $ insideAnnotation $ do
+tcGlobalAnn (GlobalProcedureAnn l proc) = tcGlobal l "annotation procedure" $ insideAnnotation $ do
     (proc') <- tcProcedureDecl (const $ addOperatorToRec []) (newOperator) (const $ addProcedureFunctionToRec []) (newProcedureFunction) proc
     return $ GlobalProcedureAnn (notTyped "tcGlobalAnn" l) proc'
-tcGlobalAnn (GlobalStructureAnn l proc) = tcGlobal l $ insideAnnotation $ do
+tcGlobalAnn (GlobalStructureAnn l proc) = tcGlobal l "annotation struct" $ insideAnnotation $ do
     (proc') <- tcStructureDecl (const $ addStructToRec []) (newStruct) proc
     return $ GlobalStructureAnn (notTyped "tcGlobalAnn" l) proc'
-tcGlobalAnn (GlobalTemplateAnn l proc) = tcGlobal l $ insideAnnotation $ do
+tcGlobalAnn (GlobalTemplateAnn l proc) = tcGlobal l "annotation template" $ insideAnnotation $ do
     proc' <- tcTemplateDecl proc
     return $ GlobalTemplateAnn (notTyped "tcGlobalAnn" l) proc'
-tcGlobalAnn (GlobalAxiomAnn l ax) = tcGlobal l $ insideAnnotation $ do
+tcGlobalAnn (GlobalAxiomAnn l ax) = tcGlobal l "annotation axiom" $ insideAnnotation $ do
     ax' <- tcAxiomDecl ax
     return $ GlobalAxiomAnn (notTyped "tcGlobalAnn" l) ax'
-tcGlobalAnn (GlobalLemmaAnn l ax) = tcGlobal l $ insideAnnotation $ do
+tcGlobalAnn (GlobalLemmaAnn l ax) = tcGlobal l "annotation lemma" $ insideAnnotation $ do
     ax' <- tcLemmaDecl ax
     return $ GlobalLemmaAnn (notTyped "tcGlobalAnn" l) ax'
 
@@ -587,8 +587,8 @@ tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $
     return x
 
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
-tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
-tcGlobal l m = do
+tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> TcM m a -> TcM m a
+tcGlobal l msg m = tcProgress l msg $ do
     State.modify $ \e -> e { decClass = DecClass False False emptyDecClassVars emptyDecClassVars }
     debugTc $ do
         opts <- askOpts
