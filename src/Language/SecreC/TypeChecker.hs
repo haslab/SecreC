@@ -337,7 +337,7 @@ tcProcedureAnns xs = do
 
 tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (Maybe Bool,ProcedureAnnotation GIdentifier (Typed loc))
 tcProcedureAnn (PDecreasesAnn l e) = tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
-    (e') <- tcAnnExpr e
+    (e') <- tcAnnExpr Nothing e
     return (Nothing,PDecreasesAnn (Typed l $ typed $ loc e') e')
 tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcAddDeps l "pann" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
@@ -443,7 +443,7 @@ tcContextConstraint (ContextTDec l cl (TypeName nl n) ts) = do
 tcCtxPArg :: ProverK loc m => CtxPArg Identifier loc -> TcM m ((IsConst,Either Expr Type,IsVariadic),CtxPArg GIdentifier (Typed loc))
 tcCtxPArg (CtxExprPArg l isConst e isVariadic) = do
     let tcConst = if isConst then withExprC PureExpr else id
-    (e',isVariadic') <- tcConst $ tcVariadicArg tcExpr (e,isVariadic)
+    (e',isVariadic') <- tcConst $ tcVariadicArg (tcExpr Nothing) (e,isVariadic)
     let t = typed $ loc e'
     return ((isConst,Left $ fmap typed e',isVariadic'),CtxExprPArg (Typed l $ IdxT $ fmap typed e') isConst e' isVariadic')
 tcCtxPArg (CtxTypePArg l isConst t isVariadic) = do

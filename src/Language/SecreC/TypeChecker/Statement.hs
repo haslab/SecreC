@@ -141,7 +141,7 @@ tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for
     ((startE',whileE',incE',ann',bodyS',t'),rs,ws) <- withDecClassVars $ do
         startE' <- tcStmtBlock l "forinit" $ tcForInitializer startE
         whileE' <- tcStmtBlock l "forguard" $ mapM (tcGuard) whileE
-        incE' <- withExprC ReadWriteExpr $ tcStmtBlock l "forinc" $ mapM (tcExpr) incE
+        incE' <- withExprC ReadWriteExpr $ tcStmtBlock l "forinc" $ mapM (tcExpr Nothing) incE
         ann' <- mapM tcLoopAnn ann
         (bodyS',t') <- tcLocal l "tcStmt for body" $ tcLoopBodyStmt ret l bodyS
         return (startE',whileE',incE',ann',bodyS',t')
@@ -166,7 +166,7 @@ tcStmt ret (WhileStatement l condE ann bodyS) = do
         liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws
     return (WhileStatement (Typed l $ WhileT rs ws) condE' ann' bodyS',t')
 tcStmt ret (PrintStatement (l::loc) argsE) = do
-    argsE' <- withExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr)) argsE
+    argsE' <- withExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr Nothing)) argsE
     xs <- forM argsE' $ \argE' -> do
         tx <- newTyVar True False Nothing
         pparg <- ppVariadicArg pp argE'
@@ -209,7 +209,7 @@ tcStmt ret (ReturnStatement l Nothing) = do
     let ret = ReturnStatement (Typed l t) Nothing
     return (ret,t)
 tcStmt ret (ReturnStatement l (Just e)) = do
-    e' <- withExprC ReadWriteExpr $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr Nothing e
     let et' = typed $ loc e'
     ppe <- pp e
     x <- tcCoerces l True Nothing (fmap typed e') ret
@@ -224,7 +224,7 @@ tcStmt ret (BreakStatement l) = do
     let t = StmtType (Set.singleton StmtBreak)
     return (BreakStatement $ Typed l t,t)    
 tcStmt ret (ExpressionStatement l e) = do
-    e' <- withExprC ReadWriteExpr $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr Nothing e
     let te = typed $ loc e'
     --case e of
     --    BinaryAssign {} -> return ()
@@ -238,7 +238,7 @@ tcStmt ret (AnnStatement l ann) = do
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))
 tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "loopann" $ insideAnnotation $ withLeak False $ do
-    (e') <- tcAnnExpr e
+    (e') <- tcAnnExpr Nothing e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
 tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "loopann" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
@@ -260,7 +260,7 @@ isSupportedSyscall l n args = return () -- TODO: check specific syscalls?
 
 tcSyscallParam :: (ProverK loc m) => SyscallParameter Identifier loc -> TcM m (SyscallParameter GIdentifier (Typed loc))
 tcSyscallParam (SyscallPush l e) = do
-    e' <- withExprC ReadWriteExpr $ tcVariadicArg tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcVariadicArg (tcExpr Nothing) e
     let t = SysT $ SysPush $ typed $ loc $ fst e'
     return $ SyscallPush (Typed l t) e'
 tcSyscallParam (SyscallReturn l v) = do
@@ -272,14 +272,14 @@ tcSyscallParam (SyscallPushRef l v) = do
     let t = SysT $ SysRef $ typed $ loc v'
     return $ SyscallPushRef (Typed l t) v'
 tcSyscallParam (SyscallPushCRef l e) = do
-    e' <- withExprC ReadWriteExpr $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr Nothing e
     let t = SysT $ SysCRef $ typed $ loc e'
     return $ SyscallPushCRef (Typed l t) e'
 
 tcForInitializer :: (ProverK loc m) => ForInitializer Identifier loc -> TcM m (ForInitializer GIdentifier (Typed loc))
 tcForInitializer (InitializerExpression Nothing) = return $ InitializerExpression Nothing
 tcForInitializer (InitializerExpression (Just e)) = do
-    e' <- withExprC ReadWriteExpr $ tcExpr e
+    e' <- withExprC ReadWriteExpr $ tcExpr Nothing e
     return $ InitializerExpression $ Just e'
 tcForInitializer (InitializerVariable vd) = do
     vd' <- tcVarDecl LocalScope vd

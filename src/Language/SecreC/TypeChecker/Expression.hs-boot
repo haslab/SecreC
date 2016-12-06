@@ -24,15 +24,15 @@ landExprs :: (ProverK loc m) => loc -> Bool -> Expression GIdentifier Type -> Ex
 
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 
-tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcAnnExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 
 repeatExpr :: ProverK loc m => loc -> Bool -> Expr -> Maybe Expr -> ComplexType -> TcM m Expr
 
 eqExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 
-tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 
-tcPureExpr :: ProverK loc m => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcPureExpr :: ProverK loc m => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 
 tcGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 

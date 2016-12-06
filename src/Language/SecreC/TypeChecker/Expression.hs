@@ -46,43 +46,46 @@ tcGuard e = limitExprC ReadOnlyExpr $ tcExprTy (BaseT bool) e
 tcBoolExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcBoolExpr e = limitExprC ReadOnlyExpr $ do
     let l = loc e
-    e' <- tcExpr e
     k <- newKindVar "k" Nothing False Nothing
     s <- newDomainTyVar "s" k False Nothing
-    topTcCstrM_ l $ Unifies (typed $ loc e') (ComplexT $ CType s bool $ indexExpr 0)
+    let ret = ComplexT $ CType s bool $ indexExpr 0
+    e' <- tcExpr (Just ret) e
     return e'
 
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcAnnGuard e = limitExprC ReadOnlyExpr $ insideAnnotation $ do
-    e' <- tcExpr e
+    let ret = ComplexT $ CType Public bool $ indexExpr 0
+    e' <- tcExpr (Just ret) e
     let (Typed l ty) = loc e'
 --    k <- newKindVar "k" Nothing False Nothing
 --    s <- newDomainTyVar "s" k False Nothing
-    topTcCstrM_ l $ Unifies ty (ComplexT $ CType Public bool $ indexExpr 0)
     return e'
 
-tcAnnExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
-tcAnnExpr e = limitExprC ReadOnlyExpr $ insideAnnotation $ tcExpr e
+tcAnnExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcAnnExpr ret e = limitExprC ReadOnlyExpr $ insideAnnotation $ tcExpr ret e
 
-tcLValue :: (ProverK loc m) => Bool -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
-tcLValue isWrite (PostIndexExpr l e s) = do
-    e' <- tcAddDeps l "lvalue" $ tcLValue isWrite e
+tcLValue :: (ProverK loc m) => Bool -> Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcLValue isWrite ret (PostIndexExpr l e s) = do
+    e' <- tcAddDeps l "lvalue" $ tcLValue isWrite Nothing e
     let t = typed $ loc e'
-    (s',t') <- tcSubscript e' s
+    (s',t') <- tcSubscript ret e' s
     return $ PostIndexExpr (Typed l t') e' s'
-tcLValue isWrite (SelectionExpr l pe a) = do
+tcLValue isWrite ret (SelectionExpr l pe a) = do
+    res <- newTyVar True False Nothing
+    unifiesRet l ret res
+    
     let va = bimap (TIden . mkVarId) id a
-    pe' <- tcLValue isWrite pe
+    pe' <- tcLValue isWrite Nothing pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    res <- newTyVar True False Nothing
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) res
     return $ SelectionExpr (Typed l res) pe' (fmap (flip Typed res) va)
-tcLValue isWrite (RVariablePExpr l v) = do
+tcLValue isWrite ret (RVariablePExpr l v) = do
     v' <- tcVarName isWrite v
     let t = typed $ loc v'
+    unifiesRet l ret t
     return $ RVariablePExpr (Typed l t) v'
-tcLValue isWrite e = genTcError (locpos $ loc e) False $ text "Not a l-value expression: " <+> quotes (ppid e)
+tcLValue isWrite ret e = genTcError (locpos $ loc e) False $ text "Not a l-value expression: " <+> quotes (ppid e)
 
 tcVariadicArg :: (PP (TcM m) (a GIdentifier (Typed loc)),VarsGTcM m,Located (a GIdentifier (Typed loc)),Location loc,LocOf (a GIdentifier (Typed loc)) ~ (Typed loc)) => (a Identifier loc -> TcM m (a GIdentifier (Typed loc))) -> (a Identifier loc,IsVariadic) -> TcM m (a GIdentifier (Typed loc),IsVariadic)
 tcVariadicArg tcA (e,isVariadic) = do
@@ -95,67 +98,77 @@ tcVariadicArg tcA (e,isVariadic) = do
         else when (isVATy t) $ genTcError (locpos l) False $ text "Expression" <+> quotes (ppe' `ppOf` ppt) <+> text "should not be variadic" 
     return (e',isVariadic)
 
-tcPureExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
-tcPureExpr e = withExprC PureExpr $ tcExpr e
+tcPureExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcPureExpr ret e = withExprC PureExpr $ tcExpr ret e
 
-tcExpr :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
-tcExpr (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
-    tcExpr $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
-tcExpr ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
+unifiesRet :: ProverK loc m => loc -> Maybe Type -> Type -> TcM m ()
+unifiesRet l Nothing t = return ()
+unifiesRet l (Just ret) t = topTcCstrM_ l $ Unifies ret t
+
+mkRet :: ProverK loc m => loc -> Maybe Type -> TcM m Type
+mkRet l (Just t) = return t
+mkRet l Nothing = newTyVar True False Nothing
+
+tcExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
+tcExpr ret (BinaryAssign l pe (binAssignOpToOp -> Just op) e) = do
+    tcExpr ret $ BinaryAssign l pe (BinaryAssignEqual l) $ BinaryExpr l pe op e
+tcExpr ret ae@(BinaryAssign l pe op@(BinaryAssignEqual ol) e) = do
     exprC <- getExprC
     when (exprC==PureExpr) $ genTcError (locpos l) False $ text "assign expression is not pure" <+> ppid ae
-    pe' <- tcLValue True pe
-    e' <- tcExpr e
+    pe' <- tcLValue True Nothing pe
+    e' <- tcExpr Nothing e
     let tpe = typed $ loc pe'
     ppe' <- pp e'
     x1 <- tcCoerces l True Nothing (fmap typed e') tpe
     let ex1 = fmap (Typed l) x1
+    unifiesRet l ret tpe
     return $ BinaryAssign (Typed l tpe) pe' (fmap (notTyped "equal") op) ex1
-tcExpr (QualExpr l e t) = do
-    e' <- tcExpr e
+tcExpr ret (QualExpr l e t) = do
     t' <- tcTypeSpec t False False
     let ty = typed $ loc t'
     --x <- newTypedVar "qex" ty $ Just $ pp e' -- we add the size
+    unifiesRet l ret ty
+    e' <- tcExpr (Just ty) e
     topTcCstrM_ l $ Unifies (typed $ loc e') ty
     return $ QualExpr (Typed l ty) e' t'
-tcExpr (CondExpr l c e1 e2) = do
+tcExpr ret (CondExpr l c e1 e2) = do
     (c',cstrsc) <- tcWithCstrs l "condexpr" $ tcGuard c
     e1' <- withDeps LocalScope $ do
         tryAddHypothesis l "tcExpr cond then" LocalScope checkAssertions cstrsc $ HypCondition $ fmap typed c'
-        limitExprC ReadOnlyExpr $ tcExpr e1
+        limitExprC ReadOnlyExpr $ tcExpr Nothing e1
     e2' <- withDeps LocalScope $ do
         tryAddHypothesis l "tcExpr cond else" LocalScope checkAssertions cstrsc $ HypNotCondition $ fmap typed c'
-        limitExprC ReadOnlyExpr $ tcExpr e2
+        limitExprC ReadOnlyExpr $ tcExpr Nothing e2
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
-    t3 <- newTyVar False False Nothing
     ppe1' <- pp e1'
     ppe2' <- pp e2'
+    t3 <- mkRet l ret
     [x1,x2] <- tcCoercesN l True [fmap typed e1',fmap typed e2'] t3
     let ex1 = fmap (Typed l) x1
     let ex2 = fmap (Typed l) x2
     return $ CondExpr (Typed l t3) c' ex1 ex2
-tcExpr (BinaryExpr l e1 op e2) = do
-    e1' <- limitExprC ReadOnlyExpr $ tcExpr e1
-    e2' <- limitExprC ReadOnlyExpr $ tcExpr e2
+tcExpr ret (BinaryExpr l e1 op e2) = do
+    e1' <- limitExprC ReadOnlyExpr $ tcExpr Nothing e1
+    e2' <- limitExprC ReadOnlyExpr $ tcExpr Nothing e2
     let t1 = typed $ loc e1'
     let t2 = typed $ loc e2'
     top <- tcOp op
-    v <- newTyVar False False Nothing
+    v <- mkRet l ret
     (dec,[(_,Left x1,_),(_,Left x2,_)]) <- pDecCstrM l Nothing True False True (OIden $ fmap typed top) Nothing [(False,Left $ fmap typed e1',False),(False,Left $ fmap typed e2',False)] v
     return $ BinaryExpr (Typed l v) (fmap (Typed l) x1) (updLoc top (Typed l $ DecT dec)) (fmap (Typed l) x2)
-tcExpr pe@(PreOp l op e) = do
+tcExpr ret pe@(PreOp l op e) = do
     exprC <- getExprC
     when (exprC==PureExpr) $ genTcError (locpos l) False $ text "preop is not pure" <+> ppid pe
-    e' <- tcLValue True e
+    e' <- tcLValue True ret e
     limitExprC ReadOnlyExpr $ tcPrePostOp l True op e'
-tcExpr pe@(PostOp l op e) = do
+tcExpr ret pe@(PostOp l op e) = do
     exprC <- getExprC
     when (exprC==PureExpr) $ genTcError (locpos l) False $ text "postop is not pure" <+> ppid pe
-    e' <- tcLValue True e
+    e' <- tcLValue True ret e
     limitExprC ReadOnlyExpr $ tcPrePostOp l False op e'
-tcExpr (UnaryExpr l op e) = do
-    e' <- limitExprC ReadOnlyExpr $ tcExpr e
+tcExpr ret (UnaryExpr l op e) = do
+    e' <- limitExprC ReadOnlyExpr $ tcExpr Nothing e
     let t = typed $ loc e'
     top <- tcOp op
     case (top,e) of
@@ -165,108 +178,131 @@ tcExpr (UnaryExpr l op e) = do
             b <- typeBase l t
             topTcCstrM_ l $ Unifies b (BaseT castty)
         otherwise -> return ()
-    
-    v <- newTyVar False False Nothing
+    v <- mkRet l ret
     (dec,[(_,Left x,_)]) <- pDecCstrM l Nothing True False True (OIden $ fmap typed top) Nothing [(False,Left $ fmap typed e',False)] v
     let ex = fmap (Typed l) x
     return $ UnaryExpr (Typed l v) (updLoc top (Typed l $ DecT dec)) ex
-tcExpr (DomainIdExpr l s) = do
-    s' <- tcSecType s
+tcExpr ret (DomainIdExpr l s) = do
     let t = BaseT index
+    unifiesRet l ret t
+    s' <- tcSecType s
     return $ DomainIdExpr (Typed l t) s'
-tcExpr (StringFromBytesExpr l e) = do
+tcExpr ret (StringFromBytesExpr l e) = do
+    let t = BaseT string
+    unifiesRet l ret t
     e' <- limitExprC ReadOnlyExpr $ tcExprTy (ComplexT bytes) e
-    return $ StringFromBytesExpr (Typed l $ BaseT string) e'
-tcExpr (BytesFromStringExpr l e) = do
+    return $ StringFromBytesExpr (Typed l t) e'
+tcExpr ret (BytesFromStringExpr l e) = do
+    let t = ComplexT bytes
+    unifiesRet l ret t
     e' <- limitExprC ReadOnlyExpr $ tcExprTy (BaseT string) e
-    return $ BytesFromStringExpr (Typed l $ ComplexT bytes) e'
-tcExpr (VArraySizeExpr l e) = do
-    e' <- withExprC ReadOnlyExpr $ tcExpr e
+    return $ BytesFromStringExpr (Typed l t) e'
+tcExpr ret (VArraySizeExpr l e) = do
+    let t = BaseT index
+    unifiesRet l ret t
+    e' <- withExprC ReadOnlyExpr $ tcExpr Nothing e
     let t = typed $ loc e'
     unless (isVATy t) $ genTcError (locpos l) False $ text "size... expects a variadic array but got" <+> quotes (ppid e)
-    return $ VArraySizeExpr (Typed l $ BaseT index) e'
-tcExpr qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
+    return $ VArraySizeExpr (Typed l t) e'
+tcExpr ret qe@(QuantifiedExpr l q vs e) = onlyAnn l (ppid qe) $ tcLocal l "tcExpr quant" $ do
     q' <- tcQuantifier q
     vs' <- mapM (tcQVar l) vs
     e' <- tcGuard e
-    return $ QuantifiedExpr (Typed l $ typed $ loc e') q' vs' e'
-tcExpr le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
-    e' <- limitExprC ReadOnlyExpr $ tcExpr e
+    let te = typed $ loc e'
+    unifiesRet l ret te
+    return $ QuantifiedExpr (Typed l te) q' vs' e'
+tcExpr ret le@(LeakExpr l e) = onlyLeak l (ppid le) $ onlyAnn l (ppid le) $ do
+    let t = BaseT bool
+    unifiesRet l ret t
+    e' <- limitExprC ReadOnlyExpr $ tcExpr Nothing e
     topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
-    return $ LeakExpr (Typed l $ BaseT bool) e'
-tcExpr call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
+    return $ LeakExpr (Typed l t) e'
+tcExpr ret call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     let vn = bimap (mkVarId) id n
     specs' <- mapM (mapM (tcVariadicArg tcTemplateTypeArgument)) specs
-    es' <- limitExprC ReadOnlyExpr $ mapM (tcVariadicArg tcExpr) es
+    es' <- limitExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr Nothing)) es
     let tspecs = fmap (map (mapFst (typed . loc))) specs'
-    v <- newTyVar False False Nothing
+    v <- mkRet l ret
     (dec,xs) <- pDecCstrM l Nothing True False True (PIden $ procedureNameId vn) tspecs (map (\(x,y) -> (False,Left $ fmap typed x,y)) es') v
     let exs = map (\(x,Left y,z) -> (fmap (Typed l) y,z)) xs
     return $ ProcCallExpr (Typed l v) (bimap PIden (flip Typed (DecT dec)) vn) specs' exs
-tcExpr (PostIndexExpr l e s) = limitExprC ReadOnlyExpr $ do
-    e' <- tcAddDeps l "postindex" $ tcExpr e
+tcExpr ret (PostIndexExpr l e s) = limitExprC ReadOnlyExpr $ do
+    e' <- tcAddDeps l "postindex" $ tcExpr Nothing e
     let t = typed $ loc e'
-    (s',t') <- tcSubscript e' s
+    (s',t') <- tcSubscript ret e' s
     return $ PostIndexExpr (Typed l t') e' s'
-tcExpr (SelectionExpr l pe a) = limitExprC ReadOnlyExpr $ do
+tcExpr ret (SelectionExpr l pe a) = limitExprC ReadOnlyExpr $ do
     let va = bimap (TIden . mkVarId) id a -- marking attributes as types
-    pe' <- tcExpr pe
+    pe' <- tcExpr Nothing pe
     let tpe' = typed $ loc pe'
     ctpe' <- typeToBaseType l tpe'
-    tres <- newTyVar True False Nothing
+    tres <- mkRet l ret
     topTcCstrM_ l $ ProjectStruct ctpe' (funit va) tres
     return $ SelectionExpr (Typed l tres) pe' (fmap (flip Typed tres) va)
-tcExpr (ArrayConstructorPExpr l es) = limitExprC ReadOnlyExpr $ do
-    lit' <- tcArrayLiteral l es
+tcExpr ret (ArrayConstructorPExpr l es) = limitExprC ReadOnlyExpr $ do
+    lit' <- tcArrayLiteral l ret es
     return lit'
-tcExpr e@(MultisetConstructorPExpr l es) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
-    lit' <- tcMultisetLiteral l es
+tcExpr ret e@(MultisetConstructorPExpr l es) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
+    lit' <- tcMultisetLiteral l ret es
     return lit'
-tcExpr e@(SetConstructorPExpr l es) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
-    lit' <- tcSetLiteral l es
+tcExpr ret e@(SetConstructorPExpr l es) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
+    lit' <- tcSetLiteral l ret es
     return lit'
-tcExpr (LitPExpr l lit) = limitExprC ReadOnlyExpr $ do
-    lit' <- tcLiteral lit
+tcExpr ret (LitPExpr l lit) = limitExprC ReadOnlyExpr $ do
+    lit' <- tcLiteral ret lit
     return lit'
-tcExpr (RVariablePExpr l v) = do
+tcExpr ret (RVariablePExpr l v) = do
     v' <- tcVarName False v
     let t = typed $ loc v'
+    unifiesRet l ret t
     return $ RVariablePExpr (Typed l t) v'
-tcExpr (BuiltinExpr l n args) = do
-    args' <- limitExprC ReadOnlyExpr $ mapM (tcVariadicArg tcExpr) args
-    ret <- isSupportedBuiltin l n $ map (typed . loc . fst) args'
-    return $ BuiltinExpr (Typed l ret) n args'
-tcExpr me@(ToMultisetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
-    e' <- tcExpr e
+tcExpr ret (BuiltinExpr l n args) = do
+    args' <- limitExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr Nothing)) args
+    tret <- isSupportedBuiltin l n $ map (typed . loc . fst) args'
+    unifiesRet l ret tret
+    return $ BuiltinExpr (Typed l tret) n args'
+tcExpr ret me@(ToMultisetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     mset <- newBaseTyVar Nothing False Nothing
+    unifiesRet l ret $ BaseT mset
+    
+    e' <- tcExpr Nothing e
     topTcCstrM_ l $ ToMultiset (typed $ loc e') mset
     return $ ToMultisetExpr (Typed l $ BaseT mset) e'
-tcExpr me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
-    e' <- tcExpr e
+tcExpr ret me@(ToSetExpr l e) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
     set <- newBaseTyVar Nothing False Nothing
+    unifiesRet l ret $ BaseT set
+    
+    e' <- tcExpr Nothing e
     topTcCstrM_ l $ ToSet (Right $ typed $ loc e') set
     return $ ToSetExpr (Typed l $ BaseT set) e'
-tcExpr me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
+tcExpr ret me@(SetComprehensionExpr l t x px fx) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid me) $ do
+    set <- newBaseTyVar Nothing False Nothing
+    unifiesRet l ret $ BaseT set
+    
     (t',x') <- tcQVar l (t,x)
     px' <- tcGuard px
-    fx' <- mapM tcExpr fx
+    fx' <- mapM (tcExpr Nothing) fx
     let setb = maybe (typed $ loc t') (typed . loc) fx'
-    set <- newBaseTyVar Nothing False Nothing
     topTcCstrM_ l $ ToSet (Left setb) set
     return $ SetComprehensionExpr (Typed l $ BaseT set) t' x' px' fx'
-tcExpr me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
-    e' <- tcExpr e
-    i' <- tcIndexExpr False i
+tcExpr ret me@(ToVArrayExpr l e i) = limitExprC ReadOnlyExpr $ do
     k <- newKindVar "k" Nothing False Nothing
     s <- newDomainTyVar "s" k False Nothing
     b <- newBaseTyVar Nothing False Nothing
-    let varr = VAType (ComplexT $ CType s b $ indexExpr 0) (fmap typed i')
+    sz <- newSizeVar False Nothing
+    let varr = VAType (ComplexT $ CType s b $ indexExpr 0) sz
+    unifiesRet l ret varr
+    
+    e' <- tcExpr Nothing e
+    i' <- tcIndexExpr False i
+    topTcCstrM_ l $ Unifies (IdxT $ fmap typed i') (IdxT sz)
     x <- tcCoerces l True Nothing (fmap typed e') (ComplexT $ CType s b (indexExpr 1))
     return $ ToVArrayExpr (Typed l varr) (fmap (Typed l) x) i'
-tcExpr e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
+tcExpr ret e@(ResultExpr l) = limitExprC ReadOnlyExpr $ onlyAnn l (ppid e) $ do
     VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
+    unifiesRet l ret $ typed tl
     return $ ResultExpr tl
-tcExpr e = genTcError (locpos $ loc e) False $ text "failed to typecheck expression" <+> ppid e
+tcExpr ret e = genTcError (locpos $ loc e) False $ text "failed to typecheck expression" <+> ppid e
 
 tcQVar :: ProverK loc m => loc -> (TypeSpecifier Identifier loc,VarName Identifier loc) -> TcM m (TypeSpecifier GIdentifier (Typed loc),VarName GIdentifier (Typed loc))
 tcQVar l (t,v) = do
@@ -295,7 +331,7 @@ tcQuantifier (ExistsQ l) = return $ ExistsQ (notTyped "quantifier" l)
     
 tcPrePostOp :: (ProverK loc m) => loc -> Bool -> Op Identifier loc -> Expression GIdentifier (Typed loc) -> TcM m (Expression GIdentifier (Typed loc))
 tcPrePostOp l isPre op e1 = do
-    elit1 <- tcLiteral $ IntLit l 1
+    elit1 <- tcLiteral Nothing $ IntLit l 1
     top <- tcOp op
     let t1 = typed $ loc e1
     (dec,[(_,Left x1,_),(_,Left x2,_)]) <- pDecCstrM l Nothing True False True (OIden $ fmap typed top) Nothing [(False,Left $ fmap typed e1,False),(False,Left $ fmap typed elit1,False)] t1
@@ -312,18 +348,19 @@ tcOp (OpCast l t) = do
 tcOp op = return $ bimap (PIden . mkVarId) (notTyped "tcOp") op
 
 -- | Selects a list of indices from a type, and returns the type of the selection
-tcSubscript :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> Subscript Identifier loc -> TcM m (Subscript GIdentifier (Typed loc),Type)
-tcSubscript e s = do
+tcSubscript :: (ProverK loc m) => Maybe Type -> Expression GIdentifier (Typed loc) -> Subscript Identifier loc -> TcM m (Subscript GIdentifier (Typed loc),Type)
+tcSubscript ret e s = do
     let t = typed $ loc e
     let l = loc s
     ((s',rngs),ks) <- tcWithCstrs l "subscript" $ mapAndUnzipM tcIndex s
-    ret <- case t of
+    ret' <- case t of
         VAType t _ -> case indexProjs (Foldable.toList s) of
             0 -> mkVariadicTyArray True False t
             otherwise -> newTyVar True False Nothing
         otherwise -> newTyVar True False Nothing
-    withDependencies ks $ topTcCstrM_ l $ ProjectMatrix t (Foldable.toList rngs) ret
-    return (s',ret)
+    unifiesRet l ret ret'
+    withDependencies ks $ topTcCstrM_ l $ ProjectMatrix t (Foldable.toList rngs) ret'
+    return (s',ret')
 
 indexProjs :: [Index iden loc] -> Word64
 indexProjs [] = 0
@@ -344,21 +381,20 @@ tcIndex (IndexSlice l e1 e2) = do
     (e2',mb2) <- f =<< mapM (tcIndexExpr False) e2
     return (IndexSlice (notTyped "tcIndex" l) e1' e2',ArraySlice mb1 mb2)
 
-tcLiteral :: (ProverK loc m) => Literal loc -> TcM m (Expression GIdentifier (Typed loc))
-tcLiteral li = do
+tcLiteral :: (ProverK loc m) => Maybe Type -> Literal loc -> TcM m (Expression GIdentifier (Typed loc))
+tcLiteral ret li = do
     let l = loc li
     b <- newBaseTyVar Nothing False Nothing
     let t = BaseT b
+    unifiesRet l ret t
+    
     let elit = LitPExpr t $ fmap (const t) li
     topTcCstrM_ l $ CoercesLit elit
     opts <- askOpts
     return $ fmap (Typed l) elit
 
-tcArrayLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
-tcArrayLiteral l es = do
-    opts <- askOpts
-    es' <- mapM tcExpr es
-    let es'' = fmap (fmap typed) es'
+tcArrayLiteral :: (ProverK loc m) => loc -> Maybe Type -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
+tcArrayLiteral l ret es = do
     s <- do
         k <- newKindVar "k" Nothing False Nothing
         s <- newDomainTyVar "s" k False Nothing
@@ -366,24 +402,33 @@ tcArrayLiteral l es = do
     b <- newBaseTyVar Nothing False Nothing
     let t = ComplexT $ CType s b (indexExpr 1)
     let bt = ComplexT $ CType s b (indexExpr 0)
+    unifiesRet l ret t
+    
+    opts <- askOpts
+    es' <- mapM (tcExpr $ Just bt) es
+    let es'' = fmap (fmap typed) es'
     xs <- tcCoercesN l True es'' bt
     return $ ArrayConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
-tcMultisetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
-tcMultisetLiteral l es = do
-    es' <- mapM tcExpr es
-    let es'' = fmap (fmap typed) es'
+tcMultisetLiteral :: (ProverK loc m) => loc -> Maybe Type -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
+tcMultisetLiteral l ret es = do
     ct@(ComplexT bt) <- newTyVar False False Nothing
     let t = BaseT (MSet bt)
+    unifiesRet l ret t
+    
+    es' <- mapM (tcExpr $ Just ct) es
+    let es'' = fmap (fmap typed) es'
     xs <- tcCoercesN l True es'' ct
     return $ MultisetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
-tcSetLiteral :: (ProverK loc m) => loc -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
-tcSetLiteral l es = do
-    es' <- mapM tcExpr es
-    let es'' = fmap (fmap typed) es'
+tcSetLiteral :: (ProverK loc m) => loc -> Maybe Type -> [Expression Identifier loc] -> TcM m (Expression GIdentifier (Typed loc))
+tcSetLiteral l ret es = do
     ct@(ComplexT bt) <- newTyVar False False Nothing
     let t = BaseT $ Set bt
+    unifiesRet l ret t
+    
+    es' <- mapM (tcExpr $ Just ct) es
+    let es'' = fmap (fmap typed) es'
     xs <- tcCoercesN l True es'' ct
     return $ SetConstructorPExpr (Typed l t) $ map (fmap (Typed l)) xs
 
@@ -419,7 +464,7 @@ tcIndexExpr isVariadic e = do
     
 tcExprTy :: (ProverK loc m) => Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 tcExprTy ty e = do
-    e' <- tcExpr e
+    e' <- tcExpr Nothing e
     tcExprTy' ty e'
     
 tcExprTy' :: (ProverK loc m) => Type -> Expression GIdentifier (Typed loc) -> TcM m (Expression GIdentifier (Typed loc))
@@ -431,7 +476,7 @@ tcExprTy' ty e' = do
 
 tcSizes :: (ProverK loc m) => loc -> Sizes Identifier loc -> TcM m (Sizes GIdentifier (Typed loc))
 tcSizes l (Sizes szs) = do
-    szs' <- mapM (\x -> tcVariadicArg (tcIndexExpr $ snd x) x) $ Foldable.toList szs
+    szs' <- mapM (\x -> tcVariadicArg (tcIndexExpr (snd x)) x) $ Foldable.toList szs
     -- check array's dimension
     --tcCstrM l $ MatchTypeDimension ty $ map (mapFst (fmap typed)) szs'
     return $ Sizes $ fromListNe szs'
