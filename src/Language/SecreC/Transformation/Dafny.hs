@@ -1407,7 +1407,8 @@ syscallToDafny l "core.reshape" (sysParamsToDafny -> Just ((x:szs),ret)) = do
             ppret <- lift $ pp ret
             pptret <- lift $ pp tret
             ppszs <- lift $ pp szs
-            genError l $ text "syscallToDafny: unsupported reshape type" <+> ppx <+> text "::" <+> pptx <+> int (length szs) <+> ppszs <+> ppret <+> text "::" <+> pptret
+            let errs = lefts [mbdx,mbdret]
+            genError l $ text "syscallToDafny: unsupported reshape type" <+> ppx <+> text "::" <+> pptx <+> int (length szs) <+> ppszs <+> ppret <+> text "::" <+> pptret $+$ vcat (map ppid errs)
 syscallToDafny l n params = do
     ppn <- lift $ pp n
     ppparams <- lift $ liftM (sepBy comma) $ mapM pp params
