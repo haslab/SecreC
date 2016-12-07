@@ -133,7 +133,7 @@ instance Eq IOCstr where
 instance Ord IOCstr where
     compare k1 k2 = compare (kStatus k1) (kStatus k2)
 
-instance (Monad m,PP m VarIdentifier) => PP m IOCstr where
+instance (DebugM m) => PP m IOCstr where
     pp k = do
         pp1 <- pp (ioCstrId k)
         pp2 <- pp (kCstr k)
@@ -208,7 +208,7 @@ data GIdentifier' t
 instance Hashable t => Hashable (GIdentifier' t)
 instance Binary t => Binary (GIdentifier' t)
 
-instance PP m VarIdentifier => PP m (GIdentifier' t) where
+instance (DebugM m) => PP m (GIdentifier' t) where
     pp (VIden v) = pp v
     pp (PIden v) = pp v
     pp (OIden v) = pp v
@@ -244,10 +244,10 @@ videns' gs = Set.foldr aux Set.empty gs
     aux (VIden v) vs = Set.insert v vs
     aux _ vs = vs
 
-gIdenBase :: PP m VarIdentifier => GIdentifier -> m String
+gIdenBase :: (DebugM m) => GIdentifier -> m String
 gIdenBase = gIdenBase'
 
-gIdenBase' :: PP m VarIdentifier => GIdentifier' t -> m String
+gIdenBase' :: (DebugM m) => GIdentifier' t -> m String
 gIdenBase' (VIden v) = return $ varIdBase v
 gIdenBase' (PIden v) = return $ varIdBase v
 gIdenBase' (TIden v) = return $ varIdBase v
@@ -352,7 +352,7 @@ instance Monoid (ModuleTcEnv) where
         , structs = Map.unionWith Map.union (structs x) (structs y)
         }
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ModuleTcEnv where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ModuleTcEnv where
     traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7 x8 x9) = do
         x1' <- f x1
         x2' <- traverseMap return f x2
@@ -365,7 +365,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         x9' <- f x9
         return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7' x8' x9'
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m EntryEnv where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m EntryEnv where
     traverseVars f (EntryEnv x1 x2) = do
         x1' <- f x1
         x2' <- f x2
@@ -565,7 +565,7 @@ instance Located EntryEnv where
     loc = entryLoc
     updLoc e l = e { entryLoc = l }
    
-instance (Monad m,PP m VarIdentifier) => PP m EntryEnv where
+instance (DebugM m) => PP m EntryEnv where
     pp = pp . entryType
    
 varNameToType :: Var -> Type
@@ -941,14 +941,14 @@ ppExprTy e = do
     return $ ppe <+> text "::" <+> ppl
 ppVarTy v = ppExprTy (varExpr v)
 
-instance (Monad m,PP m VarIdentifier) => PP m [(IsConst,Either Expr Type,IsVariadic)] where
+instance (DebugM m) => PP m [(IsConst,Either Expr Type,IsVariadic)] where
     pp xs = liftM (parens . sepBy comma) (mapM aux xs)
       where
         aux (x,y,z) = do
             y' <- eitherM ppExprTy pp y
             return $ ppConst x $ ppVariadic y' z
 
-instance (Monad m,PP m VarIdentifier) => PP m TcCstr where
+instance (DebugM m) => PP m TcCstr where
     pp (TDec k es n ts x) = do
         ppk <- pp k
         ppes <- pp (isJust es)
@@ -1048,10 +1048,10 @@ instance (Monad m,PP m VarIdentifier) => PP m TcCstr where
         ppr <- pp r
         return $ text "toset" <+> ppt <+> ppr
 
-instance (Monad m,PP m VarIdentifier) => PP m CheckCstr where
+instance (DebugM m) => PP m CheckCstr where
     pp (CheckAssertion c) = liftM (text "checkAssertion" <+>) (pp c)
 
-instance (Monad m,PP m VarIdentifier) => PP m HypCstr where
+instance (DebugM m) => PP m HypCstr where
     pp (HypCondition c) = do
         pp1 <- pp c
         return $ text "hypothesis" <+> pp1
@@ -1063,7 +1063,7 @@ instance (Monad m,PP m VarIdentifier) => PP m HypCstr where
         pp2 <- pp e2
         return $ text "hypothesis" <+> pp1 <+> text "==" <+> pp2
 
-instance (Monad m,PP m VarIdentifier) => PP m TCstr where
+instance (DebugM m) => PP m TCstr where
     pp (TcK k _) = pp k
     pp (CheckK c _) = pp c
     pp (HypK h _) = pp h
@@ -1085,14 +1085,14 @@ instance Ord ArrayProj where
     compare (ArrayIdx w1) (ArrayIdx w2) = compare w1 w2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
     
-instance (Monad m,PP m VarIdentifier) => PP m ArrayProj where
+instance (DebugM m) => PP m ArrayProj where
     pp (ArraySlice i1 i2) = do
         pp1 <- pp i1
         pp2 <- pp i2
         return $ pp1 <> char ':' <> pp2
     pp (ArrayIdx w) = pp w
     
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ArrayProj where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ArrayProj where
     traverseVars f (ArraySlice i1 i2) = do
         i1' <- f i1
         i2' <- f i2
@@ -1101,26 +1101,26 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         w' <- f w
         return $ ArrayIdx w'
     
-instance PP m VarIdentifier => PP m [Type] where
+instance (DebugM m) => PP m [Type] where
     pp xs = do
         pxs <- mapM pp xs
         return $ brackets $ sepBy comma pxs
     
-instance PP m VarIdentifier => PP m [(Type,IsVariadic)] where
+instance (DebugM m) => PP m [(Type,IsVariadic)] where
     pp xs = do
         pp1 <- mapM (ppVariadicArg pp) xs
         return $ parens $ sepBy comma pp1
-instance PP m VarIdentifier => PP m [(Constrained Var,IsVariadic)] where
+instance (DebugM m) => PP m [(Constrained Var,IsVariadic)] where
     pp xs = do
         pp1 <- mapM (ppVariadicArg pp) xs
         return $ parens $ sepBy comma pp1
     
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [Type] where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [Type] where
     traverseVars f xs = mapM f xs
     
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [(Type, IsVariadic)] where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [(Type, IsVariadic)] where
     traverseVars f xs = mapM f xs
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [(Constrained Var, IsVariadic)] where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [(Constrained Var, IsVariadic)] where
     traverseVars f xs = mapM f xs
     
 data ArrayIndex
@@ -1140,11 +1140,11 @@ instance Ord ArrayIndex where
     compare (DynArrayIndex e1) (DynArrayIndex e2) = compare e1 e2
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
   
-instance (Monad m,PP m VarIdentifier) => PP m ArrayIndex where
+instance (DebugM m) => PP m ArrayIndex where
     pp NoArrayIndex = return PP.empty
     pp (DynArrayIndex e) = pp e
     
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ArrayIndex where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ArrayIndex where
     traverseVars f NoArrayIndex = return NoArrayIndex
     traverseVars f (DynArrayIndex e) = do
         e' <- f e
@@ -1174,7 +1174,7 @@ falseExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) False)
 indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
 indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCstr where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCstr where
     traverseVars f (TDec k e n args x) = do
         k' <- f k
         e' <- mapM (mapM f) e
@@ -1272,12 +1272,12 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         b' <- f b
         return $ TypeBase t' b'
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m CheckCstr where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m CheckCstr where
     traverseVars f (CheckAssertion c) = do
         c' <- f c
         return $ CheckAssertion c'
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m HypCstr where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m HypCstr where
     traverseVars f (HypCondition c) = do
         c' <- f c
         return $ HypCondition c'
@@ -1289,7 +1289,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         e2' <- f e2
         return $ HypEqual e1' e2'
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TCstr where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TCstr where
     traverseVars f (TcK k st) = do
         k' <- f k
         return $ TcK k' st
@@ -1330,10 +1330,10 @@ data PureTDict = PureTDict
 instance Hashable PureTDict
 instance Binary PureTDict
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m TCstrGraph where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m TCstrGraph where
     traverseVars f g = nmapM f g
 
-instance (PP m VarIdentifier, GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m PureTDict where
+instance (DebugM m, GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m PureTDict where
     traverseVars f (PureTDict ks ss rec) = do
         ks' <- f ks
         ss' <- f ss
@@ -1392,10 +1392,10 @@ instance Monoid TSubsts where
     mempty = TSubsts Map.empty
     mappend (TSubsts x) (TSubsts y) = TSubsts (x `Map.union` y)
 
-instance (Monad m,PP m VarIdentifier) => PP m TSubsts where
+instance (DebugM m) => PP m TSubsts where
     pp = ppTSubsts
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TSubsts where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TSubsts where
     traverseVars f (TSubsts xs) = varsBlock $ liftM (TSubsts . Map.fromList) $ aux $ Map.toList xs
         where
         aux [] = return []
@@ -1465,14 +1465,14 @@ removeFree msg n = do
         liftIO $ putStrLn $ "removeFree " ++ msg ++ " " ++ ppn -- ++ " from " ++ ppolds
     State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
 
-instance (Monad m,PP m VarIdentifier) => PP m TDict where
+instance (DebugM m) => PP m TDict where
     pp dict = do
         pp1 <- ppGrM pp (const $ return PP.empty) $ tCstrs dict
         pp2 <- ppTSubsts (tSubsts dict)
         return $ text "Constraints:" $+$ nest 4 pp1
               $+$ text "Substitutions:" $+$ nest 4 pp2
 
-instance (Monad m,PP m VarIdentifier) => PP m PureTDict where
+instance (DebugM m) => PP m PureTDict where
     pp dict = do
         pp1 <- ppGrM pp (const $ return PP.empty) $ pureCstrs dict
         pp2 <- ppTSubsts (pureSubsts dict)
@@ -1536,17 +1536,16 @@ varIdTok v = not (varIdRead v) && not (varIdWrite v)
 mkVarId :: Identifier -> VarIdentifier
 mkVarId s = VarIdentifier s Nothing Nothing True True Nothing
 
-instance Monad m => PP (TcM m) VarIdentifier where
-    pp v = askOpts >>= flip ppVarId v
+instance Monad m => DebugM (TcM m) where
+    isDebug = liftM debug askOpts
 
-instance Monad m => PP (SecrecM m) VarIdentifier where
-    pp v = ask >>= flip ppVarId v
+instance DebugM m => PP m VarIdentifier where
+    pp v = do
+        is <- isDebug
+        ppVarId is v
 
-instance PP Identity VarIdentifier where
-    pp v = ppVarId defaultOptions v
-
-ppVarId :: Monad m => Options -> VarIdentifier -> m Doc
-ppVarId opts v = liftM (ppPretty . ppRWs) (ppVarId' v)
+ppVarId :: Monad m => Bool -> VarIdentifier -> m Doc
+ppVarId doDebug v = liftM (ppPretty . ppRWs) (ppVarId' v)
   where
     pread = if varIdRead v then "Read" else "NoRead"
     pwrite = if varIdWrite v then "Write" else "NoWrite"
@@ -1560,11 +1559,11 @@ ppVarId opts v = liftM (ppPretty . ppRWs) (ppVarId' v)
         ppo <- ppOpt m f
         ppi <- pp i
         return $ ppo <> text n <> char '_' <> ppi
-    ppRWs x = if debug opts
+    ppRWs x = if doDebug
         then x <> char '#' <> text pread <> text pwrite
         else x
     ppPretty x = case varIdPretty v of
-        Just s -> if debug opts
+        Just s -> if doDebug
             then x <> char '#' <> s
             else s
         Nothing -> x
@@ -1698,13 +1697,13 @@ explicitDecCtx = DecCtx (Just Map.empty) emptyPureTDict Map.empty
 
 ppContext hasCtx = if isJust (hasCtx) then text "context" else text "implicit"
 
-instance (Monad m,PP m VarIdentifier) => PP m DecCtx where
+instance (DebugM m) => PP m DecCtx where
     pp (DecCtx has dict frees) = do
         ppfrees <- pp frees
         ppd <- pp dict
         return $ ppContext has $+$ text "Frees:" <+> ppfrees $+$ ppd
 
-instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m DecCtx where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecCtx where
     traverseVars f (DecCtx has dict frees) = do
         has' <- mapM (liftM (Map.fromList . map (mapSnd unVIden)) . mapM (f . mapSnd VIden) . Map.toList) has
         frees' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList frees
@@ -1843,17 +1842,17 @@ instance Hashable a => Hashable (Constrained a)
 unConstrained :: Constrained a -> a
 unConstrained (Constrained x c) = x
 
-instance (PP m a,PP m VarIdentifier) => PP m (Constrained a) where
+instance (DebugM m,PP m a) => PP m (Constrained a) where
     pp = ppConstrained pp
 
-ppConstrained :: PP m VarIdentifier => (a -> m Doc) -> Constrained a -> m Doc
+ppConstrained :: (DebugM m) => (a -> m Doc) -> Constrained a -> m Doc
 ppConstrained f (Constrained t Nothing) = f t
 ppConstrained f (Constrained t (Just c)) = do
     ft <- f t
     ppc <- pp c
     return $ ft <+> braces ppc
 
-instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Constrained a) where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Constrained a) where
     traverseVars f (Constrained t e) = do
         t' <- f t
         e' <- inRHS $ f e
@@ -1972,7 +1971,7 @@ ppFrees xs = do
     ppxs <- mapM pp $ Set.toList xs
     return $ text "Free variables:" <+> sepBy comma ppxs
 
-instance (Monad m,PP m VarIdentifier) => PP m VArrayType where
+instance (DebugM m) => PP m VArrayType where
     pp (VAVal ts b) = do
         ppts <- mapM pp ts
         ppb <- pp b
@@ -1983,7 +1982,7 @@ instance (Monad m,PP m VarIdentifier) => PP m VArrayType where
         ppsz <- pp sz
         return $ parens (ppv <+> text "::" <+> ppb <> text "..." <> parens ppsz)
 
-instance (Monad m,PP m VarIdentifier) => PP m SecType where
+instance (DebugM m) => PP m SecType where
     pp Public = return $ text "public"
     pp (Private d k) = pp d
     pp (SVar v k) = do
@@ -1997,7 +1996,7 @@ ppAtt (Attribute t _ n szs) = do
     ppz <- pp szs
     return $ ppt <+> ppn <> ppz        
 
-instance (Monad m,PP m VarIdentifier) => PP m DecType where
+instance (DebugM m) => PP m DecType where
     pp (DecType did isrec vars hctx bctx specs body@(StructType _ n atts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
@@ -2099,7 +2098,7 @@ ppConstArg (isConst,(VarName t n),isVariadic) = do
 prefixOp True = (text "operator" <+>)
 prefixOp False = id
 
-instance (Monad m,PP m VarIdentifier) => PP m InnerDecType where
+instance (DebugM m,Monad m) => PP m InnerDecType where
     pp (StructType _ n atts cl) = do
         ppn <- pp n
         ppo <- ppOpt atts (liftM (braces . vcat) . mapM ppAtt)
@@ -2145,7 +2144,7 @@ instance (Monad m,PP m VarIdentifier) => PP m InnerDecType where
         ppo <- ppOpt stmts (liftM braces . pp)
         return $ ppLeak isLeak (text "lemma" <+> ppn <+> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
         
-instance (Monad m,PP m VarIdentifier) => PP m BaseType where
+instance (DebugM m,Monad m) => PP m BaseType where
     pp (TyPrim p) = pp p
     pp (TApp n ts d) = do
         ppn <- pp n
@@ -2162,7 +2161,7 @@ instance (Monad m,PP m VarIdentifier) => PP m BaseType where
         ppv <- pp v
         ppc <- pp c
         return $ ppv <+> ppc
-instance (Monad m,PP m VarIdentifier) => PP m ComplexType where
+instance (DebugM m,Monad m) => PP m ComplexType where
     pp Void = return $ text "void"
     pp (CType s t d) = do
         pps <- pp s
@@ -2170,13 +2169,13 @@ instance (Monad m,PP m VarIdentifier) => PP m ComplexType where
         ppd <- pp d
         return $ pps <+> ppt <> brackets (brackets ppd)
     pp (CVar v b) = pp v
-instance (Monad m,PP m VarIdentifier) => PP m SysType where
+instance (Monad m) => PP m SysType where
     pp t@(SysPush {}) = return $ text (show t)
     pp t@(SysRet {}) =  return $ text (show t)
     pp t@(SysRef {}) =  return $ text (show t)
     pp t@(SysCRef {}) = return $ text (show t)
 
-instance (Monad m,PP m VarIdentifier) => PP m Type where
+instance (DebugM m,Monad m) => PP m Type where
     pp t@(NoType msg) = return $ text "no type" <+> text msg
     pp (VAType t sz) = do
         ppt <- pp t
@@ -2222,7 +2221,7 @@ data TypeClass
     | VArrayC TypeClass -- array type
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
-instance (Monad m,PP m VarIdentifier) => PP m TypeClass where
+instance (Monad m) => PP m TypeClass where
     pp KindStarC = return $ text "kind star"
     pp (VArrayStarC t) = liftM (text "array star of" <+>) (pp t)
     pp KindC = return $ text "kind"
@@ -2351,13 +2350,13 @@ isPrimBaseType :: BaseType -> Bool
 isPrimBaseType (TyPrim {}) = True
 isPrimBaseType _ = False
 
-instance (Monad m,PP m VarIdentifier) => PP m StmtClass where
+instance (Monad m) => PP m StmtClass where
     pp = return . text . show
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m StmtClass where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m StmtClass where
     traverseVars f c = return c
   
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SecType where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SecType where
     traverseVars f Public = return Public
     traverseVars f (Private d k) = return $ Private d k
     traverseVars f (SVar v k) = do
@@ -2367,23 +2366,23 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     substL (SVar v _) = return $ Just $ VIden v
     substL e = return $ Nothing
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m [TCstr] where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m [TCstr] where
     traverseVars f xs = mapM f xs
     
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [TcCstr] where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [TcCstr] where
     traverseVars f xs = mapM f xs
 
-instance PP m VarIdentifier => PP m [TCstr] where
+instance (DebugM m) => PP m [TCstr] where
     pp xs = do
         pxs <- mapM pp xs
         return $ brackets (sepBy comma pxs)
     
-instance PP m VarIdentifier => PP m [TcCstr] where
+instance (DebugM m) => PP m [TcCstr] where
     pp xs = do
         pxs <- mapM pp xs
         return $ brackets (sepBy comma pxs)
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecClass where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecClass where
     traverseVars f (DecClass x i y z) = do
         x' <- f x
         i' <- f i
@@ -2391,7 +2390,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         z' <- traverseDecClassVars f z
         return (DecClass x' i' y' z')
 
-instance (Monad m,PP m VarIdentifier) => PP m DecClass where
+instance (DebugM m,Monad m) => PP m DecClass where
     pp (DecClass False inline r w) = do
         ppr <- pp r
         ppw <- pp w
@@ -2409,7 +2408,7 @@ emptyDecClassVars = (Map.empty,False)
 isGlobalDecClassVars :: DecClassVars -> Bool
 isGlobalDecClassVars (xs,b) = b || not (Map.null $ Map.filter snd xs)
 
-traverseDecClassVars :: (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> DecClassVars -> VarsM GIdentifier m DecClassVars
+traverseDecClassVars :: (DebugM m,GenVar VarIdentifier m,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> DecClassVars -> VarsM GIdentifier m DecClassVars
 traverseDecClassVars f (y,b) = do
     y' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $ f $ Map.fromList . map (mapFst VIden) $ Map.toList y
     b' <- f b
@@ -2418,19 +2417,19 @@ traverseDecClassVars f (y,b) = do
 ppInline True = text "inline"
 ppInline False = text "noinline"
 
-instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m [GIdentifier] where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m [GIdentifier] where
     traverseVars = mapM
     
-instance PP m VarIdentifier => PP m [GIdentifier] where
+instance (DebugM m) => PP m [GIdentifier] where
     pp = liftM (sepBy comma) . mapM pp
 
-instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m) => Vars GIdentifier m [Var] where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m [Var] where
     traverseVars = mapM
     
-instance PP m VarIdentifier => PP m [Var] where
+instance (DebugM m) => PP m [Var] where
     pp = liftM (sepBy comma) . mapM ppVarTy
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecTypeK where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecTypeK where
     traverseVars f (DecTypeInst i isRec) = do
         i' <- f i
         isRec' <- f isRec
@@ -2441,7 +2440,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     traverseVars f (DecTypeCtx) = do
         return $ DecTypeCtx
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
     traverseVars f (DecType tid isRec vs hctx bctx spes t) = do
         isRec' <- f isRec
         varsBlock $ do
@@ -2457,7 +2456,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     substL (DVar v) = return $ Just $ VIden v
     substL _ = return Nothing
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m InnerDecType where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m InnerDecType where
     traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
         n' <- f n
         vs' <- inLHS False $ mapM f vs
@@ -2492,7 +2491,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
         cl' <- f cl
         return $ StructType p n' as' cl'
     
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m BaseType where
+instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m BaseType where
     traverseVars f (TyPrim p) = do
         p' <- f p
         return $ TyPrim p'
@@ -2514,7 +2513,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     substL (BVar v _) = return $ Just $ VIden v
     substL e = return Nothing
  
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m VArrayType where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m VArrayType where
     traverseVars f (VAVal ts b) = do
         ts' <- f ts
         b' <- f b
@@ -2527,7 +2526,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     substL (VAVar v _ _) = return $ Just $ VIden v
     substL e = return Nothing
  
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ComplexType where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ComplexType where
     traverseVars f (CType s t d) = do
         s' <- f s
         t' <- f t
@@ -2541,7 +2540,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     substL (CVar v b) = return $ Just $ VIden v
     substL e = return Nothing
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SysType where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SysType where
     traverseVars f (SysPush t) = do
         t' <- f t
         return $ SysPush t'
@@ -2555,7 +2554,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
         t' <- f t
         return $ SysCRef t'
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m KindType where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m KindType where
     traverseVars f PublicK = return PublicK
     traverseVars f (PrivateK k) = return $ PrivateK k
     traverseVars f (KVar k b) = do
@@ -2565,7 +2564,7 @@ instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifi
     substL (KVar v _) = return $ Just $ VIden v
     substL e = return Nothing
 
-instance (Monad m,PP m VarIdentifier) => PP m KindType where
+instance (DebugM m) => PP m KindType where
     pp PublicK = return $ text "public"
     pp (PrivateK k) = pp k
     pp (KVar k c) = do
@@ -2575,7 +2574,7 @@ instance (Monad m,PP m VarIdentifier) => PP m KindType where
 
 type Attr = Attribute GIdentifier Type
 
-instance (PP m VarIdentifier,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m Type where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m Type where
     traverseVars f (NoType x) = return (NoType x)
     traverseVars f (TType b) = return (TType b)
     traverseVars f (VAType t sz) = do
@@ -2708,7 +2707,7 @@ instance Hashable a => Hashable (Typed a)
 instance PP m a => PP m (Typed a) where
     pp = pp . unTyped
 
-instance (GenVar VarIdentifier m,PP m VarIdentifier,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Typed a) where
+instance (DebugM m,GenVar VarIdentifier m,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Typed a) where
     traverseVars f (Typed a t) = do
         a' <- f a
         t' <- inRHS $ f t
@@ -2817,10 +2816,10 @@ type SIdentifier = GIdentifier --TypeName VarIdentifier ()
 --ppStructAtt :: Attr -> Doc
 --ppStructAtt (Attribute _ t n szs) = pp t <+> pp n
 
-ppTpltArg :: PP m VarIdentifier => Constrained Var -> m Doc
+ppTpltArg :: (DebugM m) => Constrained Var -> m Doc
 ppTpltArg = ppConstrained ppTpltArg'
     where
-    ppTpltArg' :: PP m VarIdentifier => Var -> m Doc
+    ppTpltArg' :: (DebugM m) => Var -> m Doc
     ppTpltArg' (VarName (BType c) v) = do
         ppv <- pp v
         return $ maybe PP.empty ppDataClass c <+> text "type" <+> ppv
@@ -2848,7 +2847,7 @@ ppTpltArg = ppConstrained ppTpltArg'
         ppl <- pp (loc v)
         error $ "ppTpltArg: " ++ show ppv ++ " " ++ show ppl
     
-ppTSubsts :: PP m VarIdentifier => TSubsts -> m Doc
+ppTSubsts :: (DebugM m) => TSubsts -> m Doc
 ppTSubsts xs = liftM vcat $ mapM ppSub $ Map.toList (unTSubsts xs)
     where
     ppSub (k,IdxT e) = do
@@ -2860,7 +2859,7 @@ ppTSubsts xs = liftM vcat $ mapM ppSub $ Map.toList (unTSubsts xs)
         ppt <- pp t
         return $ ppk <+> char '=' <+> ppt
 
-ppArrayRanges :: PP m VarIdentifier => [ArrayProj] -> m Doc
+ppArrayRanges :: (DebugM m) => [ArrayProj] -> m Doc
 ppArrayRanges xs = liftM (sepBy comma) (mapM pp xs)
 
 -- integer types
@@ -2942,7 +2941,7 @@ instance (GenVar VarIdentifier m) => GenVar (GIdentifier' t) m where
 --instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
 --    genVar v = freshVarIO v
 
-instance (Location t,Vars GIdentifier m t,GenVar VarIdentifier m,MonadIO m,PP m VarIdentifier) => Vars GIdentifier m (GIdentifier' t) where
+instance (DebugM m,Location t,Vars GIdentifier m t,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m (GIdentifier' t) where
     traverseVars f (OIden o) = do
         o' <- f o
         isLHS <- getLHS

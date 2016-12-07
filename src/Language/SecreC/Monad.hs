@@ -6,6 +6,7 @@ import Language.SecreC.Error
 import Language.SecreC.Location
 import Language.SecreC.Pretty
 import Language.SecreC.Position
+import Language.SecreC.Utils
     
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO(..))
@@ -38,6 +39,9 @@ import System.IO
 import System.Exit
 
 import GHC.Generics (Generic)
+
+instance Monad m => DebugM (SecrecM m) where
+    isDebug = liftM debug ask
 
 data PromoteOpt = NoP | LocalP | GlobalP
     deriving (Data, Typeable,Generic,Eq,Show,Read)

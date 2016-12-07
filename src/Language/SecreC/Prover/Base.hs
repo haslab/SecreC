@@ -70,7 +70,7 @@ data IExpr
     | IArr ComplexType [[IExpr]] -- multi-dimensional array value
   deriving (Eq, Ord, Show, Data, Typeable,Generic)
 instance Hashable IExpr
-instance (Monad m,PP m VarIdentifier) => PP m IExpr where
+instance (DebugM m,PP m VarIdentifier) => PP m IExpr where
     pp (ILit l) = pp l
     pp (IIdx v) = pp v
     pp (IBinOp o e1 e2) = do
@@ -183,7 +183,7 @@ iLitTy (IFloat64 _) = BaseT $ TyPrim $ DatatypeFloat64 ()
 iLitTy (IBool _) = BaseT $ TyPrim $ DatatypeBool ()
 iLitTy (ILitArr b xs) = ComplexT $ CType Public b (indexExpr $ fromInteger $ toInteger $ length xs)
 
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ILit where
+instance (DebugM m,PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ILit where
     traverseVars f (IInt8 i) = liftM IInt8 $ f i
     traverseVars f (IInt16 i) = liftM IInt16 $ f i
     traverseVars f (IInt32 i) = liftM IInt32 $ f i
@@ -198,7 +198,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifi
     traverseVars f (ILitArr t xs) = do
         t' <- f t
         liftM (ILitArr t') $ mapM (mapM f) xs
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m IExpr where
+instance (DebugM m,PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m IExpr where
     traverseVars f (ILit i) = liftM ILit $ f i
     traverseVars f (IIdx v) = do
         v' <- f v

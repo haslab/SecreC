@@ -22,8 +22,8 @@ instance Binary Doc where
     get = do
         s <- get :: Get ByteString
         return $ text $ show $ unpack s
-        
-class Monad m => PP m a where
+    
+class (Monad m) => PP m a where
     pp :: a -> m Doc
 
 semicolon = char ';'

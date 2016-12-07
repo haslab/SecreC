@@ -39,6 +39,7 @@ import Control.Concurrent.Async
 import Control.Concurrent
 import Control.Monad.Trans
 import Control.Monad.Except
+import Control.Monad.Identity
 
 import Unsafe.Coerce
 
@@ -725,3 +726,9 @@ ppGrM ppA ppB gr = liftM vcat $ mapM ppNode $ grToList gr
 
 instance (PP m a,PP m b) => PP m (Gr a b) where
     pp = ppGrM pp pp
+    
+class Monad m => DebugM m where
+    isDebug :: m Bool
+
+instance DebugM Identity where
+    isDebug = return False

@@ -2011,7 +2011,7 @@ instance Monad m => PP m (Comparison m) where
         ppb <- pp b
         ppy <- pp y
         return $ ppx <+> ppo1 <+> ppo2 <+> ppb <+> ppy
-instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m,Typeable m) => Vars GIdentifier m (Comparison m) where
+instance (DebugM m,PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m,Typeable m) => Vars GIdentifier m (Comparison m) where
     traverseVars f (Comparison x y o1 o2 b) = do
         x' <- f x
         y' <- f y

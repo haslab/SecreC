@@ -1592,7 +1592,7 @@ varToDafny (VarName (Typed l t) n) = do
     dn <- dafnyGIdM n
     return $ dn <> text suffix
 
-dafnyVarId :: PP m VarIdentifier => VarIdentifier -> m Doc
+dafnyVarId :: DebugM m => VarIdentifier -> m Doc
 dafnyVarId v = do
     pm <- case varIdModule v of
         Nothing -> return empty
@@ -1602,7 +1602,7 @@ dafnyVarId v = do
     pid <- ppOpt (varIdUniq v) (\x -> liftM (char '_' <>) (pp x))
     return $ pm <> text (varIdBase v) <> pid
 
-dafnyGId :: PP m VarIdentifier => GIdentifier -> m Doc
+dafnyGId :: DebugM m => GIdentifier -> m Doc
 dafnyGId (VIden vn) = dafnyVarId vn
 dafnyGId (MIden vn) = dafnyVarId vn
 dafnyGId (PIden vn) = dafnyVarId vn
@@ -1612,10 +1612,10 @@ dafnyGId (OIden on) = pp on
 dafnyGIdM :: DafnyK m => GIdentifier -> DafnyM m Doc
 dafnyGIdM v = lift $ dafnyGId v
 
-instance (Monad m,PP m VarIdentifier) => PP m DafnyId where
+instance (DebugM m) => PP m DafnyId where
     pp did = ppDafnyId did
 
-ppDafnyId :: PP m VarIdentifier => DafnyId -> m Doc
+ppDafnyId :: DebugM m => DafnyId -> m Doc
 ppDafnyId (PId pn (ModuleTyVarId mn uid)) = do
     prefix <- ppModule mn
     ppn <- dafnyGId pn

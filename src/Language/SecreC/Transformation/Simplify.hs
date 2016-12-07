@@ -733,7 +733,8 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                     ppn <- ppr n
                     ppres <- ppr res
                     ppss <- liftM vcat $ mapM pp ss
-                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppn ++ " " ++ ppres ++ "\n" ++ show ppss ++"\n"++ show (map (fmap typed) ss)
+                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppn ++ " " ++ ppres ++ "\n" ++ show ppss
+                    -- ++"\n"++ show (map (fmap typed) ss)
                 ens' <- simplifyStatementAnns True ens
                 return $ Left (decls++ss1++def ++ compoundStmts l (reqs'++ss++ens'),maybe (Just $ varExpr res) (const Nothing) vret)
             Nothing -> do

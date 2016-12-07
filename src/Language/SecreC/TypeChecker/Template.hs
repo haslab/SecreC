@@ -50,13 +50,13 @@ instance (MonadIO m) => Vars GIdentifier (TcM m) [(IsConst,Either Expr Type,IsVa
 --        let f (z,x,y) = liftM (ppConst z) (ppVariadicArg pp (x,y))
 --        liftM (sepBy comma) (mapM f xs)
 
-instance PP m VarIdentifier => PP m [Either Expr Type] where
+instance (DebugM m,PP m VarIdentifier) => PP m [Either Expr Type] where
     pp xs = liftM (sepBy comma) (mapM pp xs)
     
 instance (MonadIO m) => Vars GIdentifier (TcM m) [(Constrained Type,IsVariadic)] where
     traverseVars f = mapM f
 
-instance PP m VarIdentifier => PP m [(Bool,Var,IsVariadic)] where
+instance (DebugM m,PP m VarIdentifier) => PP m [(Bool,Var,IsVariadic)] where
     pp = ppVariadicPArgs pp
 
 ppVariadicPArgs :: Monad m => (a -> m Doc) -> [(IsConst,a,IsVariadic)] -> m Doc
@@ -66,10 +66,10 @@ ppVariadicPArgs pp xs = do
         return $ ppConst x ppyz
     liftM (sepBy comma) (mapM f xs)
 
-instance PP m VarIdentifier => PP m [(Constrained Type,IsVariadic)] where
+instance (DebugM m,PP m VarIdentifier) => PP m [(Constrained Type,IsVariadic)] where
     pp = liftM (sepBy comma) . mapM (\(y,z) -> ppVariadicArg pp (y,z))
 
-instance PP m VarIdentifier => PP m [(Expr,Var)] where
+instance (DebugM m,PP m VarIdentifier) => PP m [(Expr,Var)] where
     pp xs = do
         let f (e,v) = do
             ppe <- ppExprTy e
@@ -77,7 +77,7 @@ instance PP m VarIdentifier => PP m [(Expr,Var)] where
             return $ ppe <+> text "~~>" <+> ppv
         liftM (sepBy comma) (mapM f xs)
     
-instance PP m VarIdentifier => PP m [(Var,IsVariadic)] where
+instance (DebugM m,PP m VarIdentifier) => PP m [(Var,IsVariadic)] where
     pp = liftM (sepBy comma) . mapM (\(y,z) -> ppVariadicArg pp (y,z))
 
 -- the most specific entries are preferred
