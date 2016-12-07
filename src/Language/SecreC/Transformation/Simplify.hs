@@ -704,13 +704,14 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineProcFalse " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
         (decls,substs) <- bindProcArgs False l (decClassWrites c) args es'
+        ret' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty ret
         ann' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) ann
         body' <- subst "inlineProcCall" dontStop (substsFromMap substs) False Map.empty $ map (fmap (fmap (updpos l))) body
-        mb <- type2TypeSpecifier l ret
+        mb <- type2TypeSpecifier l ret'
         case mb of
             Just t -> do
                 res <- case vret of
-                    Nothing -> liftM (VarName (Typed l ret)) $ genVar (VIden $ mkVarId "res" :: GIdentifier)
+                    Nothing -> liftM (VarName (Typed l ret')) $ genVar (VIden $ mkVarId "res" :: GIdentifier)
                     Just v -> return v
                 let ssres = Map.singleton (VIden $ mkVarId "\\result" :: GIdentifier) (varExpr res)
                 ann'' <- subst "inlineProcCall" dontStop (substsFromMap ssres) False Map.empty ann'
@@ -746,9 +747,10 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
             Nothing -> liftM (VarName (Typed l ret)) $ genVar (VIden $ mkVarId "res")
             Just v -> return v
         let ssres = Map.singleton (VIden $ mkVarId "\\result") (varExpr res)
+        ret' <- subst "inlineFunFalse" dontStop (substsFromMap $ Map.union substs ssres) False Map.empty ret
         ann' <- subst "inlineFunFalse" dontStop (substsFromMap $ Map.union substs ssres) False Map.empty $ map (fmap (fmap (updpos l))) ann
         body' <- subst "inlineFunFalse" dontStop (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
-        t <- type2TypeSpecifierNonVoid l ret
+        t <- type2TypeSpecifierNonVoid l ret'
         (reqs,ens) <- splitProcAnns ann'
         (ss1,t') <- simplifyTypeSpecifier False t
         let tl = notTyped "inline" l
@@ -767,11 +769,12 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
             ppt <- ppr t
             liftIO $ putStrLn $ "inlineFunTrue " ++ ppn ++ " " ++ ppes ++ " " ++ ppt
         (decls,substs) <- bindProcArgs True l (decClassWrites c) args es'
+        ret' <- subst "inlineFunTrue" dontStop (substsFromMap substs) False Map.empty ret
         body' <- subst "inlineFunTrue" dontStop (substsFromMap substs) False Map.empty $ fmap (fmap (updpos l)) body
         (ss,body'') <- simplifyNonVoidExpression True body'
         let ssret = Map.singleton (VIden $ mkVarId "\\result") body''
         ann' <- subst "inlineFunTrue" dontStop (substsFromMap $ Map.union substs ssret) False Map.empty $ map (fmap (fmap (updpos l))) ann
-        t <- type2TypeSpecifierNonVoid l ret
+        t <- type2TypeSpecifierNonVoid l ret'
         (reqs,ens) <- splitProcAnns ann'
         (ss1,t') <- simplifyTypeSpecifier True t
         let tl = notTyped "inline" l
