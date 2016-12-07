@@ -480,6 +480,7 @@ bindProcArgs isExpr l ws (v@(_,varNameId -> VIden vn,_):vs) es = do
     return (ss++ss',Map.union substs substs')
 
 bindProcArg :: SimplifyK loc m => Bool -> loc -> (Bool,Var,IsVariadic) -> [Expression GIdentifier (Typed loc)] -> SimplifyM m ([Expression GIdentifier (Typed loc)],[Statement GIdentifier (Typed loc)],Map GIdentifier (Expression GIdentifier (Typed loc)))
+-- isExpr l (isConst,v,isVariadic)
 bindProcArg False l (False,v,False) (e:es) = do
     (t) <- type2TypeSpecifierNonVoid l (loc v)
     (ss1,t') <- simplifyTypeSpecifier False t
@@ -504,7 +505,12 @@ bindProcArg True l (True,v,False) (e:es) = do
 bindProcArg isExpr l (_,v,True) es = do
     sz <- fullyEvaluateIndexExpr (locpos l) =<< typeSize (locpos l) (loc v)
     let (es1,es2) = splitAt (fromEnum sz) es
-    return (es2,[],Map.singleton (varNameId v) $ ArrayConstructorPExpr (Typed l $ loc v) es1)
+    let arr = ArrayConstructorPExpr (Typed l $ loc v) es1
+    debugTc $ do
+        ppv <- pp v
+        pparr <- pp arr
+        liftIO $ putStrLn $ "bindProcArg variadic " ++ show (ppv <+> text "=" <+> pparr)
+    return (es2,[],Map.singleton (varNameId v) arr)
 
 simplifyProcedureAnns :: SimplifyK loc m => [ProcedureAnnotation GIdentifier (Typed loc)] -> SimplifyM m [ProcedureAnnotation GIdentifier (Typed loc)]
 simplifyProcedureAnns = liftM concat . mapM simplifyProcedureAnn
@@ -727,7 +733,7 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                     ppn <- ppr n
                     ppres <- ppr res
                     ppss <- liftM vcat $ mapM pp ss
-                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppn ++ " " ++ ppres ++ "\n" ++ show ppss
+                    liftIO $ putStrLn $ "inlineProcCall return " ++ ppn ++ " " ++ ppres ++ "\n" ++ show ppss ++"\n"++ show (map (fmap typed) ss)
                 ens' <- simplifyStatementAnns True ens
                 return $ Left (decls++ss1++def ++ compoundStmts l (reqs'++ss++ens'),maybe (Just $ varExpr res) (const Nothing) vret)
             Nothing -> do
