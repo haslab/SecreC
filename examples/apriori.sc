@@ -157,23 +157,23 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1]) {
           // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
-          uint [[1]] C;
           //@ assert IsItemSetOf(prev.items[i,:],db);
           //@ assert IsItemSetOf(prev.items[j,:],db);
           //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
-          C = snoc (prev.items[i, :], prev.items[j, k-1]);
+          int [[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert IsItemSetOf(C,db);
           //join the two caches
           // column data (dot product) for the new candidate itemset C
           pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //@ assert assertion((C_dot == transactions(C,db)) :: pd_a3p bool);
+          //x //@ MultiplyCaches(C,C_dot,prev,i,j);
+          //@ assume assertion((C_dot == transactions(C,db)) :: pd_a3p bool);
           // compute the joint frequency
           pd_a3p uint frequence = sum (C_dot);
-          //if (declassify (frequence >= classify(threshold))) {
-          //  F_new_cache = cat (F_new_cache, reshape(C_dot, 1, size(C_dot)));
-          //  F_new = cat (F_new, reshape(C, 1, k+1));
-          //}
+          if (declassify (frequence >= classify(threshold))) {
+              next.items = snoc(next.items,C);
+              next.cache = snoc(next.cache,C_dot);
+          }
         }
       }
     }
