@@ -161,7 +161,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //@ assert IsItemSetOf(prev.items[j,:],db);
           //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
-          int [[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
+          uint [[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert IsItemSetOf(C,db);
           //join the two caches
           // column data (dot product) for the new candidate itemset C
