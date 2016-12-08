@@ -125,16 +125,10 @@ struct frequent {
 //@     snoc(xs[:size(xs)-1],xs[size(xs)-1]+1)
 //@ }
 
-//@ function uint[[1]] candidateSet (uint[[2]] F, uint i, uint j, pd_a3p uint[[2]] db)
+//@ function uint[[1]] candidate (uint[[2]] F, uint i, uint j, pd_a3p uint[[2]] db)
 //@ requires i <= j && j <= shape(F)[0];
 //@ {
-//@     candidate(snoc(F,repeat(shape(db)[1],shape(F)[1])),i,j)
-//@ }
-
-//@ function uint[[1]] candidate (uint[[2]] F, uint i, uint j)
-//@ requires i <= j && j <= shape(F)[0];
-//@ {
-//@     snoc(F[i,:],F[j,shape(F)[1]-1])
+//@     i == shape(F)[0] ? repeat(shape(db)[1],shape(F)[1]) : j == shape(F)[0] ? snoc(F[i,:],shape(db)[1]) : snoc(F[i,:],F[j,shape(F)[1]-1])
 //@ }
 
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[2]] C_dot, pd_a3p uint [[2]] db, uint threshold)
@@ -194,13 +188,13 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
     //@ invariant i <= prev_F_size;
     //@ invariant shape(next.items)[1] == k+1;
     //@ invariant FrequentsCache(next,db,threshold);
-    //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidateSet(prev.items,i,i));
+    //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidate(prev.items,i,i));
     {
       for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
       //@ invariant i < j && j <= prev_F_size;
       //@ invariant shape(next.items)[1] == k+1;
       //@ invariant FrequentsCache(next,db,threshold);
-      //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidateSet(prev.items,i,j));
+      //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidate(prev.items,i,j));
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
