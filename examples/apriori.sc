@@ -121,21 +121,21 @@ struct frequent {
 //@ }
 
 //@ function uint[[1]] nextSet (uint[[1]] xs)
-//@ requires size(xs) > 0
+//@ requires size(xs) > 0;
 //@ {
 //@     snoc(xs[:size(xs)-1],xs[size(xs)-1]+1)
 //@ }
 
-//@ function candidateSet(uint[[2]] F,uint i,uint j, pd_a3p uint[[2]] db)
-//@ requires i <= j <= shape(F)[0];
+//@ function uint[[1]] candidateSet (uint[[2]] F, uint i, uint j, pd_a3p uint[[2]] db)
+//@ requires i <= j && j <= shape(F)[0];
 //@ {
 //@     candidate(snoc(F,repeat(shape(db)[1],shape(F)[1])),i,j)
 //@ }
 
-//@ function candidate(uint[[2]] F,uint i,uint j)
-//@ requires i <= j <= shape(F)[0];
+//@ function uint[[1]] candidate (uint[[2]] F, uint i, uint j)
+//@ requires i <= j && j <= shape(F)[0];
 //@ {
-//@     snoc(F[i],F[j,shape(F)[1]-1])
+//@     snoc(F[i,:],F[j,shape(F)[1]-1])
 //@ }
 
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[2]] C_dot, pd_a3p uint [[2]] db, uint threshold)
