@@ -51,7 +51,7 @@ struct frequent {
     pd_a3p uint [[2]] cache;
 }
 
-//@ function IsItemSet (uint[[1]] is, uint sz)
+//@ function bool IsItemSet (uint[[1]] is, uint sz)
 //@ noinline;
 //@ { size(is) == 0 ? true : is[size(is)-1] < sz && IsItemSet(is[:size(is)-1],is[size(is)-1]) }
 
@@ -77,7 +77,7 @@ struct frequent {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function operator < (uint[[1]] xs, uint[[1]] ys)
+//@ function bool operator < (uint[[1]] xs, uint[[1]] ys)
 //@ {
 //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? xs[1:] <= ys[1:] : false)
 //@ }
