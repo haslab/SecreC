@@ -229,7 +229,6 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //x AddFrequent(next,C,C_dot,db,threshold);
           
         }
-        }
       }
     }
     return next;
