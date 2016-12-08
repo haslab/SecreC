@@ -110,14 +110,14 @@ struct frequent {
 //@ noinline;
 //@ requires IsItemSetOf(is,db);
 //@ {
-//@     forall uint[[1]] js; IsItemSet(js,db) && js < is && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
+//@     forall uint[[1]] js; IsItemSetOf(js,db) && js < is && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
 //@ }
 
 //@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ requires IsItemSetOf(is,db);
 //@ {
-//@     forall uint[[1]] js; IsItemSet(js,db) && size(js) == shape(F)[1] && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
+//@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) == shape(F)[1] && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
 //@ }
 
 //@ function uint[[1]] nextSet (uint[[1]] xs)
