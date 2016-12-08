@@ -131,7 +131,7 @@ struct frequent {
 //@     i == shape(F)[0] ? repeat(shape(db)[1],shape(F)[1]) : j == shape(F)[0] ? snoc(F[i,:],shape(db)[1]) : snoc(F[i,:],F[j,shape(F)[1]-1])
 //@ }
 
-frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[2]] C_dot, pd_a3p uint [[2]] db, uint threshold)
+frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
 //@ requires assertion<pd_a3p>(C_dot == transactions(C,db));
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold);
