@@ -79,7 +79,7 @@ struct frequent {
 
 //@ function bool operator < (uint[[1]] xs, uint[[1]] ys)
 //@ {
-//@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? xs[1:] <= ys[1:] : false)
+//@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? xs[1:] < ys[1:] : false)
 //@ }
 
 //@ function bool operator <= (uint[[1]] xs, uint[[1]] ys)
