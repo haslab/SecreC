@@ -132,7 +132,7 @@ struct frequent {
 //@ }
 
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
-//@ requires assertion<pd_a3p>(C_dot == transactions(C,db));
+//@ requires assertion<pd_a3p>(C_dot == transactions(C,db) :: pd_a3p bool);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
