@@ -83,12 +83,12 @@ struct frequent {
 //@ }
 
 //@ function bool operator <= (uint[[1]] xs, uint[[1]] ys)
-//@ requires size(xs) == size(ys)
+//@ requires size(xs) == size(ys);
 //@ { xs == ys || xs < ys }
 
 //@ function bool SortedItems(uint[[2]] iss)
 //@ {
-//@     forall uint i,j; i < j && j < shape(iss)[0] ==> iss[i,:] < iss[j,:]
+//@     forall uint i, uint j; i < j && j < shape(iss)[0] ==> iss[i,:] < iss[j,:]
 //@ }
 
 //@ function bool FrequentsCache(frequent f, pd_a3p uint[[2]] db, uint threshold)
@@ -103,7 +103,7 @@ struct frequent {
 //@            &&  declassify(frequency(f.items[i,:],db)::pd_a3p uint) >= threshold
 //@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db)))
 //@     &&
-//@     SortedItems(f.items);
+//@     SortedItems(f.items)
 //@ }
 
 //@ function bool AllFrequentsUpTo(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint[[1]] is)
