@@ -82,11 +82,11 @@ struct frequent {
 //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? xs[1:] <= ys[1:] : false)
 //@ }
 
-//@ function operator <= (uint[[1]] xs, uint[[1]] ys)
+//@ function bool operator <= (uint[[1]] xs, uint[[1]] ys)
 //@ requires size(xs) == size(ys)
 //@ { xs == ys || xs < ys }
 
-//@ function SortedItems(uint[[2]] iss)
+//@ function bool SortedItems(uint[[2]] iss)
 //@ {
 //@     forall uint i,j; i < j && j < shape(iss)[0] ==> iss[i,:] < iss[j,:]
 //@ }
