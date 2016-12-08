@@ -115,7 +115,6 @@ struct frequent {
 
 //@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
-//@ requires IsItemSetOf(is,db);
 //@ {
 //@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) == shape(F)[1] && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
 //@ }
