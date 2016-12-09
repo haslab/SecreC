@@ -93,6 +93,8 @@ class Array2<T> {
   requires y >= 0;
   ensures this != null && this.valid();
   modifies this`arr2;
+  ensures this.arr2.Length0 as uint64 == x;
+  ensures this.arr2.Length1 as uint64 == y;
   { this.arr2 := new T[x,y]; }
 
   constructor reshape0(x: T, m: uint64, n: uint64)
@@ -104,23 +106,23 @@ class Array2<T> {
   
   constructor reshape1(xs: seq<T>, m: uint64, n: uint64)
   requires m >= 0 && n >= 0;
-  requires uint64(|xs|) == m * n;
+  requires |xs| as uint64 == m * n;
   free ensures this != null && this.valid();
   free ensures this.Length0() == m && this.Length1() == n;
-  free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> (i+j < uint64(|xs|) && this.arr2[i,j] == xs[i+j]);
+  free ensures forall i: uint64, j: uint64 :: (0 <= i < m && 0 <= j < n) ==> (i+j < (|xs| as uint64) && this.arr2[i,j] == xs[i+j]);
   {}
 
   function method Length0() : uint64
   reads this`arr2;
   requires this.arr2 != null && this.valid();
-  ensures this.Length0() == uint64(this.arr2.Length0);
-  { uint64(this.arr2.Length0) }
+  ensures this.Length0() == (this.arr2.Length0 as uint64);
+  { (this.arr2.Length0 as uint64) }
   
   function method Length1() : uint64
   reads this`arr2;
   requires this.arr2 != null && this.valid();
-  ensures this.Length1() == uint64(this.arr2.Length1);
-  { uint64(this.arr2.Length1) }
+  ensures this.Length1() == (this.arr2.Length1 as uint64);
+  { (this.arr2.Length1 as uint64) }
 
   function method size() : uint64
   reads this`arr2;
@@ -168,7 +170,7 @@ class Array2<T> {
   requires 0 <= x2 <= this.Length0();
   requires x1 <= x2;
   requires 0 <= y < this.Length1();
-  ensures uint64(|this.project10(x1,x2,y)|) == x2-x1;
+  ensures (|this.project10(x1,x2,y)| as uint64) == x2-x1;
   ensures forall i:uint64 :: 0 <= i < x2-x1 ==> this.project10(x1,x2,y)[i] == this.arr2[x1+i,y];
   
   function method project01(x: uint64, y1: uint64, y2: uint64) : seq<T>
@@ -178,7 +180,7 @@ class Array2<T> {
   requires 0 <= y1 <= this.Length1();
   requires 0 <= y2 <= this.Length1();
   requires y1 <= y2;
-  ensures uint64(|this.project01(x,y1,y2)|) == y2-y1;
+  ensures (|this.project01(x,y1,y2)| as uint64) == y2-y1;
   ensures forall j:uint64 :: 0 <= j < y2-y1 ==> this.project01(x,y1,y2)[j] == this.arr2[x,y1+j];
   
   function method project11(x1: uint64, x2: uint64, y1: uint64, y2: uint64) : Array2<T>

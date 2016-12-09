@@ -478,19 +478,31 @@ addAnnsCond c anns = map add anns
     add ann@(ReadsK,_,_,_,_) = ann
     add (x,y,z,w,q) = (x,y,z,c <+> text "==>" <+> parens w,q)
 
+-- to work around the fact that Dafny does not allow inputs to be mutated
+newDafnyArgs :: DafnyK m => [(Bool,Var,IsVariadic)] -> DafnyM m ([(Bool,Var,IsVariadic)],TSubsts)
+newDafnyArgs xs = do
+    (xs',ss) <- Utils.mapAndUnzipM newDafnyArg xs
+    return (xs',mconcat ss)
+
+newDafnyArg :: DafnyK m => (Bool,Var,IsVariadic) -> DafnyM m ((Bool,Var,IsVariadic),TSubsts)
+newDafnyArg (isConst,VarName t v@(VIden vv),isVariadic) = do
+    v'@(VIden vv') <- lift $ genVar v
+    return ((isConst,VarName t v',isVariadic),TSubsts $ Map.singleton vv $ IdxT $ varExpr $ VarName t v')
+
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
-    (pargs,parganns) <- procedureArgsToDafny l False args
+    (args',ssargs) <- newDafnyArgs args
+    (pargs,parganns) <- procedureArgsToDafny l False args'
     (pret,pretanns,anns',body') <- case ret of
         ComplexT Void -> return (empty,[],anns,body ++ [ReturnStatement (Typed l ret) Nothing])
         ComplexT ct -> do
             result <- lift $ liftM (VarName (ComplexT ct)) $ genVar (VIden $ mkVarId $ "result_"++show ppn)
-            let ss = TSubsts $ Map.singleton (mkVarId "\\result") (IdxT $ varExpr result)
-            anns' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ss False Map.empty anns
---            body' <- lift $ substFromTSubsts "procedureToDafny" p ss False Map.empty body
+            let ssres = TSubsts $ Map.singleton (mkVarId "\\result") (IdxT $ varExpr result)
+            anns' <- lift $ substFromTSubstsNoDec "procedureToDafny" p (mappend ssargs ssres) False Map.empty anns
+            body' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty body
             (pret,pretanns) <- procedureArgsToDafny l True [(False,result,False)]
-            return (text "returns" <+> pret,pretanns,anns',body)
+            return (text "returns" <+> pret,pretanns,anns',body')
         otherwise -> do
             ppret <- lift $ pp ret
             genError p $ text "procedureToDafny: unsupported return type" <+> ppret
@@ -522,10 +534,13 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
   where did = fIdenToDafnyId pn mid isLeak
 decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
-    (pargs,parganns) <- procedureArgsToDafny l False args
+    (args',ssargs) <- newDafnyArgs args
+    (pargs,parganns) <- procedureArgsToDafny l False args'
+    anns' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty anns
+    body' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty body
     pcl <- decClassToDafny cl
-    panns <- procedureAnnsToDafny anns
-    (annsb,pbody) <- case body of 
+    panns <- procedureAnnsToDafny anns'
+    (annsb,pbody) <- case body' of 
         Just ss -> do
             (annsb,pss) <- statementToDafny $ compoundStmt noloc ss
             return (annsb,vbraces pss)
@@ -609,13 +624,16 @@ procedureArgToDafny l isPost (_,v,True) = do
     ppv <- lift $ pp v
     genError l $ text "procedureArgToDafny:" <+> ppv <> text "..."
 
+dafnyUint64 :: Doc -> Doc
+dafnyUint64 x = parens x <+> text "as uint64"
+
 dafnySize n x = if n > 1
     then x <> text ".size()"
-    else text "uint64" <> parens (char '|' <> x <> char '|') 
+    else dafnyUint64 (char '|' <> x <> char '|') 
 
 dafnyShape n x = if n > 1
     then x <> text ".shape()"
-    else brackets (text "uint64" <> parens (char '|' <> x <> char '|'))
+    else brackets (dafnyUint64 (char '|' <> x <> char '|'))
 
 qualifiedDafny :: DafnyK m => Position -> Type -> Doc -> DafnyM m Doc
 qualifiedDafny l t x = do
