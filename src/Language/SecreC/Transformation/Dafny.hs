@@ -400,16 +400,22 @@ findEntry l ((did',(ts',p',uid',doc',dec')):es) fid@(bid,did,ts) dec = do
                     findEntry l es fid dec
 
 newEntry :: DafnyK m => Position -> DecType -> (DafnyId,DafnyId,[Type]) -> DafnyM m (Maybe DafnyId)
-newEntry l dec (bid,did,ts) = do
+newEntry l dec fid@(bid,did,ts) = do
     let mn = dafnyIdModule bid
     State.modify $ \env -> env { dafnies = Map.alter (Just . Map.alter (Just . Map.insert did (ts,noloc,did,empty,dec) . maybe Map.empty id) bid . maybe Map.empty id) mn $ dafnies env }
     mb <- decToDafny l dec
     case mb of
         Nothing -> do
             State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.delete bid) bid) mn $ dafnies env }
+            lift $ debugTc $ do
+                ppfid <- ppr fid
+                liftIO $ putStrLn $ "failed to add new entry " ++ ppfid
             return Nothing
         Just (p,doc) -> do
             State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did (ts,p,did,doc,dec)) bid) mn $ dafnies env }
+            lift $ debugTc $ do
+                ppfid <- ppr fid
+                liftIO $ putStrLn $ "added new entry " ++ ppfid
             return $ Just did
             
 

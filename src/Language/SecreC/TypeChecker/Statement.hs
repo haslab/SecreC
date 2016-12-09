@@ -237,10 +237,10 @@ tcStmt ret (AnnStatement l ann) = tcStmtBlock l "annotation statement" $ do
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))
-tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "loop annotation" $ insideAnnotation $ withLeak False $ do
+tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "decreases annotation" $ insideAnnotation $ withLeak False $ do
     (e') <- tcAnnExpr Nothing e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "loop annotation" $ insideAnnotation $ do
+tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "invariant annotation" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 
