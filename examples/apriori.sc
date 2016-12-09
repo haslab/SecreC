@@ -77,18 +77,18 @@ struct frequent {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool operator < (uint[[1]] xs, uint[[1]] ys)
+//@ function bool LtItems (uint[[1]] xs, uint[[1]] ys)
 //@ {
-//@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? xs[1:] < ys[1:] : false)
+//@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
 //@ }
 
-//@ function bool operator <= (uint[[1]] xs, uint[[1]] ys)
+//@ function bool LtItems (uint[[1]] xs, uint[[1]] ys)
 //@ requires size(xs) == size(ys);
-//@ { xs == ys || xs < ys }
+//@ { xs == ys || LtItems(xs,ys) }
 
 //@ function bool SortedItems(uint[[2]] iss)
 //@ {
-//@     forall uint i, uint j; i < j && j < shape(iss)[0] ==> iss[i,:] < iss[j,:]
+//@     forall uint i, uint j; i < j && j < shape(iss)[0] ==> LtItems(iss[i,:],iss[j,:])
 //@ }
 
 //@ function bool FrequentsCache(frequent f, pd_a3p uint[[2]] db, uint threshold)
@@ -110,7 +110,7 @@ struct frequent {
 //@ noinline;
 //@ requires IsItemSetOf(is,db);
 //@ {
-//@     forall uint[[1]] js; IsItemSetOf(js,db) && js < is && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
+//@     forall uint[[1]] js; IsItemSetOf(js,db) && LtItems(js,is) && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
 //@ }
 
 //@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold)
