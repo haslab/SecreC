@@ -535,7 +535,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
         panns <- procedureAnnsToDafny anns
         (pbodyanns,pbody) <- expressionToDafny False Nothing RequireK body
         let fanns = unfreeAnns $ pretanns ++ parganns ++ panns ++ pbodyanns
-        let tag = if isLeak then text "function" else text "function method"
+        let tag = if isAnnDecClass cl then text "function" else text "function method"
         return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
 decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
@@ -629,8 +629,11 @@ procedureArgToDafny l isPost (_,v,True) = do
     ppv <- lift $ pp v
     genError l $ text "procedureArgToDafny:" <+> ppv <> text "..."
 
+dafnyAs :: Doc -> Doc -> Doc
+dafnyAs x pt = parens x <+> text "as" <+> pt
+
 dafnyUint64 :: Doc -> Doc
-dafnyUint64 x = parens x <+> text "as uint64"
+dafnyUint64 x = dafnyAs x (text "uint64")
 
 dafnySize n x = if n > 1
     then x <> text ".size()"
@@ -1634,7 +1637,7 @@ literalToDafny annK lit = do
         ((==BaseT string) -> True) -> return ([],ppid lit)
         (isNumericType -> True) -> do
             (pt,anns) <- typeToDafny (unTyped $ loc lit) annK (typed $ loc lit)
-            return (anns,pt <> parens (ppid lit))
+            return (anns,dafnyAs (ppid lit) pt)
 
 varToDafny :: DafnyK m => VarName GIdentifier (Typed Position) -> DafnyM m Doc
 varToDafny (VarName (Typed l t) n) = do
