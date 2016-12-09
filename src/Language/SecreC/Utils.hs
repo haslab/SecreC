@@ -366,8 +366,14 @@ fmapSndM f = Traversable.mapM (\(a,c) -> liftM (a,) $ f c)
 funzip :: Traversable t => t (a,b) -> (t a,t b)
 funzip xs = (fmap fst xs,fmap snd xs)
 
+funzip3 :: Traversable t => t (a,b,c) -> (t a,t b,t c)
+funzip3 xs = (fmap fst3 xs,fmap snd3 xs,fmap thr3 xs)
+
 mapAndUnzipM :: (Monad m,Traversable t) => (c -> m (a,b)) -> t c -> m (t a,t b)
 mapAndUnzipM f = liftM funzip . Traversable.mapM f
+
+mapAndUnzip3M :: (Monad m,Traversable t) => (c -> m (a,b,d)) -> t c -> m (t a,t b,t d)
+mapAndUnzip3M f = liftM funzip3 . Traversable.mapM f
 
 -- monadic insert an element into a sorted list
 insertByM :: Monad m => (a -> a -> m Ordering) -> a -> [a] -> m [a]
