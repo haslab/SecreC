@@ -479,27 +479,27 @@ addAnnsCond c anns = map add anns
     add (x,y,z,w,q) = (x,y,z,c <+> text "==>" <+> parens w,q)
 
 -- to work around the fact that Dafny does not allow inputs to be mutated
-newDafnyArgs :: DafnyK m => [(Bool,Var,IsVariadic)] -> DafnyM m (AnnsDoc,Doc,TSubsts)
-newDafnyArgs xs = do
-    (anns,xs',ss) <- Utils.mapAndUnzip3M newDafnyArg xs
-    return (concat anns,vcat xs',mconcat ss)
+newDafnyArgs :: DafnyK m => Position -> [(Bool,Var,IsVariadic)] -> DafnyM m ([Statement GIdentifier (Typed Position)],TSubsts)
+newDafnyArgs l xs = do
+    (xs',ss) <- Utils.mapAndUnzipM (newDafnyArg l) xs
+    return (concat xs',mconcat ss)
 
-newDafnyArg :: DafnyK m => (Bool,Var,IsVariadic) -> DafnyM m (AnnsDoc,Doc,TSubsts)
-newDafnyArg (isConst,VarName t v@(VIden vv),isVariadic) = do
-    (pt,ptanns) <- typeToDafny noloc StmtK t
-    let (anns,ptanns') = annLines StmtK ptanns
+newDafnyArg :: DafnyK m => Position -> (Bool,Var,IsVariadic) -> DafnyM m ([Statement GIdentifier (Typed Position)],TSubsts)
+newDafnyArg l (isConst,VarName t v@(VIden vv),isVariadic) = do
+    t' <- lift $ type2TypeSpecifierNonVoid l t
     v'@(VIden vv') <- lift $ genVar v
-    pv <- varToDafny $ VarName (Typed noloc t) v
-    pv' <- varToDafny $ VarName (Typed noloc t) v'
-    let pdecl = text "var" <+> pv' <+> text ":" <+> pt <> semicolon
-    let pass = pv' <+> text ":=" <+> pv <> semicolon
-    return (anns,pdecl $+$ ptanns' $+$ pass,TSubsts $ Map.singleton vv $ IdxT $ varExpr $ VarName t v')
+    let tv = VarName (Typed l t) v
+    let tv' = VarName (Typed l t) v'
+    let tl = notTyped "newArg" l
+    let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl tv' Nothing Nothing
+    let ass = ExpressionStatement tl $ BinaryAssign tl (varExpr tv') (BinaryAssignEqual tl) (varExpr tv)
+    return ([def,ass],TSubsts $ Map.singleton vv $ IdxT $ fmap typed $ varExpr tv')
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
-    (parganns',pargs',ssargs) <- newDafnyArgs args
+    (pargs',ssargs) <- newDafnyArgs l args
     (pret,pretanns,anns',body') <- case ret of
         ComplexT Void -> return (empty,[],anns,body ++ [ReturnStatement (Typed l ret) Nothing])
         ComplexT ct -> do
@@ -514,15 +514,15 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
             genError p $ text "procedureToDafny: unsupported return type" <+> ppret
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns'
-    (annb,pbody) <- statementToDafny $ compoundStmt (decPos dec) body'
+    (annb,pbody) <- statementToDafny $ compoundStmt (decPos dec) (pargs'++body')
     let tag = text "method"
     lift $ debugTc $ do
         ppdec <- ppr dec
         ppdid <- ppDafnyId did
         liftIO $ putStrLn $ "decToDafny " ++ show ppdid ++ " " ++ ppdec
-    let anns' = parganns ++ parganns' ++ pretanns ++ panns ++annb
+    let anns' = parganns ++ pretanns ++ panns ++annb
     annframes <- propagateDafnyAssumptions p EnsureK (decClassReads cl) (decClassWrites cl)
-    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC annframes $+$ annLinesProcC anns' $+$ pargs' $+$ pbody)
+    return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC annframes $+$ annLinesProcC anns' $+$ pbody)
   where did = pIdenToDafnyId pn mid
 decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
@@ -541,17 +541,17 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
 decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
-    (parganns',pargs',ssargs) <- newDafnyArgs args
+    (pargs',ssargs) <- newDafnyArgs l args
     body' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty body
     pcl <- decClassToDafny cl
     panns <- procedureAnnsToDafny anns
     (annsb,pbody) <- case body' of 
         Just ss -> do
-            (annsb,pss) <- statementToDafny $ compoundStmt noloc ss
+            (annsb,pss) <- statementToDafny $ compoundStmt noloc (pargs'++ss)
             return (annsb,vbraces pss)
         Nothing -> return ([],empty)
-    let anns' = parganns++parganns'++panns++annsb
-    return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLinesProcC anns' $+$ pargs' $+$ pbody)
+    let anns' = parganns++panns++annsb
+    return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLinesProcC anns' $+$ pbody)
   where did = LId (funit pn) mid isLeak
 decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = withLeakMode False $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     psn <- ppDafnyIdM did
