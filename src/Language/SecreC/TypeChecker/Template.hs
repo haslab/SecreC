@@ -893,8 +893,8 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                             liftIO $ putStrLn $ "remainder " ++ pprid kid ++ " " ++ ppn ++" " ++ show (decTypeTyVarId olddec) ++ " " ++ show pph ++"\n"++ show ppb
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1
-                        targs' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty targs'
-                        dec2 <- substFromTSubstsDec "instantiate tplt" l subst' False Map.empty dec2
+                        targs' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty targs'
+                        dec2 <- substFromTSubsts "instantiate tplt" l dontStop subst' False Map.empty dec2
                         --let dec3 = addDecDicts dec2 headPureDict bodyPureDict
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
 
@@ -1018,7 +1018,7 @@ localTemplateWith l e a = case entryType e of
             ppl <- ppr l
             ppt' <- ppr t'
             liftIO $ putStrLn $ "localTemplate': " ++ ppl ++ "\n" ++ ppt'
-        a' <- substProxy "localTplt" stopOnDecType ss False ssBounds a
+        a' <- substProxy "localTplt" dontStop ss False ssBounds a
         debugTc $ do
             ppl <- ppr l
             ppa' <- ppr a'
@@ -1150,7 +1150,7 @@ getSubstVarM v = do
 substLocalM :: (Vars GIdentifier (TcM m) a,ProverK Position m) => a -> LocalM m a
 substLocalM x = do
     (ss,ssBounds) <- State.get
-    lift $ substProxy "localTplt" stopOnDecType ss False ssBounds x
+    lift $ substProxy "localTplt" dontStop ss False ssBounds x
 
 
 
