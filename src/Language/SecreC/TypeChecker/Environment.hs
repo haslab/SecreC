@@ -626,7 +626,7 @@ addOperatorToRec vars hdeps op = do
     addHeadTDict l "newOp" recdict
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
-    d' <- substFromTSubsts "newOp head" dontStop l (tSubsts recdict) False Map.empty d
+    d' <- substFromTSubstsNoDec "newOp head" l (tSubsts recdict) False Map.empty d
     let recdt = DecT $ DecType i (DecTypeOri True) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) (OIden o) $ getLns selector env
@@ -813,7 +813,7 @@ addProcedureFunctionToRec vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = 
     addHeadTDict l "newProcedureFunction" recdict
     i <- newModuleTyVarId
     (hfrees,bfrees) <- splitHeadFrees l hdeps
-    d' <- substFromTSubsts "newProc head" dontStop l (tSubsts recdict) False Map.empty d
+    d' <- substFromTSubstsNoDec "newProc head" l (tSubsts recdict) False Map.empty d
     let recdt = DecT $ DecType i (DecTypeOri True) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     rece <- localTemplate l $ EntryEnv (locpos l) recdt
     modifyModuleEnv $ \env -> putLns selector env $ Map.alter (Just . Map.insert i rece . maybe Map.empty id) n $ getLns selector env
@@ -882,7 +882,7 @@ newAxiom l tvars hdeps d = do
     addHeadTDict l "newAxiom" recdict
     i <- newModuleTyVarId
     frees <- getFrees l
-    d' <- substFromTSubsts "newAxiom head" dontStop l (tSubsts recdict) False Map.empty d
+    d' <- substFromTSubstsNoDec "newAxiom head" l (tSubsts recdict) False Map.empty d
     
     doc <- liftM (tCstrs . headNe . tDict) State.get >>= ppConstraints
     bctx' <- newDecCtx l "newAxiom" explicitDecCtx True
@@ -1233,7 +1233,7 @@ addStructToRec vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
     i <- newModuleTyVarId
     -- add a temporary declaration for recursive invocations
     (hfrees,bfrees) <- splitHeadFrees l hdeps
-    d' <- substFromTSubsts "newStruct head" dontStop l (tSubsts recdict) False Map.empty d
+    d' <- substFromTSubstsNoDec "newStruct head" l (tSubsts recdict) False Map.empty d
     let recdt = DecT $ DecType i (DecTypeOri True) vars (implicitDecCtx { dCtxFrees = hfrees }) implicitDecCtx [] $ remIDecBody d'
     let rece = EntryEnv (locpos l) recdt
     ss <- getStructsByName n False (const True) (tyIsAnn recdt) (isLeakType recdt)

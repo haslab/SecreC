@@ -489,7 +489,7 @@ newDafnyArg (isConst,VarName t v@(VIden vv),isVariadic) = do
     v'@(VIden vv') <- lift $ genVar v
     pv <- varToDafny $ VarName (Typed noloc t) v
     pv' <- varToDafny $ VarName (Typed noloc t) v'
-    return (pv' <+> text ":=" <+> pv,TSubsts $ Map.singleton vv $ IdxT $ varExpr $ VarName t v')
+    return (pv' <+> text ":=" <+> pv <> semicolon,TSubsts $ Map.singleton vv $ IdxT $ varExpr $ VarName t v')
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
