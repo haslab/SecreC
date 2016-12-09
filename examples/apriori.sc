@@ -82,9 +82,9 @@ struct frequent {
 //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
 //@ }
 
-//@ function bool LtItems (uint[[1]] xs, uint[[1]] ys)
-//@ requires size(xs) == size(ys);
-//@ { xs == ys || LtItems(xs,ys) }
+//x //@ function bool LeItems (uint[[1]] xs, uint[[1]] ys)
+//x //@ requires size(xs) == size(ys);
+//x //@ { xs == ys || LtItems(xs,ys) }
 
 //@ function bool SortedItems(uint[[2]] iss)
 //@ {
