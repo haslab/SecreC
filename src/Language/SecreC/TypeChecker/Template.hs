@@ -893,8 +893,8 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                             liftIO $ putStrLn $ "remainder " ++ pprid kid ++ " " ++ ppn ++" " ++ show (decTypeTyVarId olddec) ++ " " ++ show pph ++"\n"++ show ppb
                         dec1 <- typeToDecType l (entryType e')
                         (dec2,targs') <- removeTemplate l dec1
-                        targs' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty targs'
-                        dec2 <- substFromTSubsts "instantiate tplt" l dontStop subst' False Map.empty dec2
+                        targs' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty targs'
+                        dec2 <- substFromTSubstsDec "instantiate tplt" l subst' False Map.empty dec2
                         --let dec3 = addDecDicts dec2 headPureDict bodyPureDict
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
 
