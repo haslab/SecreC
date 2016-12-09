@@ -353,17 +353,26 @@ loadDafnyDec l dec = do
                 leakMode <- getLeakMode
                 docs <- State.gets (Map.map (Map.filterWithKey (\did v -> leakMode >= dafnyIdLeak did)) . dafnies)
                 case Map.lookup mn docs of
-                    Just docs -> case Map.lookup bid docs of
+                    Just bids -> case Map.lookup bid bids of
                         Just dids -> case Map.lookup did dids of
                             Just (_,_,did',_,_) -> return $ Just did'
                             Nothing -> do
+                                lift $ debugTc $ do
+                                    ppdid <- pp did
+                                    ppdids <- liftM (sepBy space) $ mapM pp (Map.keys dids)
+                                    liftIO $ putStrLn $ "failed to lookup dafny id " ++ show ppdid ++ " in " ++ show ppdids
                                 mb <- findEntry (decPos dec) (Map.toList dids) fid dec
                                 case mb of
                                     Just entry@(_,_,did',_,_) -> do
                                         State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did entry) bid) mn $ dafnies env }
                                         return $ Just did'
                                     Nothing -> newEntry l dec fid
-                        Nothing -> newEntry l dec fid
+                        Nothing -> do
+                            lift $ debugTc $ do
+                                ppbid <- pp bid
+                                ppbids <- liftM (sepBy space) $ mapM pp (Map.keys bids)
+                                liftIO $ putStrLn $ "failed to lookup base id " ++ show ppbid ++ " in " ++ show ppbids
+                            newEntry l dec fid
                     Nothing -> newEntry l dec fid
         Nothing -> do
             lift $ debugTc $ liftIO $ putStrLn $ "no ids for dec"
