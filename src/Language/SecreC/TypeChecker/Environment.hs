@@ -646,7 +646,7 @@ newOperator recop bctx op = do
     let i = snd did
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
     dict <- liftM (headNe . tDict) State.get
-    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubstsNoDec "newOp body" l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newOp body" dontStop l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
     let td = DecT $ dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
 --    noNormalFreesM e
@@ -837,7 +837,7 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     bctx' <- addLineage did $ newDecCtx l "newProcedureFunction" bctx True
     dict <- liftM (headNe . tDict) State.get
     
-    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubstsNoDec "newProc body" l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newProc body" dontStop l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
     let dt = dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
@@ -888,7 +888,7 @@ newAxiom l tvars hdeps d = do
     bctx' <- newDecCtx l "newAxiom" explicitDecCtx True
 --    unresolvedQVars l "newAxiom" tvars
     dict <- liftM (headNe . tDict) State.get
-    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubstsNoDec "newAxiom body" l (tSubsts dict) True Map.empty =<< writeIDecVars l d'
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newAxiom body" dontStop l (tSubsts dict) True Map.empty =<< writeIDecVars l d'
     let dt = dropDecRecs $ DecType i (DecTypeOri False) tvars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
@@ -1169,10 +1169,10 @@ splitTpltHead l hctx bctx deps vars dec = do
         liftIO $ putStrLn $ "writeTpltVars: " ++ pps ++ " --> " ++ pps'
         ppss <- pp hbsubsts
         liftIO $ putStrLn $ "splitSubsts: " ++ show ppss
-    vars' <- substFromTSubstsNoDec "splitHead" l hbsubsts False Map.empty vars >>= chgVarId chg
-    dec' <- substFromTSubstsNoDec "splitHead" l hbsubsts False Map.empty dec >>= chgVarId chg
-    hctx'' <- substFromTSubstsNoDec "splitHead" l hbsubsts False Map.empty hctx' >>= chgVarId chg
-    bctx'' <- substFromTSubstsNoDec "splitHead" l hbsubsts False Map.empty bctx' >>= chgVarId chg
+    vars' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty vars >>= chgVarId chg
+    dec' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty dec >>= chgVarId chg
+    hctx'' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty hctx' >>= chgVarId chg
+    bctx'' <- substFromTSubsts "splitHead" dontStop l hbsubsts False Map.empty bctx' >>= chgVarId chg
         
     return (hctx'',bctx'',(vars',dec'))
     
@@ -1256,7 +1256,7 @@ newStruct rectn bctx tn@(TypeName (Typed l (IDecT innerdect)) n) = do
     bctx' <- addLineage did $ newDecCtx l "newStruct" bctx True
     dict <- liftM (headNe . tDict) State.get
     --i <- newModuleTyVarId
-    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubstsNoDec "newStruct body" (locpos l) (tSubsts dict) True Map.empty innerdect
+    d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newStruct body" dontStop (locpos l) (tSubsts dict) True Map.empty innerdect
     let dt = DecT $ dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) dt
     debugTc $ do
