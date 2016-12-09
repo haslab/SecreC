@@ -53,7 +53,11 @@ struct frequent {
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
 //@ noinline;
-//@ { size(is) == 0 ? true : is[size(is)-1] < sz && IsItemSet(is[:size(is)-1],is[size(is)-1]) }
+//@ {
+//@    size(is) > 0
+//@    && (forall uint k; k < size(is) ==> is[k] < sz)
+//@    && (forall uint i, uint j; i < j && j < size(is) ==> is[i] < is[j])
+//@ }
 
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ { IsItemSet(is,shape(db)[1]) }
