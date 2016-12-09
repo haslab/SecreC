@@ -1775,7 +1775,9 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
                 return (ss3,ks++ks3)
 
 substFromTSubsts :: (VarsG (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
-substFromTSubsts msg stop l tys doBounds ssBounds = substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds
+substFromTSubsts msg stop l tys doBounds ssBounds x = if tys == emptyTSubsts
+    then return x
+    else tcProgress l msg $ substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
     
 substsProxyFromTSubsts :: ProverK loc m => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do

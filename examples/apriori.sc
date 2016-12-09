@@ -78,6 +78,7 @@ struct frequent {
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
 //@ function bool LtItems (uint[[1]] xs, uint[[1]] ys)
+//@ noinline;
 //@ {
 //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
 //@ }
