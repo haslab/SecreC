@@ -365,10 +365,16 @@ loadDafnyDec l dec = do
                                     Nothing -> newEntry l dec fid
                         Nothing -> newEntry l dec fid
                     Nothing -> newEntry l dec fid
-        Nothing -> return Nothing
+        Nothing -> do
+            lift $ debugTc $ liftIO $ putStrLn $ "no ids for dec"
+            return Nothing
                    
 findEntry :: DafnyK m => Position -> [(DafnyId,DafnyEntry)] -> (DafnyId,DafnyId,[Type]) -> DecType -> DafnyM m (Maybe DafnyEntry)
-findEntry l [] fid dec = return Nothing
+findEntry l [] fid dec = do
+    lift $ debugTc $ do
+        ppid <- pp fid
+        liftIO $ putStrLn $ "cannot find entry for " ++ show ppid
+    return Nothing
 findEntry l ((did',(ts',p',uid',doc',dec')):es) fid@(bid,did,ts) dec = do
     same <- lift $ tryTcErrorBool l $ sameTemplateDecs l dec dec'
     if same
@@ -377,7 +383,12 @@ findEntry l ((did',(ts',p',uid',doc',dec')):es) fid@(bid,did,ts) dec = do
             ok <- lift $ tryTcErrorBool l $ equalsList l ts' ts
             if ok
                 then return $ Just (ts,p',uid',empty,dec')
-                else findEntry l es fid dec
+                else do
+                    lift $ debugTc $ do
+                        ppdid' <- ppr did'
+                        ppdid <- ppr did
+                        liftIO $ putStrLn $ "entries do not match: " ++ ppdid' ++ ppdid
+                    findEntry l es fid dec
 
 newEntry :: DafnyK m => Position -> DecType -> (DafnyId,DafnyId,[Type]) -> DafnyM m (Maybe DafnyId)
 newEntry l dec (bid,did,ts) = do

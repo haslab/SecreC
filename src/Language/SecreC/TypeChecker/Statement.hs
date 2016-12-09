@@ -81,7 +81,7 @@ tcStmts ret [s] = do
     (s',StmtType c) <- tcStmtBlock (loc s) "single statement" $ tcStmt ret s
     return ([s'],StmtType c)
 tcStmts ret (s:ss) = do
-    (s',StmtType c) <- tcStmtBlock (loc s) "statements" $ tcStmt ret s
+    (s',StmtType c) <- tcStmtBlock (loc s) "middle statement" $ tcStmt ret s
     -- if the following statements are never executed, issue an error
     case ss of
         [] -> return ()
@@ -122,22 +122,22 @@ tcLoopBodyStmt ret l s = do
 tcStmt :: (ProverK loc m) => Type -- ^ return type
     -> Statement Identifier loc -- ^ input statement
     -> TcM m (Statement GIdentifier (Typed loc),Type)
-tcStmt ret (CompoundStatement l s) = do
+tcStmt ret (CompoundStatement l s) = tcStmtBlock l "compound statement" $ do
     (ss',t) <- tcLocal l "tcStmt compound" $ tcStmts ret s
     return (CompoundStatement (Typed l t) ss',t)
-tcStmt ret (IfStatement l condE thenS Nothing) = do
-    condE' <- tcStmtBlock l "if statement" $ tcGuard condE
+tcStmt ret (IfStatement l condE thenS Nothing) = tcStmtBlock l "if statement" $ do
+    condE' <- tcStmtBlock l "if statement guard" $ tcGuard condE
     (thenS',StmtType cs) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     -- an if statement falls through if the condition is not satisfied
     let t = StmtType $ Set.insert (StmtFallthru $ ComplexT Void) cs
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' Nothing,t)
-tcStmt ret (IfStatement l condE thenS (Just elseS)) = do
+tcStmt ret (IfStatement l condE thenS (Just elseS)) = tcStmtBlock l "if statement" $ do
     condE' <- tcStmtBlock l "if statement" $ tcGuard condE
     (thenS',StmtType cs1) <- tcLocal l "tcStmt if then" $ tcNonEmptyStmt ret thenS
     (elseS',StmtType cs2) <- tcLocal l "tcStmt if else" $ tcNonEmptyStmt ret elseS 
     let t = StmtType $ cs1 `Set.union` cs2
     return (IfStatement (notTyped "tcStmt" l) condE' thenS' (Just elseS'),t)
-tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for" $ do
+tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcStmtBlock l "for statement" $ tcLocal l "tcStmt for" $ do
     ((startE',whileE',incE',ann',bodyS',t'),rs,ws) <- withDecClassVars $ do
         startE' <- tcStmtBlock l "for statement" $ tcForInitializer startE
         whileE' <- tcStmtBlock l "for statement guard" $ mapM (tcGuard) whileE
@@ -153,7 +153,7 @@ tcStmt ret (ForStatement l startE whileE incE ann bodyS) = tcLocal l "tcStmt for
         pplocals <- pp locals
         liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws ++ "\n" ++ show pplocals
     return (ForStatement (Typed l $ WhileT rs ws) startE' whileE' incE' ann' bodyS',t')
-tcStmt ret (WhileStatement l condE ann bodyS) = do
+tcStmt ret (WhileStatement l condE ann bodyS) = tcStmtBlock l "while statement" $ do
     ((ann',condE',bodyS',t'),rs,ws) <- withDecClassVars $ do
         ann' <- mapM tcLoopAnn ann
         condE' <- tcStmtBlock l "while statement" $ tcGuard condE
@@ -165,7 +165,7 @@ tcStmt ret (WhileStatement l condE ann bodyS) = do
         ppws <- pp ws
         liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws
     return (WhileStatement (Typed l $ WhileT rs ws) condE' ann' bodyS',t')
-tcStmt ret (PrintStatement (l::loc) argsE) = do
+tcStmt ret (PrintStatement (l::loc) argsE) = tcStmtBlock l "print statement" $ do
     argsE' <- withExprC ReadOnlyExpr $ mapM (tcVariadicArg (tcExpr Nothing)) argsE
     xs <- forM argsE' $ \argE' -> do
         tx <- newTyVar True False Nothing
@@ -175,7 +175,7 @@ tcStmt ret (PrintStatement (l::loc) argsE) = do
     let exs = map (fmap (Typed l) . varExpr) xs
     let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (PrintStatement (Typed l t) (zip exs $ map snd argsE'),t)
-tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal l "tcStmt dowhile" $ do
+tcStmt ret (DowhileStatement l ann bodyS condE) = tcStmtBlock l "do while statement" $ tcLocal l "tcStmt dowhile" $ do
     ((ann',bodyS',t',condE'),rs,ws) <- withDecClassVars $ do
         ann' <- mapM tcLoopAnn ann
         (bodyS',t') <- tcLoopBodyStmt ret l bodyS
@@ -187,28 +187,28 @@ tcStmt ret (DowhileStatement l ann bodyS condE) = tcLocal l "tcStmt dowhile" $ d
         ppws <- pp ws
         liftIO $ putStrLn $ "whileT " ++ ppl ++ ": " ++ show pprs ++ "  :  " ++ show ppws
     return (DowhileStatement (Typed l $ WhileT rs ws) ann' bodyS' condE',t')
-tcStmt ret (AssertStatement l argE) = do
+tcStmt ret (AssertStatement l argE) = tcStmtBlock l "assert statement" $ do
     (argE',cstrsargE) <- tcWithCstrs l "assert" $ tcGuard argE
     opts <- askOpts
     when (checkAssertions opts) $ topCheckCstrM_ l cstrsargE $ CheckAssertion $ fmap typed argE'
     tryAddHypothesis l "tcStmt assert" LocalScope checkAssertions cstrsargE $ HypCondition $ fmap typed argE'
     let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (AssertStatement (notTyped "tcStmt" l) argE',t)
-tcStmt ret (SyscallStatement l n args) = do
+tcStmt ret (SyscallStatement l n args) = tcStmtBlock l "syscall statement" $ do
     args' <- mapM tcSyscallParam args
     let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     isSupportedSyscall l n $ map (typed . loc) args'
     return (SyscallStatement (Typed l t) n args',t)
-tcStmt ret (VarStatement l decl) = do
+tcStmt ret (VarStatement l decl) = tcStmtBlock l "var statement" $ do
     decl' <- tcVarDecl LocalScope decl
     let t = StmtType (Set.singleton $ StmtFallthru $ ComplexT Void)
     return (VarStatement (notTyped "tcStmt" l) decl',t)
-tcStmt ret (ReturnStatement l Nothing) = do
+tcStmt ret (ReturnStatement l Nothing) = tcStmtBlock l "return statement" $ do
     topTcCstrM_ l $ Unifies (ComplexT Void) ret
     let t = StmtType (Set.singleton $ StmtReturn)
     let ret = ReturnStatement (Typed l t) Nothing
     return (ret,t)
-tcStmt ret (ReturnStatement l (Just e)) = do
+tcStmt ret (ReturnStatement l (Just e)) = tcStmtBlock l "return statement" $ do
     e' <- withExprC ReadWriteExpr $ tcExpr Nothing e
     let et' = typed $ loc e'
     ppe <- pp e
@@ -217,13 +217,13 @@ tcStmt ret (ReturnStatement l (Just e)) = do
     let ex = fmap (Typed l) x
     let ret = ReturnStatement (Typed l t) (Just ex)
     return (ret,t)
-tcStmt ret (ContinueStatement l) = do
+tcStmt ret (ContinueStatement l) = tcStmtBlock l "continue statement" $ do
     let t = StmtType (Set.singleton StmtContinue)
     return (BreakStatement $ Typed l t,t)
-tcStmt ret (BreakStatement l) = do
+tcStmt ret (BreakStatement l) = tcStmtBlock l "break statement" $ do
     let t = StmtType (Set.singleton StmtBreak)
     return (BreakStatement $ Typed l t,t)    
-tcStmt ret (ExpressionStatement l e) = do
+tcStmt ret (ExpressionStatement l e) = tcStmtBlock l "expression statement" $ do
     e' <- withExprC ReadWriteExpr $ tcExpr Nothing e
     let te = typed $ loc e'
     --case e of
@@ -231,7 +231,7 @@ tcStmt ret (ExpressionStatement l e) = do
     --    otherwise -> topTcCstrM_ l $ Unifies te (ComplexT Void)
     let t = StmtType (Set.singleton $ StmtFallthru te)
     return (ExpressionStatement (Typed l t) e',t)
-tcStmt ret (AnnStatement l ann) = do
+tcStmt ret (AnnStatement l ann) = tcStmtBlock l "annotation statement" $ do
     (ann') <- mapM tcStmtAnn ann
     let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (AnnStatement (Typed l t) ann',t)
