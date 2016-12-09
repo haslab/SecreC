@@ -288,6 +288,7 @@ data TcEnv = TcEnv {
     , isDef :: Bool -- if typechecking variable initializations
     , decClass :: DecClass -- class when typechecking procedures
     , moduleEnv :: (ModuleTcEnv,ModuleTcEnv) -- (aggregate module environment for past modules,plus the module environment for the current module)
+    , progressBar :: (String,Int) -- message, current line
     }
 
 type TemplateTok = Var
@@ -550,6 +551,7 @@ emptyTcEnv = TcEnv
     , decClass = DecClass False False emptyDecClassVars emptyDecClassVars
     , moduleEnv = (mempty,mempty)
     , isDef = False
+    , progressBar = ("",0)
     }
 
 data EntryEnv = EntryEnv {

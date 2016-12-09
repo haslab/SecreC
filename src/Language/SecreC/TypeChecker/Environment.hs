@@ -1777,7 +1777,7 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
 substFromTSubsts :: (VarsG (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubsts msg stop l tys doBounds ssBounds x = if tys == emptyTSubsts
     then return x
-    else tcProgress l msg $ substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
+    else tcProgress Nothing (Just msg) $ substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
     
 substsProxyFromTSubsts :: ProverK loc m => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
@@ -2584,19 +2584,28 @@ isOriginalDecTypeKind :: DecTypeK -> Bool
 isOriginalDecTypeKind (DecTypeOri _) = True
 isOriginalDecTypeKind _ = False
 
-tcProgress :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
+tcProgress :: ProverK Position m => Maybe Position -> Maybe String -> TcM m a -> TcM m a
 tcProgress l msg m = do
-    
-    sz <- liftM consolesize $ shellyOutput False "tput" ["cols"]
-    let msgsz::Integer = round (realToFrac sz * 0.3 :: Float)
-    let barsz::Integer = round (realToFrac sz * 0.7 :: Float)
-        
-    let p = locpos l
     opts <- askOpts
-    total <- State.gets (maybe (-1) id . fmap snd . fst . moduleCount)
-    when (progress opts) $
-        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad msgsz msg) lbl barsz (fromIntegral $ posLine p) (fromIntegral total)
-    m
+    (oldmsg,oldp) <- State.gets progressBar
+    let newmsg = maybe oldmsg id msg
+    let newp = maybe oldp (posLine) l
+    
+    when (progress opts) $ do
+        State.modify $ \env -> env { progressBar = (newmsg,newp) }
+    
+        sz <- liftM consolesize $ shellyOutput False "tput" ["cols"]
+        let msgsz::Integer = round (realToFrac sz * 0.3 :: Float)
+        let barsz::Integer = round (realToFrac sz * 0.7 :: Float)
+        
+        total <- State.gets (maybe (-1) id . fmap snd . fst . moduleCount)
+        liftIO $ Bar.hProgressBar stderr (Bar.msg $ pad msgsz newmsg) lbl barsz (fromIntegral newp) (fromIntegral total)
+    x <- m
+    
+    when (progress opts) $ do
+        State.modify $ \env -> env { progressBar = (oldmsg,newp) }
+
+    return x
   where
     lbl x y = Bar.exact x y ++ " " ++ Bar.percentage x y
     consolesize :: Status -> Int
