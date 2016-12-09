@@ -487,13 +487,13 @@ newDafnyArgs xs = do
 newDafnyArg :: DafnyK m => (Bool,Var,IsVariadic) -> DafnyM m (AnnsDoc,Doc,TSubsts)
 newDafnyArg (isConst,VarName t v@(VIden vv),isVariadic) = do
     (pt,ptanns) <- typeToDafny noloc StmtK t
-    (anns,ptanns') <- annlines StmtK ptanns
+    let (anns,ptanns') = annLines StmtK ptanns
     v'@(VIden vv') <- lift $ genVar v
     pv <- varToDafny $ VarName (Typed noloc t) v
     pv' <- varToDafny $ VarName (Typed noloc t) v'
     let pdecl = text "var" <+> pv' <+> text ":" <+> pt <> semicolon
     let pass = pv' <+> text ":=" <+> pv <> semicolon
-    return (anns,pdecl $+$ ptanns $+$ pass,TSubsts $ Map.singleton vv $ IdxT $ varExpr $ VarName t v')
+    return (anns,pdecl $+$ ptanns' $+$ pass,TSubsts $ Map.singleton vv $ IdxT $ varExpr $ VarName t v')
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
 decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
