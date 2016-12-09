@@ -1356,7 +1356,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
                                 let tv = (varNameToType v)
                                 pptv <- pp tv
                                 ppt' <- pp t'
-                                addErrorM l (TypecheckerError (locpos l) . (UnificationException ("substitution with type")) (pptv) (ppt') . Just) $ tcCstrM_ l $ Equals tv t'
+                                addErrorM l (TypecheckerError (locpos l) . (UnificationException ("substitution with type")) (pptv) (ppt') . Just) $ tcCstrM_ l $ Unifies tv t'
                     else add l (substDirty mode) t'
   where
     add :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
