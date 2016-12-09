@@ -62,7 +62,7 @@ expr2IExpr :: (ProverK loc m) => Expression GIdentifier (Typed loc) -> TcM m IEx
 expr2IExpr e = runExprM $ do
     let l = unTyped $ loc e
     substs <- lift $ getTSubsts l
-    subste <- lift $ substFromTSubsts "simplify" dontStop l substs False Map.empty e
+    subste <- lift $ substFromTSubstsNoDec "simplify" l substs False Map.empty e
     (ss',mbe') <- lift $ runSimplify $ simplifyExpression False Nothing subste
     stmts2Prover ss'
     case mbe' of

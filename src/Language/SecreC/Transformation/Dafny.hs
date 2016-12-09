@@ -487,7 +487,7 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
         ComplexT ct -> do
             result <- lift $ liftM (VarName (ComplexT ct)) $ genVar (VIden $ mkVarId $ "result_"++show ppn)
             let ss = TSubsts $ Map.singleton (mkVarId "\\result") (IdxT $ varExpr result)
-            anns' <- lift $ substFromTSubsts "procedureToDafny" stopOnDecType p ss False Map.empty anns
+            anns' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ss False Map.empty anns
 --            body' <- lift $ substFromTSubsts "procedureToDafny" p ss False Map.empty body
             (pret,pretanns) <- procedureArgsToDafny l True [(False,result,False)]
             return (text "returns" <+> pret,pretanns,anns',body)

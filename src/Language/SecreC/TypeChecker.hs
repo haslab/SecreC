@@ -600,7 +600,7 @@ tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
     --debugTc $ do
     --    pprd <- ppr dict
     --    liftIO $ putStrLn $ "substituting tcGlobal " ++ pprid (locpos l) ++ "\n" ++ pprd
-    x' <- substFromTDict "tcGlobal" dontStop l dict False Map.empty x
+    x' <- substFromTSubstsNoDec "tcGlobal" l (tSubsts dict) False Map.empty x
 --    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
     tcProgress Nothing (Just "cleanup") $ do

@@ -331,10 +331,10 @@ variadicFrees = Map.filter (\b -> b)
 ppTpltAppM :: (ProverK loc m) => loc -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
 ppTpltAppM l pid args es ret = do
     ss <- getTSubsts l
-    pid' <- substFromTSubsts "ppTplt" dontStop l ss False Map.empty pid
-    args' <- mapM (mapM (mapFstM (substFromTSubsts "ppTplt" dontStop l ss False Map.empty))) args
-    es' <- mapM (mapM (mapSnd3M (substFromTSubsts "ppTplt" dontStop l ss False Map.empty))) es
-    ret' <- substFromTSubsts "ppTplt" dontStop l ss False Map.empty ret
+    pid' <- substFromTSubstsNoDec "ppTplt" l ss False Map.empty pid
+    args' <- mapM (mapM (mapFstM (substFromTSubstsNoDec "ppTplt" l ss False Map.empty))) args
+    es' <- mapM (mapM (mapSnd3M (substFromTSubstsNoDec "ppTplt" l ss False Map.empty))) es
+    ret' <- substFromTSubstsNoDec "ppTplt" l ss False Map.empty ret
     ppTpltApp pid' args' es' ret'
 
 ppTpltApp :: ProverK Position m => TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m Doc
@@ -877,9 +877,9 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                         --removeIOCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
                         (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr solved,recs)
-                        hgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty hgr'
-                        bgr'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty bgr'
-                        recs'' <- substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty recs'
+                        hgr'' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty hgr'
+                        bgr'' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty bgr'
+                        recs'' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty recs'
                         hgr1 <- fromPureCstrs hgr''
                         bgr1 <- fromPureCstrs bgr''
                         let headDict = (TDict hgr1 Set.empty subst' recs'' Map.empty)
@@ -892,7 +892,9 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                             ppn <- ppr n
                             liftIO $ putStrLn $ "remainder " ++ pprid kid ++ " " ++ ppn ++" " ++ show (decTypeTyVarId olddec) ++ " " ++ show pph ++"\n"++ show ppb
                         dec1 <- typeToDecType l (entryType e')
-                        (dec2,targs') <- removeTemplate l dec1 >>= substFromTSubsts "instantiate tplt" dontStop l subst' False Map.empty
+                        (dec2,targs') <- removeTemplate l dec1
+                        targs' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty targs'
+                        dec2 <- substFromTSubstsDec "instantiate tplt" l subst' False Map.empty dec2
                         --let dec3 = addDecDicts dec2 headPureDict bodyPureDict
                         --debugTc $ liftIO $ putStrLn $ "withTplt: " ++ ppr l ++ "\n" ++ ppr subst ++ "\n+++\n"++ppr subst' ++ "\n" ++ ppr dec2
 
@@ -1016,7 +1018,7 @@ localTemplateWith l e a = case entryType e of
             ppl <- ppr l
             ppt' <- ppr t'
             liftIO $ putStrLn $ "localTemplate': " ++ ppl ++ "\n" ++ ppt'
-        a' <- substProxy "localTplt" dontStop ss False ssBounds a
+        a' <- substProxy "localTplt" stopOnDecType ss False ssBounds a
         debugTc $ do
             ppl <- ppr l
             ppa' <- ppr a'
@@ -1148,7 +1150,7 @@ getSubstVarM v = do
 substLocalM :: (Vars GIdentifier (TcM m) a,ProverK Position m) => a -> LocalM m a
 substLocalM x = do
     (ss,ssBounds) <- State.get
-    lift $ substProxy "localTplt" dontStop ss False ssBounds x
+    lift $ substProxy "localTplt" stopOnDecType ss False ssBounds x
 
 
 
