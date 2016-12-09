@@ -2601,7 +2601,7 @@ tcProgress l msg m = do
     opts <- askOpts
     (oldmsg,oldp) <- State.gets progressBar
     let newmsg = maybe oldmsg id msg
-    let newp = maybe oldp (max oldp . posLine) l
+    let newp = maybe oldp (posLine) l
     
     when (progress opts) $ do
         State.modify $ \env -> env { progressBar = (newmsg,newp) }
