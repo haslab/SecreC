@@ -199,9 +199,9 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //@ assert set(prev.items[i,:]) == set(prev.items[i,:][:k-1]) + set{prev.items[i,k-1]};
           //@ assert set(prev.items[j,:]) == set(prev.items[j,:][:k-1]) + set{prev.items[j,k-1]};
           //@ assert set(C) == (set uint i ; i < size(C) ; C[i]);
-          //@ assert forall uint x; x in prev.items[i,:] ==> x in C;
-          //@ assert forall uint x; x in prev.items[j,:] ==> x in C;
-          //@ assert forall uint x; x in C ==> x in prev.items[i,:] || x in prev.items[j,:];
+          //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
+          //@ assert forall uint x; in(x,prev.items[j,:]) ==> in(x,C);
+          //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
           //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
           AddFrequent(next,C,C_dot,db,threshold);
           
