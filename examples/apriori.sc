@@ -202,8 +202,8 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ ensures shape(\result.items)[1] == k + 1;
 //@ requires FrequentsCache(prev,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
-//@ requires SortedItems(prev);
-//@ ensures SortedItems(\result);
+//@ requires SortedItems(prev.items);
+//@ ensures SortedItems(\result.items);
 //x //@ requires AllFrequents(prev.items,db,threshold);
 //x //@ ensures AllFrequents(\result.items,db,threshold);
 {
