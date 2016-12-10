@@ -1510,7 +1510,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.subset" [x,y] = do
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.in" [x,y] = do
     (annx,px) <- expressionToDafny isLVal Nothing annK x
     (anny,py) <- expressionToDafny isLVal Nothing annK y
-    let Typed _ t = loc x
+    let Typed _ t = loc y
     mbd <- lift $ tryTcError l $ typeDim l t >>= fullyEvaluateIndexExpr l
     case mbd of
         Right 1 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
