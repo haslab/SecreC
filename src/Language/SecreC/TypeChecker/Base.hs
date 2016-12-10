@@ -2938,6 +2938,7 @@ instance MonadIO m => GenVar VarIdentifier (TcM m) where
 
 instance (GenVar VarIdentifier m) => GenVar (GIdentifier' t) m where
     genVar (VIden v) = liftM VIden $ genVar v
+    genVar v = return v
     mkVar = liftM VIden . mkVar
 
 --instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
