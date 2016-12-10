@@ -127,7 +127,7 @@ struct frequent {
 //@ requires size(xs) > 0;
 //@ ensures size(\result) == size(xs);
 //@ ensures LtItems(xs,\result);
-//@ ensures !exists uint[[1]] zs; LtItems(xs,zs) && LtItems(zs,ys);
+//@ ensures !exists uint[[1]] zs; LtItems(xs,zs) && LtItems(zs,\result);
 //@ {
 //@     snoc(xs[:size(xs)-1],xs[size(xs)-1]+1)
 //@ }
