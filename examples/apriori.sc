@@ -135,7 +135,7 @@ struct frequent {
 //@ }
 
 //@ axiom<> (uint x)
-//@ ensures nextSet({x}) == {x+1}
+//@ ensures nextSet({x}) == {x+1};
 
 //@ function uint[[1]] candidate (uint[[2]] F, uint i, uint j, pd_a3p uint[[2]] db)
 //@ requires i <= j && j <= shape(F)[0];
