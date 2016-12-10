@@ -29,8 +29,13 @@ template <type T, dim N>
 void printArray (T[[N]] arr) {
 }
 
+//@ function bool IsDB (pd_a3p uint[[2]] db)
+//@ {
+//@     forall uint x; in(x,db) ==> x <= 1
+//@ }
+
 pd_a3p uint [[2]] load_db ()
-//@ ensures IsBD(\result);
+//@ ensures IsDB(\result);
 {
     pd_a3p uint [[2]] db = reshape(classify({}),5,5);
     db[0, 0] = classify(1);
@@ -64,11 +69,6 @@ struct frequent {
 //@ axiom<> (uint i, uint sz)
 //@ requires i < sz;
 //@ ensures IsItemSet({i},sz);
-
-//@ function bool IsDB (pd_a3p uint[[2]] db)
-//@ {
-//@     forall uint x; in(x,db) ==> x <= 1
-//@ }
 
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ requires IsDB(db);
