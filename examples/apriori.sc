@@ -215,14 +215,14 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
     //@ invariant i <= prev_F_size;
     //@ invariant shape(next.items)[1] == k+1;
     //@ invariant FrequentsCache(next,db,threshold);
-    //@ invariant SortedItemsUpTo(next.items,candidate(prev.items,i,i));
+    //@ invariant SortedItemsUpTo(next.items,candidate(prev.items,i,i,db));
     //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidate(prev.items,i,i));
     {
       for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
       //@ invariant i < j && j <= prev_F_size;
       //@ invariant shape(next.items)[1] == k+1;
       //@ invariant FrequentsCache(next,db,threshold);
-      //@ invariant SortedItemsUpTo(next.items,candidate(prev.items,i,j));
+      //@ invariant SortedItemsUpTo(next.items,candidate(prev.items,i,j,db));
       //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidate(prev.items,i,j));
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
