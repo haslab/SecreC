@@ -67,7 +67,7 @@ struct frequent {
 
 //@ function bool IsDB (pd_a3p uint[[2]] db)
 //@ {
-//@     forall uint x; x in db ==> x <= 1
+//@     forall uint x; in(x,db) ==> x <= 1
 //@ }
 
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
