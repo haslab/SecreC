@@ -133,9 +133,9 @@ struct frequent {
 //@ requires size(xs) > 0;
 //@ ensures size(\result) == size(xs);
 //@ ensures LtItems(xs,\result);
-//@ ensures !exists uint[[1]] zs; LtItems(xs,zs) && LtItems(zs,\result);
+//@ ensures !exists uint[[1]] zs; size(xs) == size(zs) && LtItems(xs,zs) && LtItems(zs,\result);
 //@ {
-//@     snoc(init(xs[:size(xs)-1]),last(xs)+1)
+//@     snoc(init(xs),last(xs)+1)
 //@ }
 
 //@ axiom<> (uint x)
@@ -150,7 +150,6 @@ struct frequent {
 
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
 //@ requires IsItemSetOf(C,db);
-//@ forall uint i; i < shape(f.items)[0] ==> LtItems(f.items[i,:],C);
 //@ requires shape(f.items)[1] == size(C);
 //@ requires shape(f.cache)[1] == size(C_dot);
 //@ ensures shape(\result.items)[1] == size(C);

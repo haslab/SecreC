@@ -257,7 +257,8 @@ shadowBoogaman isDebug axioms bpl1 bpl2 = do
 runBoogie :: (MonadIO m) => Bool -> Bool -> FilePath -> m Status
 runBoogie isLeak isDebug bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Verifying Boogie file" <+> text (show bpl)
-    res <- shellyOutput isDebug "boogie" ["/doModSetAnalysis",bpl]
+    let dotrace = if isDebug then ["/trace"] else []
+    res <- shellyOutput isDebug "boogie" $ dotrace ++ ["/doModSetAnalysis",bpl]
     verifOutput isLeak False res
 
 getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]
