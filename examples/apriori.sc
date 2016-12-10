@@ -136,6 +136,17 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     return f;
 }
 
+//x //@ lemma SameTransactions(uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//x //@ requires set(xs) == set(ys);
+//x //@ ensures transactions(xs,db) == transactions(ys,db);
+
+//@ lemma MultiplyCaches(uint[[1]] C, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//@ requires IsItemSetOf(C,db);
+//@ requires IsItemSetOf(xs,db);
+//@ requires IsItemSetOf(ys,db);
+//@ requires set(C) == set(xs) + set(ys);
+//@ ensures transactions(C,db) == transactions(xs,db) * transactions(ys,db);
+
 frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires k >= 1;
 //@ requires shape(prev.items)[1] == k;
@@ -161,6 +172,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
+        //@ invariant prefixEqual == forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m]
         {
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
@@ -180,9 +192,8 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //join the two caches
           // column data (dot product) for the new candidate itemset C
           pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //x //@ MultiplyCaches(C,C_dot,prev,i,j);
-          
-          //x AddFrequent(next,C,C_dot,db,threshold);
+          //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
+          AddFrequent(next,C,C_dot,db,threshold);
           
         }
       }
