@@ -31,7 +31,7 @@ void printArray (T[[N]] arr) {
 
 //@ function bool IsDB (pd_a3p uint[[2]] db)
 //@ {
-//@     forall uint x; in(x,db) ==> x <= 1
+//@     forall uint x; assertion<pd_a3p>(in(x,db) ==> x <= classify(1))
 //@ }
 
 pd_a3p uint [[2]] load_db ()
