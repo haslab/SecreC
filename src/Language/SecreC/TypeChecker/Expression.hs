@@ -337,7 +337,7 @@ tcQVar l (t,VarName vl vi) = do
     let ty = typed $ loc t'
     vi' <- addConst LocalScope (True,False) False vi
     let v' = VarName (Typed vl ty) vi'
-    topTcCstrM_ l $ IsPublic True $ typed $ loc v'
+    --topTcCstrM_ l $ IsPublic True $ typed $ loc v'
     isAnn <- getAnn
     newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment
     return (t',v')
