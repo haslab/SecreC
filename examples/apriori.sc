@@ -193,6 +193,9 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //join the two caches
           // column data (dot product) for the new candidate itemset C
           pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
+          //@ assert forall uint q; q < k-1; C[i] == prev.items[i,q] && C[i] == prev.items[j,q]
+          //@ assert C[k-1] == prev.items[i,k-1];
+          //@ assert C[k] == prev.items[j,k-1];
           //@ assert set(C) == (set uint i ; i < size(C) ; C[i]);
           //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
           AddFrequent(next,C,C_dot,db,threshold);
