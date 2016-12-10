@@ -59,6 +59,10 @@ struct frequent {
 //@    && (forall uint i, uint j; i < j && j < size(is) ==> is[i] < is[j])
 //@ }
 
+//@ axiom<> (uint i, uint sz)
+//@ requires i < sz;
+//@ ensures IsItemSet({i},sz);
+
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ { IsItemSet(is,shape(db)[1]) }
 
@@ -113,7 +117,6 @@ struct frequent {
 
 //@ function bool AllFrequentsUpTo(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint[[1]] is)
 //@ noinline;
-//@ requires IsItemSetOf(is,db);
 //@ {
 //@     forall uint[[1]] js; IsItemSetOf(js,db) && LtItems(js,is) && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
 //@ }
@@ -139,6 +142,7 @@ struct frequent {
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
 //@ requires IsItemSetOf(C,db);
 //@ requires shape(f.items)[1] == size(C);
+//@ requires shape(f.cache)[1] == size(C_dot);
 //@ requires assertion<pd_a3p>(C_dot == transactions(C,db) :: pd_a3p bool);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold);
@@ -172,8 +176,6 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant FrequentsCache(f,db,threshold);
     //@ invariant AllFrequentsUpTo(f.items,db,threshold,{i});
     {
-      //@ assert i < shape(db)[1];
-      //@ forall uint k; k < 1 ==> {i}[0] < shape(db)[1]
       AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
