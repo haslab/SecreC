@@ -1510,7 +1510,16 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.subset" [x,y] = do
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.in" [x,y] = do
     (annx,px) <- expressionToDafny isLVal Nothing annK x
     (anny,py) <- expressionToDafny isLVal Nothing annK y
-    qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
+    let Typed _ t = loc x
+    mbd <- lift $ tryTcError l $ typeDim l t >>= fullyEvaluateIndexExpr l
+    case mbd of
+        Right 1 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
+        Right n@((>1) -> True) -> do
+            let pin = px <> text ".contains" <> parens py
+            qExprToDafny isQExpr (annx++anny) pin   
+        otherwise -> do
+            ppt <- lift $ pp t
+            genError (locpos l) $ text "builtinToDafny: unsupported in dimension for" <+> ppt
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.union" [x,y] = do
     (annx,px) <- expressionToDafny isLVal Nothing annK x
     (anny,py) <- expressionToDafny isLVal Nothing annK y

@@ -84,7 +84,7 @@ ensures forall i: int :: 0 <= i < |mul1_uint64(xs,ys)| ==> mul1_uint64(xs,ys)[i]
 class Array2<T> {
   var arr2 : array2<T>;
   
-  function valid() : bool
+  predicate valid()
   reads this`arr2;
   { this.arr2 != null }
 
@@ -133,6 +133,14 @@ class Array2<T> {
   reads this`arr2;
   requires this.arr2 != null && this.valid()
   { [this.Length0(),this.Length1()] }
+  
+  predicate contains(x: T)
+  requires this != null && this.valid();
+  reads this`arr2;
+  reads this.arr2;
+  {
+    exists i: int, j: int :: 0 <= i < this.arr2.Length0 && 0 <= j < this.arr2.Length1 ==> this.arr2[i,j] == x
+  }
   
   constructor cat0(xs: Array2<T>, ys: Array2<T>)
   requires xs != null && xs.valid();

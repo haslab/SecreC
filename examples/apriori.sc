@@ -79,7 +79,7 @@ struct frequent {
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 0) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
+//@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
 //@ function pd_a3p uint frequency (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
