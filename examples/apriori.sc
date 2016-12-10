@@ -131,9 +131,9 @@ struct frequent {
 //@ function uint[[1]] next (uint[[1]] xs)
 //@ noinline;
 //@ requires size(xs) > 0;
-//@ ensures size(\result) == size(xs);
-//@ ensures LtItems(xs,\result);
-//@ ensures !exists uint[[1]] zs; size(xs) == size(zs) && LtItems(xs,zs) && LtItems(zs,\result);
+//@ free ensures size(\result) == size(xs);
+//@ free ensures LtItems(xs,\result);
+//@ free ensures !exists uint[[1]] zs; size(xs) == size(zs) && LtItems(xs,zs) && LtItems(zs,\result);
 //@ {
 //@     snoc(init(xs),last(xs)+1)
 //@ }
@@ -191,6 +191,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant SortedItemsUpTo(f.items,{i});
     //@ invariant AllFrequentsUpTo(f.items,db,threshold,{i});
     {
+      //@ assert db[:,i] == transactions({i},db);
       AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
