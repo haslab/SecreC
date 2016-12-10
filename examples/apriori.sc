@@ -128,7 +128,7 @@ struct frequent {
 //@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) == shape(F)[1] && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
 //@ }
 
-//@ function uint[[1]] nextSet (uint[[1]] xs)
+//@ function uint[[1]] next (uint[[1]] xs)
 //@ noinline;
 //@ requires size(xs) > 0;
 //@ ensures size(\result) == size(xs);
@@ -139,7 +139,7 @@ struct frequent {
 //@ }
 
 //@ axiom<> (uint x)
-//@ ensures nextSet({x}) == {x+1};
+//@ ensures next({x}) == {x+1};
 
 //@ function uint[[1]] candidate (uint[[2]] F, uint i, uint j, pd_a3p uint[[2]] db)
 //@ requires i <= j && j <= shape(F)[0];
@@ -161,7 +161,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uin
 //@ requires SortedItemsUpTo(f.items,C);
 //@ ensures SortedItemsUpTo(\result.items,next(C));
 //@ requires AllFrequentsUpTo(f.items,db,threshold,C);
-//@ ensures AllFrequentsUpTo(\result.items,db,threshold,nextSet(C));
+//@ ensures AllFrequentsUpTo(\result.items,db,threshold,next(C));
 {
     pd_a3p uint frequence = sum (C_dot);
     if (declassify (frequence >= classify(threshold))) {
