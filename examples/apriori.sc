@@ -135,7 +135,7 @@ struct frequent {
 //@ ensures LtItems(xs,\result);
 //@ ensures !exists uint[[1]] zs; LtItems(xs,zs) && LtItems(zs,\result);
 //@ {
-//@     snoc(xs[:size(xs)-1],xs[size(xs)-1]+1)
+//@     snoc(init(xs[:size(xs)-1]),last(xs)+1)
 //@ }
 
 //@ axiom<> (uint x)
@@ -153,6 +153,8 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uin
 //@ forall uint i; i < shape(f.items)[0] ==> LtItems(f.items[i,:],C);
 //@ requires shape(f.items)[1] == size(C);
 //@ requires shape(f.cache)[1] == size(C_dot);
+//@ ensures shape(\result.items)[1] == size(C);
+//@ ensures shape(\result.cache)[1] == size(C_dot);
 //@ requires assertion<pd_a3p>(C_dot == transactions(C,db) :: pd_a3p bool);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold);

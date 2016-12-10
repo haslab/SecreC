@@ -601,3 +601,23 @@ context<>
 {
     cat (xs,reshape(x,1,size(x)));
 }
+
+template<domain D,type T>
+function D T[[1]] init (D T[[1]] xs)
+context<>
+//@ inline;
+//@ requires size(xs) > 0;
+//@ free ensures size(\result) == size(xs) - 1;
+//@ free ensures forall uint i; i < size(xs)-1 ==> assertion<D>(\result[i] == xs[i]);
+{
+    xs[:size(xs)-1]
+}
+
+template<domain D,type T>
+function D T last (D T[[1]] xs)
+context<>
+//@ inline;
+//@ requires size(xs) > 0;
+{
+    xs[:size(xs)-1]
+}
