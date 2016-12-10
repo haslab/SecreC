@@ -28,5 +28,5 @@ module axioms;
 //@ ensures assertion<D>(xs[i,:][j] == xs[i,j]);
 
 //@ axiom<domain D,type T> (D T x)
-//@ ensures assertion<D>(size({x}) == 1);
+//@ ensures size({x}) == 1;
 //@ ensures assertion<D>({x}[0] == x);
