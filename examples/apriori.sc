@@ -83,9 +83,12 @@ struct frequent {
 
 //@ function bool LtItems (uint[[1]] xs, uint[[1]] ys)
 //@ noinline;
+//@ requires size(xs) == size(ys);
 //@ {
-//@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
+//@     exists uint j; j < size(xs) ==> xs[j] < ys[j] && forall uint i; i < j ==> xs[i] <= ys[i]
 //@ }
+
+//x //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
 
 //@ function bool SortedItems(uint[[2]] iss)
 //@ {
@@ -122,6 +125,9 @@ struct frequent {
 //@ function uint[[1]] nextSet (uint[[1]] xs)
 //@ noinline;
 //@ requires size(xs) > 0;
+//@ ensures size(\result) == size(xs);
+//@ ensures LtItems(xs,\result);
+//@ ensures not exists uint[[1]] zs; LtItems(xs,zs) && LtItems(zs,ys);
 //@ {
 //@     snoc(xs[:size(xs)-1],xs[size(xs)-1]+1)
 //@ }
