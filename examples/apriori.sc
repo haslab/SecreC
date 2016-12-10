@@ -29,7 +29,9 @@ template <type T, dim N>
 void printArray (T[[N]] arr) {
 }
 
-pd_a3p uint [[2]] load_db () {
+pd_a3p uint [[2]] load_db ()
+//@ ensures IsBD(\result);
+{
     pd_a3p uint [[2]] db = reshape(classify({}),5,5);
     db[0, 0] = classify(1);
     db[0, 1] = classify(1);
@@ -63,26 +65,36 @@ struct frequent {
 //@ requires i < sz;
 //@ ensures IsItemSet({i},sz);
 
+//@ function bool IsDB (pd_a3p uint[[2]] db)
+//@ {
+//@     forall uint x; x in db ==> x <= 1
+//@ }
+
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
+//@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
+//@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
+//@ { (size(is) == 0) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
 //@ function pd_a3p uint frequency (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
+//@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
 //@ leakage function bool LeakFrequents (pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
+//@ requires IsDB(db);
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
 //@ function bool FrequentsCache(frequent f, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
+//@ requires IsDB(db);
 //@ {
 //@     shape(f.items)[0] == shape(f.cache)[0]
 //@     &&
@@ -95,6 +107,7 @@ struct frequent {
 //@ }
 
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
+//@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
 //@ requires shape(f.items)[1] == size(C);
 //@ requires shape(f.cache)[1] == size(C_dot);
@@ -114,6 +127,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uin
 }
 
 frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
+//@ requires IsDB(db);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures shape(\result.items)[1] == 1;
 //@ ensures FrequentsCache(\result,db,threshold);
@@ -136,11 +150,18 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     return f;
 }
 
+//x //@ lemma SameItemTransactions(uint i, pd_a3p uint[[2]] db)
+//x //@ requires IsDB(db);
+//x //@ requires i < shape(db)[1];
+//x //@ ensures db[:,i] * db[:,i] == db[:,i];
+//x //@ {}
+
 //x //@ lemma SameTransactions(uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
 //x //@ requires set(xs) == set(ys);
 //x //@ ensures transactions(xs,db) == transactions(ys,db);
 
 //@ lemma MultiplyCaches(uint[[1]] C, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
@@ -148,6 +169,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
 
 frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
+//@ requires IsDB(db);
 //@ requires k >= 1;
 //@ requires shape(prev.items)[1] == k;
 //@ leakage requires LeakFrequents(db,threshold);
@@ -206,6 +228,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
           //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
           //@ assert assertion<pd_a3p>(C_dot == transactions(prev.items[i,:],db) * transactions(prev.items[j,:],db) :: pd_a3p bool);
+          //@ assert prev.items[j,:] == snoc(prev.items[j,:k-1],prev.items[j,k-1]);
           //@ assert forall uint x; in(x,prev.items[j,:]) ==> in(x,C);
           //@ assume set(C) == set(prev.items[i,:]) + set (prev.items[j,:]);
           //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
@@ -220,6 +243,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 // database rows = transaction no, database column = item no
 // result = one itemset per row
 uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
+//@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
 {
