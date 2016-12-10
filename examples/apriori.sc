@@ -145,7 +145,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
 //@ requires set(C) == set(xs) + set(ys);
-//@ ensures transactions(C,db) == transactions(xs,db) * transactions(ys,db);
+//@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
 
 frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires k >= 1;

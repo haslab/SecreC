@@ -1337,21 +1337,23 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
         when (substDirty mode) $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
         t' <- case substCheck mode of
             NoCheckS -> return t
+            NoFailS -> return t -- to speed up
             otherwise -> do
                 substs <- getTSubsts l
                 substFromTSubstsNoDec "addSubst" l substs False Map.empty t
         case substCheck mode of
             NoCheckS -> add l (substDirty mode) t'
+            NoFailS -> add l (substDirty mode) t' -- to speed up
             otherwise -> do
                 vns <- usedVs t'
                 if (Set.member vn vns)
                     then do -- add verification condition
                         case substCheck mode of
-                            NoFailS -> do
-                                ppv <- pp v
-                                ppvns <- pp vns
-                                ppt' <- pp t'
-                                genTcError (locpos l) False $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt' <+> text "with" <+> ppvns
+                            --NoFailS -> do
+                            --    ppv <- pp v
+                            --    ppvns <- pp vns
+                            --    ppt' <- pp t'
+                            --    genTcError (locpos l) False $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt' <+> text "with" <+> ppvns
                             CheckS -> do
                                 let tv = (varNameToType v)
                                 pptv <- pp tv
@@ -1752,7 +1754,7 @@ unionTSubsts (TSubsts ss1) (TSubsts ss2) = do
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
 appendTSubsts l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
---    unionTSubsts ss1 ss2
+appendTSubsts l (SubstMode NoFailS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[]) -- to speed up
 appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
   where
     addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
@@ -1762,10 +1764,10 @@ appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.t
         if (Set.member v vs)
             then do
                 case substCheck mode of
-                    NoFailS -> do
-                        ppv <- pp v
-                        ppt' <- pp t'
-                        genTcError (locpos l) False $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
+                    --NoFailS -> do
+                    --    ppv <- pp v
+                    --    ppt' <- pp t'
+                    --    genTcError (locpos l) False $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
                     CheckS -> do
                         st <- getCstrState
                         return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') $ VIden v) t') st : ks)
