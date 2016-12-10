@@ -299,7 +299,7 @@ tcExpr ret me@(ToSetExpr l e) = do
         return $ ToSetExpr (Typed l $ BaseT set) e'
 tcExpr ret me@(SetComprehensionExpr l t x px fx) = do
     ppme <- pp me
-    limitExprC ReadOnlyExpr $ onlyAnn l (ppme) $ tcLocal l "set comprehension" do
+    limitExprC ReadOnlyExpr $ onlyAnn l (ppme) $ tcLocal l "set comprehension" $ do
         set <- newBaseTyVar Nothing False Nothing
         unifiesRet l ret $ BaseT set
         
