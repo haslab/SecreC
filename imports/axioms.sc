@@ -26,3 +26,7 @@ module axioms;
 //@ requires i < shape(xs)[0];
 //@ requires j < shape(xs)[1];
 //@ ensures assertion<D>(xs[i,:][j] == xs[i,j]);
+
+//@ axiom<domain D,type T> (D T x)
+//@ ensures assertion<D>(size({x}) == 1);
+//@ ensures assertion<D>({x}[0] == x);
