@@ -30,3 +30,7 @@ module axioms;
 //@ axiom<domain D,type T> (D T x)
 //@ ensures size({x}) == 1;
 //@ ensures assertion<D>({x}[0] == x);
+
+//@ axiom<domain D,type T> (D T[[1]] xs)
+//@ requires size(xs) > 0;
+//@ ensures xs == snoc(init(xs),tail(xs));
