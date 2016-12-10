@@ -201,7 +201,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //@ assert set(C) == (set uint i ; i < size(C) ; C[i]);
           //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
           //@ assert forall uint q; q < k-1 ==> C[q] == prev.items[j,:k-1][q];
-          //@ assert forall uint x; x < k-1 ==> prev.items[i,x] in C;
+          //@ assert forall uint x; x < k-1 ==> in(prev.items[i,x],C);
           //@ assert in(prev.items[j,k-1],C);
           //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
           //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
