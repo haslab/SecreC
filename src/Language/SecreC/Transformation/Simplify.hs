@@ -429,6 +429,15 @@ simplifyExpression isExpr vret (QuantifiedExpr l q args e) = do
     ssq <- stmtsAnns (argsc ++ sse)
     let (map fst -> pre,map fst -> post) = List.partition snd $ map stmtAnnExpr ssq
     assignRetExpr vret (sse,Just $ QuantifiedExpr l q args $ impliesExprLoc (andExprsLoc pre) $ andExprsLoc $ post++[e'])
+simplifyExpression isExpr vret (ArrayConstructorPExpr t es) = do
+    (sses,es') <- simplifyExpressions isExpr es
+    assignRetExpr vret (sses,Just $ ArrayConstructorPExpr t es')
+simplifyExpression isExpr vret (MultisetConstructorPExpr t es) = do
+    (sses,es') <- simplifyExpressions isExpr es
+    assignRetExpr vret (sses,Just $ MultisetConstructorPExpr t es')
+simplifyExpression isExpr vret (SetConstructorPExpr t es) = do
+    (sses,es') <- simplifyExpressions isExpr es
+    assignRetExpr vret (sses,Just $ SetConstructorPExpr t es')
 simplifyExpression isExpr vret e = assignRetExpr vret ([],Just e)
 
 simplifyQuantifierArgs :: SimplifyK loc m => [(TypeSpecifier GIdentifier (Typed loc),VarName GIdentifier (Typed loc))] -> SimplifyM m ([Statement GIdentifier (Typed loc)],[(TypeSpecifier GIdentifier (Typed loc),VarName GIdentifier (Typed loc))])

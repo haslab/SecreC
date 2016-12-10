@@ -66,10 +66,6 @@ struct frequent {
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ { IsItemSet(is,shape(db)[1]) }
 
-//x //@ function bool hasItemsOf (uint[[2]] F, pd_a3p uint[[2]] db)
-//x //@ noinline;
-//x //@ { (forall uint i, uint j; i < shape(F)[0] && j < shape(F)[1] ==> F[i,j] < shape(db)[1]) }
-
 //@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ noinline;
 //@ requires IsItemSetOf(is,db);
@@ -90,10 +86,6 @@ struct frequent {
 //@ {
 //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
 //@ }
-
-//x //@ function bool LeItems (uint[[1]] xs, uint[[1]] ys)
-//x //@ requires size(xs) == size(ys);
-//x //@ { xs == ys || LtItems(xs,ys) }
 
 //@ function bool SortedItems(uint[[2]] iss)
 //@ {
