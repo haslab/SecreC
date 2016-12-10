@@ -1515,7 +1515,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.in" [x,y] = do
     case mbd of
         Right 1 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
         Right n@((>1) -> True) -> do
-            let pin = px <> text ".contains" <> parens py
+            let pin = py <> text ".contains" <> parens px
             qExprToDafny isQExpr (annx++anny) pin   
         otherwise -> do
             ppt <- lift $ pp t
