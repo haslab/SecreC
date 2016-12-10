@@ -332,10 +332,11 @@ tcExpr ret e = do
     genTcError (locpos $ loc e) False $ text "failed to typecheck expression" <+> ppe
 
 tcQVar :: ProverK loc m => loc -> (TypeSpecifier Identifier loc,VarName Identifier loc) -> TcM m (TypeSpecifier GIdentifier (Typed loc),VarName GIdentifier (Typed loc))
-tcQVar l (t,v) = do
+tcQVar l (t,VarName vl vi) = do
     t' <- tcTypeSpec t False False
     let ty = typed $ loc t'
-    let v' = bimap (VIden . mkVarId) (flip Typed ty) v
+    vi' <- addConst LocalScope (True,False) False vi
+    let v' = VarName (Typed vl ty) vi'
     topTcCstrM_ l $ IsPublic True $ typed $ loc v'
     isAnn <- getAnn
     newVariable LocalScope True isAnn v' Nothing -- don't add values to the environment

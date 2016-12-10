@@ -428,7 +428,7 @@ simplifyExpression isExpr vret (QuantifiedExpr l q args e) = do
     (sse,e') <- simplifyNonVoidExpression True e
     ssq <- stmtsAnns (argsc ++ sse)
     let (map fst -> pre,map fst -> post) = List.partition snd $ map stmtAnnExpr ssq
-    assignRetExpr vret (sse,Just $ QuantifiedExpr l q args $ impliesExprLoc (andExprsLoc pre) $ andExprsLoc $ post++[e'])
+    assignRetExpr vret (sse,Just $ QuantifiedExpr l q args' $ impliesExprLoc (andExprsLoc pre) $ andExprsLoc $ post++[e'])
 simplifyExpression isExpr vret (ArrayConstructorPExpr t es) = do
     (sses,es') <- simplifyExpressions isExpr es
     assignRetExpr vret (sses,Just $ ArrayConstructorPExpr t es')
