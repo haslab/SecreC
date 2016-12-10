@@ -672,11 +672,11 @@ instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,Var
         return $ ToSetExpr l' e'
     traverseVars f (SetComprehensionExpr l t x p g) = do
         l' <- f l
-        t' <- f t
-        x' <- f x
-        p' <- f p
-        g' <- f g
-        return $ SetComprehensionExpr l' t' x' p' g'
+        varsBlock $ do
+            (t',x') <- inLHS False $ f (t,x)
+            p' <- f p
+            g' <- f g
+            return $ SetComprehensionExpr l' t' x' p' g'
     traverseVars f (ToVArrayExpr l e i) = do
         l' <- f l
         e' <- f e
