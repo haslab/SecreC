@@ -619,5 +619,5 @@ context<>
 //@ inline;
 //@ requires size(xs) > 0;
 {
-    xs[:size(xs)-1]
+    xs[size(xs)-1]
 }
