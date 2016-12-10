@@ -227,7 +227,7 @@ context<>
 //@     __builtin("core.in",x,y) :: bool
 //@ }
 
-//@ template<domain D,type T, dim N > 0>
+//@ template<domain D,type T, dim N { N > 0 }>
 //@ function D bool in (D T x, D T[[N]] y)
 //@ context<>
 //@ {
