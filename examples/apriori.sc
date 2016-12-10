@@ -97,7 +97,7 @@ struct frequent {
 
 //@ function bool UpTo(uint[[2]] is, uint[[1]] C)
 //@ {
-//@     forall uint i; i < shape(IS)[0] ==> LtItems(is[i,:],C)
+//@     forall uint i; i < shape(is)[0] ==> LtItems(is[i,:],C)
 //@ }
 
 //@ function bool SortedItemsUpTo(uint[[2]] iss, uint[[1]] is)
