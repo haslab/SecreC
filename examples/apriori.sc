@@ -81,28 +81,6 @@ struct frequent {
 //@ noinline;
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool LtItems (uint[[1]] xs, uint[[1]] ys)
-//@ noinline;
-//@ requires size(xs) == size(ys);
-//@ {
-//@     exists uint j; j < size(xs) ==> xs[j] < ys[j] && forall uint i; i < j ==> xs[i] <= ys[i]
-//@ }
-
-//x //@     size(ys) == 0 ? false : size(xs) == 0 ? true : (xs[0] < ys[0] ? true : (xs[0] == ys[0] && size(xs) > 1) ? LtItems(xs[1:],ys[1:]) : false)
-
-//@ function bool SortedItems(uint[[2]] iss)
-//@ {
-//@     forall uint i, uint j; i < j && j < shape(iss)[0] ==> LtItems(iss[i,:],iss[j,:])
-//@ }
-
-//@ function bool UpTo(uint[[2]] is, uint[[1]] C)
-//@ {
-//@     forall uint i; i < shape(is)[0] ==> LtItems(is[i,:],C)
-//@ }
-
-//@ function bool SortedItemsUpTo(uint[[2]] iss, uint[[1]] is)
-//@ { SortedItems(iss) && UpTo(iss,is) }
-
 //@ function bool FrequentsCache(frequent f, pd_a3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ {
@@ -116,38 +94,6 @@ struct frequent {
 //@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db)))
 //@ }
 
-//@ function bool AllFrequentsUpTo(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold, uint[[1]] is)
-//@ noinline;
-//@ {
-//@     forall uint[[1]] js; size(is) == size(js) && IsItemSetOf(js,db) && LtItems(js,is) && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
-//@ }
-
-//@ function bool AllFrequents(uint[[2]] F, pd_a3p uint[[2]] db, uint threshold)
-//@ noinline;
-//@ {
-//@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) == shape(F)[1] && declassify(frequency(js,db)) >= threshold ==> in(js,set(F))
-//@ }
-
-//@ function uint[[1]] next (uint[[1]] xs)
-//@ noinline;
-//@ requires size(xs) > 0;
-//@ free ensures size(\result) == size(xs);
-//@ free ensures LtItems(xs,\result);
-//@ free ensures !exists uint[[1]] zs; size(xs) == size(zs) && LtItems(xs,zs) && LtItems(zs,\result);
-//@ {
-//@     snoc(init(xs),last(xs)+1)
-//@ }
-
-//@ axiom<> (uint x)
-//@ ensures next({x}) == {x+1};
-
-//@ function uint[[1]] candidate (uint[[2]] F, uint i, uint j, pd_a3p uint[[2]] db)
-//@ requires i <= j && j <= shape(F)[0];
-//@ {
-//@     i == shape(F)[0] ? repeat(shape(db)[1],shape(F)[1]) : j == shape(F)[0] ? snoc(F[i,:],shape(db)[1]) : snoc(F[i,:],F[j,shape(F)[1]-1])
-//@ }
-
-
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
 //@ requires IsItemSetOf(C,db);
 //@ requires shape(f.items)[1] == size(C);
@@ -158,10 +104,6 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uin
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
-//@ requires SortedItemsUpTo(f.items,C);
-//@ ensures SortedItemsUpTo(\result.items,next(C));
-//@ requires AllFrequentsUpTo(f.items,db,threshold,C);
-//@ ensures AllFrequentsUpTo(\result.items,db,threshold,next(C));
 {
     pd_a3p uint frequence = sum (C_dot);
     if (declassify (frequence >= classify(threshold))) {
@@ -175,8 +117,6 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures shape(\result.items)[1] == 1;
 //@ ensures FrequentsCache(\result,db,threshold);
-//@ ensures SortedItems(\result.items);
-//@ ensures AllFrequents(\result.items,db,threshold);
 {
     frequent f;
     f.items = reshape({},0,1);
@@ -188,13 +128,10 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[0] <= i;
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
-    //@ invariant SortedItemsUpTo(f.items,{i});
-    //@ invariant AllFrequentsUpTo(f.items,db,threshold,{i});
     {
       //@ assert size({i}) == 1;
       //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
       AddFrequent(f,{i},db[:,i],db,threshold);
-      //@ assert next({i}) == {i+1};
     }
     return f;
 }
@@ -206,10 +143,6 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ ensures shape(\result.items)[1] == k + 1;
 //@ requires FrequentsCache(prev,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
-//@ requires SortedItems(prev.items);
-//@ ensures SortedItems(\result.items);
-//x //@ requires AllFrequents(prev.items,db,threshold);
-//x //@ ensures AllFrequents(\result.items,db,threshold);
 {
     frequent next;
     next.items = reshape({},0,k+1);
@@ -219,15 +152,11 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
     //@ invariant i <= prev_F_size;
     //@ invariant shape(next.items)[1] == k+1;
     //@ invariant FrequentsCache(next,db,threshold);
-    //@ invariant SortedItemsUpTo(next.items,candidate(prev.items,i,i,db));
-    //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidate(prev.items,i,i));
     {
       for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
       //@ invariant i < j && j <= prev_F_size;
       //@ invariant shape(next.items)[1] == k+1;
       //@ invariant FrequentsCache(next,db,threshold);
-      //@ invariant SortedItemsUpTo(next.items,candidate(prev.items,i,j,db));
-      //x //@ invariant AllFrequentsUpTo(next,db,threshold,candidate(prev.items,i,j));
       {
         // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
@@ -237,7 +166,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
             prefixEqual = false;
           }
         }
-        if (prefixEqual)
+        if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
           // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
@@ -273,7 +202,6 @@ uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
   //@ invariant 1 <= k && k <= setSize;
   //@ invariant shape(freq.items)[1] == k;
   //@ invariant FrequentsCache(freq,db,threshold);
-  //@ invariant SortedItems(freq.items);
   {
       freq = apriori_k(db,threshold,freq,k);
   }
