@@ -205,8 +205,8 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-          //@ assert forall uint m; m < k-1 ==> prev.items[i,k-1][m] == prev.items[i,m];
-          //@ assert forall uint m; m < k-1 ==> prev.items[j,k-1][m] == prev.items[j,m];
+          //@ assert forall uint m; m < k-1 ==> prev.items[i,:k-1][m] == prev.items[i,m];
+          //@ assert forall uint m; m < k-1 ==> prev.items[j,:k-1][m] == prev.items[j,m];
           //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
           //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
           //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
