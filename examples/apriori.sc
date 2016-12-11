@@ -107,6 +107,27 @@ struct frequent {
 //@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db)))
 //@ }
 
+//x //@ lemma SameItemTransactions(uint i, pd_a3p uint[[2]] db)
+//x //@ requires IsDB(db);
+//x //@ requires i < shape(db)[1];
+//x //@ ensures db[:,i] * db[:,i] == db[:,i];
+//x //@ {}
+
+//@ lemma JoinCaches(uint[[1]] C, pd_a3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ requires IsItemSetOf(ys,db);
+//@ requires IsItemSetOf(C,db);
+//@ requires (C == snoc(xs,last(ys)) :: bool);
+//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
+//@ requires forall uint n; n < size(xs)-1 ==> prev.items[i,n] == prev.items[j,n];
+//@ ensures assertion(C_dot == transactions(C,db) :: pd_a3p bool);
+
+
+//x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
+//x //@ assert transactions(prev.items[j,:]) == transactions(init(prev.items[j,:])) * transaction(last(prev.items[j,:]));
+//x //@ assert transactions(C) == transactions(prev.items[i,:]) * transaction(last(prev.items[j,:]));
+
 frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
@@ -143,34 +164,11 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
-      //x //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
-      uint[[1]] C = {i};
-      pd_a3p uint [[1]] C_dot = db[:,i];
-      AddFrequent(f,C,C_dot,db,threshold);
+      //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
+      AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
 }
-
-//x //@ lemma SameItemTransactions(uint i, pd_a3p uint[[2]] db)
-//x //@ requires IsDB(db);
-//x //@ requires i < shape(db)[1];
-//x //@ ensures db[:,i] * db[:,i] == db[:,i];
-//x //@ {}
-
-//@ lemma JoinCaches(uint[[1]] C, pd_a3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
-//@ requires IsDB(db);
-//@ requires IsItemSetOf(xs,db);
-//@ requires IsItemSetOf(ys,db);
-//@ requires IsItemSetOf(C,db);
-//@ requires (C == snoc(xs,last(ys)) :: bool);
-//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
-//@ requires init(xs) == init(ys);
-//@ ensures assertion(C_dot == transactions(C,db) :: pd_a3p bool);
-
-
-//x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
-//x //@ assert transactions(prev.items[j,:]) == transactions(init(prev.items[j,:])) * transaction(last(prev.items[j,:]));
-//x //@ assert transactions(C) == transactions(prev.items[i,:]) * transaction(last(prev.items[j,:]));
 
 frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires IsDB(db);
@@ -198,14 +196,11 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
-        //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
-            //x forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
+        //@ invariant prefixEqual == forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
         {
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
-          //@ assert (prev.items[i,:n+1] == snoc(prev.items[i,:n],prev.items[i,n]) :: bool);
-          //@ assert (prev.items[j,:n+1] == snoc(prev.items[j,:n],prev.items[j,n]) :: bool);
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
