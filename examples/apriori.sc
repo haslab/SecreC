@@ -173,7 +173,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
-//@ requires IsItemSet(C,db);
+//@ requires IsItemSetOf(C,db);
 //@ requires (C == snoc(xs,last(ys)) :: bool);
 //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
 //@ requires init(xs) == init(ys);
