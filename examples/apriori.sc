@@ -169,7 +169,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //x //@ requires set(C) == set(xs) + set(ys);
 //x //@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
 
-//@ lemma JoinCaches(uint[[1]] C,pd_a3p uint[[2]] C_dot,uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//@ lemma JoinCaches(uint[[1]] C, pd_a3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
