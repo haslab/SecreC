@@ -169,12 +169,14 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //x //@ requires set(C) == set(xs) + set(ys);
 //x //@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
 
-//@ lemma JoinCaches(uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//@ lemma JoinCaches(uint[[1]] C,uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
+//@ requires IsItemSet(C,db);
+//@ requires C == snoc(xs,last(ys));
 //@ requires init(xs) == init(ys);
-//@ ensures assertion(transactions(snoc(xs,last(ys)),db) == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
+//@ ensures assertion(transactions(C,db) == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
 
 
 //x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
@@ -250,7 +252,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //x //@ assume set(C) == set(prev.items[i,:]) + set (prev.items[j,:]);
           //x //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
           
-          //@ JoinCaches(prev.items[i,:],prev.items[j,:],db);
+          //@ JoinCaches(C,prev.items[i,:],prev.items[j,:],db);
           AddFrequent(next,C,C_dot,db,threshold);
           
         }
