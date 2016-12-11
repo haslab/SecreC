@@ -230,6 +230,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
           //@ assert assertion<pd_a3p>(C_dot == transactions(prev.items[i,:],db) * transactions(prev.items[j,:],db) :: pd_a3p bool);
           //@ assert prev.items[j,:] == snoc(prev.items[j,:k-1],prev.items[j,k-1]);
+          //@ assert forall uint x; in(x,prev.items[j,:k-1]) ==> in(x,C);
           //@ assert forall uint x; in(x,prev.items[j,:]) ==> in(x,C);
           //@ assume set(C) == set(prev.items[i,:]) + set (prev.items[j,:]);
           //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
