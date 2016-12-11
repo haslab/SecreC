@@ -137,14 +137,13 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     f.items = reshape({},0,1);
     f.cache = reshape(classify({}),0,shape(db)[0]);
 
-    // compute the itemsets of size 1
     for (uint i = 0; i < shape(db)[1]; i=i+1)
     //@ invariant i <= shape(db)[1];
     //@ invariant shape(f.items)[0] <= i;
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
-      //@ assert size({i}) == 1;
+      //x //@ assert size({i}) == 1;
       //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
       AddFrequent(f,{i},db[:,i],db,threshold);
     }
@@ -156,18 +155,6 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //x //@ requires i < shape(db)[1];
 //x //@ ensures db[:,i] * db[:,i] == db[:,i];
 //x //@ {}
-
-//x //@ lemma SameTransactions(uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
-//x //@ requires set(xs) == set(ys);
-//x //@ ensures transactions(xs,db) == transactions(ys,db);
-
-//x //@ lemma MultiplyCaches(uint[[1]] C, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
-//x //@ requires IsDB(db);
-//x //@ requires IsItemSetOf(C,db);
-//x //@ requires IsItemSetOf(xs,db);
-//x //@ requires IsItemSetOf(ys,db);
-//x //@ requires set(C) == set(xs) + set(ys);
-//x //@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
 
 //@ lemma JoinCaches(uint[[1]] C, pd_a3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
 //@ requires IsDB(db);
@@ -196,8 +183,8 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
     frequent next;
     next.items = reshape({},0,k+1);
     next.cache = reshape(classify({}),0,shape(db)[0]);
-    uint prev_F_size = shape(prev.items)[0]; // number of items for k-1
-    for (uint i = 0; i < prev_F_size; i=i+1) // for each itemset in F
+    uint prev_F_size = shape(prev.items)[0];
+    for (uint i = 0; i < prev_F_size; i=i+1)
     //@ invariant i <= prev_F_size;
     //@ invariant shape(next.items)[1] == k+1;
     //@ invariant FrequentsCache(next,db,threshold);
@@ -207,7 +194,6 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
       //@ invariant shape(next.items)[1] == k+1;
       //@ invariant FrequentsCache(next,db,threshold);
       {
-        // check if the two itemsets have the same prefix (this is always true for singleton itemsets)
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
@@ -225,10 +211,6 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
         //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
         //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
-          // new candidate itemset
-          // create the new itemset by appending the last element of the second itemset to the first
-          //x //@ assert IsItemSetOf(prev.items[i,:],db);
-          //x //@ assert IsItemSetOf(prev.items[j,:],db);
           //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
@@ -242,8 +224,6 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
     return next;
 }
 
-// database rows = transaction no, database column = item no
-// result = one itemset per row
 uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
@@ -251,7 +231,6 @@ uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 {
   frequent freq = apriori_1(db,threshold);
   
-  // until we find itemsets with length setSize
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
   //@ invariant shape(freq.items)[1] == k;
