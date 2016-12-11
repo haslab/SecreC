@@ -217,12 +217,14 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
+          //@ assert (prev.items[i,:n+1] == snoc(prev.items[i,:n],prev.items[i,n]) :: bool);
+          //@ assert (prev.items[j,:n+1] == snoc(prev.items[j,:n],prev.items[j,n]) :: bool);
         }
+        if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
+        {
         //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
         //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
         //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
-        if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
-        {
           // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
           //@ assert IsItemSetOf(prev.items[i,:],db);
