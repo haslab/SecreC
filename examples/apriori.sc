@@ -211,7 +211,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
-        //@ invariant prefixEqual == prev.items[i,:n] == prev.items[i,:n];
+        //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
             //x forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
         {
           if (prev.items[i, n] != prev.items[j, n]) {
