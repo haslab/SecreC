@@ -143,8 +143,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
-      //x //@ assert size({i}) == 1;
-      //x //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
+      //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
       AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
@@ -208,9 +207,9 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-        //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
-        //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
-        //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
+          //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
+          //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
+          //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
           //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
