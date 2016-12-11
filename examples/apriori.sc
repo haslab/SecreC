@@ -211,7 +211,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
             prefixEqual = false;
           }
         }
-        //@ assert (prev.items[i,;k-1] == prev.items[j,:k-1] :: bool);
+        //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
           // new candidate itemset
