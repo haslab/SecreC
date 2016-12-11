@@ -171,7 +171,7 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 
 //@ lemma JoinCaches(uint[[2]] F,uint i, uint j, pd_a3p uint[[2]] db)
 //@ requires init(F[i,:]) == init(F[j,:]);
-//@ ensures transactions(snoc(F[i,:],last(F[j,:])),db) == transactions(F[i,:]) * transactions(F[j,:]);
+//@ ensures assertion(transactions(snoc(F[i,:],last(F[j,:])),db) == transactions(F[i,:]) * transactions(F[j,:]) :: pd_a3p bool);
 
 
 //x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
