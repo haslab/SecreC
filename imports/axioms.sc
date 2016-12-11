@@ -22,6 +22,11 @@ module axioms;
 //@ axiom <domain D,type T> (D T x)
 //@ ensures set({x}) == set{x};
 
+//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ requires size(xs) > 0;
+//@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
+
+
 //@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j < shape(xs)[1];
