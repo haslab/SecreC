@@ -161,13 +161,22 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
 //x //@ requires set(xs) == set(ys);
 //x //@ ensures transactions(xs,db) == transactions(ys,db);
 
-//@ lemma MultiplyCaches(uint[[1]] C, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
-//@ requires IsDB(db);
-//@ requires IsItemSetOf(C,db);
-//@ requires IsItemSetOf(xs,db);
-//@ requires IsItemSetOf(ys,db);
-//@ requires set(C) == set(xs) + set(ys);
-//@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
+//x //@ lemma MultiplyCaches(uint[[1]] C, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//x //@ requires IsDB(db);
+//x //@ requires IsItemSetOf(C,db);
+//x //@ requires IsItemSetOf(xs,db);
+//x //@ requires IsItemSetOf(ys,db);
+//x //@ requires set(C) == set(xs) + set(ys);
+//x //@ ensures assertion<pd_a3p>(transactions(C,db) == transactions(xs,db) * transactions(ys,db));
+
+//@ lemma JoinCaches(uint[[2]] F,uint i, uint j, pd_a3p uint[[2]] db)
+//@ requires init(F[i,:]) == init(F[j,:]);
+//@ ensures transactions(snoc(F[i,:],last(F[j,:])),db) == transactions(F[i,:]) * transactions(F[j,:]);
+
+
+//x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
+//x //@ assert transactions(prev.items[j,:]) == transactions(init(prev.items[j,:])) * transaction(last(prev.items[j,:]));
+//x //@ assert transactions(C) == transactions(prev.items[i,:]) * transaction(last(prev.items[j,:]));
 
 frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires IsDB(db);
@@ -216,24 +225,26 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //join the two caches
           // column data (dot product) for the new candidate itemset C
           pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //@ assert forall uint q; q < k-1 ==> (C[q] == prev.items[i,q] && C[q] == prev.items[j,q]);
-          //@ assert C[k-1] == prev.items[i,k-1];
-          //@ assert C[k] == prev.items[j,k-1];
-          //@ assert set(prev.items[i,:]) == set(prev.items[i,:][:k-1]) + set{prev.items[i,k-1]};
-          //@ assert set(prev.items[j,:]) == set(prev.items[j,:][:k-1]) + set{prev.items[j,k-1]};
-          //@ assert set(C) == (set uint i ; i < size(C) ; C[i]);
-          //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
-          //@ assert forall uint q; q < k-1 ==> C[q] == prev.items[j,:k-1][q];
-          //@ assert forall uint x; x < k-1 ==> in(prev.items[i,x],C);
-          //@ assert in(prev.items[j,k-1],C);
-          //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
-          //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
-          //@ assert assertion<pd_a3p>(C_dot == transactions(prev.items[i,:],db) * transactions(prev.items[j,:],db) :: pd_a3p bool);
-          //@ assert prev.items[j,:] == snoc(prev.items[j,:k-1],prev.items[j,k-1]);
-          //@ assert forall uint x; in(x,prev.items[j,:k-1]) ==> in(x,C);
-          //@ assert forall uint x; in(x,prev.items[j,:]) ==> in(x,C);
-          //@ assume set(C) == set(prev.items[i,:]) + set (prev.items[j,:]);
-          //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
+          //x //@ assert forall uint q; q < k-1 ==> (C[q] == prev.items[i,q] && C[q] == prev.items[j,q]);
+          //x //@ assert C[k-1] == prev.items[i,k-1];
+          //x //@ assert C[k] == prev.items[j,k-1];
+          //x //@ assert set(prev.items[i,:]) == set(prev.items[i,:][:k-1]) + set{prev.items[i,k-1]};
+          //x //@ assert set(prev.items[j,:]) == set(prev.items[j,:][:k-1]) + set{prev.items[j,k-1]};
+          //x //@ assert set(C) == (set uint i ; i < size(C) ; C[i]);
+          //x //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
+          //x //@ assert forall uint q; q < k-1 ==> C[q] == prev.items[j,:k-1][q];
+          //x //@ assert forall uint x; x < k-1 ==> in(prev.items[i,x],C);
+          //x //@ assert in(prev.items[j,k-1],C);
+          //x //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
+          //x //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
+          //x //@ assert assertion<pd_a3p>(C_dot == transactions(prev.items[i,:],db) * transactions(prev.items[j,:],db) :: pd_a3p bool);
+          //x //@ assert prev.items[j,:] == snoc(prev.items[j,:k-1],prev.items[j,k-1]);
+          //x //@ assert forall uint x; in(x,prev.items[j,:k-1]) ==> in(x,C);
+          //x //@ assert forall uint x; in(x,prev.items[j,:]) ==> in(x,C);
+          //x //@ assume set(C) == set(prev.items[i,:]) + set (prev.items[j,:]);
+          //x //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
+          
+          //@ JoinCaches(prev.items,i,j,db);
           AddFrequent(next,C,C_dot,db,threshold);
           
         }
