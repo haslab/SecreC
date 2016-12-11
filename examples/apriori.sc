@@ -223,8 +223,8 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
         //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
-        //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
-        //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
+        //x //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
+            //x //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
           // new candidate itemset
           // create the new itemset by appending the last element of the second itemset to the first
           //@ assert IsItemSetOf(prev.items[i,:],db);
@@ -232,30 +232,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
-          //@ assert last(prev.items[i,:]) < prev.items[j,k-1];
-          //@ assert IsItemSetOf(C,db);
-          //join the two caches
-          // column data (dot product) for the new candidate itemset C
           pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //x //@ assert forall uint q; q < k-1 ==> (C[q] == prev.items[i,q] && C[q] == prev.items[j,q]);
-          //x //@ assert C[k-1] == prev.items[i,k-1];
-          //x //@ assert C[k] == prev.items[j,k-1];
-          //x //@ assert set(prev.items[i,:]) == set(prev.items[i,:][:k-1]) + set{prev.items[i,k-1]};
-          //x //@ assert set(prev.items[j,:]) == set(prev.items[j,:][:k-1]) + set{prev.items[j,k-1]};
-          //x //@ assert set(C) == (set uint i ; i < size(C) ; C[i]);
-          //x //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
-          //x //@ assert forall uint q; q < k-1 ==> C[q] == prev.items[j,:k-1][q];
-          //x //@ assert forall uint x; x < k-1 ==> in(prev.items[i,x],C);
-          //x //@ assert in(prev.items[j,k-1],C);
-          //x //@ assert forall uint x; in(x,prev.items[i,:]) ==> in(x,C);
-          //x //@ assert forall uint x; in(x,C) ==> in(x,prev.items[i,:]) || in (x,prev.items[j,:]);
-          //x //@ assert assertion<pd_a3p>(C_dot == transactions(prev.items[i,:],db) * transactions(prev.items[j,:],db) :: pd_a3p bool);
-          //x //@ assert prev.items[j,:] == snoc(prev.items[j,:k-1],prev.items[j,k-1]);
-          //x //@ assert forall uint x; in(x,prev.items[j,:k-1]) ==> in(x,C);
-          //x //@ assert forall uint x; in(x,prev.items[j,:]) ==> in(x,C);
-          //x //@ assume set(C) == set(prev.items[i,:]) + set (prev.items[j,:]);
-          //x //@ MultiplyCaches(C,prev.items[i,:],prev.items[j,:],db);
-          
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db);
           AddFrequent(next,C,C_dot,db,threshold);
           
