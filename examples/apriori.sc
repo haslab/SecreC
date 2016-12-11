@@ -120,7 +120,7 @@ struct frequent {
 //@ requires IsItemSetOf(C,db);
 //@ requires (C == snoc(xs,last(ys)) :: bool);
 //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
-//@ requires forall uint n; n < size(xs)-1 ==> prev.items[i,n] == prev.items[j,n];
+//@ requires forall uint n; n < size(xs)-1 ==> xs[n] == ys[n];
 //@ ensures assertion(C_dot == transactions(C,db) :: pd_a3p bool);
 
 
