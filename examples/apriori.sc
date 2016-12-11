@@ -143,8 +143,10 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
-      //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
-      AddFrequent(f,{i},db[:,i],db,threshold);
+      //x //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
+      uint[[1]] C = {i};
+      pd_a3p uint [[1]] C_dot = db[:,i];
+      AddFrequent(f,C,C_dot,db,threshold);
     }
     return f;
 }
