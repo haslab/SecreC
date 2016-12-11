@@ -205,14 +205,14 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-          //x //@ assert forall uint m; m < k-1 ==> prev.items[i,:k-1][m] == prev.items[i,m];
-          //x //@ assert forall uint m; m < k-1 ==> prev.items[j,:k-1][m] == prev.items[j,m];
           //x //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
           //x //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
           //x //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
           //x //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //x //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
+          //@ assert (last(prev.items[i,:]) == prev.items[i,k-1] :: bool);
+          //@ assert IsItemSetOf(C,db);
           pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db);
           AddFrequent(next,C,C_dot,db,threshold);
