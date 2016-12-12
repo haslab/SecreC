@@ -719,13 +719,13 @@ newErrorM :: TcM m a -> TcM m a
 newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 
 -- | Typechecks a code block, with local declarations only within its scope
---tcBlock :: Monad m => TcM m a -> TcM m a
---tcBlock m = do
---    r <- Reader.ask
---    s <- State.get
---    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
---    Writer.tell w'
---    return x
+tcBlock :: (Monad m,Location loc) => loc -> TcM m a -> TcM m a
+tcBlock l m = do
+    r <- Reader.ask
+    s <- State.get
+    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
+    Writer.tell w'
+    return x
     
 tcDictBlock :: Monad m => TcM m a -> TcM m a
 tcDictBlock m = do

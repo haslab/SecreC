@@ -761,6 +761,12 @@ data TemplateDeclaration iden loc
     | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (FunctionDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
+templateDeclarationName :: TemplateDeclaration Identifier loc -> Identifier
+templateDeclarationName (TemplateStructureDeclaration _ _ s) = structureDeclarationName s
+templateDeclarationName (TemplateStructureSpecialization _ _ _ s) = structureDeclarationName s
+templateDeclarationName (TemplateProcedureDeclaration _ _ p) = procedureDeclarationName p
+templateDeclarationName (TemplateFunctionDeclaration _ _ f) = functionDeclarationName f
+
 instance (Binary iden,Binary loc) => Binary (TemplateDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (TemplateDeclaration iden loc)
   
@@ -857,8 +863,8 @@ data StructureDeclaration iden loc = StructureDeclaration loc (TypeName iden loc
 instance (Binary iden,Binary loc) => Binary (StructureDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (StructureDeclaration iden loc)
 
-structureDeclarationId :: StructureDeclaration iden loc -> iden
-structureDeclarationId (StructureDeclaration _ tn _ _) = typeId tn
+structureDeclarationName :: StructureDeclaration iden loc -> iden
+structureDeclarationName (StructureDeclaration _ tn _ _) = typeId tn
  
 instance Location loc => Located (StructureDeclaration iden loc) where
     type LocOf (StructureDeclaration iden loc) = loc
@@ -939,6 +945,10 @@ data ProcedureDeclaration iden loc
         [Statement iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
+procedureDeclarationName :: ProcedureDeclaration Identifier loc -> Identifier
+procedureDeclarationName (OperatorDeclaration _ _ o _ _ _ _) = pprid o
+procedureDeclarationName (ProcedureDeclaration _ _ n _ _ _ _) = procedureNameId n
+
 addAnnsProcedureDeclaration :: ProcedureDeclaration iden loc -> [ProcedureAnnotation iden loc] -> ProcedureDeclaration iden loc
 addAnnsProcedureDeclaration (OperatorDeclaration l r o ps ctx anns s) anns' = (OperatorDeclaration l r o ps ctx (anns++anns') s)
 addAnnsProcedureDeclaration (ProcedureDeclaration l r o ps ctx anns s) anns' = (ProcedureDeclaration l r o ps ctx (anns++anns') s)
@@ -1006,6 +1016,9 @@ data LemmaDeclaration iden loc
         (Maybe [Statement iden loc])
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
+lemmaDeclarationName :: LemmaDeclaration iden loc -> iden
+lemmaDeclarationName (LemmaDeclaration _ _ n _ _ _ _ _ _) = procedureNameId n
+  
 instance (Binary iden,Binary loc) => Binary (LemmaDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (LemmaDeclaration iden loc)
 
@@ -1045,6 +1058,10 @@ data FunctionDeclaration iden loc
         [ProcedureAnnotation iden loc]
         (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+functionDeclarationName :: FunctionDeclaration Identifier loc -> Identifier
+functionDeclarationName (OperatorFunDeclaration _ _ _ o _ _ _ _) = pprid o
+functionDeclarationName (FunDeclaration _ _ _ n _ _ _ _) = procedureNameId n
 
 addAnnsFunctionDeclaration :: FunctionDeclaration iden loc -> [ProcedureAnnotation iden loc] -> FunctionDeclaration iden loc
 addAnnsFunctionDeclaration (OperatorFunDeclaration l leak ret n ps ctx anns e) anns' = (OperatorFunDeclaration l leak ret n ps ctx (anns++anns') e)
@@ -1757,6 +1774,14 @@ data GlobalAnnotation iden loc
     | GlobalAxiomAnn loc (AxiomDeclaration iden loc)
     | GlobalLemmaAnn loc (LemmaDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
+
+globalAnnName :: GlobalAnnotation Identifier loc -> Maybe Identifier
+globalAnnName (GlobalFunctionAnn l f) = Just $ functionDeclarationName f
+globalAnnName (GlobalStructureAnn l f) = Just $ structureDeclarationName f
+globalAnnName (GlobalProcedureAnn l f) = Just $ procedureDeclarationName f
+globalAnnName (GlobalTemplateAnn l f) = Just $ templateDeclarationName f
+globalAnnName (GlobalAxiomAnn l f) = Nothing
+globalAnnName (GlobalLemmaAnn l f) = Just $ lemmaDeclarationName f
 
 instance (Binary iden,Binary loc) => Binary (GlobalAnnotation iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (GlobalAnnotation iden loc)

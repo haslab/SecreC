@@ -288,6 +288,60 @@ output opts secrecIns secrecOuts modules = do
             return ()
     return moduleso
 
+pruneModuleFiles :: [String] -> [ModuleFile] -> [ModuleFile]
+pruneModuleFiles xs [] = []
+pruneModuleFiles xs (m:ms) = m : pruneModuleFiles xs' ms
+    where (m',xs') = pruneModuleFile xs m
+
+pruneModuleFile :: [String] -> ModuleFile -> (ModuleFile,[String])
+pruneModuleFile xs (Right sci) = (Right sci,xs)
+pruneModuleFile xs (Left (t,pargs,m,i)) = (Left (t,pargs,m',i),xs'')
+    where
+    xs' = mappend xs (ppOptions pargs)
+    (m',xs'') = pruneModule xs m
+    pruneModule xs (Module l mn p) = let (p',xs') = pruneProgram xs p in (Module l mn p',xs')
+    pruneProgram xs (Program l is gs) = let (gs',xs') = pruneGlobalDecls xs in (Program l is gs',xs')
+    pruneGlobalDecls xs [] = ([],xs)
+    pruneGlobalDecls xs (g:gs) = (maybeToList g' ++ gs',xs'')
+        where
+        (g',xs') = pruneGlobalDecl xs g
+        (gs',xs'') = pruneGlobalDecls xs' gs
+    pruneGlobalDecl xs d@(GlobalProcedure l p) = if List.elem procedureDeclarationName p xs
+        then (Just d,xs ++ gEntryPoints p)
+        else (Nothing,xs)
+    pruneGlobalDecl xs d@(GlobalStructure l p) = if List.elem structureDeclarationId p xs
+        then (Just d,xs ++ gEntryPoints p)
+        else (Nothing,xs)
+    pruneGlobalDecl xs d@(GlobalFunction l p) = if List.elem functionDeclarationName p xs
+        then (Just d,xs ++ gEntryPoints p)
+        else (Nothing,xs)
+    pruneGlobalDecl xs d@(GlobalTemplate l p) = if List.elem templateDeclarationName p xs
+        then (Just d,xs ++ gEntryPoints p)
+        else (Nothing,xs)
+    pruneGlobalDecl xs (GlobalAnnotations l as) = (GlobalAnnotations l as',xs')
+        where (as',xs') = pruneGlobalAnns xs as
+    pruneGlobalDecl xs d = (Just d,xs)
+    pruneGlobalAnns xs [] = ([],xs)
+    pruneGlobalAnns xs (a:as) = (maybeToList a' ++ as',xs'')
+        where
+        (a',xs') = pruneGlobalAnn xs a
+        (as',xs'') = pruneGlobalAnns xs' as'
+    pruneGlobalAnn xs a = case globalAnnName a of
+        Nothing -> (Just a,xs ++ gEntryPoints a)
+        Just n -> if List.elem n xs
+            then (Just d,xs ++ gEntryPoints a)
+            else (Nothing,xs)
+
+gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> [String]
+gEntryPoints x = everything (mkQ [] auxP `extQ` auxO `extQ` auxS) x
+    where
+    auxP :: ProcedureName Identitifer Position -> [String]
+    auxP pn = [procedureNameId pn]
+    auxO :: Op Identifier Position -> [String]
+    auxO o = [pprid o]
+    auxS :: StructureName Identifier Position -> [String]
+    auxS s = [structureNameId s]
+
 secrec :: Options -> IO ()
 secrec opts = do
     let secrecIns = inputs opts
@@ -295,6 +349,9 @@ secrec opts = do
     when (List.null secrecIns) $ throwError $ userError "no SecreC input files"
     runSecrecM opts $ do
         modules <- parseModuleFiles secrecIns
-        passes secrecIns secrecOuts modules
+        let modules' = case entryPoints opts of
+            [] -> modules
+            otherwise -> reverse $ pruneModules (entryPoints opts) (reverse modules)
+        passes secrecIns secrecOuts modules'
         
 

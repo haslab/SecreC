@@ -2654,8 +2654,8 @@ tcDie True m = catchError m $ \e -> do
     ppe <- ppr e
     liftIO $ die ppe
 
-tcBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
-tcBlock l m = tcGenBlock l "block" False Nothing m
+--tcBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
+--tcBlock l m = tcGenBlock l "block" False Nothing m
 
 -- | TypeChecks a code block
 tcGenBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> Bool -> Maybe ModuleCount -> TcM m a -> TcM m a
