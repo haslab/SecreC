@@ -280,7 +280,7 @@ printDafnyModule mn xs imports = do
     ppmn <- lift $ ppModuleName mn
     lift $ debugTc $ do
         pks <- mapM ppDafnyId $ Map.keys rest
-        liftIO $ putStrLn $ show $ text "printing dafny" <+> ppmn <+> "defs" <+> (sepBy comma)
+        liftIO $ putStrLn $ show $ text "printing dafny" <+> ppmn <+> text "defs" <+> (sepBy comma pks)
     let is = case mn of
                 Nothing -> []
                 Just mname -> maybe [] Set.toList $ Map.lookup mname imports
