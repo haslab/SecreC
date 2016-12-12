@@ -201,7 +201,7 @@ entryInstOld (e,_,_,_,_,_,_) = e
 --discardMatchingEntry (e,e',dict,_,frees,_,_) = delFrees "discardMatchingEntry" frees
 
 remNonInlineBody :: DecType -> DecType
-remNonInlineBody d = if isInlineDec d then d else remDecBody d
+remNonInlineBody d = if isInlineDec d || isStruct d then d else remDecBody d
 
 mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
 mkInvocationDec l dec@(DecType j (DecTypeInst i _) targs hdict bdict specs d) targs' = return dec
