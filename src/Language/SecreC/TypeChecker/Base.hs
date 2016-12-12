@@ -470,10 +470,10 @@ remDecDict d@(DecType i isRec ts hctx bctx specs b) =
 isInlineDec :: DecType -> Bool
 isInlineDec = isInlineDecClass . decDecClass
 
-decDecClass : DecType -> DecClass
-decDecClass (DecType _ _ _ _ _ b) = iDecDecClass b
+decDecClass :: DecType -> DecClass
+decDecClass (DecType _ _ _ _ _ _ b) = iDecDecClass b
 
-iDecDecClass :: InnerDecType -> InnerDecType
+iDecDecClass :: InnerDecType -> DecClass
 iDecDecClass d@(ProcType pl n pargs pret panns body cl) = cl
 iDecDecClass d@(FunType isLeak pl n pargs pret panns body cl) = cl
 iDecDecClass d@(StructType sl sid atts cl) = cl
