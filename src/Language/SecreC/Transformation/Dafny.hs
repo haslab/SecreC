@@ -331,17 +331,21 @@ loadDafnyId l n = do
         otherwise -> return ()
     return mb
 
-loadDafnyDec' :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
-loadDafnyDec' l dec = do
-    lift $ debugTc $ do
-        ppd <- ppr dec
-        liftIO $ putStrLn $ "loadDafnyDec': " ++ ppd
-    mb <- loadDafnyDec l dec
-    case mb of
-        Just dec -> return dec
-        Nothing -> lift $ do
-            ppd <- pp dec
-            genError (locpos l) $ text "loadDafnyDec'" <+> ppd
+lookupAndLoadDafnyDec :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
+lookupAndLoadDafnyDec l dec = if isAxiom dec || hasDecBody dec
+    then load dec
+    else lookupDafnyId l (fromJustNote "lookup" $ decDafnyId dec) >>= load . unDecT . entryType
+  where
+    load dec = do
+        lift $ debugTc $ do
+            ppd <- ppr dec
+            liftIO $ putStrLn $ "lookupAndLoadDafnyDec: " ++ ppd
+        mb <- loadDafnyDec l dec
+        case mb of
+            Just dec -> return dec
+            Nothing -> lift $ do
+                ppd <- pp dec
+                genError (locpos l) $ text "lookupAndLoadDafnyDec" <+> ppd
 
 addImport :: Maybe Identifier -> Maybe Identifier -> Map Identifier (Set Identifier) -> Map Identifier (Set Identifier)
 addImport (Just current) (Just mn) = Map.insertWith Set.union current (Set.singleton mn)
@@ -1044,7 +1048,7 @@ baseTypeToDafny l annK (Set b) = do
     (b',anns) <- complexTypeToDafny l annK b
     return (text "set" <> abrackets b',anns)
 baseTypeToDafny l annK (TApp _ args dec@(decTypeTyVarId -> Just mid)) = do
-    did <- loadDafnyDec' l dec
+    did <- lookupAndLoadDafnyDec l dec
     psn <- ppDafnyIdM did
     let ppArg (t,False) = typeToDafny l annK t
         ppArg (t,True) = do
@@ -1136,7 +1140,7 @@ assignmentToDafny annK e pre = do
 
 tAttDec :: DafnyK m => Position -> TcM m Doc -> Type -> DafnyM m DafnyId
 tAttDec l ppe t@(BaseT (TApp _ _ d)) = do
-    did <- loadDafnyDec' l d
+    did <- lookupAndLoadDafnyDec l d
     return did
 tAttDec l ppe t@(ComplexT (CType Public b d)) = do
     mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
@@ -1298,7 +1302,7 @@ expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ 
     mb <- return Nothing --lift $ tryInlineLemmaCall (unTyped l) e
     case mb of
         Nothing -> do -- do not inline normal call
-            did <- loadDafnyDec' (unTyped l) dec
+            did <- lookupAndLoadDafnyDec (unTyped l) dec
             (annargs,pargs) <- procCallArgsToDafny isLVal annK args
             pn <- ppDafnyIdM did
             let pe = pn <> parens (sepBy comma pargs)
@@ -1306,13 +1310,13 @@ expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ 
             qExprToDafny isQExpr (annargs++annp) pe
         --Just (mbdec,ss) -> do
         --    -- load the lemma separately (to check its body)
-        --    mapM_ (loadDafnyDec' (unTyped l)) mbdec
+        --    mapM_ (lookupAndLoadDafnyDec (unTyped l)) mbdec
         --    -- inline the lemma call without its body
         --    anns <- mapM statementAnnToDafny ss
         --    return (concat anns,empty)
 expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (DecT dec))) e2) = do
     vs <- lift $ usedVs' e
-    did <- loadDafnyDec' (unTyped l) dec
+    did <- lookupAndLoadDafnyDec (unTyped l) dec
     (annargs,pargs) <- procCallArgsToDafny isLVal annK [(e1,False),(e2,False)]
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)

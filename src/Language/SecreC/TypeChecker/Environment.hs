@@ -1330,30 +1330,32 @@ isAmbiguousBase b = False
 isAmbiguousDim :: Expr -> Bool
 isAmbiguousDim n = True
 
+doCheck :: Options -> SubstMode -> SubstCheck
+doCheck opts c = if debugCheck opts then substCheck c else NoCheckS
+
 addSubstM :: (ProverK loc m) => loc -> SubstMode -> Var -> Type -> TcM m ()
 addSubstM l mode v@(VarName vt (VIden vn)) t = do
+    opts <- askOpts
     ppv <- pp v
     addErrorM l (TypecheckerError (locpos l) . GenTcError (text "failed to add substitution" <+> ppv) . Just) $ do
         when (substDirty mode) $ tcCstrM_ l $ Unifies (loc v) (tyOf t)
-        t' <- case substCheck mode of
+        t' <- case doCheck opts mode of
             NoCheckS -> return t
-            NoFailS -> return t -- to speed up
             otherwise -> do
                 substs <- getTSubsts l
                 substFromTSubstsNoDec "addSubst" l substs False Map.empty t
-        case substCheck mode of
+        case doCheck opts mode of
             NoCheckS -> add l (substDirty mode) t'
-            NoFailS -> add l (substDirty mode) t' -- to speed up
             otherwise -> do
                 vns <- usedVs t'
                 if (Set.member vn vns)
                     then do -- add verification condition
-                        case substCheck mode of
-                            --NoFailS -> do
-                            --    ppv <- pp v
-                            --    ppvns <- pp vns
-                            --    ppt' <- pp t'
-                            --    genTcError (locpos l) False $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt' <+> text "with" <+> ppvns
+                        case doCheck opts mode of
+                            NoFailS -> do
+                                ppv <- pp v
+                                ppvns <- pp vns
+                                ppt' <- pp t'
+                                genTcError (locpos l) False $ text "failed to add recursive substitution" <+> ppv <+> text "=" <+> ppt' <+> text "with" <+> ppvns
                             CheckS -> do
                                 let tv = (varNameToType v)
                                 pptv <- pp tv
@@ -1753,28 +1755,32 @@ unionTSubsts (TSubsts ss1) (TSubsts ss2) = do
             return (xs,k ++ ks)
 
 appendTSubsts :: (ProverK loc m) => loc -> SubstMode -> TSubsts -> TSubsts -> TcM m (TSubsts,[TCstr])
-appendTSubsts l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
-appendTSubsts l (SubstMode NoFailS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[]) -- to speed up
-appendTSubsts l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
+appendTSubsts l mode@(SubstMode c s) ss1 ss2 = do
+    opts <- askOpts
+    let c' = doCheck opts mode
+    appendTSubsts' l (SubstMode c' s) ss1 ss2
   where
-    addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
-    addSubst l mode (ss,ks) (v,t) = do
-        t' <- substFromTSubstsNoDec ("appendTSubsts "++show (substCheck mode)) l ss False Map.empty t
-        vs <- usedVs t'
-        if (Set.member v vs)
-            then do
-                case substCheck mode of
-                    --NoFailS -> do
-                    --    ppv <- pp v
-                    --    ppt' <- pp t'
-                    --    genTcError (locpos l) False $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
-                    CheckS -> do
-                        st <- getCstrState
-                        return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') $ VIden v) t') st : ks)
-            else do
-                when (substDirty mode) $ dirtyGDependencies (locpos l) $ VIden v
-                (ss3,ks3) <- unionTSubsts (TSubsts $ Map.singleton v t') ss
-                return (ss3,ks++ks3)
+    appendTSubsts' l (SubstMode NoCheckS _) (TSubsts ss1) (TSubsts ss2) = return (TSubsts $ Map.union ss1 ss2,[])
+    appendTSubsts' l mode ss1 (TSubsts ss2) = foldM (addSubst l mode) (ss1,[]) (Map.toList ss2)
+      where
+        addSubst :: (ProverK loc m) => loc -> SubstMode -> (TSubsts,[TCstr]) -> (VarIdentifier,Type) -> TcM m (TSubsts,[TCstr])
+        addSubst l mode (ss,ks) (v,t) = do
+            t' <- substFromTSubstsNoDec ("appendTSubsts "++show (substCheck mode)) l ss False Map.empty t
+            vs <- usedVs t'
+            if (Set.member v vs)
+                then do
+                    case substCheck mode of
+                        NoFailS -> do
+                            ppv <- pp v
+                            ppt' <- pp t'
+                            genTcError (locpos l) False $ text "failed to add recursive substitution " <+> ppv <+> text "=" <+> ppt'
+                        CheckS -> do
+                            st <- getCstrState
+                            return (ss,TcK (Equals (varNameToType $ VarName (tyOf t') $ VIden v) t') st : ks)
+                else do
+                    when (substDirty mode) $ dirtyGDependencies (locpos l) $ VIden v
+                    (ss3,ks3) <- unionTSubsts (TSubsts $ Map.singleton v t') ss
+                    return (ss3,ks++ks3)
 
 substFromTSubstsNoDec :: (VarsG (TcM m) a,ProverK loc m) => String -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubstsNoDec msg l ss doBounds ssBounds x = do

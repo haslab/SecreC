@@ -148,6 +148,7 @@ data Options
         , simplify              :: Bool
         , typeCheck             :: Bool
         , debugLexer            :: Bool
+        , debugCheck            :: Bool
         , debugParser           :: Bool
         , debugTypechecker      :: Bool
         , debugTransformation   :: Bool
@@ -184,6 +185,7 @@ instance Monoid Options where
         , verify = verify x `appendVerifyOpt` verify y
         , simplify = simplify x && simplify y
         , typeCheck = typeCheck x || typeCheck y
+        , debugCheck = debugCheck x || debugCheck y
         , debugLexer = debugLexer x || debugLexer y
         , debugParser = debugParser x || debugParser y
         , debugTypechecker = debugTypechecker x || debugTypechecker y
@@ -218,6 +220,7 @@ defaultOptions = Opts
     , verify = NoneV
     , simplify = True
     , typeCheck = True
+    , debugCheck = False
     , debugLexer = False
     , debugParser = False
     , debugTypechecker = False

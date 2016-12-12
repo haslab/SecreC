@@ -200,8 +200,8 @@ entryInstOld (e,_,_,_,_,_,_) = e
 --discardMatchingEntry :: ProverK Position m => EntryInst -> TcM m ()
 --discardMatchingEntry (e,e',dict,_,frees,_,_) = delFrees "discardMatchingEntry" frees
 
-remNonInlineBody :: DecType -> DecType
-remNonInlineBody d = if isInlineDec d || isStruct d then d else remDecBody d
+remNonInlineBody :: Bool -> DecType -> DecType
+remNonInlineBody doWrap d = if isInlineDec d || isStruct d then d else remDecBody d
 
 mkInvocationDec :: ProverK loc m => loc -> DecType -> [(Type,IsVariadic)] -> TcM m DecType
 mkInvocationDec l dec@(DecType j (DecTypeInst i _) targs hdict bdict specs d) targs' = return dec
@@ -903,7 +903,7 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
 
                         let targs'' = map (mapFst (varNameToType . unConstrained)) targs'
                         let doWrap = isTemplateDecType olddec && decIsOriginal olddec
-                        let dec3 = remNonInlineBody dec2
+                        let dec3 = remNonInlineBody doWrap dec2
                         decrec <- if doWrap then mkInvocationDec p dec3 targs'' else return dec3
                         return $ Right (olde,e' { entryType = DecT decrec },headDict,bodyDict,cache)
 

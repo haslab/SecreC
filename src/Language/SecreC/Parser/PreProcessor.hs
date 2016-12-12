@@ -222,6 +222,7 @@ optionsDecl  = Opts {
 
     -- Debugging
     , debug   = debug defaultOptions &= help "Prints developer debugging information" &= groupname "Debugging"
+    , debugCheck            = debugCheck defaultOptions &= help "Check for inconsistencies during typechecking" &= groupname "Debugging"
     , debugLexer            = debugLexer defaultOptions &= help "Print lexer tokens to stderr" &= groupname "Debugging"
     , debugParser           = debugParser defaultOptions &= help "Print parser result to stderr" &= groupname "Debugging"
     , debugTypechecker      = debugTypechecker defaultOptions &= help "Print typechecker result to stderr" &= groupname "Debugging"

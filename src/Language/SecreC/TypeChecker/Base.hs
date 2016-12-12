@@ -480,6 +480,16 @@ iDecDecClass d@(StructType sl sid atts cl) = cl
 iDecDecClass d@(AxiomType isLeak p qs pargs cl) = cl
 iDecDecClass d@(LemmaType isLeak pl n pargs panns body cl) = cl
 
+hasDecBody :: DecType -> Bool
+hasDecBody d@(DecType i isRec ts hctx bctx specs b) = hasIDecBody b
+
+hasIDecBody :: InnerDecType -> Bool
+hasIDecBody d@(ProcType pl n pargs pret panns body cl) = isJust body
+hasIDecBody d@(FunType isLeak pl n pargs pret panns body cl) = isJust body
+hasIDecBody d@(StructType sl sid atts cl) = isJust atts
+hasIDecBody d@(AxiomType isLeak p qs pargs cl) = False
+hasIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = isJust body
+
 remDecBody :: DecType -> DecType
 remDecBody d@(DecType i isRec ts hctx bctx specs b) =
     DecType i isRec ts hctx bctx specs (remIDecBody b)
@@ -2269,6 +2279,10 @@ typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
 isStruct :: DecType -> Bool
 isStruct (DecType _ _ _ _ _ _ (StructType {})) = True
 isStruct _ = False
+
+isAxiom :: DecType -> Bool
+isAxiom (DecType _ _ _ _ _ _ (AxiomType {})) = True
+isAxiom _ = False
 
 isStructTemplate :: Type -> Bool
 isStructTemplate (DecT (DecType _ _ _ _ _ _ (StructType {}))) = True
