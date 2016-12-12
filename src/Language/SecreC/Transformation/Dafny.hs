@@ -431,35 +431,35 @@ newEntry l dec fid@(bid,did,ts) = do
 
 lookupDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m EntryEnv
 lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
-    ss <- lift $ getEntry (Just sn) tid TKind False
+    ss <- lift $ getEntry (Just sn) tid TKind True
     case ss of
         Nothing -> do
             ppdid <- lift $ pp did
             genError l $ text "lookupDafnyId: can't find struct" <+> ppdid
         Just e -> return e
 lookupDafnyId l did@(AId tid@(ModuleTyVarId m _) isLeak) = do
-    as <- lift $ getEntry Nothing tid AKind False
+    as <- lift $ getEntry Nothing tid AKind True
     case as of
         Just e -> return e
         Nothing -> do
             ppdid <- lift $ pp did
             genError l $ text "lookupDafnyId: can't find axiom" <+> ppdid
 lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
-    ss <- lift $ getEntry (Just pn) tid PKind False
+    ss <- lift $ getEntry (Just pn) tid PKind True
     case ss of
         Nothing -> do
             ppdid <- lift $ pp did
             genError l $ text "lookupDafnyId: can't find procedure" <+> ppdid
         Just e -> return e
 lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getEntry (Just pn) tid LKind False
+    ss <- lift $ getEntry (Just pn) tid LKind True
     case ss of
         Nothing -> do
             ppdid <- lift $ pp did
             genError l $ text "lookupDafnyId: can't find lemma" <+> ppdid
         Just e -> return e
 lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getEntry (Just pn) tid FKind False
+    ss <- lift $ getEntry (Just pn) tid FKind True
     case ss of
         Nothing -> do
             ppdid <- lift $ pp did
