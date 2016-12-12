@@ -467,6 +467,19 @@ remDecDict :: DecType -> DecType
 remDecDict d@(DecType i isRec ts hctx bctx specs b) =
     DecType i isRec ts hctx{dCtxDict = emptyPureTDict} bctx{dCtxDict = emptyPureTDict} specs b
 
+isInlineDec :: DecType -> Bool
+isInlineDec = isInlineDecClass . decDecClass
+
+decDecClass : DecType -> DecClass
+decDecClass (DecType _ _ _ _ _ b) = iDecDecClass b
+
+iDecDecClass :: InnerDecType -> InnerDecType
+iDecDecClass d@(ProcType pl n pargs pret panns body cl) = cl
+iDecDecClass d@(FunType isLeak pl n pargs pret panns body cl) = cl
+iDecDecClass d@(StructType sl sid atts cl) = cl
+iDecDecClass d@(AxiomType isLeak p qs pargs cl) = cl
+iDecDecClass d@(LemmaType isLeak pl n pargs panns body cl) = cl
+
 remDecBody :: DecType -> DecType
 remDecBody d@(DecType i isRec ts hctx bctx specs b) =
     DecType i isRec ts hctx bctx specs (remIDecBody b)
