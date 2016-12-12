@@ -2456,8 +2456,9 @@ getEntry (Just pn) tid k withBody = do
             Nothing -> do
                 debugTc $ do
                     pptid <- ppr tid
-                    ppss <- liftM (sepBy space) $ mapM pp $ Map.keys es
-                    liftIO $ putStrLn $ "getEntry: cannot find " ++ show pptid ++ " in " ++ show ppss
+                    ppss1 <- liftM (sepBy space) $ mapM pp $ Map.keys es
+                    ppss2 <- liftM (sepBy space) $ mapM pp $ Map.keys ss
+                    liftIO $ putStrLn $ "getEntry: cannot find " ++ show pptid ++ " in " ++ show ppss1 ++ " nor in " ++ show ppss2
                 return Nothing
             Just e -> return $ Just e
 
