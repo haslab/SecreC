@@ -67,9 +67,9 @@ struct frequent {
 //@    && (forall uint i, uint j; i < j && j < size(is) ==> is[i] < is[j])
 //@ }
 
-//@ axiom<> (uint i, uint sz)
-//@ requires i < sz;
-//@ ensures IsItemSet({i},sz);
+//x //@ axiom<> (uint i, uint sz)
+//x //@ requires i < sz;
+//x //@ ensures IsItemSet({i},sz);
 
 //@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
 //@ requires IsDB(db);
