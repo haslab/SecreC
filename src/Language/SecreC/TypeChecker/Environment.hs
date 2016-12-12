@@ -1343,7 +1343,7 @@ addSubstM l mode v@(VarName vt (VIden vn)) t = do
             NoCheckS -> return t
             otherwise -> do
                 substs <- getTSubsts l
-                substFromTSubstsNoDec "addSubst" l substs False Map.empty t
+                substFromTSubstsNoDec ("addSubst "++show ppv) l substs False Map.empty t
         case doCheck opts mode of
             NoCheckS -> add l (substDirty mode) t'
             otherwise -> do
@@ -2446,7 +2446,12 @@ getEntry (Just pn) tid k withBody = do
     let aux env = putLns selector mempty $ filterf $ getLns selector env
     ss <- getModuleField withBody aux (getLns selector)
     case Map.lookup pn ss of
-        Nothing -> return Nothing
+        Nothing -> do
+            debugTc $ do
+                pptid <- ppr tid
+                ppss <- liftM (sepBy space) $ mapM pp $ Map.keys ss
+                liftIO $ putStrLn $ "getEntry: cannot find " ++ show pptid ++ " in " ++ show ppss
+            return Nothing
         Just es -> return $ Map.lookup tid es 
 
 getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> ModuleTcEnv) -> (ModuleTcEnv -> x) -> TcM m x

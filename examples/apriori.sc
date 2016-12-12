@@ -246,7 +246,8 @@ uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
 
 
 void main () {
-    pd_a3p uint [[2]] db = load_db ();
-    uint [[2]] itemsets = apriori (db, 1 :: uint, 3 :: uint);
-    printArray (itemsets);
+    pd_shared3p uint [[2]] db = load_db ();
+    uint [[2]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
+    printMatrix (declassify(db));
+    printMatrix (itemsets);
 }
