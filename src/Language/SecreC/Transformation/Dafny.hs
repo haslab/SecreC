@@ -334,7 +334,13 @@ loadDafnyId l n = do
 lookupAndLoadDafnyDec :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
 lookupAndLoadDafnyDec l dec = if isAxiom dec || hasDecBody dec
     then load dec
-    else lookupDafnyId l (fromJustNote "lookup" $ decDafnyId dec) >>= load . unDecT . entryType
+    else case decDafnyId dec of
+        Nothing -> load dec
+        Just did -> do
+            mb <- lookupDafnyIdMb l did
+            case mb of
+                Nothing -> load dec
+                Just dec' -> load $ unDecT $ entryType dec'
   where
     load dec = do
         lift $ debugTc $ do
@@ -430,41 +436,25 @@ newEntry l dec fid@(bid,did,ts) = do
             
 
 lookupDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m EntryEnv
-lookupDafnyId l did@(SId sn tid@(ModuleTyVarId  m _)) = do
-    ss <- lift $ getEntry (Just sn) tid TKind True
-    case ss of
+lookupDafnyId l did = do
+    mb <- lookupDafnyIdMb l did
+    case mb of
         Nothing -> do
             ppdid <- lift $ pp did
-            genError l $ text "lookupDafnyId: can't find struct" <+> ppdid
+            genError l $ text "lookupDafnyId: can't find" <+> ppdid
         Just e -> return e
-lookupDafnyId l did@(AId tid@(ModuleTyVarId m _) isLeak) = do
-    as <- lift $ getEntry Nothing tid AKind True
-    case as of
-        Just e -> return e
-        Nothing -> do
-            ppdid <- lift $ pp did
-            genError l $ text "lookupDafnyId: can't find axiom" <+> ppdid
-lookupDafnyId l did@(PId pn tid@(ModuleTyVarId m _)) = do
-    ss <- lift $ getEntry (Just pn) tid PKind True
-    case ss of
-        Nothing -> do
-            ppdid <- lift $ pp did
-            genError l $ text "lookupDafnyId: can't find procedure" <+> ppdid
-        Just e -> return e
-lookupDafnyId l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getEntry (Just pn) tid LKind True
-    case ss of
-        Nothing -> do
-            ppdid <- lift $ pp did
-            genError l $ text "lookupDafnyId: can't find lemma" <+> ppdid
-        Just e -> return e
-lookupDafnyId l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
-    ss <- lift $ getEntry (Just pn) tid FKind True
-    case ss of
-        Nothing -> do
-            ppdid <- lift $ pp did
-            genError l $ text "lookupDafnyId: can't find function" <+> ppdid
-        Just e -> return e
+
+lookupDafnyIdMb :: DafnyK m => Position -> DafnyId -> DafnyM m (Maybe EntryEnv)
+lookupDafnyIdMb l did@(SId sn tid@(ModuleTyVarId  m _)) = do
+    lift $ getEntry (Just sn) tid TKind True
+lookupDafnyIdMb l did@(AId tid@(ModuleTyVarId m _) isLeak) = do
+    lift $ getEntry Nothing tid AKind True
+lookupDafnyIdMb l did@(PId pn tid@(ModuleTyVarId m _)) = do
+    lift $ getEntry (Just pn) tid PKind True
+lookupDafnyIdMb l did@(LId pn tid@(ModuleTyVarId m _) isLeak) = do
+    lift $ getEntry (Just pn) tid LKind True
+lookupDafnyIdMb l did@(FId pn tid@(ModuleTyVarId m _) isLeak) = do
+    lift $ getEntry (Just pn) tid FKind True
 
 emptyDec (DecType tid _ [] (emptyDecCtx->True) (emptyDecCtx->True) _ t) = Just (tid,t)
 emptyDec d = Nothing
