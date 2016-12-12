@@ -278,6 +278,9 @@ printDafnyModule mn xs imports = do
     let defstypes = vcat $ map fourth $ List.sortBy cmp $ Map.elems types
     let defsrest = vcat $ map fourth $ List.sortBy cmp $ Map.elems rest
     ppmn <- lift $ ppModuleName mn
+    lift $ debugTc $ do
+        pks <- mapM ppDafnyId $ Map.keys rest
+        liftIO $ putStrLn $ show $ text "printing dafny" <+> ppmn <+> "defs" <+> (sepBy comma)
     let is = case mn of
                 Nothing -> []
                 Just mname -> maybe [] Set.toList $ Map.lookup mname imports
