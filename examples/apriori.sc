@@ -208,11 +208,11 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-          //x //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
-          //x //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
-          //x //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
-          //x //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
-          //x //@ assert prev.items[j,k-1] < shape(db)[1];
+          //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
+          //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
+          //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
+          //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
+          //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert (last(prev.items[i,:]) == prev.items[i,k-1] :: bool);
           //@ assert IsItemSetOf(C,db);

@@ -370,7 +370,7 @@ loadDafnyDec l dec = do
                                 mb <- findEntry (decPos dec) (Map.toList dids) fid dec
                                 case mb of
                                     Just entry@(_,_,did',_,_) -> do
-                                        State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did $ dropEntryDoc entry) bid) mn $ dafnies env }
+                                        State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did (dropEntryDoc entry)) bid) mn $ dafnies env }
                                         return $ Just did'
                                     Nothing -> newEntry l dec fid
                         Nothing -> do
