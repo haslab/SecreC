@@ -2452,7 +2452,14 @@ getEntry (Just pn) tid k withBody = do
                 ppss <- liftM (sepBy space) $ mapM pp $ Map.keys ss
                 liftIO $ putStrLn $ "getEntry: cannot find " ++ show pptid ++ " in " ++ show ppss
             return Nothing
-        Just es -> return $ Map.lookup tid es 
+        Just es -> case Map.lookup tid es of
+            Nothing -> do
+                debugTc $ do
+                    pptid <- ppr tid
+                    ppss <- liftM (sepBy space) $ mapM pp $ Map.keys es
+                    liftIO $ putStrLn $ "getEntry: cannot find " ++ show pptid ++ " in " ++ show ppss
+                return Nothing
+            Just e -> return $ Just e
 
 getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> ModuleTcEnv) -> (ModuleTcEnv -> x) -> TcM m x
 getModuleField withBody filterf f = do
