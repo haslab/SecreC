@@ -203,7 +203,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
-          //@ Snoc1(prev.items[i,:n]);
+          //x //@ Snoc1(prev.items[i,:n]);
           //x Snoc1(prev.items[j,:n]);
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
