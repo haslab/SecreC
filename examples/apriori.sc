@@ -25,9 +25,8 @@ context<>
     __builtin("core.mul",x,y) :: D uint[[1]]
 }
 
-template <type T, dim N>
-void printArray (T[[N]] arr) {
-}
+template <type T>
+void printMatrix (T[[2]] mat) {}
 
 //@ function bool IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
