@@ -7,7 +7,7 @@ module apriori;
 import axioms;
 
 kind shared3p;
-domain pd_a3p shared3p;
+domain pd_shared3p shared3p;
 
 template<domain D>
 function D uint sum (D uint[[1]] xs)
@@ -29,16 +29,16 @@ template <type T, dim N>
 void printArray (T[[N]] arr) {
 }
 
-//@ function bool IsDB (pd_a3p uint[[2]] db)
+//@ function bool IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ {
-//@     forall pd_a3p uint x; assertion<pd_a3p>(in(x,db) ==> x <= classify(1))
+//@     forall pd_shared3p uint x; assertion<pd_shared3p>(in(x,db) ==> x <= classify(1))
 //@ }
 
-pd_a3p uint [[2]] load_db ()
+pd_shared3p uint [[2]] load_db ()
 //@ ensures IsDB(\result);
 {
-    pd_a3p uint [[2]] db = reshape(classify({}),5,5);
+    pd_shared3p uint [[2]] db = reshape(classify({}),5,5);
     db[0, 0] = classify(1);
     db[0, 1] = classify(1);
     db[0, 3] = classify(1);
@@ -56,7 +56,7 @@ pd_a3p uint [[2]] load_db ()
 
 struct frequent {
     uint [[2]] items;
-    pd_a3p uint [[2]] cache;
+    pd_shared3p uint [[2]] cache;
 }
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
@@ -71,29 +71,29 @@ struct frequent {
 //x //@ requires i < sz;
 //x //@ ensures IsItemSet({i},sz);
 
-//@ function bool IsItemSetOf (uint[[1]] is, pd_a3p uint[[2]] db)
+//@ function bool IsItemSetOf (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
-//@ function pd_a3p uint[[1]] transactions (uint[[1]] is, pd_a3p uint[[2]] db)
+//@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
 //@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
-//@ function pd_a3p uint frequency (uint[[1]] is, pd_a3p uint[[2]] db)
+//@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
-//@ leakage function bool LeakFrequents (pd_a3p uint[[2]] db, uint threshold)
+//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ requires IsDB(db);
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool FrequentsCache(frequent f, pd_a3p uint[[2]] db, uint threshold)
+//@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
@@ -103,46 +103,46 @@ struct frequent {
 //@     &&
 //@     (forall uint i; i < shape(f.items)[0]
 //@            ==> IsItemSetOf(f.items[i,:],db)
-//@            &&  declassify(frequency(f.items[i,:],db)::pd_a3p uint) >= threshold
+//@            &&  declassify(frequency(f.items[i,:],db)::pd_shared3p uint) >= threshold
 //@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db)))
 //@ }
 
-//x //@ lemma SameItemTransactions(uint i, pd_a3p uint[[2]] db)
+//x //@ lemma SameItemTransactions(uint i, pd_shared3p uint[[2]] db)
 //x //@ requires IsDB(db);
 //x //@ requires i < shape(db)[1];
 //x //@ ensures db[:,i] * db[:,i] == db[:,i];
 //x //@ {}
 
-//@ lemma JoinCaches(uint[[1]] C, pd_a3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_a3p uint[[2]] db)
+//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
 //@ requires size(xs) == size(ys);
 //@ requires IsItemSetOf(C,db);
 //@ requires (C == snoc(xs,last(ys)) :: bool);
-//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_a3p bool);
+//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_shared3p bool);
 //@ requires init(xs) == init(ys);
 //x //@ requires forall uint n; n < size(xs)-1 ==> xs[n] == ys[n];
-//@ ensures assertion(C_dot == transactions(C,db) :: pd_a3p bool);
+//@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
 
 
 //x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
 //x //@ assert transactions(prev.items[j,:]) == transactions(init(prev.items[j,:])) * transaction(last(prev.items[j,:]));
 //x //@ assert transactions(C) == transactions(prev.items[i,:]) * transaction(last(prev.items[j,:]));
 
-frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uint [[2]] db, uint threshold)
+frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
 //@ requires shape(f.items)[1] == size(C);
 //@ requires shape(f.cache)[1] == size(C_dot);
 //@ ensures shape(\result.items)[1] == size(C);
 //@ ensures shape(\result.cache)[1] == size(C_dot);
-//@ requires assertion<pd_a3p>(C_dot == transactions(C,db) :: pd_a3p bool);
+//@ requires assertion<pd_shared3p>(C_dot == transactions(C,db) :: pd_shared3p bool);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
 {
-    pd_a3p uint frequence = sum (C_dot);
+    pd_shared3p uint frequence = sum (C_dot);
     if (declassify (frequence >= classify(threshold))) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
@@ -150,7 +150,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_a3p uint[[1]] C_dot, pd_a3p uin
     return f;
 }
 
-frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
+frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures shape(\result.items)[1] == 1;
@@ -166,13 +166,13 @@ frequent apriori_1 (pd_a3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
-      //@ assert assertion(db[:,i] == transactions({i},db) :: pd_a3p bool);
+      //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
 }
 
-frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
+frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires IsDB(db);
 //@ requires k >= 1;
 //@ requires shape(prev.items)[1] == k;
@@ -216,7 +216,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert (last(prev.items[i,:]) == prev.items[i,k-1] :: bool);
           //@ assert IsItemSetOf(C,db);
-          pd_a3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
+          pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db);
           AddFrequent(next,C,C_dot,db,threshold);
           
@@ -226,7 +226,7 @@ frequent apriori_k (pd_a3p uint [[2]] db, uint threshold, frequent prev,uint k)
     return next;
 }
 
-uint[[2]] apriori (pd_a3p uint [[2]] db, uint threshold, uint setSize)
+uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
