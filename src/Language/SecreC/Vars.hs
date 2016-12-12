@@ -383,7 +383,7 @@ instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,IsS
         isLeak' <- f isLeak
         n' <- f n
         l' <- f l
-        qs' <- inLHS False $ mapM f qs
+        qs' <- inLHS False $ mapM (mapM f) qs
         ctx' <- f ctx
         varsBlock $ do
             args' <- mapM f args

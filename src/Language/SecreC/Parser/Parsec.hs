@@ -542,7 +542,7 @@ scLemmaDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (LemmaDeclaration 
 scLemmaDeclaration = (apA9 scLeak (scTok LEMMA) scProcedureId scTArgs scCtx scPArgs scCtx scAnns scBody (\isLeak x2 x3 x4 xc x5 xcb x6 x7 -> LemmaDeclaration (loc x2) isLeak x3 x4 xc x5 xcb x6 $ fmap unLoc x7)) <?> "lemma definition"
     where
     scCtx = scTemplateContext
-    scTArgs = option [] (scABrackets scTemplateQuantifiers)
+    scTArgs = optionMaybe (scABrackets scTemplateQuantifiers)
     scPArgs = scParens scProcedureParameterList
     scAnns = scProcedureAnnotations
     scBody = optionMaybe scCompoundStatement

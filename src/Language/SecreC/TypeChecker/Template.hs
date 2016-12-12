@@ -395,7 +395,7 @@ compareProcedureArgs l isLattice xs ys = constraintError (ComparisonException "p
 -- doesn't take into consideration index conditions
 -- compare original declarations, not instantiated ones
 compareTemplateDecls :: (ProverK loc m) => Doc -> loc -> Bool -> TIdentifier -> EntryInst -> EntryInst -> TcM m (Ordering,Ordering,Bool)
-compareTemplateDecls def l isLattice n (e1,e1',d1,_,_,_,_) (e2,e2',d2,_,_,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
+compareTemplateDecls def l isLattice n (e1,e1',d1,_,_,_,_) (e2,e2',d2,_,_,_,_) = liftM fst $ tcProveTop l "compare" $ tcBlock l $ do
     ord <- compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2'
     debugTc $ do
         ppo <- pp ord
@@ -462,7 +462,7 @@ sameTemplateDecs l d1 d2 = do
     when (o1 == EQ && o2 == EQ) $ return ()
     
 compareTemplateEntries :: (ProverK loc m) => Doc -> loc -> Bool -> EntryEnv -> EntryEnv -> TcM m (Comparison (TcM m))
-compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare" $ tcBlock $ do
+compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare" $ tcBlock l $ do
     debugTc $ do
         pp1 <- ppr e1
         pp2 <- ppr e2

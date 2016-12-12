@@ -66,6 +66,7 @@ import qualified Data.HashTable.Weak.IO as WeakHash
 import qualified System.Mem.Weak.Map as WeakMap
 
 import System.IO
+import System.Exit
 import System.Mem.Weak.Exts as Weak
 import qualified System.ProgressBar as Bar
 
@@ -2564,7 +2565,7 @@ chgIDecClass f d@(StructType sl sid atts cl) = StructType sl sid atts (f cl)
 chgIDecClass f d@(AxiomType isLeak p qs pargs cl) = AxiomType isLeak p qs pargs (f cl)
 chgIDecClass f d@(LemmaType isLeak pl n pargs panns body cl) = LemmaType isLeak pl n pargs panns body (f cl)
 
-lemmaDecBody :: DecType -> Maybe [Statement GIdentifier (Typed Position)]
+lemmaDecBody :: DecType -> Maybe (Maybe [Statement GIdentifier (Typed Position)])
 lemmaDecBody (DecType _ _ _ _ _ _ (LemmaType _ _ _ _ _ b _)) = b
 lemmaDecBody t = error $ "lemmaDecBody: " ++ show t
 
@@ -2647,6 +2648,41 @@ tcProgress l msg m = do
     pad n str = take (fromEnum n) $ str ++ repeat ' '
 
 
+tcDie :: MonadIO m => Bool -> TcM m a -> TcM m a
+tcDie False m = m
+tcDie True m = catchError m $ \e -> do
+    ppe <- ppr e
+    liftIO $ die ppe
 
+tcBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
+tcBlock l m = tcGenBlock l "block" False Nothing m
+
+-- | TypeChecks a code block
+tcGenBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> Bool -> Maybe ModuleCount -> TcM m a -> TcM m a
+tcGenBlock l msg doReset count m = tcDie doReset $ tcProgress (Just $ locpos l) (Just msg) $ do
+    olde <- State.get
+    oldge <- liftIO $ if doReset then liftM Just backupGlobalEnv else return Nothing
+    oldti <- liftIO $ if doReset then liftM Just backupTyVarId else return Nothing
+    when doReset $ State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = maybe (moduleCount e) id count }
+    debugTc $ do
+        opts <- askOpts
+        liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l) ++ " " ++ show (implicitCoercions opts)
+    x <- m
+    when doReset $ do
+        solveTop l "tcGlobal"
+        dict <- top . tDict =<< State.get
+        x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
+        tcProgress Nothing (Just "cleanup") $ do
+            liftIO $ resetGlobalEnv False
+            liftIO resetTyVarId
+    State.modify $ \e -> e { cstrCache = cstrCache olde, openedCstrs = openedCstrs olde, decClass = decClass olde, localConsts = localConsts olde, localVars = localVars olde, localFrees = localFrees olde, localDeps = localDeps olde, tDict = tDict olde, moduleCount = moduleCount olde }
+    liftIO $ mapM_ restoreGlobalEnv oldge
+    liftIO $ mapM_ restoreTyVarId oldti
+    return x
+  where
+    top (WrapNe x) = return x
+    top xs = do
+        ppxs <- mapM pp $ Foldable.toList xs
+        error $ "tcGlobal: " ++ show (vcat ppxs)    
 
 

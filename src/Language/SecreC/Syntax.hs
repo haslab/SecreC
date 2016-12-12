@@ -998,7 +998,7 @@ data LemmaDeclaration iden loc
     = LemmaDeclaration loc
         Bool -- is leakage
         (ProcedureName iden loc)
-        [TemplateQuantifier iden loc]
+        (Maybe [TemplateQuantifier iden loc])
         (TemplateContext iden loc) -- template arguments
         [ProcedureParameter iden loc]
         (TemplateContext iden loc)
@@ -1017,13 +1017,15 @@ instance Location loc => Located (LemmaDeclaration iden loc) where
 instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (LemmaDeclaration iden loc) where
     pp (LemmaDeclaration _ isLeak n qs ctx params bctx anns body) = do
         pp1 <- pp n
-        pp2 <- mapM pp qs
+        pp2 <- case qs of
+            Nothing -> return PP.empty
+            Just xs -> liftM (abrackets . sepBy comma) $ mapM pp xs
         ppc <- pp ctx
         pp3 <- mapM pp params
         ppbc <- pp bctx
         pp4 <- pp anns
         pp5 <- ppOpt body (\stmts -> do { x <- pp stmts; return $ lbrace $+$ nest 4 x $+$ rbrace })
-        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> abrackets (sepBy comma pp2) <+> ppc <+> parens (sepBy comma pp3) $+$ ppbc $+$ pp4 $+$ pp5)
+        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> pp2 <+> ppc <+> parens (sepBy comma pp3) $+$ ppbc $+$ pp4 $+$ pp5)
 
 data FunctionDeclaration iden loc
     = OperatorFunDeclaration loc

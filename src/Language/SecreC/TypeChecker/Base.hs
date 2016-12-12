@@ -173,16 +173,31 @@ newGlobalEnv = do
     cstrs <- WeakHash.newSized 2048
     return $ GlobalEnv m iom cstrs
 
-resetGlobalEnv :: IO ()
-resetGlobalEnv = do
+backupGlobalEnv :: IO GlobalEnv
+backupGlobalEnv = do
+    g <- readIORef globalEnv
+    freshGlobalEnv
+    return g
+    
+restoreGlobalEnv :: GlobalEnv -> IO ()
+restoreGlobalEnv g = do
+    resetGlobalEnv False
+    writeIORef globalEnv g
+
+resetGlobalEnv :: Bool -> IO ()
+resetGlobalEnv doFresh = do
     g <- readIORef globalEnv
     WeakHash.finalize $ tDeps g
     WeakHash.finalize $ ioDeps g
     WeakHash.finalize $ gCstrs g
+    when doFresh $ freshGlobalEnv
+
+freshGlobalEnv :: IO ()
+freshGlobalEnv = do
     deps <- WeakHash.newSized 1024
     iodeps <- WeakHash.newSized 512
     cstrs <- WeakHash.newSized 2048
-    writeIORef globalEnv $ g { tDeps = deps, ioDeps = iodeps, gCstrs = cstrs }
+    writeIORef globalEnv $ GlobalEnv { tDeps = deps, ioDeps = iodeps, gCstrs = cstrs }
 
 orWarn :: (MonadIO m) => TcM m a -> TcM m (Maybe a)
 orWarn m = (liftM Just m) `catchError` \e -> do
@@ -268,6 +283,8 @@ getModuleCount = liftM (snd . moduleCount) State.get
 -- solved constraints whose solutions have been delayed
 type CstrCache = Map LocIOCstr TCstrStatus
 
+type ModuleCount = (Maybe ((String,TyVarId),Int),Int)
+
 -- global typechecking environment
 data TcEnv = TcEnv {
       localVars  :: Map GIdentifier (Bool,Bool,EntryEnv) -- ^ local variables: name |-> (isConst,isAnn,type of the variable)
@@ -280,7 +297,7 @@ data TcEnv = TcEnv {
     , cstrCache :: CstrCache -- cache for constraints
     , solveToCache :: Bool -- solve constraints to the cache or global state
     , lineage :: Lineage -- lineage of the constraint being processed
-    , moduleCount :: (Maybe ((String,TyVarId),Int),Int)
+    , moduleCount :: ModuleCount
     , inTemplate :: Maybe ([TemplateTok],Bool) -- if typechecking inside a template, global constraints are delayed (templates tokens, with context flag)
     , decKind :: DecKind -- if typechecking inside a declaration
     , exprC :: ExprClass -- type of expression
@@ -305,6 +322,8 @@ instance Binary DecKind
 
 instance Monad m => PP m DecKind where
     pp = return . text . show
+
+--type LazyEntryEnv = Either EntryEnv (ModuleCount,GlobalDeclaration Identifier Position)
 
 -- module typechecking environment that can be exported to an interface file
 data ModuleTcEnv = ModuleTcEnv {
@@ -352,6 +371,11 @@ instance Monoid (ModuleTcEnv) where
         , axioms = Map.union (axioms x) (axioms y)
         , structs = Map.unionWith Map.union (structs x) (structs y)
         }
+
+--unionLazyEntryEnv :: LazyEntryEnv -> LazyEntryEnv -> LazyEntryEnv
+--unionLazyEntryEnv (Left e1) _ = Left e1
+--unionLazyEntryEnv _ (Left e2) = Left e2
+--unionLazyEntryEnv l r = r
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ModuleTcEnv where
     traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7 x8 x9) = do
@@ -487,7 +511,7 @@ hasIDecBody :: InnerDecType -> Bool
 hasIDecBody d@(ProcType pl n pargs pret panns body cl) = isJust body
 hasIDecBody d@(FunType isLeak pl n pargs pret panns body cl) = isJust body
 hasIDecBody d@(StructType sl sid atts cl) = isJust atts
-hasIDecBody d@(AxiomType isLeak p qs pargs cl) = False
+hasIDecBody d@(AxiomType isLeak p qs pargs cl) = True
 hasIDecBody d@(LemmaType isLeak pl n pargs panns body cl) = isJust body
 
 remDecBody :: DecType -> DecType
@@ -695,13 +719,13 @@ newErrorM :: TcM m a -> TcM m a
 newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 
 -- | Typechecks a code block, with local declarations only within its scope
-tcBlock :: Monad m => TcM m a -> TcM m a
-tcBlock m = do
-    r <- Reader.ask
-    s <- State.get
-    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
-    Writer.tell w'
-    return x
+--tcBlock :: Monad m => TcM m a -> TcM m a
+--tcBlock m = do
+--    r <- Reader.ask
+--    s <- State.get
+--    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
+--    Writer.tell w'
+--    return x
     
 tcDictBlock :: Monad m => TcM m a -> TcM m a
 tcDictBlock m = do
@@ -1609,6 +1633,17 @@ uniqTyVarId :: IORef Integer
 uniqTyVarId = unsafePerformIO (newIORef 0)
 {-# NOINLINE uniqTyVarId #-}
 
+backupTyVarId :: IO TyVarId
+backupTyVarId = do
+    ti <- readIORef uniqTyVarId
+    resetTyVarId
+    return $ TyVarId ti
+
+restoreTyVarId :: TyVarId -> IO ()
+restoreTyVarId (TyVarId ti) = do
+    atomicModifyIORef' uniqTyVarId $ \x -> (ti,ti)
+    return ()
+
 resetTyVarId :: IO ()
 resetTyVarId = do
     atomicModifyIORef' uniqTyVarId $ \x -> (0,0)
@@ -1806,7 +1841,7 @@ data InnerDecType
         PIdentifier -- lemma's name
         [(Bool,Var,IsVariadic)] -- typed lemma arguments
         [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the lemma's annotations
-        (Maybe [Statement GIdentifier (Typed Position)]) -- ^ the lemma's body
+        (Maybe (Maybe [Statement GIdentifier (Typed Position)])) -- ^ the lemma's body
         DecClass -- the type of lemma
         
   deriving (Typeable,Show,Data,Generic,Eq,Ord)

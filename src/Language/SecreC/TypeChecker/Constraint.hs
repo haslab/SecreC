@@ -1173,7 +1173,7 @@ maximumsSec :: ProverK loc m => loc -> [SecType] -> [SecType] -> TcM m [SecType]
 maximumsSec l [] maxs = return maxs
 maximumsSec l (s:ss) [] = maximumsSec l ss [s]
 maximumsSec l (s:ss) maxs@(max:_) = do
-    cmp <- tcBlock $ comparesSec l True s max
+    cmp <- tcBlock l $ comparesSec l True s max
     case compOrdering cmp of
         (LT,isLat,ko) -> maximumsSec l ss maxs
         (EQ,isLat,ko) -> maximumsSec l ss (s:maxs)
@@ -1190,7 +1190,7 @@ maximumsDim :: ProverK loc m => loc -> [Expr] -> [Expr] -> TcM m [Expr]
 maximumsDim l [] maxs = return maxs
 maximumsDim l (s:ss) [] = maximumsDim l ss [s]
 maximumsDim l (s:ss) maxs@(max:_) = do
-    cmp <- tcBlock $ comparesDim l True s max
+    cmp <- tcBlock l $ comparesDim l True s max
     case compOrdering cmp of
         (LT,isLat,ko) -> maximumsDim l ss maxs
         (EQ,isLat,ko) -> maximumsDim l ss (s:maxs)

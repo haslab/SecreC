@@ -179,10 +179,13 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = tcTemplate l $ withInCtx Tru
     dec <- newAxiom l tvars' hdeps idec
     dec2AxiomDecl l dec
 
+tcTemplateBool l True m = tcTemplate l m
+tcTemplateBool l False m = m
+
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration GIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(TemplateContext _ mb) ann body) = tcTemplate l $ withInCtx (isJust mb) $ withKind LKind $ defaultInline $ withLeak isLeak $ do
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(TemplateContext _ mb) ann body) = tcTemplateBool l (isJust qs) $ withInCtx (isJust mb) $ withKind LKind $ defaultInline $ withLeak isLeak $ do
     (tvars',hctx',vars',bctx') <- tcAddDeps l "tcAxiomDecl" $ do
-        (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
+        (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier $ maybe [] id qs
         hctx' <- tcTemplateContext hctx
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         bctx' <- tcTemplateContext bctx
@@ -192,12 +195,12 @@ tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(
     let tret = ComplexT Void
     s' <- tcLocal l "lemma" $ mapM (tcStmtsRet l tret) body
     cl <- getDecClass
-    let idec = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (fmap (map (fmap (fmap locpos))) s') cl
+    let idec = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (Just $ fmap (map (fmap (fmap locpos))) s') cl
     let lemma' = ProcedureName (Typed pl idec) $ PIden $ mkVarId pn
     let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
     let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
     lemma'' <- newLemma tvars' hdecctx bdecctx hdeps lemma'
-    dec2LemmaDecl l $ unDecT $ typed $ loc lemma''
+    dec2LemmaDecl l (isJust qs) $ unDecT $ typed $ loc lemma''
 
 tcFunctionDecl :: (ProverK loc m)
     => (DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m a)
@@ -593,18 +596,13 @@ tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
     debugTc $ do
         opts <- askOpts
         liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l) ++ " " ++ show (implicitCoercions opts)
-    --newDict l "tcGlobal"
     x <- m
     solveTop l "tcGlobal"
     dict <- top . tDict =<< State.get
-    --debugTc $ do
-    --    pprd <- ppr dict
-    --    liftIO $ putStrLn $ "substituting tcGlobal " ++ pprid (locpos l) ++ "\n" ++ pprd
     x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
---    liftIO $ putStrLn $ "tcGlobal: " ++ ppr x' ++ "\n" ++ show (ppTSubsts $ tSubsts dict)
     State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
     tcProgress Nothing (Just "cleanup") $ do
-        liftIO resetGlobalEnv
+        liftIO $ resetGlobalEnv True
         liftIO resetTyVarId
     return x'
   where
@@ -616,3 +614,5 @@ tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
 incModuleBlock :: (Maybe ((Identifier,TyVarId),Int),Int) -> (Maybe ((Identifier,TyVarId),Int),Int)
 incModuleBlock = mapFst (fmap (mapFst $ mapSnd inc))
     where inc (TyVarId j) = TyVarId (succ j)
+
+

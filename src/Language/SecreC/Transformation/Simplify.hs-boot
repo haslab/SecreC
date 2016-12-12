@@ -44,4 +44,3 @@ inlineExpr :: SimplifyK loc m => loc -> Expr -> SimplifyM m Expr
 
 tryInlineExpr :: SimplifyK loc m => loc -> Expr -> SimplifyM m (Maybe Expr)
 
-tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> SimplifyM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))

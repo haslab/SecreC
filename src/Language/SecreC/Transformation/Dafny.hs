@@ -332,7 +332,7 @@ loadDafnyId l n = do
     return mb
 
 lookupAndLoadDafnyDec :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
-lookupAndLoadDafnyDec l dec = if isAxiom dec || hasDecBody dec
+lookupAndLoadDafnyDec l dec = if hasDecBody dec
     then load dec
     else case decDafnyId dec of
         Nothing -> load dec
@@ -345,13 +345,13 @@ lookupAndLoadDafnyDec l dec = if isAxiom dec || hasDecBody dec
     load dec = do
         lift $ debugTc $ do
             ppd <- ppr dec
-            liftIO $ putStrLn $ "lookupAndLoadDafnyDec: " ++ ppd
+            liftIO $ putStrLn $ "lookupAndLoadDafnyDec in: " ++ ppd
         mb <- loadDafnyDec l dec
         case mb of
             Just dec -> return dec
             Nothing -> lift $ do
                 ppd <- pp dec
-                genError (locpos l) $ text "lookupAndLoadDafnyDec" <+> ppd
+                genError (locpos l) $ text "lookupAndLoadDafnyDec out:" <+> ppd
 
 addImport :: Maybe Identifier -> Maybe Identifier -> Map Identifier (Set Identifier) -> Map Identifier (Set Identifier)
 addImport (Just current) (Just mn) = Map.insertWith Set.union current (Set.singleton mn)
@@ -538,7 +538,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
         let tag = if isAnnDecClass cl then text "function" else text "function method"
         return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
-decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns body cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pargs',ssargs) <- newDafnyArgs l args

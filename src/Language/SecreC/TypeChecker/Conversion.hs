@@ -124,16 +124,19 @@ decPArg2CtxPArg l (isConst,Right t,isVariadic) = do
     t' <- type2TypeSpecifierNonVoid l t
     return $ CtxTypePArg (Typed l t) isConst t' isVariadic
 
-dec2LemmaDecl :: ConversionK loc m => loc -> DecType -> TcM m (LemmaDeclaration GIdentifier (Typed loc)) 
-dec2LemmaDecl l dec@(DecType _ _ targs hctx bctx _ (LemmaType isLeak p pn pargs anns body _)) = do
+dec2LemmaDecl :: ConversionK loc m => loc -> Bool -> DecType -> TcM m (LemmaDeclaration GIdentifier (Typed loc)) 
+dec2LemmaDecl l isTplt dec@(DecType _ _ targs hctx bctx _ (LemmaType isLeak p pn pargs anns (Just body) _)) = do
     let vars = map (varNameId . unConstrained . fst) targs
     targs' <- mapM (targ2TemplateQuantifier l vars) targs
     hctx' <- decCtx2TemplateContext l hctx
     pargs' <- mapM (parg2ProcedureParameter l) pargs
     bctx' <- decCtx2TemplateContext l bctx
     let pn' = (ProcedureName (Typed l $ DecT dec) $ funit pn)
-    return $ LemmaDeclaration (Typed l $ DecT dec) isLeak pn' targs' hctx' pargs' bctx' (map (ftloc l) anns) (fmap (map (ftloc l)) body)
-dec2LemmaDecl l t = do
+    let targs'' = case (isTplt,targs') of
+                    (True,ts) -> Just ts
+                    (False,[]) -> Nothing
+    return $ LemmaDeclaration (Typed l $ DecT dec) isLeak pn' targs'' hctx' pargs' bctx' (map (ftloc l) anns) (fmap (map (ftloc l)) body)
+dec2LemmaDecl l isTplt t = do
     ppt <- pp t
     genError (locpos l) $ text "dec2LemmaDecl:" <+> ppt
 

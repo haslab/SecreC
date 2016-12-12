@@ -129,7 +129,7 @@ simplifyInnerDecType (FunType isLeak p pid args ret anns body cl) = do
     return $ FunType isLeak p pid args ret (anns' ++ bodyanns') body' cl
 simplifyInnerDecType (LemmaType isLeak p pid args anns body cl) = do
     anns' <- simplifyProcedureAnns anns
-    body' <- mapM (simplifyStatements Nothing) body
+    body' <- mapM (mapM (simplifyStatements Nothing)) body
     return $ LemmaType isLeak p pid args (anns') body' cl
 simplifyInnerDecType (StructType p pid atts cl) = do
     return $ StructType p pid atts cl
@@ -656,18 +656,18 @@ inlineExpr l e = do
             ppd <- pp (loc e)
             tcError (locpos l) $ Halt $ GenTcError (text "cannot inline expression" <+> ppe <+> ppd) Nothing
 
-tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> SimplifyM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))
-tryInlineLemmaCall l (ProcCallExpr _ (ProcedureName (Typed _ (DecT dec)) (PIden n)) targs args) | decTyKind dec == LKind = do
-    let dec' = chgDecInline True dec
-    mb <- inlineProcCall False False Nothing l (PIden n) (DecT dec') args
-    case mb of
-        Left (ss,Nothing) -> do
-            anns <- stmtsAnns ss
-            case lemmaDecBody dec of
-                Nothing -> return $ Just (Nothing,anns)
-                Just _ -> return $ Just (Just dec,anns)
-        otherwise -> return Nothing
-tryInlineLemmaCall l e = return Nothing
+--tryInlineLemmaCall :: SimplifyK loc m => loc -> Expression GIdentifier (Typed loc) -> SimplifyM m (Maybe (Maybe DecType,[StatementAnnotation GIdentifier (Typed loc)]))
+--tryInlineLemmaCall l (ProcCallExpr _ (ProcedureName (Typed _ (DecT dec)) (PIden n)) targs args) | decTyKind dec == LKind = do
+--    let dec' = chgDecInline True dec
+--    mb <- inlineProcCall False False Nothing l (PIden n) (DecT dec') args
+--    case mb of
+--        Left (ss,Nothing) -> do
+--            anns <- stmtsAnns ss
+--            case lemmaDecBody dec of
+--                Nothing -> return $ Just (Nothing,anns)
+--                Just _ -> return $ Just (Just dec,anns)
+--        otherwise -> return Nothing
+--tryInlineLemmaCall l e = return Nothing
 
 -- inlines a procedures
 -- we assume that typechecking has already tied the procedure's type arguments
@@ -685,7 +685,7 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                 liftIO $ putStrLn $ "not inline parameters" ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
             return $ Right $ DecT d'
   where
-    inlineProcCall' es' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just body) c)) | withBody && not isExpr && isInlineDecClass c = do
+    inlineProcCall' es' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just (Just body)) c)) | withBody && not isExpr && isInlineDecClass c = do
         debugTc $ do
             ppn <- ppr n
             ppes <- ppr es
