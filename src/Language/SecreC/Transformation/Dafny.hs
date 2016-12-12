@@ -84,6 +84,9 @@ dafnyIdModule = fmap fst . modTyName . dafnyIdModuleTyVarId
 
 type DafnyEntry = ([Type],Position,DafnyId,Doc,DecType)
 
+dropEntryDoc :: DafnyEntry -> DafnyEntry
+dropEntryDoc (ts,p,did,_,dec) = (ts,p,did,PP.empty,dec)
+
 data DafnySt = DafnySt {
       dafnies :: Map (Maybe Identifier) (Map DafnyId (Map DafnyId DafnyEntry)) -- generated Dafny entries (top-level variables, types, functions, methods), grouped by module, grouped by base ids
     , imports :: Map Identifier (Set Identifier)
@@ -367,7 +370,7 @@ loadDafnyDec l dec = do
                                 mb <- findEntry (decPos dec) (Map.toList dids) fid dec
                                 case mb of
                                     Just entry@(_,_,did',_,_) -> do
-                                        State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did entry) bid) mn $ dafnies env }
+                                        State.modify $ \env -> env { dafnies = Map.update (Just . Map.update (Just . Map.insert did $ dropEntryDoc entry) bid) mn $ dafnies env }
                                         return $ Just did'
                                     Nothing -> newEntry l dec fid
                         Nothing -> do
