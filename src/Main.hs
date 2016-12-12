@@ -9,6 +9,7 @@ import Data.Either
 import Data.Version (showVersion)
 import Data.Maybe
 import qualified Data.Text as Text
+import Data.Generics
 
 import Language.SecreC.IO
 import Language.SecreC.Pretty as Pretty
@@ -39,6 +40,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Except
 import Control.Monad.Reader as Reader
+import Control.Monad.State as State
 
 import Control.Concurrent.Async
 
@@ -288,59 +290,83 @@ output opts secrecIns secrecOuts modules = do
             return ()
     return moduleso
 
-pruneModuleFiles :: [String] -> [ModuleFile] -> [ModuleFile]
-pruneModuleFiles xs [] = []
-pruneModuleFiles xs (m:ms) = m : pruneModuleFiles xs' ms
-    where (m',xs') = pruneModuleFile xs m
+pruneModuleFiles :: [ModuleFile] -> State (Bool,[String]) [ModuleFile]
+pruneModuleFiles [] = return []
+pruneModuleFiles (m:ms) = do
+    m' <- pruneModuleFile m
+    ms' <- pruneModuleFiles ms
+    return (m':ms')
 
-pruneModuleFile :: [String] -> ModuleFile -> (ModuleFile,[String])
-pruneModuleFile xs (Right sci) = (Right sci,xs)
-pruneModuleFile xs (Left (t,pargs,m,i)) = (Left (t,pargs,m',i),xs'')
-    where
-    xs' = mappend xs (ppOptions pargs)
-    (m',xs'') = pruneModule xs m
-    pruneModule xs (Module l mn p) = let (p',xs') = pruneProgram xs p in (Module l mn p',xs')
-    pruneProgram xs (Program l is gs) = let (gs',xs') = pruneGlobalDecls xs in (Program l is gs',xs')
-    pruneGlobalDecls xs [] = ([],xs)
-    pruneGlobalDecls xs (g:gs) = (maybeToList g' ++ gs',xs'')
-        where
-        (g',xs') = pruneGlobalDecl xs g
-        (gs',xs'') = pruneGlobalDecls xs' gs
-    pruneGlobalDecl xs d@(GlobalProcedure l p) = if List.elem procedureDeclarationName p xs
-        then (Just d,xs ++ gEntryPoints p)
-        else (Nothing,xs)
-    pruneGlobalDecl xs d@(GlobalStructure l p) = if List.elem structureDeclarationId p xs
-        then (Just d,xs ++ gEntryPoints p)
-        else (Nothing,xs)
-    pruneGlobalDecl xs d@(GlobalFunction l p) = if List.elem functionDeclarationName p xs
-        then (Just d,xs ++ gEntryPoints p)
-        else (Nothing,xs)
-    pruneGlobalDecl xs d@(GlobalTemplate l p) = if List.elem templateDeclarationName p xs
-        then (Just d,xs ++ gEntryPoints p)
-        else (Nothing,xs)
-    pruneGlobalDecl xs (GlobalAnnotations l as) = (GlobalAnnotations l as',xs')
-        where (as',xs') = pruneGlobalAnns xs as
-    pruneGlobalDecl xs d = (Just d,xs)
-    pruneGlobalAnns xs [] = ([],xs)
-    pruneGlobalAnns xs (a:as) = (maybeToList a' ++ as',xs'')
-        where
-        (a',xs') = pruneGlobalAnn xs a
-        (as',xs'') = pruneGlobalAnns xs' as'
-    pruneGlobalAnn xs a = case globalAnnName a of
-        Nothing -> (Just a,xs ++ gEntryPoints a)
-        Just n -> if List.elem n xs
-            then (Just d,xs ++ gEntryPoints a)
-            else (Nothing,xs)
+addEntryPoints :: [String] -> (Bool,[String]) -> (Bool,[String])
+addEntryPoints [] (b,xs) = (True,xs)
+addEntryPoints es (b,xs) = (b,xs++es)
+
+pruneModuleFile :: ModuleFile -> State (Bool,[String]) ModuleFile
+pruneModuleFile (Right sci) = return $ Right sci
+pruneModuleFile (Left (t,pargs,m,i)) = do
+    State.modify $ addEntryPoints $ entryPoints $ ppOptions pargs
+    m' <- pruneModule m
+    return $ Left (t,pargs,m',i)
+  where
+    pruneModule :: Module Identifier Position -> State (Bool,[String]) (Module Identifier Position)
+    pruneModule (Module l mn p) = do
+        p' <- pruneProgram p
+        return $ Module l mn p'
+    pruneProgram :: Program Identifier Position -> State (Bool,[String]) (Program Identifier Position)
+    pruneProgram (Program l is gs) = do
+        gs' <- pruneGlobalDecls gs
+        return $ Program l is gs'
+    pruneGlobalDecls :: [GlobalDeclaration Identifier Position] -> State (Bool,[String]) [GlobalDeclaration Identifier Position]
+    pruneGlobalDecls [] = return []
+    pruneGlobalDecls (g:gs) = do
+        g' <- pruneGlobalDecl g
+        gs' <- pruneGlobalDecls gs
+        return $ maybeToList g' ++ gs'
+    pruneGlobalDecl :: GlobalDeclaration Identifier Position -> State (Bool,[String]) (Maybe (GlobalDeclaration Identifier Position))
+    pruneGlobalDecl d@(GlobalProcedure l p) = pruneName (procedureDeclarationName p) d
+    pruneGlobalDecl d@(GlobalStructure l p) = pruneName (structureDeclarationName p) d
+    pruneGlobalDecl d@(GlobalFunction l p) = pruneName (functionDeclarationName p) d
+    pruneGlobalDecl d@(GlobalTemplate l p) = pruneName (templateDeclarationName p) d
+    pruneGlobalDecl (GlobalAnnotations l as) = do
+        as' <- pruneGlobalAnns as
+        return $ Just $ GlobalAnnotations l as'
+    pruneGlobalDecl d = do
+        State.modify $ \(b,es) -> (b,es++gEntryPoints d)
+        return $ Just d
+    pruneGlobalAnns :: [GlobalAnnotation Identifier Position] -> State (Bool,[String]) [GlobalAnnotation Identifier Position]
+    pruneGlobalAnns [] = return []
+    pruneGlobalAnns (a:as) = do
+        a' <- pruneGlobalAnn a
+        as' <- pruneGlobalAnns as
+        return $ maybeToList a' ++ as'
+    pruneGlobalAnn :: GlobalAnnotation Identifier Position -> State (Bool,[String]) (Maybe (GlobalAnnotation Identifier Position))
+    pruneGlobalAnn a = case globalAnnName a of
+        Nothing -> do
+            State.modify $ \(b,es) -> (b,es++gEntryPoints a)
+            return $ Just a
+        Just n -> pruneName n a
+    pruneName :: Data (a Identifier Position) => Identifier -> a Identifier Position -> State (Bool,[String]) (Maybe (a Identifier Position))
+    pruneName n d = do
+        (b,es) <- State.get
+        case b of
+            True -> do
+                State.modify $ \(b,es) -> (b,es++gEntryPoints d)
+                return $ Just d
+            False -> if List.elem n es
+                then do
+                    State.modify $ \(b,es) -> (b,es++gEntryPoints d)
+                    return (Just d)
+                else return Nothing
 
 gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> [String]
-gEntryPoints x = everything (mkQ [] auxP `extQ` auxO `extQ` auxS) x
+gEntryPoints x = everything (++) (mkQ [] auxP `extQ` auxO `extQ` auxS) x
     where
-    auxP :: ProcedureName Identitifer Position -> [String]
+    auxP :: ProcedureName Identifier Position -> [String]
     auxP pn = [procedureNameId pn]
     auxO :: Op Identifier Position -> [String]
     auxO o = [pprid o]
-    auxS :: StructureName Identifier Position -> [String]
-    auxS s = [structureNameId s]
+    auxS :: TypeName Identifier Position -> [String]
+    auxS s = [typeId s]
 
 secrec :: Options -> IO ()
 secrec opts = do
@@ -349,9 +375,10 @@ secrec opts = do
     when (List.null secrecIns) $ throwError $ userError "no SecreC input files"
     runSecrecM opts $ do
         modules <- parseModuleFiles secrecIns
-        let modules' = case entryPoints opts of
-            [] -> modules
-            otherwise -> reverse $ pruneModules (entryPoints opts) (reverse modules)
+        let es = case entryPoints opts of
+                    [] -> (True,[])
+                    es -> (False,es)
+        let modules' = reverse $ State.evalState (pruneModuleFiles (reverse modules)) es
         passes secrecIns secrecOuts modules'
         
 
