@@ -347,7 +347,7 @@ loadDafnyDec l dec = do
     current <- getModule
     case decDafnyIds dec of
         Just fid@(bid,did,targs) -> do
-            let mn = dafnyIdModule did
+            let mn = dafnyIdModule bid
             unless (current==mn) $ State.modify $ \env -> env { imports = addImport current mn (imports env) }
             withModule mn $ do
                 leakMode <- getLeakMode
