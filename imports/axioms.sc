@@ -22,10 +22,6 @@ module axioms;
 //@ axiom <domain D,type T> (D T x)
 //@ ensures set({x}) == set{x};
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
-//@ requires size(xs) > 0;
-//@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
-
 //@ lemma Snoc1 <domain D,type T> (D T[[1]] xs)
 //@ requires size(xs) > 0;
 //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
