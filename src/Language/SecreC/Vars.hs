@@ -379,18 +379,16 @@ instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,IsS
             return $ AxiomDeclaration isLeak l' qs' args' anns'
 
 instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (LemmaDeclaration iden loc) where
-    traverseVars f (LemmaDeclaration isLeak n l qs ctx args bctx anns body) = do
+    traverseVars f (LemmaDeclaration isLeak n l qs args anns body) = do
         isLeak' <- f isLeak
         n' <- f n
         l' <- f l
-        qs' <- inLHS False $ mapM (mapM f) qs
-        ctx' <- f ctx
+        qs' <- inLHS False $ (mapM f) qs
         varsBlock $ do
             args' <- mapM f args
-            bctx' <- f bctx
             anns' <- mapM f anns
             body' <- mapM f body
-            return $ LemmaDeclaration isLeak' n' l' qs' ctx' args' bctx' anns' body'
+            return $ LemmaDeclaration isLeak' n' l' qs' args' anns' body'
 
 instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,IsScVar m iden2,Vars iden2 m loc) => Vars iden2 m (ProcedureParameter iden loc) where
     traverseVars f (ProcedureParameter l isConst t isVariadic v) = do

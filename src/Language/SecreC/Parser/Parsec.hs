@@ -539,10 +539,9 @@ scProcedureDeclaration = do
     o2 x1 = apA5 scProcedureId (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundStatement (\x2 x3 xc x4 x5 -> ProcedureDeclaration (loc x1) x1 x2 x3 xc x4 (unLoc x5))
 
 scLemmaDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (LemmaDeclaration Identifier Position)
-scLemmaDeclaration = (apA9 scLeak (scTok LEMMA) scProcedureId scTArgs scCtx scPArgs scCtx scAnns scBody (\isLeak x2 x3 x4 xc x5 xcb x6 x7 -> LemmaDeclaration (loc x2) isLeak x3 x4 xc x5 xcb x6 $ fmap unLoc x7)) <?> "lemma definition"
+scLemmaDeclaration = (apA7 scLeak (scTok LEMMA) scProcedureId scTArgs scPArgs scAnns scBody (\isLeak x2 x4 xc x5 xcb x6 -> LemmaDeclaration (loc x2) isLeak x4 xc x5 xcb $ fmap unLoc x6)) <?> "lemma definition"
     where
-    scCtx = scTemplateContext
-    scTArgs = optionMaybe (scABrackets scTemplateQuantifiers)
+    scTArgs = option [] (scABrackets scTemplateQuantifiers)
     scPArgs = scParens scProcedureParameterList
     scAnns = scProcedureAnnotations
     scBody = optionMaybe scCompoundStatement

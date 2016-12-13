@@ -229,14 +229,10 @@ simplifyFunctionDeclaration (FunDeclaration l isLeak ret op args ctx anns body) 
     return (FunDeclaration l isLeak ret' op args ctx' (anns' ++ bodyanns') body')
 
 simplifyLemmaDeclaration :: SimplifyG loc m LemmaDeclaration
-simplifyLemmaDeclaration (LemmaDeclaration l isLeak op qs hctx args bctx anns body) = do
-    (ss0,hctx') <- simplifyTemplateContext hctx
-    (ss1,bctx') <- simplifyTemplateContext bctx
+simplifyLemmaDeclaration (LemmaDeclaration l isLeak op qs args anns body) = do
     anns' <- simplifyProcedureAnns anns
-    ctxanns <- stmtsAnns (ss0++ss1)
-    ctxanns' <- concatMapM (procAnn False) ctxanns
     body' <- mapM (simplifyStatements Nothing) body
-    return $ LemmaDeclaration l isLeak op qs hctx' args bctx' (anns' ++ ctxanns') body'
+    return $ LemmaDeclaration l isLeak op qs args (anns') body'
     
 simplifyAxiomDeclaration :: SimplifyG loc m AxiomDeclaration
 simplifyAxiomDeclaration (AxiomDeclaration l isLeak op args anns) = do

@@ -1008,37 +1008,31 @@ data LemmaDeclaration iden loc
     = LemmaDeclaration loc
         Bool -- is leakage
         (ProcedureName iden loc)
-        (Maybe [TemplateQuantifier iden loc])
-        (TemplateContext iden loc) -- template arguments
+        [TemplateQuantifier iden loc]
         [ProcedureParameter iden loc]
-        (TemplateContext iden loc)
         [ProcedureAnnotation iden loc]
         (Maybe [Statement iden loc])
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 lemmaDeclarationName :: LemmaDeclaration iden loc -> iden
-lemmaDeclarationName (LemmaDeclaration _ _ n _ _ _ _ _ _) = procedureNameId n
+lemmaDeclarationName (LemmaDeclaration _ _ n _ _ _ _) = procedureNameId n
   
 instance (Binary iden,Binary loc) => Binary (LemmaDeclaration iden loc)  
 instance (Hashable iden,Hashable loc) => Hashable (LemmaDeclaration iden loc)
 
 instance Location loc => Located (LemmaDeclaration iden loc) where
     type LocOf (LemmaDeclaration iden loc) = loc
-    loc (LemmaDeclaration l _ _ _ _ _ _ _ _) = l
-    updLoc (LemmaDeclaration _ isLeak n x y z ss w q) l = LemmaDeclaration l isLeak n x y z ss w q
+    loc (LemmaDeclaration l _ _ _ _ _ _) = l
+    updLoc (LemmaDeclaration _ isLeak n x y z ss) l = LemmaDeclaration l isLeak n x y z ss
   
 instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (LemmaDeclaration iden loc) where
-    pp (LemmaDeclaration _ isLeak n qs ctx params bctx anns body) = do
+    pp (LemmaDeclaration _ isLeak n qs params anns body) = do
         pp1 <- pp n
-        pp2 <- case qs of
-            Nothing -> return PP.empty
-            Just xs -> liftM (abrackets . sepBy comma) $ mapM pp xs
-        ppc <- pp ctx
+        pp2 <- liftM (abrackets . sepBy comma) $ mapM pp qs
         pp3 <- mapM pp params
-        ppbc <- pp bctx
         pp4 <- pp anns
         pp5 <- ppOpt body (\stmts -> do { x <- pp stmts; return $ lbrace $+$ nest 4 x $+$ rbrace })
-        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> pp2 <+> ppc <+> parens (sepBy comma pp3) $+$ ppbc $+$ pp4 $+$ pp5)
+        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ pp5)
 
 data FunctionDeclaration iden loc
     = OperatorFunDeclaration loc

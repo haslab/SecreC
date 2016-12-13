@@ -898,21 +898,21 @@ newAxiom l tvars hdeps d = do
     modifyModuleEnv $ \env -> env { axioms = Map.insert i e (axioms env) }
     return dt
 
-newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
-newLemma vars hctx bctx hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
---    liftIO $ putStrLn $ "entering newLemma " ++ ppr pn
-    solve l "addLemma"
---    unresolvedQVars l "newLemma" vars
-    (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
-    i <- newModuleTyVarId
-    d'' <- writeIDecVars l d'
-    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
-    let e = EntryEnv (locpos l) dt'
-    debugTc $ do
-        ppe <- ppr (entryType e)
-        liftIO $ putStrLn $ "newLemma " ++ ppe
-    modifyModuleEnv $ \env -> env { lemmas = Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ lemmas env }
-    return $ ProcedureName (Typed l dt') n
+--newLemma :: (ProverK loc m) => [(Constrained Var,IsVariadic)] -> Deps -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
+--newLemma vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = do
+----    liftIO $ putStrLn $ "entering newLemma " ++ ppr pn
+--    solve l "addLemma"
+----    unresolvedQVars l "newLemma" vars
+--    (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
+--    i <- newModuleTyVarId
+--    d'' <- writeIDecVars l d'
+--    let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
+--    let e = EntryEnv (locpos l) dt'
+--    debugTc $ do
+--        ppe <- ppr (entryType e)
+--        liftIO $ putStrLn $ "newLemma " ++ ppe
+--    modifyModuleEnv $ \env -> env { lemmas = Map.alter (Just . Map.insert i e . maybe Map.empty id) n $ lemmas env }
+--    return $ ProcedureName (Typed l dt') n
     
  -- | Checks that a procedure exists.
 checkProcedureFunctionLemma :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> ProcedureName GIdentifier loc -> TcM m [EntryEnv]
@@ -1332,7 +1332,9 @@ isAmbiguousDim :: Expr -> Bool
 isAmbiguousDim n = True
 
 doCheck :: Options -> SubstMode -> SubstCheck
-doCheck opts c = if debugCheck opts then substCheck c else NoCheckS
+doCheck opts c = case substCheck c of
+    CheckS -> CheckS
+    otherwise -> if debugCheck opts then substCheck c else NoCheckS
 
 addSubstM :: (ProverK loc m) => loc -> SubstMode -> Var -> Type -> TcM m ()
 addSubstM l mode v@(VarName vt (VIden vn)) t = do

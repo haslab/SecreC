@@ -179,28 +179,27 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = tcTemplate l $ withInCtx Tru
     dec <- newAxiom l tvars' hdeps idec
     dec2AxiomDecl l dec
 
-tcTemplateBool l True m = tcTemplate l m
-tcTemplateBool l False m = m
-
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration GIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs hctx ps bctx@(TemplateContext _ mb) ann body) = tcTemplateBool l (isJust qs) $ withInCtx (isJust mb) $ withKind LKind $ defaultInline $ withLeak isLeak $ do
-    (tvars',hctx',vars',bctx') <- tcAddDeps l "tcAxiomDecl" $ do
-        (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier $ maybe [] id qs
-        hctx' <- tcTemplateContext hctx
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate l $ withInCtx True $ withKind LKind $ defaultInline $ withLeak isLeak $ do
+    (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
+        (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
-        bctx' <- tcTemplateContext bctx
-        return (tvars',hctx',vars',bctx')
+        return (tvars',vars')
     hdeps <- getDeps
+    cl <- getDecClass
+    
+    let rectproc = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' [] Nothing cl
+    let recproc' = ProcedureName (Typed pl rectproc) $ PIden $ mkVarId pn
+    recdt <- addProcedureFunctionToRec tvars' hdeps recproc'
+    
     ann' <- tcProcedureAnns ann
     let tret = ComplexT Void
     s' <- tcLocal l "lemma" $ mapM (tcStmtsRet l tret) body
-    cl <- getDecClass
-    let idec = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (Just $ fmap (map (fmap (fmap locpos))) s') cl
+    cl' <- getDecClass
+    let idec = IDecT $ LemmaType isLeak (locpos l) (PIden $ mkVarId pn) vars' (map (fmap (fmap locpos)) ann') (Just $ fmap (map (fmap (fmap locpos))) s') cl'
     let lemma' = ProcedureName (Typed pl idec) $ PIden $ mkVarId pn
-    let hdecctx = (\(DecCtxT x) -> x) $ typed $ loc hctx'
-    let bdecctx = (\(DecCtxT x) -> x) $ typed $ loc bctx'
-    lemma'' <- newLemma tvars' hdecctx bdecctx hdeps lemma'
-    dec2LemmaDecl l (isJust qs) $ unDecT $ typed $ loc lemma''
+    lemma'' <- newProcedureFunction recdt explicitDecCtx lemma'
+    dec2LemmaDecl l $ unDecT $ typed $ loc lemma''
 
 tcFunctionDecl :: (ProverK loc m)
     => (DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m a)
