@@ -103,11 +103,14 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
-        //@ invariant prefixEqual == forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
+        //@ invariant prefixEqual == prev.items[i,:n] == prev.items[j,:];
+        //x //@ invariant prefixEqual == forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
         {
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
+          //@ assert prev.items[i,:n+1] == snoc(prev.items[i,:n],prev.items[i,n]);
+          //@ assert prev.items[j,:n+1] == snoc(prev.items[j,:n],prev.items[j,n]);
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
