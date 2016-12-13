@@ -539,7 +539,11 @@ comparesDecIds l isVerify sameMatch allowReps (DecT d1@(DecType j1 isRec1 _ _ _ 
     let ok = compareDecKind isVerify (decTyKind d1) (decTyKind d2)
     case mb of
         Just o -> liftM Just $ appendOrderings l [o,ocl,maybe EQ id ok]
-        Nothing -> return (Nothing::Maybe Ordering)
+        Nothing -> do
+            o <- appendOrderings l [ocl,maybe EQ id ok]
+            case o of
+                EQ -> return (Nothing::Maybe Ordering)
+                otherwise -> return $ Just o
      
 compareDecTypeK :: Bool -> Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering
 compareDecTypeK sameMatch allowReps j1 d1 j2 d2 | j1 == j2 && d1 == d2 = if allowReps then Just LT else Just EQ
