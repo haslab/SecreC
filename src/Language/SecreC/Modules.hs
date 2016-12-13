@@ -78,6 +78,9 @@ resolveModule file = do
     f <- findModule (takeDirectory file : paths opts) m   
     liftIO $ canonicalPath f
 
+localOptsModuleM :: Monad m => (Options -> Options) -> ModuleM m a -> ModuleM m a
+localOptsModuleM f m = State.mapStateT (Reader.local f) m
+
 -- | Opens a list of modules by filename
 openModuleFiles :: ModK m => [FilePath] -> ModuleGraph -> ModuleM m ModuleGraph
 openModuleFiles fs g = foldlM open g fs
@@ -85,7 +88,8 @@ openModuleFiles fs g = foldlM open g fs
     open g f = do
         f' <- lift $ resolveModule f
         mfile <- lift $ parseModuleFile f'
-        openModule Nothing g f' (moduleFileId mfile) noloc (return mfile)
+        localOptsModuleM (`mappend` ppOptions (moduleFilePPArgs mfile)) $
+            openModule Nothing g f' (moduleFileId mfile) noloc (return mfile)
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter
@@ -278,6 +282,10 @@ moduleFileModificationTime (Right sci) = sciModTime sci
 updModuleFileModificationTime :: ModuleFile -> UnixTime -> ModuleFile
 updModuleFileModificationTime (Left (t,a,m,ml)) t' = Left (t',a,m,ml)
 updModuleFileModificationTime (Right sci) t' = Right $ updModTime sci t'
+
+moduleFilePPArgs :: ModuleFile -> PPArgs
+moduleFilePPArgs (Left (_,pp,_,_)) = pp
+moduleFilePPArgs (Right sci) = sciPPArgs sci
 
 -- module interface data
 data ModuleSCI = ModuleSCI {
