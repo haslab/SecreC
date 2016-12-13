@@ -64,6 +64,8 @@ appendComparison :: (ProverK loc m) => loc -> Comparison (TcM m) -> Comparison (
 
 appendComparisons :: (ProverK loc m) => loc -> [Comparison (TcM m)] -> TcM m (Comparison (TcM m))
 
+appendOrderings :: ProverK loc m => loc -> [Ordering] -> TcM m Ordering
+
 constraintError :: (ProverK loc m,VarsG (TcM m) a,VarsG (TcM m) b) => (Doc -> Doc -> Maybe SecrecError -> TypecheckerErr) -> loc -> a -> (a -> TcM m Doc) -> b -> (b -> TcM m Doc) -> Maybe SecrecError -> TcM m res
 
 tryCstrBool :: (ProverK loc m) => loc -> TcM m a -> TcM m Bool

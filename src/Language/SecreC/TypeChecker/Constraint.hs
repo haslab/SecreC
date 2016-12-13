@@ -2052,6 +2052,13 @@ appendOrdering l LT LT = return LT
 appendOrdering l GT GT = return GT
 appendOrdering l x y = constraintError (\x y mb -> Halt $ ComparisonException "comparison" x y mb) l x pp y pp Nothing
 
+appendOrderings :: ProverK loc m => loc -> [Ordering] -> TcM m Ordering
+appendOrderings l [] = return EQ
+appendOrderings l [x] = return x
+appendOrderings l (x:y:xs) = do
+    z <- appendOrdering l x y
+    appendOrderings l (z:xs)
+
 appendComparisons :: (ProverK loc m) => loc -> [Comparison (TcM m)] -> TcM m (Comparison (TcM m))
 appendComparisons l xs = foldr0M (Comparison () () EQ EQ False) (appendComparison l) xs
 

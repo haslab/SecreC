@@ -81,11 +81,15 @@ instance (DebugM m,PP m VarIdentifier) => PP m [(Var,IsVariadic)] where
     pp = liftM (sepBy comma) . mapM (\(y,z) -> ppVariadicArg pp (y,z))
 
 -- the most specific entries are preferred
-sortEntries :: [EntryEnv] -> [EntryEnv]
-sortEntries = sortBy sortDec
+sortEntries :: ProverK loc m => loc -> [EntryEnv] -> TcM m [EntryEnv]
+sortEntries l = sortByM (sortDec l)
     where
-    sortDec :: EntryEnv -> EntryEnv -> Ordering
-    sortDec (EntryEnv _ d1) (EntryEnv _ d2) = maybe EQ id $ comparesDecIds True True d1 d2
+    sortDec :: ProverK loc m => loc -> EntryEnv -> EntryEnv -> TcM m Ordering
+    sortDec l (EntryEnv _ d1) (EntryEnv _ d2) = do
+        opts <- askOpts
+        let isVerify = verify opts /= NoneV
+        o <- comparesDecIds l isVerify True True d1 d2
+        return $ maybe EQ id o
 
 decLineage :: DecType -> [ModuleTyVarId]
 decLineage (DecType i isRec _ _ _ _ _) = i : recs
@@ -113,7 +117,9 @@ discardRecursiveEntry l (e,e',_,_,_,_,_) = do
 -- | Matches a list of template arguments against a list of template declarations
 matchTemplate :: (ProverK loc m) => loc -> Maybe [EntryEnv] -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> TcM m [EntryEnv] -> TcM m DecType
 matchTemplate l oldentries kid n targs pargs ret check = do
-    entries <- maybe (liftM sortEntries check) return oldentries
+    entries <- case oldentries of
+        Nothing -> check >>= sortEntries l
+        Just es -> return es
     opts <- askOpts
     st <- getCstrState
     let isLattice = checkCoercion (implicitCoercions opts) st
@@ -431,6 +437,7 @@ minOrd x EQ = x
     
 compareTemplateEntriesTwice :: ProverK loc m => Doc -> loc -> Bool -> TIdentifier -> EntryEnv -> EntryEnv -> EntryEnv -> EntryEnv -> TcM m (Comparison (TcM m))
 compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
+    opts <- askOpts
     let f e = do
         ppe <- pp (entryType e) 
         return $ (locpos $ entryLoc e,ppe)
@@ -438,7 +445,8 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
     ord <- compareTwice l e1 e1' e2 e2' (compareTemplateEntries def l isLattice) (compareTemplateEntries def l isLattice)
     let (o,isLat,ko) = compOrdering ord 
     let sameMatch = mappend o isLat == EQ
-    let ord' = comparesDecIds sameMatch True (entryType e1) (entryType e2)
+    let isVerify = verify opts /= NoneV
+    ord' <- comparesDecIds l isVerify sameMatch True (entryType e1) (entryType e2)
     case (sameMatch,ord') of
         (True,Just EQ) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
         (False,Just EQ) -> return ord
@@ -463,12 +471,14 @@ sameTemplateDecs l d1 d2 = do
     
 compareTemplateEntries :: (ProverK loc m) => Doc -> loc -> Bool -> EntryEnv -> EntryEnv -> TcM m (Comparison (TcM m))
 compareTemplateEntries def l isLattice e1 e2 = liftM fst $ tcProveTop l "compare" $ tcBlock l $ do
+    opts <- askOpts
     debugTc $ do
         pp1 <- ppr e1
         pp2 <- ppr e2
         liftIO $ putStrLn $ "compareTemplateEntries " ++ pp1 ++ "\n" ++ pp2
     ord <- do
-        let cmp = comparesDecIds False False (entryType e1) (entryType e2)
+        let isVerify = verify opts /= NoneV
+        cmp <- comparesDecIds l isVerify False False (entryType e1) (entryType e2)
         case cmp of
             Just EQ -> do
                 debugTc $ liftIO $ putStrLn $ "sameEntry"
@@ -509,10 +519,27 @@ addTypeCond :: ProverK loc m => loc -> Cond -> TcM m ()
 addTypeCond l c = do
     tryAddHypothesis l "addTypeArg dim cond" LocalScope (const True) Set.empty $ HypCondition c
 
+compareDecClass :: Bool -> DecClass -> DecClass -> Ordering
+compareDecClass isVerify cl1 cl2 = if isVerify
+    then compare (isAnnDecClass cl1) (isAnnDecClass cl2)
+    else EQ
+
+compareDecKind :: Bool -> DecKind -> DecKind -> Ordering
+compareDecKind True FKind PKind = LT
+compareDecKind True FKind LKind = LT
+compareDecKind True PKind FKind = GT
+compareDecKind True LKind FKind = GT
+compareDecKind isVerify k1 k2 = EQ
+
 -- favor specializations over the base template, only if the specialization and base template matchings are equal
-comparesDecIds :: Bool -> Bool -> Type -> Type -> Maybe Ordering
-comparesDecIds sameMatch allowReps d1@(DecT (DecType j1 isRec1 _ _ _ _ _)) d2@(DecT (DecType j2 isRec2 _ _ _ _ _)) = do
-    compareDecTypeK sameMatch allowReps j1 isRec1 j2 isRec2
+comparesDecIds :: ProverK loc m => loc -> Bool -> Bool -> Bool -> Type -> Type -> TcM m (Maybe Ordering)
+comparesDecIds l isVerify sameMatch allowReps (DecT d1@(DecType j1 isRec1 _ _ _ _ b1)) (DecT d2@(DecType j2 isRec2 _ _ _ _ b2)) = do
+    let mb = compareDecTypeK sameMatch allowReps j1 isRec1 j2 isRec2
+    let ocl = compareDecClass isVerify (iDecDecClass b1) (iDecDecClass b2)
+    let ok = compareDecKind isVerify (decTyKind d1) (decTyKind d2)
+    case mb of
+        Just o -> liftM Just $ appendOrderings l [o,ocl,ok]
+        Nothing -> return (Nothing::Maybe Ordering)
      
 compareDecTypeK :: Bool -> Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering
 compareDecTypeK sameMatch allowReps j1 d1 j2 d2 | j1 == j2 && d1 == d2 = if allowReps then Just LT else Just EQ
