@@ -64,12 +64,15 @@ tcModuleFile (Right sci) = do
     return $ Right sci
 
 tcModuleWithPPArgs :: (ProverK loc m) => (PPArgs,Module Identifier loc,Int) -> TcM m (PPArgs,Module GIdentifier (Typed loc),Int)
-tcModuleWithPPArgs (ppargs,x,mlength) = localOptsTcM (`mappend` ppOptions ppargs) $ do
-    debugTc $ liftIO $ putStrLn $ "typechecking args ..." ++ show ppargs
-    x' <- tcModule x mlength
-    menv <- State.gets (snd . moduleEnv)
-    TcM $ lift $ writeModuleSCI ppargs menv x mlength
-    return (ppargs,x',mlength)
+tcModuleWithPPArgs (ppargs,x,mlength) = do
+    localOptsTcM (`mappend` ppOptions ppargs) $ do
+        opts <- askOpts
+        let ppargs' = [SecrecOpts opts]
+        debugTc $ liftIO $ putStrLn $ "typechecking args ..." ++ show ppargs'
+        x' <- tcModule x mlength
+        menv <- State.gets (snd . moduleEnv)
+        TcM $ lift $ writeModuleSCI ppargs' menv x mlength
+        return (ppargs',x',mlength)
 
 tcModule :: (ProverK loc m) => Module Identifier loc -> Int -> TcM m (Module GIdentifier (Typed loc))
 tcModule m@(Module l name prog) mlength = failTcM l $ do

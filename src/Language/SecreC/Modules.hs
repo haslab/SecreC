@@ -209,7 +209,7 @@ writeModuleSCI ppargs menv m mlength = do
         t <- liftIO $ fileModificationTime fn
         let scifn = replaceExtension fn "sci"
         let header = SCIHeader fn t (moduleId m) mlength
-        let body = SCIBody (map (fmap locpos) $ moduleImports m) ppargs menv
+        let body = SCIBody ppargs (map (fmap locpos) $ moduleImports m) menv
         e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
         case e of
             Nothing -> return ()
@@ -225,6 +225,7 @@ readModuleSCI fn = do
   where
     go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe ModuleSCI)
     go (Done leftover consumed header) input fn scifn = do
+        opts <- ask
         t <- liftIO $ fileModificationTime fn
         if (sciHeaderFile header == fn && t <= sciHeaderModTime header)
             then do
@@ -305,8 +306,8 @@ data SCIHeader = SCIHeader {
 instance Binary SCIHeader
 
 data SCIBody = SCIBody {
-      sciBodyImports :: [ImportDeclaration Identifier Position] -- module dependencies 
-    , sciBodyPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
+      sciBodyPPArgs :: PPArgs -- preprocessor arguments used for typechecking the module
+    , sciBodyImports :: [ImportDeclaration Identifier Position] -- module dependencies 
     , sciBodyEnv :: ModuleTcEnv -- typechecking environment
     } deriving Generic
 instance Binary SCIBody
