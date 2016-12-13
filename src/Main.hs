@@ -388,9 +388,10 @@ secrec opts = do
     when (List.null secrecIns) $ throwError $ userError "no SecreC input files"
     runSecrecM opts $ do
         modules <- parseModuleFiles secrecIns
+        let defes = ["~>","classify","repeat"]
         let es = case entryPoints opts of
-                    [] -> (True,Set.empty)
-                    es -> (False,Set.fromList $ ["~>","classify","repeat"] ++ es)
+                    [] -> (True,Set.fromList $ defes)
+                    es -> (False,Set.fromList $ defes ++ es)
         modules' <- liftM reverse $ State.evalStateT (pruneModuleFiles (reverse modules)) es
         passes secrecIns secrecOuts modules'
         
