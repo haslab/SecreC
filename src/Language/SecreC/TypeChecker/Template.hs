@@ -540,7 +540,7 @@ comparesDecIds l isVerify sameMatch allowReps (DecT d1@(DecType j1 isRec1 _ _ _ 
     case mb of
         Just o -> return $ Just o
         Nothing -> do
-            o <- appendOrderings l [ocl,maybe EQ id ok]
+            let o = mconcat [maybe EQ id ok,ocl]
             case o of
                 EQ -> return (Nothing::Maybe Ordering)
                 otherwise -> return $ Just o
