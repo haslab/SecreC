@@ -125,6 +125,8 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ requires IsItemSetOf(C,db);
 //@ requires shape(f.items)[1] == size(C);
 //@ requires shape(f.cache)[1] == size(C_dot);
+//@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
+//@ ensures shape(\result.cache)[0] <= shape(f.cache)[0] + 1;
 //@ ensures shape(\result.items)[1] == size(C);
 //@ ensures shape(\result.cache)[1] == size(C_dot);
 //@ requires assertion<pd_shared3p>(C_dot == transactions(C,db) :: pd_shared3p bool);
@@ -154,7 +156,6 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
-      //@ assert size({i}) == 1;
       //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
