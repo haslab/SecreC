@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --paths=examples --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=funcv --entrypoints="apriori"
+#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=funcv --entrypoints="apriori"
 
 /*
  * This file is a part of the Sharemind framework.
