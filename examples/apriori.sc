@@ -213,7 +213,8 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
           pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db,k+1);
           next = AddFrequent(next,C,C_dot,db,threshold);
-          
+          //@ assert size(C) == k+1;
+          //@ assert shape(next.items)[1] == k+1;
         }
       }
     }
