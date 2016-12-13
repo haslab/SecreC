@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
+{-# LANGUAGE TypeFamilies, FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-cse #-}
 
 module Main where
@@ -293,8 +293,9 @@ output opts secrecIns secrecOuts modules = do
     return moduleso
 
 type EntryPoints = (Bool,Set String)
+type EntryPointsM m = StateT EntryPoints (SecrecM m)
 
-pruneModuleFiles :: [ModuleFile] -> State EntryPoints [ModuleFile]
+pruneModuleFiles :: MonadIO m => [ModuleFile] -> EntryPointsM m [ModuleFile]
 pruneModuleFiles [] = return []
 pruneModuleFiles (m:ms) = do
     m' <- pruneModuleFile m
@@ -307,28 +308,28 @@ addEntryPoints es (b,xs) = (b && Set.null es,Set.union xs es)
 addGEntryPoints :: Data (a Identifier Position) => a Identifier Position -> EntryPoints -> EntryPoints
 addGEntryPoints x (b,xs) = (b,Set.union xs (gEntryPoints x))
 
-pruneModuleFile :: ModuleFile -> State EntryPoints ModuleFile
+pruneModuleFile :: MonadIO m => ModuleFile -> EntryPointsM m ModuleFile
 pruneModuleFile (Right sci) = return $ Right sci
 pruneModuleFile (Left (t,pargs,m,i)) = do
     State.modify $ addEntryPoints $ Set.fromList $ entryPoints $ ppOptions pargs
     m' <- pruneModule m
     return $ Left (t,pargs,m',i)
   where
-    pruneModule :: Module Identifier Position -> State EntryPoints (Module Identifier Position)
+    pruneModule :: MonadIO m => Module Identifier Position -> EntryPointsM m (Module Identifier Position)
     pruneModule (Module l mn p) = do
         p' <- pruneProgram p
         return $ Module l mn p'
-    pruneProgram :: Program Identifier Position -> State EntryPoints (Program Identifier Position)
+    pruneProgram :: MonadIO m => Program Identifier Position -> EntryPointsM m (Program Identifier Position)
     pruneProgram (Program l is gs) = do
         gs' <- pruneGlobalDecls gs
         return $ Program l is gs'
-    pruneGlobalDecls :: [GlobalDeclaration Identifier Position] -> State EntryPoints [GlobalDeclaration Identifier Position]
+    pruneGlobalDecls :: MonadIO m => [GlobalDeclaration Identifier Position] -> EntryPointsM m [GlobalDeclaration Identifier Position]
     pruneGlobalDecls [] = return []
     pruneGlobalDecls (g:gs) = do
         g' <- pruneGlobalDecl g
         gs' <- pruneGlobalDecls gs
         return $ maybeToList g' ++ gs'
-    pruneGlobalDecl :: GlobalDeclaration Identifier Position -> State EntryPoints (Maybe (GlobalDeclaration Identifier Position))
+    pruneGlobalDecl :: MonadIO m => GlobalDeclaration Identifier Position -> EntryPointsM m (Maybe (GlobalDeclaration Identifier Position))
     pruneGlobalDecl d@(GlobalProcedure l p) = pruneName (procedureDeclarationName p) d
     pruneGlobalDecl d@(GlobalStructure l p) = pruneName (structureDeclarationName p) d
     pruneGlobalDecl d@(GlobalFunction l p) = pruneName (functionDeclarationName p) d
@@ -339,19 +340,19 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
     pruneGlobalDecl d = do
         State.modify $ addGEntryPoints d
         return $ Just d
-    pruneGlobalAnns :: [GlobalAnnotation Identifier Position] -> State EntryPoints [GlobalAnnotation Identifier Position]
+    pruneGlobalAnns :: MonadIO m => [GlobalAnnotation Identifier Position] -> EntryPointsM m [GlobalAnnotation Identifier Position]
     pruneGlobalAnns [] = return []
     pruneGlobalAnns (a:as) = do
         a' <- pruneGlobalAnn a
         as' <- pruneGlobalAnns as
         return $ maybeToList a' ++ as'
-    pruneGlobalAnn :: GlobalAnnotation Identifier Position -> State EntryPoints (Maybe (GlobalAnnotation Identifier Position))
+    pruneGlobalAnn :: MonadIO m => GlobalAnnotation Identifier Position -> EntryPointsM m (Maybe (GlobalAnnotation Identifier Position))
     pruneGlobalAnn a = case globalAnnName a of
         Nothing -> do
             State.modify $ addGEntryPoints a
             return $ Just a
         Just n -> pruneName n a
-    pruneName :: Data (a Identifier Position) => Identifier -> a Identifier Position -> State EntryPoints (Maybe (a Identifier Position))
+    pruneName :: (LocOf (a Identifier Position) ~ Position,MonadIO m,Located (a Identifier Position),Data (a Identifier Position)) => Identifier -> a Identifier Position -> EntryPointsM m (Maybe (a Identifier Position))
     pruneName n d = do
         (b,es) <- State.get
         case b of
@@ -363,6 +364,9 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
                     State.modify $ addGEntryPoints d
                     return (Just d)
                 else do
+                    opts <- lift ask
+                    lift $ sciError $ "Ignored declaration for " ++ pprid n ++ " at " ++ pprid (loc d)
+                    when (debug opts) $ liftIO $ putStrLn $ "pruned " ++ show n ++ " in " ++ show es
                     return Nothing
 
 gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> Set String
@@ -385,7 +389,7 @@ secrec opts = do
         let es = case entryPoints opts of
                     [] -> (True,Set.empty)
                     es -> (False,Set.fromList es)
-        let modules' = reverse $ State.evalState (pruneModuleFiles (reverse modules)) es
+        modules' <- liftM reverse $ State.evalStateT (pruneModuleFiles (reverse modules)) es
         passes secrecIns secrecOuts modules'
         
 
