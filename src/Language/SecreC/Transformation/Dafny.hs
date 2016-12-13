@@ -97,7 +97,16 @@ data DafnySt = DafnySt {
     , inAnn :: Bool -- inside an annotation
     , currentModule :: Maybe Identifier
     , assumptions :: AnnsDoc
+    , freeMode :: Int -- for assertions (0=delete, 1=keep, 2=free)
     }
+
+withFreeMode :: Monad m => Int -> DafnyM m a -> DafnyM m a
+withFreeMode isFree m = do
+    old <- State.gets freeMode
+    State.modify $ \e -> e { freeMode = isFree }
+    x <- m
+    State.modify $ \e -> e { freeMode = old }
+    return x
 
 getAssumptions :: DafnyK m => DafnyM m AnnsDoc
 getAssumptions = State.gets assumptions
@@ -165,7 +174,7 @@ withInAnn b m = do
     return x
 
 toDafny :: DafnyK m => FilePath -> Bool -> [DafnyId] -> TcM m (Doc,[String])
-toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing []) $ do
+toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing [] 1) $ do
     dfy <- liftIO $ readFile prelude
     loadAxioms
     mapM_ (loadDafnyId noloc) entries
@@ -891,8 +900,8 @@ statementToDafny (AssertStatement l e) = do
     assert <- annExpr Nothing False leakMode StmtK vs pe
     addAnnsC StmtKC (anne++assert) empty
 statementToDafny (AnnStatement l ss) = withInAnn True $ do
-    anns <- concatMapM statementAnnToDafny ss
-    addAnnsC StmtKC anns empty
+    (anns,doc) <- statementAnnsToDafny ss
+    addAnnsC StmtKC anns doc
 statementToDafny (VarStatement l (VariableDeclaration _ isConst isHavoc t vs)) = do
     (t',annst) <- typeToDafny (unTyped $ loc t) StmtK (typed $ loc t)
     (concat -> anns,vcat -> pvd) <- Utils.mapAndUnzipM (varInitToDafny isConst isHavoc t') $ Foldable.toList vs
@@ -935,13 +944,30 @@ addAssumptions m = do
     State.modify $ \env -> env { assumptions = assumptions env ++ anns }
     return anns
 
+-- 0 = delete
+-- 1 = keep
+-- 2 = free
+genFree :: Bool -> Bool -> Int
+genFree isLeak leakMode = case (leakMode,isLeak) of
+    (True,True) -> 1 
+    (True,False) -> 2
+    (False,True) -> 0
+    (False,False) -> 1
+
+appendFreeMode :: Int -> Int -> Int
+appendFreeMode 0 _ = 0
+appendFreeMode _ 0 = 0
+appendFreeMode 2 _ = 2
+appendFreeMode _ 2 = 2
+appendFreeMode 1 1 = 1
+
 annExpr :: DafnyK m => Maybe Bool -> Bool -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> DafnyM m AnnsDoc
 annExpr isFree isLeak leakMode annK vs e = addAssumptions $ do
-    case (leakMode,isLeak) of
-        (True,True) -> return [(annK,isFree,vs,e,isLeak)]
-        (True,False) -> return [(annK,Just False,vs,e,isLeak)]
-        (False,True) -> return []
-        (False,False) -> return [(annK,isFree,vs,e,isLeak)]
+    mode <- State.gets freeMode
+    case (appendFreeMode mode $ genFree isLeak leakMode) of
+        0 -> return []
+        1 -> return [(annK,isFree,vs,e,isLeak)]
+        2 -> return [(annK,Just False,vs,e,isLeak)]
     
 loopAnnToDafny :: DafnyK m => LoopAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
 loopAnnToDafny (DecreasesAnn l isLeak e) = withInAnn True $ do
@@ -963,28 +989,32 @@ boolIsFree :: Bool -> Maybe Bool
 boolIsFree False = Nothing
 boolIsFree True = Just False
 
-statementAnnToDafny :: DafnyK m => StatementAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
+statementAnnsToDafny :: DafnyK m => [StatementAnnotation GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,Doc)
+statementAnnsToDafny ss = do
+    (anns,docs) <- Utils.mapAndUnzipM statementAnnToDafny ss
+    return (concat anns,vcat docs)
+
+statementAnnToDafny :: DafnyK m => StatementAnnotation GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 statementAnnToDafny (AssumeAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
         (anne,pe) <- expressionToDafny False Nothing StmtK e
         assume <- annExpr (Just False) isLeak leakMode StmtK vs pe
-        return (anne++assume)
+        addAnnsC StmtKC (anne++assume) PP.empty
 statementAnnToDafny (AssertAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
     withLeakMode isLeak $ do
         vs <- lift $ usedVs' e
         (anne,pe) <- expressionToDafny False Nothing StmtK e
         assert <- annExpr Nothing isLeak leakMode StmtK vs pe
-        return (anne++assert)
+        addAnnsC StmtKC (anne++assert) PP.empty
 statementAnnToDafny (EmbedAnn l isLeak e) = withInAnn True $ do
     leakMode <- getLeakMode
-    withLeakMode isLeak $ do
+    withLeakMode isLeak $ withFreeMode (genFree isLeak leakMode) $ do
         vs <- lift $ usedVs' e
-        (anns,ann) <- statementToDafny e
-        call <- annExpr Nothing isLeak leakMode NoK vs ann
-        return $ anns++call
+        (anns,call) <- statementToDafny e
+        addAnnsC StmtKC (anns) call
 
 -- checks that a dafny expression has a given shape
 checkDafnyShape :: DafnyK m => Position -> Maybe Bool -> Set VarIdentifier -> Sizes GIdentifier (Typed Position) -> Doc -> DafnyM m AnnsDoc
