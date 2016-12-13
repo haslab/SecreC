@@ -256,7 +256,7 @@ uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
-  //X //@ invariant shape(freq.items)[1] == k;
+  //@ invariant shape(freq.items)[1] == k;
   //@ invariant FrequentsCache(freq,db,threshold);
   {
       freq = apriori_k(db,threshold,freqs[k-1],k);
