@@ -521,7 +521,7 @@ addTypeCond l c = do
 
 compareDecClass :: Bool -> DecClass -> DecClass -> Ordering
 compareDecClass isVerify cl1 cl2 = if isVerify
-    then compare (isAnnDecClass cl1) (isAnnDecClass cl2)
+    then compare (isAnnDecClass cl2) (isAnnDecClass cl1)
     else EQ
 
 compareDecKind :: Bool -> DecKind -> DecKind -> Maybe Ordering
