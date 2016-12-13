@@ -638,7 +638,7 @@ addOperatorToRec vars hdeps op = do
 newOperator :: (ProverK loc m) => Op GIdentifier (Typed loc) -> DecCtx -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
 newOperator recop bctx op = do
     let o = funit op
-    let (Typed l (DecT recdt)) = loc recop
+    let (Typed l (DecT recdt@(DecType _ _ vars _ _ _ _))) = loc recop
     let (Typed _ (IDecT innerdect)) = loc op
     let selector = case iDecTyKind (innerDec recdt) of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
@@ -648,7 +648,7 @@ newOperator recop bctx op = do
     bctx' <- addLineage did $ newDecCtx l "newOperator" bctx True
     dict <- liftM (headNe . tDict) State.get
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newOp body" dontStop l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
-    let td = DecT $ dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
+    let td = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) td
 --    noNormalFreesM e
     debugTc $ do
@@ -829,7 +829,7 @@ addProcedureFunctionToRec vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = 
 -- | Adds a new (possibly overloaded) procedure to the environment.
 newProcedureFunction :: (ProverK loc m) => ProcedureName GIdentifier (Typed loc) -> DecCtx -> ProcedureName GIdentifier (Typed loc) -> TcM m (ProcedureName GIdentifier (Typed loc))
 newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n) = do
-    let (Typed _ (DecT recdt)) = loc recpn
+    let (Typed _ (DecT recdt@(DecType _ _ vars _ _ _ _))) = loc recpn
     let selector = case iDecTyKind (innerDec recdt) of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
@@ -840,7 +840,7 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     dict <- liftM (headNe . tDict) State.get
     
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newProc body" dontStop l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
-    let dt = dropDecRecs $ DecType i (DecTypeOri False) [] implicitDecCtx bctx' [] d''
+    let dt = dropDecRecs $ DecType i (DecTypeOri False) vars implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $ do
         ppe <- ppr (entryType e)
