@@ -101,6 +101,8 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
       //@ invariant FrequentsCache(next,db,threshold,k+1);
       {
         bool prefixEqual = true;
+        //@ assert prev.items[i,:0] == {};
+        //@ assert prev.items[j,:0] == {};
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
         //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:] :: bool);
