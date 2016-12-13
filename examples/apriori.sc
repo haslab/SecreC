@@ -17,7 +17,11 @@ module apriori;
 //import shared3p;
 //import table_database;
 //import shared3p_table_database;
-import axioms;
+//import axioms;
+
+//@ lemma Snoc1 <domain D,type T> (D T[[1]] xs)
+//@ requires size(xs) > 0;
+//@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
 
 kind shared3p;
 domain pd_shared3p shared3p;
