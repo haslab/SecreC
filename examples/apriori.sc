@@ -262,7 +262,7 @@ uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
       freq = apriori_k(db,threshold,freq,k);
   }
 
-  return freqs;
+  return freq.items;
 }
 
 
