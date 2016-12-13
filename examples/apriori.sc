@@ -19,11 +19,7 @@ import table_database;
 import shared3p_table_database;
 import axioms;
 
-//kind shared3p;
 domain pd_shared3p shared3p;
-
-//x template <type T>
-//x void printMatrix (T[[2]] mat) {}
 
 //@ function bool IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
@@ -55,6 +51,17 @@ D uint [[2]] load_db ()
 struct frequent {
     uint [[2]] items;
     pd_shared3p uint [[2]] cache;
+}
+
+frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
+//@ inline;
+{
+   frequent f;
+   uint[[2]] F (0,F_size);
+   pd_shared3p uint[[2]] F_cache (0,shape(db)[0]);
+   f.items = F;
+   f.cache = F_cache;
+   return f;
 }
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
@@ -148,17 +155,6 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
     return f;
 }
 
-frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
-//@ inline;
-{
-   frequent f;
-   uint[[2]] F (0,F_size);
-   pd_shared3p uint[[2]] F_cache (0,shape(db)[0]);
-   f.items = F;
-   f.cache = F_cache;
-   return f;
-}
-
 frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ leakage requires LeakFrequents(db,threshold);
@@ -232,28 +228,36 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
     return next;
 }
 
-uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
+//@ function bool AllFrequents(frequents[[1]] freqs, pd_a3p uint[[2]] db, uint threshold)
+//@ noinline;
+//@ {
+//@     forall uint[[1]] js; IsItemSetOf(js,db) && declassify(frequency(js,db)) >= threshold ==> in(js,set(freqs[size(js)-1]))
+//@ }
+
+frequent[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
+//@ free ensures AllFrequents(\result,db,threshold)
 {
-  frequent freq = apriori_1(db,threshold);
+  frequent[[1]] freqs = {apriori_1(db,threshold)};
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
-  //@ invariant shape(freq.items)[1] == k;
-  //@ invariant FrequentsCache(freq,db,threshold);
+  //@ invariant shape(last(freqs).items)[1] == k;
+  //@ invariant forall uint i; i < size(freqs) ==> FrequentsCache(freqs[i],db,threshold);
   {
-      freq = apriori_k(db,threshold,freq,k);
+      freqs = snoc(freqs,apriori_k(db,threshold,freq,k));
   }
 
-  return freq.items;
+  return freqs;
 }
 
 
 void main () {
     pd_shared3p uint [[2]] db = load_db ();
-    uint [[2]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
+    frequent [[1]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
     printMatrix (declassify(db));
-    printMatrix (itemsets);
+    for (uint i = 0; i < size(itemsets); i++)
+        printArray (itemsets[i]);
 }
