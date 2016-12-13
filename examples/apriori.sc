@@ -180,18 +180,18 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
     
     uint prev_F_size = shape(prev.items)[0];
     for (uint i = 0; i < prev_F_size; i=i+1)
-    //@ free invariant i <= prev_F_size;
-    //@ free invariant shape(next.items)[1] == k+1;
+    //@ invariant i <= prev_F_size;
+    //@ invariant shape(next.items)[1] == k+1;
     //@ free invariant FrequentsCache(next,db,threshold);
     {
       for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
-      //@ free invariant i < j && j <= prev_F_size;
-      //@ free invariant shape(next.items)[1] == k+1;
+      //@ invariant i < j && j <= prev_F_size;
+      //@ invariant shape(next.items)[1] == k+1;
       //@ free invariant FrequentsCache(next,db,threshold);
       {
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
-        //@ free invariant n < k;
+        //@ invariant n < k;
         //@ free invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
         {
           if (prev.items[i, n] != prev.items[j, n]) {
