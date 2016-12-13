@@ -29,6 +29,7 @@ domain pd_shared3p shared3p;
 
 template <domain D>
 D uint [[2]] load_db ()
+//@ ensures IsDB(\result);
 {
     string data_source = "DS1";
     string table_name = "FIMTable";

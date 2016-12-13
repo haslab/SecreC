@@ -1518,9 +1518,13 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.in" [x,y] = do
         Right n@((>1) -> True) -> do
             let pin = py <> text ".contains" <> parens px
             qExprToDafny isQExpr (annx++anny) pin   
-        otherwise -> do
+        Right n -> do
             ppt <- lift $ pp t
-            genError (locpos l) $ text "builtinToDafny: unsupported in dimension for" <+> ppt
+            genError (locpos l) $ text "builtinToDafny: unsupported in dimension" <+> ppid n <+> text "for" <+> ppt
+        Left err -> do
+            ppt <- lift $ pp t
+            pperr <- lift $ pp err
+            genError (locpos l) $ text "builtinToDafny: unsupported in dimension for" <+> ppt $+$ pperr
 builtinToDafny isLVal isQExpr annK (Typed l ret) "core.union" [x,y] = do
     (annx,px) <- expressionToDafny isLVal Nothing annK x
     (anny,py) <- expressionToDafny isLVal Nothing annK y
