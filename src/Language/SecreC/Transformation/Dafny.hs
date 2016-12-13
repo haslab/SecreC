@@ -544,6 +544,7 @@ decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns (Just bo
     (pargs',ssargs) <- newDafnyArgs l args
     body' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty body
     pcl <- decClassToDafny cl
+    ptargs <- typeArgsToDafny l targs
     panns <- procedureAnnsToDafny anns
     (annsb,pbody) <- case body' of 
         Just ss -> do
@@ -551,7 +552,7 @@ decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns (Just bo
             return (annsb,vbraces pss)
         Nothing -> return ([],empty)
     let anns' = parganns++panns++annsb
-    return $ Just (p,text "lemma" <+> ppn <+> pargs $+$ annLinesProcC anns' $+$ pbody)
+    return $ Just (p,text "lemma" <+> ppn <+> ptargs <+> pargs $+$ annLinesProcC anns' $+$ pbody)
   where did = LId (funit pn) mid isLeak
 decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = withLeakMode False $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     psn <- ppDafnyIdM did
