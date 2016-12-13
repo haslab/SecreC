@@ -89,7 +89,7 @@ D uint [[2]] load_db ()
 //@ {
 //@     shape(f.items)[0] == shape(f.cache)[0]
 //@     &&
-//@     shape(f.items)[1] == k;
+//@     shape(f.items)[1] == k
 //@     &&
 //@     shape(f.cache)[1] == shape(db)[0]
 //@     &&
