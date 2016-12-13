@@ -622,3 +622,19 @@ context<>
 {
     xs[size(xs)-1]
 }
+
+template<domain D>
+function D uint sum (D uint[[1]] xs)
+context<>
+//@ inline;
+{
+    __builtin("core.sum",xs) :: D uint
+}
+
+template <domain D >
+function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
+context<>
+//@ inline;
+{
+    __builtin("core.mul",x,y) :: D uint[[1]]
+}
