@@ -191,8 +191,8 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
-          //@ Snoc1(prev.items[i,:n]);
-          //@ Snoc1(prev.items[j,:n]);
+          //@ Snoc1(prev.items[i,:n+1]);
+          //@ Snoc1(prev.items[j,:n+1]);
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
