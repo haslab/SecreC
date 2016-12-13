@@ -121,7 +121,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires (C == snoc(xs,last(ys)) :: bool);
 //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_shared3p bool);
 //@ requires init(xs) == init(ys);
-//@ requires forall uint m; m < k-1 ==> xs[i,m] == xs[j,m];
+//@ requires forall uint m; m < k-1 ==> xs[m] == ys[m];
 //@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
 
 
