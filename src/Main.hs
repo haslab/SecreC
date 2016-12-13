@@ -304,8 +304,7 @@ pruneModuleFiles (m:ms) = do
     return (m':ms')
 
 addEntryPoints :: Set String -> EntryPoints -> EntryPoints
-addEntryPoints (Set.null -> True) (b,xs) = (True,xs)
-addEntryPoints es (b,xs) = (b,Set.union xs es)
+addEntryPoints es (b,xs) = (b && Set.null es,Set.union xs es)
 
 addGEntryPoints :: Data (a Identifier Position) => a Identifier Position -> EntryPoints -> EntryPoints
 addGEntryPoints x (b,xs) = (b,Set.union xs (gEntryPoints x))
