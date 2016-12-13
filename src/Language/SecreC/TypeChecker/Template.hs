@@ -448,9 +448,9 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
     let isVerify = verify opts /= NoneV
     ord' <- comparesDecIds l isVerify sameMatch True (entryType e1) (entryType e2)
     case (sameMatch,ord') of
-        (True,Just EQ) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
+        (True,Just EQ) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Just EQ) -> return ord
-        (True,Nothing) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
+        (True,Nothing) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Nothing) -> return ord
         (_,Just o') -> return $ Comparison e1 e2 o' EQ ko
     
@@ -524,12 +524,12 @@ compareDecClass isVerify cl1 cl2 = if isVerify
     then compare (isAnnDecClass cl1) (isAnnDecClass cl2)
     else EQ
 
-compareDecKind :: Bool -> DecKind -> DecKind -> Ordering
-compareDecKind True FKind PKind = LT
-compareDecKind True FKind LKind = LT
-compareDecKind True PKind FKind = GT
-compareDecKind True LKind FKind = GT
-compareDecKind isVerify k1 k2 = EQ
+compareDecKind :: Bool -> DecKind -> DecKind -> Maybe Ordering
+compareDecKind True FKind PKind = Just LT
+compareDecKind True FKind LKind = Just LT
+compareDecKind True PKind FKind = Just GT
+compareDecKind True LKind FKind = Just GT
+compareDecKind isVerify k1 k2 = if k1 == k2 then Just EQ else Nothing
 
 -- favor specializations over the base template, only if the specialization and base template matchings are equal
 comparesDecIds :: ProverK loc m => loc -> Bool -> Bool -> Bool -> Type -> Type -> TcM m (Maybe Ordering)
@@ -538,7 +538,7 @@ comparesDecIds l isVerify sameMatch allowReps (DecT d1@(DecType j1 isRec1 _ _ _ 
     let ocl = compareDecClass isVerify (iDecDecClass b1) (iDecDecClass b2)
     let ok = compareDecKind isVerify (decTyKind d1) (decTyKind d2)
     case mb of
-        Just o -> liftM Just $ appendOrderings l [o,ocl,ok]
+        Just o -> liftM Just $ appendOrderings l [o,ocl,maybe EQ id ok]
         Nothing -> return (Nothing::Maybe Ordering)
      
 compareDecTypeK :: Bool -> Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering

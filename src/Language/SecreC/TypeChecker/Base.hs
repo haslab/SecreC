@@ -2109,7 +2109,7 @@ instance (DebugM m) => PP m DecType where
             $+$ pp3
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
-            $+$ pp6 <+> prefixOp (isOIden' n) pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
+            $+$ pp6 <+> text "function" <+> prefixOp (isOIden' n) pp7 <> abrackets (sepBy comma pp70) <> parens (sepBy comma pp8)
             $+$ pp9
             $+$ pp10
             $+$ ppcl)
