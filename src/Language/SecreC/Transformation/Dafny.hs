@@ -651,12 +651,13 @@ qualifiedDafny l t x = do
 
 genDafnyAssumptions :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
 genDafnyAssumptions l hasLeak annK vs pv tv = do
-    anns1 <- genDafnyArrays l annK vs pv tv
+    anns1 <- genDafnyArrays l hasLeak annK vs pv tv
     anns2 <- genDafnyPublics l hasLeak annK vs pv tv
     return (anns1++anns2)
 
-genDafnyArrays :: DafnyK m => Position -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
-genDafnyArrays l annK vs pv tv = do
+genDafnyArrays :: DafnyK m => Position -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> Type -> DafnyM m AnnsDoc
+genDafnyArrays l True annK vs pv tv = return []
+genDafnyArrays l False annK vs pv tv = do
     case tv of
         ComplexT (CType s b d) -> do
             mbd <- lift $ tryTcError l $ fullyEvaluateIndexExpr l d
