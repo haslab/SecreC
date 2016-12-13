@@ -246,20 +246,20 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
 //x //@     forall uint[[1]] js; IsItemSetOf(js,db) && declassify(frequency(js,db)) >= threshold ==> in(js,set(freqs[size(js)-1].items))
 //x //@ }
 
-frequent[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
+uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
 //x //@ free ensures AllFrequents(\result,db,threshold);
 {
-  frequent[[1]] freqs = {apriori_1(db,threshold)};
+  frequent freq = apriori_1(db,threshold);
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
-  //X //@ invariant shape(last(freqs).items)[1] == k;
-  //@ invariant forall uint i; i < size(freqs) ==> FrequentsCache(freqs[i],db,threshold);
+  //X //@ invariant shape(freq.items)[1] == k;
+  //@ invariant FrequentsCache(freq,db,threshold);
   {
-      freqs = snoc(freqs,apriori_k(db,threshold,freqs[k-1],k));
+      freq = apriori_k(db,threshold,freqs[k-1],k);
   }
 
   return freqs;
@@ -268,8 +268,7 @@ frequent[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 
 void main () {
     pd_shared3p uint [[2]] db = load_db ();
-    frequent [[1]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
+    uint[[2]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
     printMatrix (declassify(db));
-    for (uint i = 0; i < size(itemsets); i++)
-        printArray (itemsets[i]);
+    printMatrix (itemsets);
 }
