@@ -247,7 +247,7 @@ frequent[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
   //X //@ invariant shape(last(freqs).items)[1] == k;
   //@ invariant forall uint i; i < size(freqs) ==> FrequentsCache(freqs[i],db,threshold);
   {
-      freqs = snoc(freqs,apriori_k(db,threshold,freq,k));
+      freqs = snoc(freqs,apriori_k(db,threshold,last(freqs),k));
   }
 
   return freqs;
