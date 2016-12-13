@@ -390,7 +390,7 @@ secrec opts = do
         modules <- parseModuleFiles secrecIns
         let es = case entryPoints opts of
                     [] -> (True,Set.empty)
-                    es -> (False,Set.fromList $ ["classify","repeat"] ++ es)
+                    es -> (False,Set.fromList $ ["~>","classify","repeat"] ++ es)
         modules' <- liftM reverse $ State.evalStateT (pruneModuleFiles (reverse modules)) es
         passes secrecIns secrecOuts modules'
         
