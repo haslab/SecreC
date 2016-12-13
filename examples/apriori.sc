@@ -103,12 +103,16 @@ D uint [[2]] load_db ()
 //x //@ ensures db[:,i] * db[:,i] == db[:,i];
 //x //@ {}
 
-//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db)
+//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
+//@ requires k > 1;
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
+//@ requires size(xs) == k-1;
 //@ requires size(xs) == size(ys);
 //@ requires IsItemSetOf(C,db);
+//@ requires size(C) == k;
+//@ requires size(C_dot) == shape(db)[0];
 //@ requires (C == snoc(xs,last(ys)) :: bool);
 //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_shared3p bool);
 //@ requires init(xs) == init(ys);
@@ -206,9 +210,8 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert (last(prev.items[i,:]) == prev.items[i,k-1] :: bool);
           //@ assert IsItemSetOf(C,db);
-          //@ assert size(C) == k+1;
           pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
-          //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db);
+          //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db,k+1);
           next = AddFrequent(next,C,C_dot,db,threshold);
           
         }
