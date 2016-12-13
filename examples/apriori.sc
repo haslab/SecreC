@@ -83,11 +83,13 @@ D uint [[2]] load_db ()
 //@ requires IsDB(db);
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-//@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold)
+//@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
 //@     shape(f.items)[0] == shape(f.cache)[0]
+//@     &&
+//@     shape(f.items)[1] == k;
 //@     &&
 //@     shape(f.cache)[1] == shape(db)[0]
 //@     &&
@@ -127,17 +129,15 @@ D uint [[2]] load_db ()
 frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
-//@ requires shape(f.items)[1] == size(C);
 //@ requires shape(f.cache)[1] == size(C_dot);
 //@ requires shape(f.items)[0] == shape(f.cache)[0];
 //@ ensures shape(\result.items)[0] == shape(\result.cache)[0];
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
-//@ ensures shape(\result.items)[1] == size(C);
 //@ ensures shape(\result.cache)[1] == size(C_dot);
 //@ requires assertion<pd_shared3p>(C_dot == transactions(C,db) :: pd_shared3p bool);
 //@ leakage requires LeakFrequents(db,threshold);
-//@ requires FrequentsCache(f,db,threshold);
-//@ ensures FrequentsCache(\result,db,threshold);
+//@ requires FrequentsCache(f,db,threshold,size(C));
+//@ ensures FrequentsCache(\result,db,threshold,size(C));
 {
     pd_shared3p uint frequence = sum (C_dot);
     if (declassify (frequence >= threshold)) {
@@ -150,16 +150,14 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ leakage requires LeakFrequents(db,threshold);
-//@ ensures shape(\result.items)[1] == 1;
-//@ ensures FrequentsCache(\result,db,threshold);
+//@ ensures FrequentsCache(\result,db,threshold,1);
 {
     frequent f = newfrequent(1,db);
 
     for (uint i = 0; i < shape(db)[1]; i=i+1)
     //@ invariant i <= shape(db)[1];
     //@ invariant shape(f.items)[0] <= i;
-    //@ invariant shape(f.items)[1] == 1;
-    //@ invariant FrequentsCache(f,db,threshold);
+    //@ invariant FrequentsCache(f,db,threshold,1);
     {
       //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       f = AddFrequent(f,{i},db[:,i],db,threshold);
@@ -170,24 +168,20 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires IsDB(db);
 //@ requires k >= 1;
-//@ requires shape(prev.items)[1] == k;
 //@ leakage requires LeakFrequents(db,threshold);
-//@ ensures shape(\result.items)[1] == k + 1;
-//@ requires FrequentsCache(prev,db,threshold);
-//@ ensures FrequentsCache(\result,db,threshold);
+//@ requires FrequentsCache(prev,db,threshold,k);
+//@ ensures FrequentsCache(\result,db,threshold,k+1);
 {
     frequent next = newfrequent(k+1,db);
     
     uint prev_F_size = shape(prev.items)[0];
     for (uint i = 0; i < prev_F_size; i=i+1)
     //@ invariant i <= prev_F_size;
-    //@ invariant shape(next.items)[1] == k+1;
-    //@ free invariant FrequentsCache(next,db,threshold);
+    //@ free invariant FrequentsCache(next,db,threshold,k+1);
     {
       for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
       //@ invariant i < j && j <= prev_F_size;
-      //@ invariant shape(next.items)[1] == k+1;
-      //@ free invariant FrequentsCache(next,db,threshold);
+      //@ free invariant FrequentsCache(next,db,threshold,k+1);
       {
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
@@ -237,8 +231,7 @@ uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
-  //@ invariant shape(freq.items)[1] == k;
-  //@ invariant FrequentsCache(freq,db,threshold);
+  //@ invariant FrequentsCache(freq,db,threshold,k);
   {
       freq = apriori_k(db,threshold,freq,k);
   }
