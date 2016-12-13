@@ -538,7 +538,7 @@ comparesDecIds l isVerify sameMatch allowReps (DecT d1@(DecType j1 isRec1 _ _ _ 
     let ocl = compareDecClass isVerify (iDecDecClass b1) (iDecDecClass b2)
     let ok = compareDecKind isVerify (decTyKind d1) (decTyKind d2)
     case mb of
-        Just o -> liftM Just $ appendOrderings l [o,ocl,maybe EQ id ok]
+        Just o -> return $ Just o
         Nothing -> do
             o <- appendOrderings l [ocl,maybe EQ id ok]
             case o of
