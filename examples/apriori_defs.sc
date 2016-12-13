@@ -15,7 +15,7 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 
 //@ lemma Snoc1 <domain D> (D uint[[1]] xs)
 //@ requires size(xs) > 0;
-//@ ensures assertion<D>(xs == snoc(init(xs),last(xs)))
+//@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
 //@ {}
 
 template<domain D>
