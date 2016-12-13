@@ -3071,7 +3071,7 @@ tryTcError l m = catchError (liftM Right $ newErrorM topm) (return . Left)
     where
     topm = tcNew (locpos l) "tryTcError" $ do
         x <- m
-        solveTop l "tryTcError"
+        solve l "tryTcError"
         return x
 
 tryTcErrorBool :: ProverK loc m => loc -> TcM m a -> TcM m Bool

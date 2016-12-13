@@ -53,8 +53,6 @@ import qualified Text.ParserCombinators.Parsec.Number as Parsec
 
 import Paths_SecreC
 
-import Debug.Trace
-
 -- * main function
 
 main :: IO ()
@@ -357,14 +355,14 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
     pruneName n d = do
         (b,es) <- State.get
         case b of
-            True -> trace ("all did not prune " ++ show n ++ " in " ++ show es) $ do
+            True -> do
                 State.modify $ addGEntryPoints d
                 return $ Just d
             False -> if List.elem n es
-                then trace ("did not prune " ++ show n ++ " in " ++ show es) $ do
+                then do
                     State.modify $ addGEntryPoints d
                     return (Just d)
-                else trace ("pruned " ++ show n ++ " in " ++ show es) $ do
+                else do
                     return Nothing
 
 gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> Set String
@@ -382,7 +380,7 @@ secrec opts = do
     let secrecIns = inputs opts
     let secrecOuts = outputs opts
     when (List.null secrecIns) $ throwError $ userError "no SecreC input files"
-    trace (show opts) $ runSecrecM opts $ do
+    runSecrecM opts $ do
         modules <- parseModuleFiles secrecIns
         let es = case entryPoints opts of
                     [] -> (True,Set.empty)
