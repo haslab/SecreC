@@ -10,6 +10,8 @@ import Data.Version (showVersion)
 import Data.Maybe
 import qualified Data.Text as Text
 import Data.Generics
+import qualified Data.Set as Set
+import Data.Set (Set(..))
 
 import Language.SecreC.IO
 import Language.SecreC.Pretty as Pretty
@@ -50,6 +52,8 @@ import qualified Text.Parsec as Parsec
 import qualified Text.ParserCombinators.Parsec.Number as Parsec
 
 import Paths_SecreC
+
+import Debug.Trace
 
 -- * main function
 
@@ -290,39 +294,44 @@ output opts secrecIns secrecOuts modules = do
             return ()
     return moduleso
 
-pruneModuleFiles :: [ModuleFile] -> State (Bool,[String]) [ModuleFile]
+type EntryPoints = (Bool,Set String)
+
+pruneModuleFiles :: [ModuleFile] -> State EntryPoints [ModuleFile]
 pruneModuleFiles [] = return []
 pruneModuleFiles (m:ms) = do
     m' <- pruneModuleFile m
     ms' <- pruneModuleFiles ms
     return (m':ms')
 
-addEntryPoints :: [String] -> (Bool,[String]) -> (Bool,[String])
-addEntryPoints [] (b,xs) = (True,xs)
-addEntryPoints es (b,xs) = (b,xs++es)
+addEntryPoints :: Set String -> EntryPoints -> EntryPoints
+addEntryPoints (Set.null -> True) (b,xs) = (True,xs)
+addEntryPoints es (b,xs) = (b,Set.union xs es)
 
-pruneModuleFile :: ModuleFile -> State (Bool,[String]) ModuleFile
+addGEntryPoints :: Data (a Identifier Position) => a Identifier Position -> EntryPoints -> EntryPoints
+addGEntryPoints x (b,xs) = (b,Set.union xs (gEntryPoints x))
+
+pruneModuleFile :: ModuleFile -> State EntryPoints ModuleFile
 pruneModuleFile (Right sci) = return $ Right sci
 pruneModuleFile (Left (t,pargs,m,i)) = do
-    State.modify $ addEntryPoints $ entryPoints $ ppOptions pargs
+    State.modify $ addEntryPoints $ Set.fromList $ entryPoints $ ppOptions pargs
     m' <- pruneModule m
     return $ Left (t,pargs,m',i)
   where
-    pruneModule :: Module Identifier Position -> State (Bool,[String]) (Module Identifier Position)
+    pruneModule :: Module Identifier Position -> State EntryPoints (Module Identifier Position)
     pruneModule (Module l mn p) = do
         p' <- pruneProgram p
         return $ Module l mn p'
-    pruneProgram :: Program Identifier Position -> State (Bool,[String]) (Program Identifier Position)
+    pruneProgram :: Program Identifier Position -> State EntryPoints (Program Identifier Position)
     pruneProgram (Program l is gs) = do
         gs' <- pruneGlobalDecls gs
         return $ Program l is gs'
-    pruneGlobalDecls :: [GlobalDeclaration Identifier Position] -> State (Bool,[String]) [GlobalDeclaration Identifier Position]
+    pruneGlobalDecls :: [GlobalDeclaration Identifier Position] -> State EntryPoints [GlobalDeclaration Identifier Position]
     pruneGlobalDecls [] = return []
     pruneGlobalDecls (g:gs) = do
         g' <- pruneGlobalDecl g
         gs' <- pruneGlobalDecls gs
         return $ maybeToList g' ++ gs'
-    pruneGlobalDecl :: GlobalDeclaration Identifier Position -> State (Bool,[String]) (Maybe (GlobalDeclaration Identifier Position))
+    pruneGlobalDecl :: GlobalDeclaration Identifier Position -> State EntryPoints (Maybe (GlobalDeclaration Identifier Position))
     pruneGlobalDecl d@(GlobalProcedure l p) = pruneName (procedureDeclarationName p) d
     pruneGlobalDecl d@(GlobalStructure l p) = pruneName (structureDeclarationName p) d
     pruneGlobalDecl d@(GlobalFunction l p) = pruneName (functionDeclarationName p) d
@@ -331,42 +340,43 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
         as' <- pruneGlobalAnns as
         return $ Just $ GlobalAnnotations l as'
     pruneGlobalDecl d = do
-        State.modify $ \(b,es) -> (b,es++gEntryPoints d)
+        State.modify $ addGEntryPoints d
         return $ Just d
-    pruneGlobalAnns :: [GlobalAnnotation Identifier Position] -> State (Bool,[String]) [GlobalAnnotation Identifier Position]
+    pruneGlobalAnns :: [GlobalAnnotation Identifier Position] -> State EntryPoints [GlobalAnnotation Identifier Position]
     pruneGlobalAnns [] = return []
     pruneGlobalAnns (a:as) = do
         a' <- pruneGlobalAnn a
         as' <- pruneGlobalAnns as
         return $ maybeToList a' ++ as'
-    pruneGlobalAnn :: GlobalAnnotation Identifier Position -> State (Bool,[String]) (Maybe (GlobalAnnotation Identifier Position))
+    pruneGlobalAnn :: GlobalAnnotation Identifier Position -> State EntryPoints (Maybe (GlobalAnnotation Identifier Position))
     pruneGlobalAnn a = case globalAnnName a of
         Nothing -> do
-            State.modify $ \(b,es) -> (b,es++gEntryPoints a)
+            State.modify $ addGEntryPoints a
             return $ Just a
         Just n -> pruneName n a
-    pruneName :: Data (a Identifier Position) => Identifier -> a Identifier Position -> State (Bool,[String]) (Maybe (a Identifier Position))
+    pruneName :: Data (a Identifier Position) => Identifier -> a Identifier Position -> State EntryPoints (Maybe (a Identifier Position))
     pruneName n d = do
         (b,es) <- State.get
         case b of
-            True -> do
-                State.modify $ \(b,es) -> (b,es++gEntryPoints d)
+            True -> trace ("all did not prune " ++ show n ++ " in " ++ show es) $ do
+                State.modify $ addGEntryPoints d
                 return $ Just d
             False -> if List.elem n es
-                then do
-                    State.modify $ \(b,es) -> (b,es++gEntryPoints d)
+                then trace ("did not prune " ++ show n ++ " in " ++ show es) $ do
+                    State.modify $ addGEntryPoints d
                     return (Just d)
-                else return Nothing
+                else trace ("pruned " ++ show n ++ " in " ++ show es) $ do
+                    return Nothing
 
-gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> [String]
-gEntryPoints x = everything (++) (mkQ [] auxP `extQ` auxO `extQ` auxS) x
+gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> Set String
+gEntryPoints x = everything (Set.union) (mkQ Set.empty auxP `extQ` auxO `extQ` auxS) x
     where
-    auxP :: ProcedureName Identifier Position -> [String]
-    auxP pn = [procedureNameId pn]
-    auxO :: Op Identifier Position -> [String]
-    auxO o = [pprid o]
-    auxS :: TypeName Identifier Position -> [String]
-    auxS s = [typeId s]
+    auxP :: ProcedureName Identifier Position -> Set String
+    auxP pn = Set.singleton $ procedureNameId pn
+    auxO :: Op Identifier Position -> Set String
+    auxO o = Set.singleton $ pprid o
+    auxS :: TypeName Identifier Position -> Set String
+    auxS s = Set.singleton $ typeId s
 
 secrec :: Options -> IO ()
 secrec opts = do
@@ -376,8 +386,8 @@ secrec opts = do
     runSecrecM opts $ do
         modules <- parseModuleFiles secrecIns
         let es = case entryPoints opts of
-                    [] -> (True,[])
-                    es -> (False,es)
+                    [] -> (True,Set.empty)
+                    es -> (False,Set.fromList es)
         let modules' = reverse $ State.evalState (pruneModuleFiles (reverse modules)) es
         passes secrecIns secrecOuts modules'
         

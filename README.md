@@ -80,6 +80,13 @@ By default, the tool will typecheck a given SecreC program:
 Modules builtin, main are well-typed.
 ```
 
+For large SecreC programs, you can use the `progress` flag:
+```
+> secrec stdlib.sc
+     [=>............]  183/1674  11%
+Modules builtin, stdlib are well-typed.
+```
+
 To verify the security properties of a SecreC program, you can invoke the tool with the `verify` flag:
 ```
 > secrec examples/leakage/cut/cut.sc --verify
