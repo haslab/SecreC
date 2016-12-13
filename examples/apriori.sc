@@ -1,32 +1,29 @@
-#OPTIONS_SECREC --implicitcoercions=offc --backtrack=noneb --matching=gorderedm --promote=nop --verify=funcv --entrypoints="apriori"
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=funcv --entrypoints="apriori"
+
+/*
+ * This file is a part of the Sharemind framework.
+ *
+ * Copyright (C) AS Cybernetica
+ * All rights are reserved. Reproduction in whole or part is prohibited
+ * without the written consent of the copyright owner.
+ *
+ * Main contributors:
+ * Roman Jagomagis (neo15@ut.ee)
+ */
 
 module apriori;
 
-//import stdlib;
-//import shared3p;
+import stdlib;
+import shared3p;
+import table_database;
+import shared3p_table_database;
 import axioms;
 
-kind shared3p;
+//kind shared3p;
 domain pd_shared3p shared3p;
 
-template<domain D>
-function D uint sum (D uint[[1]] xs)
-context<>
-//@ inline;
-{
-    __builtin("core.sum",xs) :: D uint
-}
-
-template <domain D >
-function D uint[[1]] operator * (D uint[[1]] x,D uint[[1]] y)
-context<>
-//@ inline;
-{
-    __builtin("core.mul",x,y) :: D uint[[1]]
-}
-
-template <type T>
-void printMatrix (T[[2]] mat) {}
+//x template <type T>
+//x void printMatrix (T[[2]] mat) {}
 
 //@ function bool IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
@@ -34,22 +31,24 @@ void printMatrix (T[[2]] mat) {}
 //@     forall pd_shared3p uint x; assertion<pd_shared3p>(in(x,db) ==> x <= classify(1))
 //@ }
 
-pd_shared3p uint [[2]] load_db ()
-//@ ensures IsDB(\result);
+template <domain D>
+D uint [[2]] load_db ()
 {
-    pd_shared3p uint [[2]] db = reshape(classify({}),5,5);
-    db[0, 0] = classify(1);
-    db[0, 1] = classify(1);
-    db[0, 3] = classify(1);
-    db[1, 0] = classify(1);
-    db[1, 3] = classify(1);
-    db[1, 4] = classify(1);
-    db[2, 0] = classify(1);
-    db[2, 1] = classify(1);
-    db[3, 2] = classify(1);
-    db[4, 1] = classify(1);
-    db[4, 2] = classify(1);
-    db[4, 3] = classify(1);
+    string data_source = "DS1";
+    string table_name = "FIMTable";
+
+    tdbOpenConnection(data_source);
+    assert(tdbTableExists(data_source, table_name));
+
+    uint columns = tdbGetColumnCount (data_source, table_name);
+    uint rows = tdbGetRowCount (data_source, table_name);
+
+    D uint [[2]] db(rows, columns);
+
+    for (uint i = 0; i < columns; i++) {
+        db[:, i] = tdbReadColumn (data_source, table_name, i);
+    }
+
     return db;
 }
 
@@ -142,11 +141,22 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ ensures FrequentsCache(\result,db,threshold);
 {
     pd_shared3p uint frequence = sum (C_dot);
-    if (declassify (frequence >= classify(threshold))) {
+    if (declassify (frequence >= threshold)) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
     }
     return f;
+}
+
+frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
+//@ inline;
+{
+   frequent f;
+   uint[[2]] F (0,F_size);
+   pd_shared3p uint[[2]] F_cache (0,shape(db)[0]);
+   f.items = F;
+   f.cache = F_cache;
+   return f;
 }
 
 frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
@@ -155,9 +165,7 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 //@ ensures shape(\result.items)[1] == 1;
 //@ ensures FrequentsCache(\result,db,threshold);
 {
-    frequent f;
-    f.items = reshape({},0,1);
-    f.cache = reshape(classify({}),0,shape(db)[0]);
+    frequent f = newfrequent(1,db);
 
     for (uint i = 0; i < shape(db)[1]; i=i+1)
     //@ invariant i <= shape(db)[1];
@@ -180,9 +188,8 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
 //@ requires FrequentsCache(prev,db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold);
 {
-    frequent next;
-    next.items = reshape({},0,k+1);
-    next.cache = reshape(classify({}),0,shape(db)[0]);
+    frequent next = newfrequent(k+1,db);
+    
     uint prev_F_size = shape(prev.items)[0];
     for (uint i = 0; i < prev_F_size; i=i+1)
     //@ invariant i <= prev_F_size;
