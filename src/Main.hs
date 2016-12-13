@@ -321,8 +321,8 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
         return $ Module l mn p'
     pruneProgram :: MonadIO m => Program Identifier Position -> EntryPointsM m (Program Identifier Position)
     pruneProgram (Program l is gs) = do
-        gs' <- pruneGlobalDecls gs
-        return $ Program l is gs'
+        gs' <- pruneGlobalDecls $ reverse gs
+        return $ Program l is $ reverse gs'
     pruneGlobalDecls :: MonadIO m => [GlobalDeclaration Identifier Position] -> EntryPointsM m [GlobalDeclaration Identifier Position]
     pruneGlobalDecls [] = return []
     pruneGlobalDecls (g:gs) = do
@@ -335,8 +335,8 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
     pruneGlobalDecl d@(GlobalFunction l p) = pruneName (functionDeclarationName p) d
     pruneGlobalDecl d@(GlobalTemplate l p) = pruneName (templateDeclarationName p) d
     pruneGlobalDecl (GlobalAnnotations l as) = do
-        as' <- pruneGlobalAnns as
-        return $ Just $ GlobalAnnotations l as'
+        as' <- pruneGlobalAnns $ reverse as
+        return $ Just $ GlobalAnnotations l $ reverse as'
     pruneGlobalDecl d = do
         State.modify $ addGEntryPoints d
         return $ Just d
@@ -354,17 +354,19 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
         Just n -> pruneName n a
     pruneName :: (LocOf (a Identifier Position) ~ Position,MonadIO m,Located (a Identifier Position),Data (a Identifier Position)) => Identifier -> a Identifier Position -> EntryPointsM m (Maybe (a Identifier Position))
     pruneName n d = do
+        opts <- lift ask
         (b,es) <- State.get
         case b of
             True -> do
+                --when (debug opts) $ liftIO $ putStrLn $ "entrypoints " ++ show n ++ " : " ++ show (gEntryPoints d)
                 State.modify $ addGEntryPoints d
                 return $ Just d
             False -> if List.elem n es
                 then do
+                    --when (debug opts) $ liftIO $ putStrLn $ "entrypoints " ++ show n ++ " : " ++ show (gEntryPoints d)
                     State.modify $ addGEntryPoints d
                     return (Just d)
                 else do
-                    opts <- lift ask
                     lift $ sciError $ "Ignored declaration for " ++ pprid n ++ " at " ++ pprid (loc d)
                     when (debug opts) $ liftIO $ putStrLn $ "pruned " ++ show n ++ " in " ++ show es
                     return Nothing
