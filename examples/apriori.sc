@@ -42,9 +42,8 @@ D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)
 //@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:]);
 //@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
 {
-    return cat (xs,reshape(x,1,size(x)));
+    return cat(xs,reshape(x,1,size(x)));
 }
-
 
 kind shared3p;
 domain pd_shared3p shared3p;
@@ -198,6 +197,7 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[1] == 1;
     //@ invariant FrequentsCache(f,db,threshold);
     {
+      //@ assert size({i}) == 1;
       //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }

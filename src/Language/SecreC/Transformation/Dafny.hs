@@ -1155,6 +1155,17 @@ hasLeakExpr = everything (||) (mkQ False aux)
     aux (LeakExpr {}) = True
     aux _ = False
 
+isNotDafnyAnnExpr :: Expression GIdentifier (Typed Position) -> Bool
+isNotDafnyAnnExpr e = hasLeakExpr e || not (isAnnExpr e)
+
+isAnnExpr :: Expression GIdentifier (Typed Position) -> Bool
+isAnnExpr e = everything (&&) (mkQ True aux) e
+    where
+    aux :: InnerDecType -> Bool
+    aux (ProcType {}) = False
+    aux (LemmaType {}) = False
+    aux _ = True
+
 projectionToDafny :: DafnyK m => Bool -> IsQExpr -> AnnKind -> Expression GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 projectionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> is)) = do
     vs <- lift $ usedVs' se
@@ -1166,13 +1177,13 @@ projectionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> 
             (anne,pe) <- expressionToDafny isLVal Nothing annK e
             (anni,pi) <- indexToDafny isLVal annK Nothing 0 i
             let pse = pe <> brackets pi
-            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vs pse (typed l)
+            annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr se) annK vs pse (typed l)
             qExprToDafny isQExpr (anne++anni++annp) pse
         (Right n,is) -> do
             (anne,pe) <- expressionToDafny isLVal Nothing annK e
             (concat -> annis,pis) <- Utils.mapAndUnzipM (\(idx,i) -> indexToDafny isLVal annK (Just pe) i idx) (zip is [0..])
             let pse = pe <> text ".project" <> ppIndexIds is <> parens (sepBy comma pis)
-            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vs pse (typed l)
+            annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr se) annK vs pse (typed l)
             qExprToDafny isQExpr (anne++annis++annp) pse
         otherwise -> do
             ppannK <- lift $ pp annK
@@ -1197,13 +1208,13 @@ expressionToDafny isLVal isQExpr annK se@(SelectionExpr l e att) = do
     psn <- ppDafnyIdM did
     patt <- structAttToDafny (unTyped l) False psn $ fmap typed att
     let pse = pe <> char '.' <> patt
-    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr se) annK vs pse (typed l)
+    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr se) annK vs pse (typed l)
     -- always assert equality of projection, if it is a base type, since we don't do so when declaring the struct variable
     qExprToDafny isQExpr (anne++annp) pse
 expressionToDafny isLVal isQExpr annK e@(RVariablePExpr l v) = do
     vs <- lift $ usedVs' e
     pv <- varToDafny v
-    annp <- genDafnyAssumptions (unTyped $ loc v) (hasLeakExpr e) annK vs pv (typed $ loc v)
+    annp <- genDafnyAssumptions (unTyped $ loc v) (isNotDafnyAnnExpr e) annK vs pv (typed $ loc v)
     qExprToDafny isQExpr annp pv
 expressionToDafny isLVal isQExpr annK le@(LitPExpr l lit) = do
     (anns,pe) <- literalToDafny annK lit
@@ -1248,7 +1259,7 @@ expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     vs <- lift $ usedVs' me
     (anne,pe) <- expressionToDafny False Nothing annK e
     let pme = text "multiset" <> parens pe
-    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
+    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr me) annK vs pme (typed l)
     qExprToDafny isQExpr (anne++annp) pme
 expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
     let ll = unTyped l
@@ -1265,7 +1276,7 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
                     x <- lift $ genVar (VIden $ mkVarId "xset" :: GIdentifier)
                     px <- varToDafny $ VarName (Typed ll bt) x
                     let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
-                    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
+                    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr me) annK vs pme (typed l)
                     qExprToDafny isQExpr (annbt++anne++annp) pme
                 Right n -> do
                     x <- lift $ genVar (VIden $ mkVarId "iset" :: GIdentifier)
@@ -1275,7 +1286,7 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
                     let idxs = fromListNe [IndexInt l (varExpr vx),IndexSlice l Nothing Nothing]
                     (annproj,proje) <- projectionToDafny isLVal isQExpr annK $ PostIndexExpr l e idxs
                     let pme = parens (text "set" <+> px <> char ':' <> text "uint64" <+> char '|' <+> px <+> text "<" <+> parens (dafnyShape n pe <> brackets (int 0)) <+> text "::" <+> proje)
-                    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr me) annK vs pme (typed l)
+                    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr me) annK vs pme (typed l)
                     qExprToDafny isQExpr (annproj++anne++annp) pme
                 otherwise -> do
                     ppme <- lift $ pp me
@@ -1297,7 +1308,7 @@ expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ 
             (annargs,pargs) <- procCallArgsToDafny isLVal annK args
             pn <- ppDafnyIdM did
             let pe = pn <> parens (sepBy comma pargs)
-            annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr e || not (isFunType $ DecT dec)) annK vs pe (typed l)
+            annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr e) annK vs pe (typed l)
             qExprToDafny isQExpr (annargs++annp) pe
         --Just (mbdec,ss) -> do
         --    -- load the lemma separately (to check its body)
@@ -1311,7 +1322,7 @@ expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (De
     (annargs,pargs) <- procCallArgsToDafny isLVal annK [(e1,False),(e2,False)]
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)
-    annp <- genDafnyAssumptions (unTyped l) (hasLeakExpr e || not (isFunType $ DecT dec)) annK vs pe (typed l)
+    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr e) annK vs pe (typed l)
     qExprToDafny isQExpr (annargs++annp) pe
 expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     let pq = quantifierToDafny q
