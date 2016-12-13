@@ -99,13 +99,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@            &&  declassify(f.cache[i,:] == transactions(f.items[i,:],db)))
 //@ }
 
-//* Leakage functions
-
-//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
-//@ noinline;
-//@ requires IsDB(db);
-//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
-
 //* Correctness proofs
 
 //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
@@ -123,7 +116,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires init(xs) == init(ys);
 //@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
 
+//* Leakage functions
 
+//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
+//@ noinline;
+//@ requires IsDB(db);
+//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
 
 //x //@ axiom<> (uint i, uint sz)
