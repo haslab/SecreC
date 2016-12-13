@@ -64,6 +64,16 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
    return f;
 }
 
+template<domain D>
+D uint[[1]] snoc (D uint[[1]] xs, D uint x)
+//@ inline;
+//@ free ensures size(\result) == size(xs) + 1;
+//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i]);
+//@ free ensures assertion(\result[size(xs)] == x);
+{
+    return cat(xs,{x});
+}
+
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
 //@ noinline;
 //@ {
