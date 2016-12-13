@@ -33,6 +33,19 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 //@ requires size(xs) > 0;
 //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
 
+template<domain D>
+D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)
+//@ inline;
+//@ requires shape(xs)[1] == size(x);
+//@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
+//@ free ensures shape(\result)[1] == shape(xs)[1];s
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:]);
+//@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
+{
+    return cat (xs,reshape(x,1,size(x)));
+}
+
+
 kind shared3p;
 domain pd_shared3p shared3p;
 
