@@ -170,7 +170,7 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant FrequentsCache(f,db,threshold);
     {
       //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
-      AddFrequent(f,{i},db[:,i],db,threshold);
+      f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
 }
@@ -220,7 +220,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
           //@ assert IsItemSetOf(C,db);
           pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db);
-          AddFrequent(next,C,C_dot,db,threshold);
+          f = AddFrequent(next,C,C_dot,db,threshold);
           
         }
       }
