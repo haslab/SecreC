@@ -538,7 +538,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
         let tag = if isAnnDecClass cl then text "function" else text "function method"
         return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
-decToDafny l dec@(emptyDec -> Just (mid,LemmaType isLeak p pn args anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(targsDec -> Just (mid,targs,LemmaType isLeak p pn args anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pargs',ssargs) <- newDafnyArgs l args
