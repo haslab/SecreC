@@ -13,12 +13,13 @@
 
 module apriori;
 
-import stdlib;
-import shared3p;
-import table_database;
-import shared3p_table_database;
+//import stdlib;
+//import shared3p;
+//import table_database;
+//import shared3p_table_database;
 import axioms;
 
+kind shared3p;
 domain pd_shared3p shared3p;
 
 //@ function bool IsDB (pd_shared3p uint[[2]] db)
@@ -239,17 +240,17 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
     return next;
 }
 
-//@ function bool AllFrequents(frequent[[1]] freqs, pd_shared3p uint[[2]] db, uint threshold)
-//@ noinline;
-//@ {
-//@     forall uint[[1]] js; IsItemSetOf(js,db) && declassify(frequency(js,db)) >= threshold ==> in(js,set(freqs[size(js)-1].items))
-//@ }
+//x //@ function bool AllFrequents(frequent[[1]] freqs, pd_shared3p uint[[2]] db, uint threshold)
+//x //@ noinline;
+//x //@ {
+//x //@     forall uint[[1]] js; IsItemSetOf(js,db) && declassify(frequency(js,db)) >= threshold ==> in(js,set(freqs[size(js)-1].items))
+//x //@ }
 
 frequent[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
-//@ free ensures AllFrequents(\result,db,threshold);
+//x //@ free ensures AllFrequents(\result,db,threshold);
 {
   frequent[[1]] freqs = {apriori_1(db,threshold)};
   
