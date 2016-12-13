@@ -19,7 +19,17 @@ module apriori;
 //import shared3p_table_database;
 //import axioms;
 
-//@ lemma Snoc1 <domain D,type T> (D T[[1]] xs)
+template<domain D>
+D uint[[1]] snoc (D uint[[1]] xs, D uint x)
+//@ inline;
+//@ free ensures size(\result) == size(xs) + 1;
+//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i]);
+//@ free ensures assertion(\result[size(xs)] == x);
+{
+    return cat(xs,{x});
+}
+
+//@ lemma Snoc1 <domain D> (D uint[[1]] xs)
 //@ requires size(xs) > 0;
 //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
 
@@ -68,16 +78,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
    f.items = F;
    f.cache = F_cache;
    return f;
-}
-
-template<domain D>
-D uint[[1]] snoc (D uint[[1]] xs, D uint x)
-//@ inline;
-//@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i]);
-//@ free ensures assertion(\result[size(xs)] == x);
-{
-    return cat(xs,{x});
 }
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
