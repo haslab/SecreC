@@ -1187,10 +1187,13 @@ hasLeakExpr = everything (||) (mkQ False aux)
     aux _ = False
 
 isNotDafnyAnnExpr :: Expression GIdentifier (Typed Position) -> Bool
-isNotDafnyAnnExpr e = hasLeakExpr e || not (isAnnExpr e)
+isNotDafnyAnnExpr e = hasLeakExpr e || isLeakDecExpr e || not (isAnnDecExpr e)
 
-isAnnExpr :: Expression GIdentifier (Typed Position) -> Bool
-isAnnExpr e = everything (&&) (mkQ True aux) e
+isLeakDecExpr :: Expression GIdentifier (Typed Position) -> Bool
+isLeakDecExpr e = everything (||) (mkQ False isLeakIDecType) e
+
+isAnnDecExpr :: Expression GIdentifier (Typed Position) -> Bool
+isAnnDecExpr e = everything (&&) (mkQ True aux) e
     where
     aux :: InnerDecType -> Bool
     aux (ProcType {}) = False

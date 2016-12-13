@@ -1842,9 +1842,15 @@ data InnerDecType
         [(Bool,Var,IsVariadic)] -- typed lemma arguments
         [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the lemma's annotations
         (Maybe (Maybe [Statement GIdentifier (Typed Position)])) -- ^ the lemma's body
-        DecClass -- the type of lemma
-        
+        DecClass -- the type of lemma        
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
+
+isLeakIDecType :: InnerDecType -> Bool
+isLeakIDecType (ProcType {}) = False
+isLeakIDecType (FunType isLeak _ _ _ _ _ _ _) = isLeak
+isLeakIDecType (StructType {}) = False
+isLeakIDecType (AxiomType isLeak _ _ _ _) = isLeak
+isLeakIDecType (LemmaType isLeak _ _ _ _ _ _) = isLeak
 
 iDecArgs :: InnerDecType -> [(Bool,Var,IsVariadic)]
 iDecArgs (LemmaType _ _ _ as _ _ _) = as
