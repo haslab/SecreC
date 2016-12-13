@@ -82,7 +82,7 @@ Modules builtin, main are well-typed.
 
 For large SecreC programs, you can use the `progress` flag:
 ```
-> secrec stdlib.sc
+> secrec stdlib.sc --progress
      [=>............]  183/1674  11%
 Modules builtin, stdlib are well-typed.
 ```
