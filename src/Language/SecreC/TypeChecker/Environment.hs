@@ -809,6 +809,7 @@ addProcedureFunctionToRec vars hdeps pn@(ProcedureName (Typed l (IDecT d)) n) = 
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
+                    LKind -> Lns lemmas (\x v -> x { lemmas = v })
     -- prove the head constraints first
     (_,recdict) <- tcProve l "newProc head" $ addHeadTFlatCstrs l "newProc head" hdeps
     addHeadTDict l "newProcedureFunction" recdict
@@ -832,7 +833,7 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     let selector = case iDecTyKind (innerDec recdt) of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
-    
+                    LKind -> Lns lemmas (\x v -> x { lemmas = v })
     let did = fromJustNote "newProcedureFunction" (decTypeId recdt)
     let i = snd did
     bctx' <- addLineage did $ newDecCtx l "newProcedureFunction" bctx True
