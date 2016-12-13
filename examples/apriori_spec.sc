@@ -1,4 +1,4 @@
-module apriori_defs;
+module apriori_spec;
 
 kind shared3p;
 domain pd_shared3p shared3p;
@@ -121,7 +121,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires (C == snoc(xs,last(ys)) :: bool);
 //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_shared3p bool);
 //@ requires init(xs) == init(ys);
-//x //@ requires forall uint n; n < size(xs)-1 ==> xs[n] == ys[n];
+//@ requires forall uint m; m < k-1 ==> xs[i,m] == xs[j,m];
 //@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
 
 

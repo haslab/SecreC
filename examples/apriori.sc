@@ -19,7 +19,7 @@ module apriori;
 //import shared3p_table_database;
 //import axioms;
 
-import apriori_defs;
+import apriori_spec;
 
 template <domain D>
 D uint [[2]] load_db ()
@@ -103,13 +103,11 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
-        //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
+        //@ invariant prefixEqual == forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
         {
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
-          //@ Snoc1(prev.items[i,:n+1]);
-          //@ Snoc1(prev.items[j,:n+1]);
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
