@@ -383,7 +383,7 @@ secrec opts = do
     let secrecIns = inputs opts
     let secrecOuts = outputs opts
     when (List.null secrecIns) $ throwError $ userError "no SecreC input files"
-    runSecrecM opts $ do
+    trace (show opts) $ runSecrecM opts $ do
         modules <- parseModuleFiles secrecIns
         let es = case entryPoints opts of
                     [] -> (True,Set.empty)
