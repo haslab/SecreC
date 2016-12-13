@@ -238,7 +238,7 @@ frequent[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
-//@ free ensures AllFrequents(\result,db,threshold)
+//@ free ensures AllFrequents(\result,db,threshold);
 {
   frequent[[1]] freqs = {apriori_1(db,threshold)};
   
