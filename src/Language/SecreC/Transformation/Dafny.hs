@@ -690,6 +690,9 @@ genDafnyArrays l False annK vs pv tv = do
 propagateDafnyAssumptions :: DafnyK m => Position -> AnnKind -> DecClassVars -> DecClassVars -> DafnyM m AnnsDoc
 propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
     let untouched = Map.toList $ Map.map fst $ Map.difference rs ws
+    lift $ debugTc $ do
+        ppus <- liftM (sepBy space) $ mapM (pp . fst) untouched
+        liftIO $ putStrLn $ "propagateDafnyAssumptions " ++ show annK ++ " " ++ show ppus
     frames <- genDafnyFrames p annK untouched
     invs <- genDafnyInvariantAssumptions p annK untouched
     return (frames++invs)
@@ -698,7 +701,9 @@ propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
 genDafnyInvariantAssumptions :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
 genDafnyInvariantAssumptions p annK xs = do
     anns <- getAssumptions
-    concatMapM propagate $ filter isUntouched anns
+    lift $ debugTc $ liftIO $ putStrLn $ "genDafnyInvariantAssumptions " ++ show anns
+    let anns' = filter isUntouched anns
+    concatMapM propagate anns'
   where
     isUntouched (_,_,vs,_,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
     propagate (_,_,vs,pe,isLeak) = annExpr (Just False) isLeak isLeak annK vs pe
