@@ -157,6 +157,9 @@ instance Monoid PublicType where
     mappend PublicOut y = PublicOut
     mappend PublicMid PublicMid = PublicMid
 
+leakageAtt :: Attribute
+leakageAtt = (Attribute "leakage" [])
+
 hasLeakageAtt :: [Attribute] -> Bool
 hasLeakageAtt = any isLeakageAtt
 

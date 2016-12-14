@@ -73,10 +73,21 @@ instance Simplify BareExpression where
 --        opts <- Reader.ask
 --        return $ Just $ gReplaceFrees opts e
 
+instance Simplify (Id, [[Expression]]) where
+    simplify (a,b) = do
+        mba' <- simplify a
+        mbb' <- simplifyList b
+        case (mba',mbb') of
+            (Nothing,Nothing) -> return Nothing
+            otherwise -> return $ Just (maybe a id mba',maybe b id mbb')
+
 instance Simplify [Id] where
     simplify = simplifyList
 
 instance Simplify [Decl] where
+    simplify = simplifyList
+    
+instance Simplify [Expression] where
     simplify = simplifyList
 
 instance Simplify [Body] where
@@ -218,11 +229,39 @@ instance Simplify SpecClause where
         simplify' opts e
       where
         simplify' opts (SpecClause t isAssume (Pos p (isFreeExpr opts -> Just e))) = do
-            liftM (fmap (SpecClause t True)) $ simplifyAs posTT (Pos p e)
+            simplify' opts (SpecClause t True (Pos p e))
         simplify' opts (SpecClause t isAssume e) = liftM (fmap (SpecClause t isAssume)) $ simplifyAs posTT e
 
 instance Simplify BareStatement where
-    simplify (Predicate atts spec) = liftM (fmap (Predicate atts)) $ simplify spec
+    simplify (Predicate atts spec) = do
+        opts <- Reader.ask
+        atts' <- simplifyId atts
+        spec'@(SpecClause st' isAssume' (Pos l' e')) <- simplifyId spec
+        case isLeakageExpr opts e' of
+            Just e'' -> return $ Just $ Predicate (atts'++[leakageAtt]) (SpecClause st' isAssume' $ Pos l' e'')
+            Nothing -> return $ Just $ Predicate atts' spec'
+    simplify (Assign lhs rhs) = do
+        lhs' <- mapM simplifyId lhs
+        rhs' <- mapM simplifyId rhs
+        return $ Just $ Assign lhs' rhs'
+    simplify (Call atts lhs n es) = do
+        atts' <- simplifyId atts
+        lhs' <- simplifyId lhs
+        es' <- mapM simplifyId es
+        return $ Just $ Call atts' lhs' n es'
+    simplify (CallForall  n es) = do
+        es' <- mapM simplifyId es
+        return $ Just $ CallForall n es'
+    simplify (If e th el) = do
+        e' <- simplifyId e
+        th' <- simplifyId th
+        el' <- mapM simplifyId el
+        return $ Just $ If e' th' el'
+    simplify (While e c b) = do
+        e' <- simplifyId e
+        c' <- simplifyId c
+        b' <- simplifyId b
+        return $ Just $ While e' c' b'
     simplify s = return $ Just s
 
 cleanAttributes :: Maybe [Id] -> [AttrValue] -> [AttrValue]
