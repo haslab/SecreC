@@ -14,6 +14,7 @@ import Data.Graph.Inductive.Graph as Gr
 import Data.Graph.Inductive.PatriciaTree as Gr
 import Data.Monoid hiding ((<>))
 import Data.Data
+import Data.List as List
 import Data.Generics
 import Data.Map (Map(..))
 import qualified Data.Map as Map
@@ -108,16 +109,6 @@ startLabelBBs :: [BasicBlock] -> Id
 startLabelBBs [] = error "no start label"
 startLabelBBs ((l,b):bs) = l
 
-isBoolUnOp :: UnOp -> Bool
-isBoolUnOp Not = True
-isBoolUnOp o = False
-
-isBoolBinOp :: BinOp -> Bool
-isBoolBinOp And = True
-isBoolBinOp Or = True
-isBoolBinOp Implies = True
-isBoolBinOp o = False
-
 hasOldExpr :: Expression -> Bool
 hasOldExpr = everything (||) (mkQ False aux)
     where
@@ -148,5 +139,6 @@ bareDeclName (ProcedureDecl _ n _ _ _ _ _) = Just n
 bareDeclName (ImplementationDecl _ n _ _ _ _) = Just n
 bareDeclName bd = Nothing
 
+isBoolBinOp o = List.elem o [And,Or,Implies,Explies,Equiv]
 
-
+isBoolUnOp o = List.elem o [Not]

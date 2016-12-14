@@ -39,6 +39,9 @@ class Simplify a where
     simplifyMonoid :: Monoid a => a -> SimplifyM a
     simplifyMonoid x = liftM (maybe mempty id) (simplify x)
     
+    simplifyDef :: a -> a -> SimplifyM a
+    simplifyDef def x = liftM (maybe def id) (simplify x)
+    
     simplifyList :: [a] -> SimplifyM (Maybe [a])
     simplifyList xs = do
         xs' <- liftM catMaybes $ mapM simplify xs
@@ -73,19 +76,17 @@ instance Simplify Program where
         return $ Just $ Program decls'
       where
         simplifyDecls [] = return []
-        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) = if isDafnyAxiom c
-            then simplifyDecls xs
-            else do
-                ys' <- simplifyDecls ys
-                --trace ("comment " ++ show c ++ " does not match " ++ show (pretty d)) $
-                return (Left c : ys')
+        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) | isDafnyAxiom c = do
+            ys' <- simplifyDecls ys
+            --trace ("comment " ++ show c ++ " does not match " ++ show (pretty d)) $
+            return (Left c : ys')
         simplifyDecls (Left c:xs) = do
             xs' <- simplifyDecls xs
             return $ Left c : xs'
         simplifyDecls (Right d:xs) = do
-            d' <- simplifyId d
+            d' <- simplify d
             xs' <- simplifyDecls xs
-            return (Right d':xs')   
+            return $ map Right (maybeToList d') ++ xs'
 
 instance Simplify BareExpression where
     simplify e = liftM Just $ simplifyBareExpr e
@@ -107,7 +108,7 @@ simplifyBareExpr (Old e) = do
     e' <- simplifyId e
     return $ Old e'
 simplifyBareExpr (IfExpr c e1 e2) = do
-    c' <- simplifyId c
+    c' <- simplifyBoolExpr c
     case unPos c of
         Literal (BoolValue True) -> simplifyId $ unPos e1
         Literal (BoolValue False) -> simplifyId $ unPos e2
@@ -120,7 +121,7 @@ simplifyBareExpr (Coercion e t) = do
     t' <- simplifyId t
     return $ Coercion e' t'
 simplifyBareExpr (Quantified q ids idts trgs e) = do
-    e' <- simplifyId e
+    e' <- simplifyBoolExpr e
     case unPos e' of
         Literal (BoolValue b) -> return $ unPos e'
         otherwise -> do
@@ -130,11 +131,11 @@ simplifyBareExpr (Quantified q ids idts trgs e) = do
             let trgs' = cleanQTriggerAttributes (Just $ Set.toList vs) trgs
             return $ Quantified q ids' idts' trgs' e'
 simplifyBareExpr (BinaryExpression o e1 e2) = do
-    e1' <- simplifyId e1
-    e2' <- simplifyId e2
+    e1' <- simplifyExpr (isBoolBinOp o) e1
+    e2' <- simplifyExpr (isBoolBinOp o) e2
     return $ evalBinOp o e1' e2'
 simplifyBareExpr (UnaryExpression o e) = do
-    e' <- simplifyId e
+    e' <- simplifyExpr (isBoolUnOp o) e
     return $ evalUnOp o e'
 simplifyBareExpr app@(Application n es) = do
     opts <- Reader.ask
@@ -144,6 +145,13 @@ simplifyBareExpr app@(Application n es) = do
             es' <- mapM simplifyId es
             return $ Application n es'
 simplifyBareExpr e = return e
+
+simplifyExpr :: Bool -> Expression -> SimplifyM Expression
+simplifyExpr isBool e = do
+    mb <- simplify e
+    case mb of
+        Just e' -> return e'
+        Nothing -> if isBool then return posTT else return e
 
 evalUnOp :: UnOp -> Expression -> BareExpression
 evalUnOp o e = UnaryExpression o e
@@ -329,34 +337,48 @@ instance Simplify SpecClause where
 instance Simplify BareStatement where
     simplify (Predicate atts spec) = do
         opts <- Reader.ask
-        atts' <- simplifyId atts
-        spec'@(SpecClause st' isAssume' (Pos l' e')) <- simplifyId spec
-        case isLeakageExpr opts e' of
-            Just e'' -> return $ Just $ Predicate (atts'++[leakageAtt]) (SpecClause st' isAssume' $ Pos l' e'')
-            Nothing -> return $ Just $ Predicate atts' spec'
+        atts' <- simplifyMonoid atts
+        mb <- simplify spec
+        case mb of
+            Nothing -> return Nothing
+            Just spec'@(SpecClause st' isAssume' (Pos l' e')) -> do
+                case isLeakageExpr opts e' of
+                    Just e'' -> return $ Just $ Predicate (atts'++[leakageAtt]) (SpecClause st' isAssume' $ Pos l' e'')
+                    Nothing -> return $ Just $ Predicate atts' spec'
     simplify (Assign lhs rhs) = do
         lhs' <- mapM simplifyId lhs
         rhs' <- mapM simplifyId rhs
         return $ Just $ Assign lhs' rhs'
     simplify (Call atts lhs n es) = do
-        atts' <- simplifyId atts
-        lhs' <- simplifyId lhs
+        atts' <- simplifyMonoid atts
+        lhs' <- simplifyMonoid lhs
         es' <- mapM simplifyId es
         return $ Just $ Call atts' lhs' n es'
     simplify (CallForall  n es) = do
-        es' <- mapM simplifyId es
+        es' <- mapM (simplifyDef $ Expr posTT) es
         return $ Just $ CallForall n es'
     simplify (If e th el) = do
-        e' <- simplifyId e
-        th' <- simplifyId th
-        el' <- mapM simplifyId el
+        e' <- simplifyWildExpr e
+        th' <- simplifyMonoid th
+        el' <- mapM simplifyMonoid el
         return $ Just $ If e' th' el'
     simplify (While e c b) = do
-        e' <- simplifyId e
-        c' <- simplifyId c
-        b' <- simplifyId b
+        e' <- simplifyWildExpr e
+        c' <- simplifyMonoid c
+        b' <- simplifyMonoid b
         return $ Just $ While e' c' b'
     simplify s = return $ Just s
+
+simplifyWildExpr :: WildcardExpression -> SimplifyM WildcardExpression
+simplifyWildExpr Wildcard = return Wildcard
+simplifyWildExpr (Expr e) = liftM Expr $ simplifyBoolExpr e
+
+simplifyBoolExpr :: Expression -> SimplifyM Expression
+simplifyBoolExpr (Pos l e) = do
+    mb <- simplify e
+    case mb of
+        Nothing -> return $ posTT
+        Just e' -> return $ Pos l e'
 
 cleanQTriggerAttributes :: Maybe [Id] -> [QTriggerAttribute] -> [QTriggerAttribute]
 cleanQTriggerAttributes vars xs = map (cleanQTriggerAttribute vars) xs
