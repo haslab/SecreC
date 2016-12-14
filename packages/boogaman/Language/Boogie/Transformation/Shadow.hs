@@ -681,7 +681,7 @@ freePred opts p@(Predicate atts spec@(SpecClause st isAssume (Pos l e))) = case 
     Nothing -> p
 
 leakagePred :: Options -> BareStatement -> Maybe BareStatement
-leakagePred opts p@(freePred opts -> Predicate atts spec@(SpecClause st isAssume (Pos l e))) = case isLeakageExpr opts e of
+leakagePred opts (freePred opts -> p@(Predicate atts spec@(SpecClause st isAssume (Pos l e)))) = case isLeakageExpr opts e of
     Nothing -> if hasLeakageAtt atts || hasLeakageFunAnn opts e then Just p else Nothing
     Just e' -> Just $ Predicate atts (SpecClause st isAssume (Pos l e'))
 

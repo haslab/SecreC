@@ -6,7 +6,7 @@ import Language.Boogie.AST
 import Language.Boogie.Options
 import Language.Boogie.Position
 
-import Data.List
+import Data.List as List
 import Data.Generics
 
 dafnyAnns :: [String]
@@ -20,6 +20,7 @@ dafnyAnns = concat $ map dafnyAnn ["PublicIn","PublicOut","PublicMid","Declassif
 
 boxE :: BareExpression -> Maybe BareExpression
 boxE (Application "$Box" [e]) = Just $ unPos e
+boxE e@(Application (List.isPrefixOf "$" -> True) es) = Just e
 boxE e = Nothing
 
 unboxE :: BareExpression -> Maybe BareExpression
