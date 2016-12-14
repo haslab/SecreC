@@ -124,7 +124,9 @@ simplifyBareExpr (Coercion e t) = do
 simplifyBareExpr (Quantified q ids idts trgs e) = do
     e' <- simplifyBoolExpr e
     case unPos e' of
-        Literal (BoolValue b) -> return $ unPos e'
+        Literal (BoolValue b) -> case q of
+            Lambda -> return $ Quantified q ids idts trgs e'
+            otherwise -> return $ unPos e'
         otherwise -> do
             let vs = fvs trgs `Set.union` fvs e'
             let idts' = case q of
