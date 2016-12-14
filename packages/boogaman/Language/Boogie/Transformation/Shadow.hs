@@ -710,7 +710,7 @@ shadowPredicate p opts mode@(isDualMode -> True) pr@(leakagePred opts -> Just (P
     atts' <- concatMapM (shadowAttribute opts True) atts
     let pr' = Predicate atts' s'
     return [pr']
-shadowPredicate p opts mode pr@(leakagePred opts -> Just (Predicate atts (SpecClause st isAssume e))) = do
+shadowPredicate p opts mode@(isDualMode -> False) pr@(leakagePred opts -> Just (Predicate atts (SpecClause st isAssume e))) = strace opts ("shadow non-leakage predicate " ++ show (pretty pr)) $ do
     e' <- shadowExpression opts ShadowE e
     let s' = SpecClause st isAssume e'
     atts' <- concatMapM (shadowAttribute opts False) atts
