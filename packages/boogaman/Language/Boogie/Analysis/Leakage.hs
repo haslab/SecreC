@@ -242,7 +242,7 @@ isLeakageExpr vc (isAnn vc False False "Leakage" -> Just i) = Just i
 isLeakageExpr vc _ = Nothing
 
 isLeakExpr :: Options -> BareExpression -> Maybe BareExpression
-isLeakExpr vc (isAnn vc False False "Leak" -> Just i) = Just i
+isLeakExpr vc (isAnn vc False True "Leak" -> Just i) = Just i
 isLeakExpr vc _ = Nothing
 
 isDeclassifiedExpr :: Options -> BareExpression -> Maybe (BareExpression,IsBenign)

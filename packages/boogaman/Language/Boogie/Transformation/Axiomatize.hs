@@ -46,7 +46,7 @@ findGlobalVars :: [Id] -> AxiomM ([IdType],[Expression])
 findGlobalVars [] = return ([],[])
 findGlobalVars (i:is) = do
     vs <- liftM pGlobalVars State.get
-    let (t,w) = (Map.!) vs i
+    let (t,w) = lookupMap i vs
     (its',ws') <- findGlobalVars is
     return ((i,t):its',w:ws')
 

@@ -160,7 +160,9 @@ evalUnOp o e = UnaryExpression o e
 
 evalBinOp :: BinOp -> Expression -> Expression -> BareExpression
 evalBinOp Implies e1 e2@(unPos -> Literal (BoolValue True)) = unPos e2
-evalBinOp b e1 e2 = BinaryExpression b e1 e2
+evalBinOp Eq      (unPos -> (Literal x)) (unPos -> (Literal y)) = Literal $ BoolValue (x == y)
+evalBinOp Neq     (unPos -> (Literal x)) (unPos -> (Literal y)) = Literal $ BoolValue (x /= y)
+evalBinOp b       e1 e2 = BinaryExpression b e1 e2
 
 instance Simplify (Id, [[Expression]]) where
     simplify (a,b) = do

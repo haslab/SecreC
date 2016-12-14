@@ -142,3 +142,12 @@ bareDeclName bd = Nothing
 isBoolBinOp o = List.elem o [And,Or,Implies,Explies,Equiv]
 
 isBoolUnOp o = List.elem o [Not]
+
+lookupMap :: (Ord a,Pretty a) => a -> Map a b -> b
+lookupMap x xs = case Map.lookup x xs of
+    Just y -> y
+    Nothing -> error $ "lookupMap: cannot find " ++ show (pretty x) ++ " in " ++ show (map pretty $ Map.keys xs)
+    
+
+
+

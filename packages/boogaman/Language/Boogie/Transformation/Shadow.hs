@@ -251,7 +251,7 @@ shadowBareDecl opts d@(FunctionDecl atts name targs args ret body) = strace opts
     then do
         atts' <- concatMapM (shadowAttribute opts False) atts
         name' <- shadowId opts DualE name
-        bools <- liftM ((Map.!name) . functions) State.get
+        bools <- liftM (lookupMap name . functions) State.get
         args' <- concatMapM (uncurry (shadowFArg opts)) (zip bools args)
         [ret'] <- shadowFArg opts False ret
         body' <- mapM (shadowExpression opts DualE) body
@@ -460,13 +460,14 @@ shadowDuals f bs es = error "shadowDuals: mismatching arguments"
 
 shadowBareExpression :: MonadIO m => SourcePos -> Options -> ShadowEMode -> BareExpression -> ShadowM m BareExpression
 shadowBareExpression p opts mode (isLeakageExpr opts -> Just e') = shadowBareExpression p opts mode e'
+shadowBareExpression p opts mode (isFreeExpr opts -> Just e') = shadowBareExpression p opts mode e'
 shadowBareExpression p opts ShadowE e | hasLeakageFunAnn opts e = error $ show $ text (show p) <+> text "unsupported leakage expression" <+> pretty e <+> text "in ShadowE mode"
-shadowBareExpression p opts DualE e | not (hasLeakageFunAnn opts e) = do
+shadowBareExpression p opts DualE e | not (hasLeakageFunAnn opts e) = strace opts ("shadowing a non-leakage expression " ++ show (pretty e)) $ do
     e' <- shadowBareExpression p opts ShadowE e
     return $ BinaryExpression And (Pos noPos e) (Pos noPos e')
 shadowBareExpression p opts (isDualMode -> True) e@(Application n@(isLeakFunName opts -> True) es) = do
     n' <- shadowId opts DualE n
-    bools <- liftM ((Map.!n) . functions) State.get
+    bools <- liftM (lookupMap n . functions) State.get
     es' <- shadowDuals (shadowExpression opts ShadowE) bools es
     return $ Application n' es'
 shadowBareExpression p opts (isDualMode -> True) e@(isLeakExpr opts -> Just l) = do
