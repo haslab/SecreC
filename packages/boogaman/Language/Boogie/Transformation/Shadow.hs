@@ -675,8 +675,13 @@ shadowWildcardExpression opts m (Expr e) = do
     e' <- shadowExpression opts m e
     return $ Expr e'
 
+freePred :: Options -> BareStatement -> BareStatement
+freePred opts p@(Predicate atts spec@(SpecClause st isAssume (Pos l e))) = case isFreeExpr opts e of
+    Just e' -> (Predicate atts (SpecClause st True (Pos l e')))
+    Nothing -> p
+
 leakagePred :: Options -> BareStatement -> Maybe BareStatement
-leakagePred opts p@(Predicate atts spec@(SpecClause st isAssume (Pos l e))) = case isLeakageExpr opts e of
+leakagePred opts p@(freePred opts -> Predicate atts spec@(SpecClause st isAssume (Pos l e))) = case isLeakageExpr opts e of
     Nothing -> if hasLeakageAtt atts || hasLeakageFunAnn opts e then Just p else Nothing
     Just e' -> Just $ Predicate atts (SpecClause st isAssume (Pos l e'))
 
@@ -711,7 +716,7 @@ shadowPredicate p opts mode pr@(leakagePred opts -> Just (Predicate atts (SpecCl
     atts' <- concatMapM (shadowAttribute opts False) atts
     let pr' = Predicate atts' s'
     if isDualE mode then return [removeLeakageAnns opts True pr,pr'] else return [pr']
-shadowPredicate p opts mode pr@(Predicate atts (SpecClause st isAssume e)) | isNothing (leakagePred opts pr) = do
+shadowPredicate p opts mode pr@(freePred opts -> Predicate atts (SpecClause st isAssume e)) | isNothing (leakagePred opts pr) = do
     e' <- shadowExpression opts ShadowE e
     let opr = Predicate atts (SpecClause st isAssume e)
     let s' = SpecClause st isAssume e'
