@@ -559,7 +559,7 @@ checkLabelBreak l = do
 -- | 'collectLabels' @block@ : 
 -- Check that all labels in @block@ and nested blocks are unique and add them to the context
 collectLabels :: Block -> Typing ()
-collectLabels block = mapAccum_ checkLStatement block
+collectLabels block = mapAccum_ checkLStatement (rights block)
   where
     checkLStatement (Pos pos (ls, st)) = do
       modify $ setPos pos
@@ -580,7 +580,7 @@ collectLabels block = mapAccum_ checkLStatement block
 
 -- | Check every statement in a block
 checkBlock :: Block -> Typing ()    
-checkBlock block = mapAccum_ (locally . checkLStatement) block
+checkBlock block = mapAccum_ (locally . checkLStatement) (rights block)
   where
     checkLStatement (Pos _ (ls, st)) = do
       modify $ \c -> c { ctxEncLabels = ctxEncLabels c ++ ls }

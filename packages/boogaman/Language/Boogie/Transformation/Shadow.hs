@@ -296,7 +296,7 @@ addBodies def init [] = [([([],[def])],[])]
 addBodies def init (b:bs) = addBody def init b : bs
 
 addBody :: IdTypeWhere -> Statement -> Body -> Body
-addBody def init (defs,b) = (([],[def]):defs,Pos noPos ([],init) : b)
+addBody def init (defs,b) = (([],[def]):defs,Right (Pos noPos ([],init)) : b)
 
 addMaybeBody :: IdTypeWhere -> Statement -> Maybe Body -> Maybe Body
 addMaybeBody def init Nothing = Nothing
@@ -312,7 +312,7 @@ shadowBlock opts modifies leaks isDual b = do
             -- assert shadow_ok before the last return
             Just shadow_ok <- liftM shadowOk State.get
             let assert = Predicate [] $ SpecClause Inline False $ Pos noPos $ Var shadow_ok
-            let bb'' = updLast (\(l,ss) -> (l,Pos noPos assert : ss)) bb'
+            let bb'' = updLast (\(l,ss) -> (l,Right (Pos noPos assert) : ss)) bb'
             return (fromBasicBlocks bb'')
         else return (fromBasicBlocks bb')
 
@@ -568,15 +568,21 @@ prodBasicBlocks opts mode bs = strace opts ("prodBasicBlocks") $ mapM (shadowBas
 
 shadowBasicBlock :: MonadIO m => Options -> ShadowEMode -> BasicBlock -> ShadowM m BasicBlock
 shadowBasicBlock opts ShadowDualE (l,ss) = do
-    ss' <- concatMapM (shadowStatement opts ShadowDualE) ss
+    ss' <- concatMapM (shadowCommentOrStatement opts ShadowDualE) ss
     l' <- shadowId opts ShadowE l
     return (l',ss')
 shadowBasicBlock opts ShadowE (l,ss) = do
-    ss' <- concatMapM (shadowStatement opts ShadowE) ss
+    ss' <- concatMapM (shadowCommentOrStatement opts ShadowE) ss
     return (l,ss')
 shadowBasicBlock opts DualE (l,ss) = do
-    ss' <- concatMapM (shadowStatement opts DualE) ss
+    ss' <- concatMapM (shadowCommentOrStatement opts DualE) ss
     return (l,ss')
+
+shadowCommentOrStatement :: MonadIO m => Options -> ShadowEMode -> Either Comment Statement -> ShadowM m [Either Comment Statement]
+shadowCommentOrStatement opts mode (Left c) = return [Left c]
+shadowCommentOrStatement opts mode (Right s) = do
+    ss' <- shadowStatement opts mode s
+    return $ map Right ss'
 
 shadowStatement :: MonadIO m => Options -> ShadowEMode -> Statement -> ShadowM m [Statement]
 shadowStatement opts mode (Pos p s) = do
@@ -669,16 +675,16 @@ shadowAttribute opts doDual (Attribute tag vals) = do
     shadowAttrVal :: MonadIO m => Options -> Bool -> AttrValue -> ShadowM m [AttrValue]
     shadowAttrVal opts False v@(EAttr e) = do
         v' <- liftM EAttr $ shadowExpression opts ShadowE $ removeLeakageAnns opts True e
-        return $ cleanAttributes Nothing [v']
+        return $ cleanAttrVals Nothing [v']
     shadowAttrVal opts True v@(EAttr e) = if hasLeakageAnn opts e
         then do
             v' <- liftM EAttr $ shadowExpression opts DualE $ removeLeakageAnns opts False e
-            return $ cleanAttributes Nothing [v']
+            return $ cleanAttrVals Nothing [v']
         else do
             v' <- liftM EAttr $ shadowExpression opts ShadowE $ removeLeakageAnns opts True e
             if doDual
-                then return $ cleanAttributes Nothing [removeLeakageAnns opts True v,v']
-                else return $ cleanAttributes Nothing [v']
+                then return $ cleanAttrVals Nothing [removeLeakageAnns opts True v,v']
+                else return $ cleanAttrVals Nothing [v']
     shadowAttrVal opts _ (SAttr s) = return [SAttr s]
 
 shadowWildcardExpression :: MonadIO m => Options -> ShadowEMode -> WildcardExpression -> ShadowM m WildcardExpression
@@ -738,9 +744,14 @@ shadowPredicate p opts mode pr@(freePred opts -> Predicate atts (SpecClause st i
 
 -- normal program with the last goto replaced pointing to the shadow label and annotations removed
 redirectBasicBlock :: Options -> Maybe Id -> Id -> BasicBlock -> BasicBlock
-redirectBasicBlock opts next startShadow (l,ss) = (l,concatMap redirectStatement ss)
+redirectBasicBlock opts next startShadow (l,ss) = (l,concatMap redirectCommentOrStatement ss)
     where
+    redirectCommentOrStatement :: Either Comment Statement -> [Either Comment Statement]
+    redirectCommentOrStatement (Left c) = [Left c]
+    redirectCommentOrStatement (Right s) = map Right $ redirectStatement s
+    redirectStatement :: Statement -> [Statement]
     redirectStatement (Pos p s) = map (Pos p) (redirectBareStatement s)
+    redirectBareStatement :: BareStatement -> [BareStatement]
     redirectBareStatement (Goto [l]) | Just l == next = [Goto [startShadow]]
     redirectBareStatement x = [removeLeakageAnns opts True x]
 

@@ -76,5 +76,15 @@ replaceCanCallMb opts (isAnn opts False True "DeclassifiedIn#canCall" -> Just i)
 replaceCanCallMb opts (isAnn opts False True "DeclassifiedOut#canCall" -> Just i) = Just tt
 replaceCanCallMb opts (isAnn opts False False "Leakage#canCall" -> Just i) = Just tt
 replaceCanCallMb opts (isAnn opts False False "Free#canCall" -> Just i) = Just tt
+
+replaceCanCallMb opts (isAnn opts False True "PublicIn#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "PublicOut#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "PublicMid#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "Leak#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "DeclassifiedIn#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "DeclassifiedOut#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False False "Leakage#requires" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False False "Free#requires" -> Just i) = Just tt
+
 replaceCanCallMb opts e = Nothing
 

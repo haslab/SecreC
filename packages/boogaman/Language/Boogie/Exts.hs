@@ -38,14 +38,17 @@ toBasicBlocks' :: Block -> [BasicBlock]
 toBasicBlocks' = toBasicBlocks'' Nothing
     where
     toBasicBlocks'' :: Maybe BasicBlock -> Block -> [BasicBlock]
+    toBasicBlocks'' b (Left c:xs) = case toBasicBlocks'' b xs of
+        (l,b):bs -> (l,Left c:b):bs
+        [] -> []
     toBasicBlocks'' Nothing [] = []
     toBasicBlocks'' (Just b) [] = [b]
-    toBasicBlocks'' Nothing ((unPos -> ([l],s)):ss) = toBasicBlocks'' (Just (l,[s])) ss
-    toBasicBlocks'' (Just b) ((unPos -> ([l],s)):ss) = b : toBasicBlocks'' (Just (l,[s])) ss
-    toBasicBlocks'' (Just (l,b)) ((unPos -> ([],s)):ss) = toBasicBlocks'' (Just (l,b++[s])) ss
+    toBasicBlocks'' Nothing (Right (unPos -> ([l],s)):ss) = toBasicBlocks'' (Just (l,[Right s])) ss
+    toBasicBlocks'' (Just b) (Right (unPos -> ([l],s)):ss) = b : toBasicBlocks'' (Just (l,[Right s])) ss
+    toBasicBlocks'' (Just (l,b)) (Right (unPos -> ([],s)):ss) = toBasicBlocks'' (Just (l,b++[Right s])) ss
 
 returnAsLastBlock :: [BasicBlock] -> [BasicBlock]
-returnAsLastBlock bs = everywhere (mkT replaceReturn) bs ++ [(ret,[Pos noPos Return])]
+returnAsLastBlock bs = everywhere (mkT replaceReturn) bs ++ [(ret,[Right $ Pos noPos Return])]
     where
     replaceReturn :: BareStatement -> BareStatement
     replaceReturn Return = Goto [ret]

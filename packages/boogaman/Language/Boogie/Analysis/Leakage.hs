@@ -41,7 +41,7 @@ instance VarGr [BasicBlock] where
     varGr = liftM mconcat . mapM varGr
 
 instance VarGr BasicBlock where
-    varGr (l,ss) = liftM mconcat $ mapM (varGr . node) ss
+    varGr (l,ss) = liftM mconcat $ mapM (varGr . node) $ rights ss
 
 instance FVS [(Id,[[Expression]])] where
     fvs = mconcat . map fvs
@@ -122,6 +122,14 @@ instance Leaks Block where
     leakage opts = mconcat . map (leakage opts)
 instance Leaks BareLStatement where
     leakage opts = leakage opts . snd
+instance Leaks [Either Comment Statement] where
+    leakage opts = mconcat . map (leakage opts)
+instance Leaks (Either Comment Statement) where
+    leakage opts (Left c) = mempty
+    leakage opts (Right x) = leakage opts x
+instance Leaks (Either Comment LStatement) where
+    leakage opts (Left c) = mempty
+    leakage opts (Right x) = leakage opts x
 
 mapKeyVars :: Data a => Map a b -> Map Id b
 mapKeyVars = Map.foldrWithKey (\k v xs -> Map.fromSet (const v) (vars k) `Map.union` xs) Map.empty
@@ -289,6 +297,11 @@ isBenign leaks x = not (Set.null s)
 class FVS a where
     fvs :: a -> Set Id
 
+instance FVS [Either Comment Statement] where
+    fvs = mconcat . map fvs
+instance FVS (Either Comment Statement) where
+    fvs (Left c) = Set.empty
+    fvs (Right x) = fvs x
 instance FVS a => FVS (Pos a) where
     fvs (Pos _ x) = fvs x
 instance FVS [Expression] where
@@ -343,7 +356,7 @@ instance FVS BareStatement where
 instance FVS a => FVS (Maybe a) where
     fvs = maybe Set.empty fvs
 instance FVS Block where
-    fvs = mconcat . map fvs
+    fvs = mconcat . map (either (const Set.empty) fvs)
 instance FVS BareLStatement where
     fvs = fvs . snd
 instance FVS [Attribute] where

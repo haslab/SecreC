@@ -89,9 +89,69 @@ instance Simplify Program where
             return (Right d':xs')   
 
 instance Simplify BareExpression where
-    simplify e = return $ Just e --do
---        opts <- Reader.ask
---        return $ Just $ gReplaceFrees opts e
+    simplify e = liftM Just $ simplifyBareExpr e
+
+simplifyBareExpr :: BareExpression -> SimplifyM BareExpression
+simplifyBareExpr (Logical t r) = do
+    t' <- simplifyId t
+    return $ Logical t' r
+simplifyBareExpr (MapSelection e es) = do
+    e' <- simplifyId e
+    es' <- simplifyId es
+    return $ MapSelection e' es'
+simplifyBareExpr (MapUpdate e1 es e2) = do
+    e1' <- simplifyId e1
+    es' <- simplifyId es
+    e2' <- simplifyId e2
+    return $ MapUpdate e1' es' e2'
+simplifyBareExpr (Old e) = do
+    e' <- simplifyId e
+    return $ Old e'
+simplifyBareExpr (IfExpr c e1 e2) = do
+    c' <- simplifyId c
+    case unPos c of
+        Literal (BoolValue True) -> simplifyId $ unPos e1
+        Literal (BoolValue False) -> simplifyId $ unPos e2
+        otherwise -> do
+            e1' <- simplifyId e1
+            e2' <- simplifyId e2
+            return $ IfExpr c' e1' e2'
+simplifyBareExpr (Coercion e t) = do
+    e' <- simplifyId e
+    t' <- simplifyId t
+    return $ Coercion e' t'
+simplifyBareExpr (Quantified q ids idts trgs e) = do
+    e' <- simplifyId e
+    case unPos e' of
+        Literal (BoolValue b) -> return $ unPos e'
+        otherwise -> do
+            let vs = fvs e'
+            let ids' = filter (`Set.member` vs) ids
+            let idts' = filter (\(i,t) -> Set.member i vs) idts
+            let trgs' = cleanQTriggerAttributes (Just $ Set.toList vs) trgs
+            return $ Quantified q ids' idts' trgs' e'
+simplifyBareExpr (BinaryExpression o e1 e2) = do
+    e1' <- simplifyId e1
+    e2' <- simplifyId e2
+    return $ evalBinOp o e1' e2'
+simplifyBareExpr (UnaryExpression o e) = do
+    e' <- simplifyId e
+    return $ evalUnOp o e'
+simplifyBareExpr app@(Application n es) = do
+    opts <- Reader.ask
+    case replaceCanCallMb opts app of
+        Just e' -> return e'
+        Nothing -> do
+            es' <- mapM simplifyId es
+            return $ Application n es'
+simplifyBareExpr e = return e
+
+evalUnOp :: UnOp -> Expression -> BareExpression
+evalUnOp o e = UnaryExpression o e
+
+evalBinOp :: BinOp -> Expression -> Expression -> BareExpression
+evalBinOp Implies e1 e2@(unPos -> Literal (BoolValue True)) = unPos e2
+evalBinOp b e1 e2 = BinaryExpression b e1 e2
 
 instance Simplify (Id, [[Expression]]) where
     simplify (a,b) = do
@@ -124,6 +184,15 @@ instance Simplify [IdTypeWhere] where
 
 instance Simplify [Statement] where
     simplify = simplifyList
+
+instance Simplify [Either Comment Statement] where
+    simplify = simplifyList
+
+instance Simplify (Either Comment Statement) where
+    simplify (Left c) = return $ Just $ Left c
+    simplify (Right s) = do
+        s' <- simplify s
+        return $ fmap Right s'
 
 instance Simplify BasicBlock where
     simplify (x,y) = do
@@ -284,15 +353,27 @@ instance Simplify BareStatement where
         return $ Just $ While e' c' b'
     simplify s = return $ Just s
 
-cleanAttributes :: Maybe [Id] -> [AttrValue] -> [AttrValue]
-cleanAttributes vars = concatMap (cleanAttribute vars)
+cleanQTriggerAttributes :: Maybe [Id] -> [QTriggerAttribute] -> [QTriggerAttribute]
+cleanQTriggerAttributes vars xs = map (cleanQTriggerAttribute vars) xs
+
+cleanQTriggerAttribute :: Maybe [Id] -> QTriggerAttribute -> QTriggerAttribute
+cleanQTriggerAttribute vars (Left t) = case cleanTrigger vars t of
+    Nothing -> Left []
+    Just xs -> Left xs
+cleanQTriggerAttribute vars (Right a) = Right $ cleanAttribute vars a
+
+cleanAttrVals :: Maybe [Id] -> [AttrValue] -> [AttrValue]
+cleanAttrVals vars = concatMap (cleanAttrVal vars)
 
 cleanTriggers :: Maybe [Id] -> [Trigger] -> [Trigger]
 cleanTriggers vars = catMaybes . map (cleanTrigger vars)
 
-cleanAttribute :: Maybe [Id] -> AttrValue -> [AttrValue]
-cleanAttribute vars (SAttr x) = [SAttr x]
-cleanAttribute vars (EAttr x) = map EAttr $ cleanExpression x
+cleanAttrVal :: Maybe [Id] -> AttrValue -> [AttrValue]
+cleanAttrVal vars (SAttr x) = [SAttr x]
+cleanAttrVal vars (EAttr x) = map EAttr $ cleanExpression x
+
+cleanAttribute :: Maybe [Id] -> Attribute -> Attribute
+cleanAttribute vars (Attribute i vs) = Attribute i $ cleanAttrVals vars vs
 
 cleanTrigger :: Maybe [Id] -> Trigger -> Maybe Trigger
 cleanTrigger vars t = let t' = concatMap cleanExpression t in case vars of

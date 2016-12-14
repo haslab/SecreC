@@ -126,7 +126,9 @@ instance Pretty BareStatement where pretty s = statementDoc (gen s)
 
 {- Blocks -}
 
-blockDoc block = vsep (map lStatementDoc block)
+commentDoc c = text c
+
+blockDoc block = vsep (map (either commentDoc lStatementDoc) block)
   where
     lStatementDoc (Pos _ (lbs, s)) = hsep (map labelDoc lbs) <+> statementDoc s
     

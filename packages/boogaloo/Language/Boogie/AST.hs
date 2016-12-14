@@ -138,10 +138,11 @@ type LStatement = Pos BareLStatement
 type BareLStatement = ([Id], Statement)
 
 -- | Statement block
-type Block = [LStatement] 
+type Block = [Either Comment LStatement] 
 
 -- | Block consisting of a single non-labeled statement
-singletonBlock s = [attachPos (position s) ([], s)]
+singletonBlock :: Statement -> Block
+singletonBlock s = [Right $ attachPos (position s) ([], s)]
 
 -- | Procedure body: consists of local variable declarations and a statement block
 type Body = ([([Attribute],[IdTypeWhere])], Block)
@@ -149,12 +150,12 @@ type Body = ([([Attribute],[IdTypeWhere])], Block)
 -- | Basic block is a list of statements labeled by a single label;
 -- the list contains no jump, if or while statements,
 -- except for the last statement, which can be a goto or return
-type BasicBlock = (Id, [Statement])
+type BasicBlock = (Id, [Either Comment Statement])
 
 -- | Procedure body transformed to basic blocks:
 -- consists of local variable declarations and a set of basic blocks
 -- (represented as a map from their labels to statement lists)
-type BasicBody = ([IdTypeWhere],Id,Map Id [Statement])
+type BasicBody = ([IdTypeWhere],Id,Map Id [Either Comment Statement])
 
 {- Specs -}
 

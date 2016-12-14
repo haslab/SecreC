@@ -852,7 +852,7 @@ execProcedure :: (Monad m, Functor m) => PSig -> PDef -> [Expression] -> [Expres
 execProcedure sig def args lhss callPos = let 
   ins = pdefIns def
   outs = pdefOuts def
-  blocks = thr3 (pdefBody def)
+  blocks = M.map rights $ thr3 (pdefBody def)
   exitPoint pos = if pos == noPos 
     then pdefPos def  -- Fall off the procedure body: take the procedure definition location
     else pos          -- A return statement inside the body

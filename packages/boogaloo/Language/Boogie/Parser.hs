@@ -324,6 +324,9 @@ label = do
   return id 
   <?> "label"
   
+commentOrLStatement :: Parser (Either Comment LStatement)
+commentOrLStatement = liftM Left comment <|> liftM Right lStatement
+  
 lStatement :: Parser LStatement
 lStatement = attachPosBefore $ do
   lbs <- many (P.try label)
@@ -332,13 +335,13 @@ lStatement = attachPosBefore $ do
 
 statementList :: Parser Block
 statementList = do
-  lstatements <- many (P.try lStatement)
+  lstatements <- many (P.try commentOrLStatement)
   pos1 <- getPosition
   lempty <- many (P.try label)
   pos2 <- getPosition
   return $ if null lempty
     then lstatements 
-    else lstatements ++ [attachPos pos1 (lempty, attachPos pos2 Skip)]
+    else lstatements ++ [Right $ attachPos pos1 (lempty, attachPos pos2 Skip)]
 
 block :: Parser Block
 block = braces statementList
