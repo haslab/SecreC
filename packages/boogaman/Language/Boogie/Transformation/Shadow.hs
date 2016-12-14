@@ -464,7 +464,7 @@ shadowBareExpression p opts mode (isFreeExpr opts -> Just e') = shadowBareExpres
 shadowBareExpression p opts ShadowE e | hasLeakageFunAnn opts e = error $ show $ text (show p) <+> text "unsupported leakage expression" <+> pretty e <+> text "in ShadowE mode"
 shadowBareExpression p opts DualE e | not (hasLeakageFunAnn opts e) = strace opts ("shadowing a non-leakage expression " ++ show (pretty e)) $ do
     e' <- shadowBareExpression p opts ShadowE e
-    return $ BinaryExpression And (Pos noPos e) (Pos noPos e')
+    return $ BinaryExpression And (Pos noPos $ replaceFrees opts e) (Pos noPos e')
 shadowBareExpression p opts (isDualMode -> True) e@(Application n@(isLeakFunName opts -> True) es) = do
     n' <- shadowId opts DualE n
     bools <- liftM (lookupMap n . functions) State.get
@@ -472,21 +472,21 @@ shadowBareExpression p opts (isDualMode -> True) e@(Application n@(isLeakFunName
     return $ Application n' es'
 shadowBareExpression p opts (isDualMode -> True) e@(isLeakExpr opts -> Just l) = do
     lShadow <- shadowBareExpression p opts ShadowE l
-    return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
+    return $ BinaryExpression Eq (Pos noPos $ replaceFrees opts l) (Pos noPos lShadow)
 shadowBareExpression p opts m e@(isPublicExpr opts -> Just (l,PublicMid)) = do
     doFull <- State.gets fullProd
     if doFull
         then error "public mid expression not supported"
         else do
             lShadow <- shadowBareExpression p opts ShadowE l
-            return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
+            return $ BinaryExpression Eq (Pos noPos $ replaceFrees opts l) (Pos noPos lShadow)
 shadowBareExpression p opts (isDualMode -> True) e@(isPublicExpr opts -> Just (l,_)) = do
     lShadow <- shadowBareExpression p opts ShadowE l
-    return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
+    return $ BinaryExpression Eq (Pos noPos $ replaceFrees opts l) (Pos noPos lShadow)
 shadowBareExpression p opts mode e@(isDeclassifiedExpr opts -> Just (_,True)) = error $ show p ++ ": declassified out expression not supported in " ++ show mode ++ " " ++ show (pretty e)
 shadowBareExpression p opts (isDualMode -> True) e@(isDeclassifiedExpr opts -> Just (l,False)) = do
     lShadow <- shadowBareExpression p opts ShadowE l
-    return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
+    return $ BinaryExpression Eq (Pos noPos $ replaceFrees opts l) (Pos noPos lShadow)
 shadowBareExpression p opts (isDualE -> False) e@(Literal {}) = return e
 shadowBareExpression p opts (isDualE -> False) (Var i) = do
     i' <- shadowId opts ShadowE i
