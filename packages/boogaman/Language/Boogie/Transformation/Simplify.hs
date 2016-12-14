@@ -126,7 +126,7 @@ simplifyBareExpr (Quantified q ids idts trgs e) = do
     case unPos e' of
         Literal (BoolValue b) -> return $ unPos e'
         otherwise -> do
-            let vs = fvs e'
+            let vs = fvs trgs `Set.union` fvs e'
             let idts' = case q of
                             Lambda -> idts
                             otherwise -> filter (\(i,t) -> Set.member i vs) idts
