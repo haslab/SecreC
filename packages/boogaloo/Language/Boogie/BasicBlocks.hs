@@ -47,7 +47,8 @@ toBasicBlocks body = flip evalState (blockLabels body,0) $ do
     -- Append a labeled statement to a sequence of basic blocks
     -- (the first labeled statement cannot have empty label)
     append :: [BasicBlock] -> Either Comment BareLStatement -> [BasicBlock]
-    append ((l,ss):bbs) (Left c) = (l,Left c:ss):bbs
+    append ((l,ss):bbs) (Left c) = (l,ss++[Left c]) : bbs
+    append [] (Left c) = []
     append bbs (Right ([l], Pos _ Skip)) = (l, []) : bbs
     append bbs (Right ([l], s)) = (l, [Right s]) : bbs
     append ((l, ss) : bbs) (Right ([], s)) = (l, ss ++ [Right s]) :  bbs      
