@@ -40,7 +40,7 @@ getExemptions opts Dafny p = do
     let pdefs = Set.filter (\x -> noUserModule x || isClassDafnyId x) defs
     --putStrLn $ "exemptions: " ++ show pdefs
     --putStrLn $ "\nno exemptions: " ++ show nos
-    let exs = Set.unions [pdefs,defaultExemptions,Set.fromList ["$_reverifyPost"]]
+    let exs = Set.unions [pdefs,defaultExemptions,Set.fromList ["$_reverifyPost","null"]]
     strace opts (show $ text "getExemptions" <+> pretty (Set.toList exs)) $ return (exs,dafnyTyExemptions)
 
 dafnyTyExemptions :: Type -> Bool
