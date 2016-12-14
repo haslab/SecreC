@@ -93,7 +93,7 @@ shadowP opts p = do
     (exemptions,tyExemptions) <- getExemptions opts (vcgen opts) p
     if shadow opts
         then runShadow opts exemptions tyExemptions p
-        else return p
+        else return $ removeLeakageAnns opts True p
 
 
 
