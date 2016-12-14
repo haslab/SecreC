@@ -137,3 +137,12 @@ instance Pretty Contract where
       text "modifies" <+>
       commaSep (map text ids) <>
       semi
+      
+bareDeclName :: BareDecl -> Maybe Id
+bareDeclName (FunctionDecl _ n _ _ _ _) = Just n
+bareDeclName (ProcedureDecl _ n _ _ _ _ _) = Just n
+bareDeclName (ImplementationDecl _ n _ _ _ _) = Just n
+bareDeclName bd = Nothing
+
+
+

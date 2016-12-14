@@ -9,6 +9,15 @@ import Language.Boogie.Position
 import Data.List
 import Data.Generics
 
+dafnyAnns :: [String]
+dafnyAnns = concat $ map dafnyAnn ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
+    where
+    dafnyAnn name = ["_0_prelude.__default."++name
+              ,"_0_prelude.__default."++name++"#canCall"
+              ,"_0_prelude.__default."++name++"#requires"
+              ,"CheckWellformed$$_0_prelude.__default."++name
+              ,"CheckWellformed$$_0_prelude.__default."++name]
+
 boxE :: BareExpression -> Maybe BareExpression
 boxE (Application "$Box" [e]) = Just $ unPos e
 boxE e = Nothing

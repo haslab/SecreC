@@ -20,6 +20,7 @@ import qualified Control.Monad.Reader as Reader
 import Data.Maybe
 import Data.Monoid
 import Data.Generics
+import Data.List as List
 import qualified Data.Set as Set
 
 runSimplify :: Simplify a => Options -> a -> a
@@ -183,25 +184,33 @@ instance Simplify Contract where
         simplify' opts (Ensures free e) = liftM (fmap (Ensures free)) $ simplifyAs posTT e
 
 instance Simplify BareDecl where
-    simplify (AxiomDecl atts e) = do
-        atts' <- simplifyMonoid atts
-        liftM (fmap (AxiomDecl atts')) $ simplifyAs posTT e
-    simplify (ProcedureDecl atts n targs args rets cstrs b) = do
-        atts' <- simplifyMonoid atts
-        targs' <- simplifyMonoid targs
-        args' <- simplifyMonoid args
-        rets' <- simplifyMonoid rets
-        cstrs' <- simplifyMonoid cstrs
-        b' <- simplifyMonoid b
-        return $ Just $ ProcedureDecl atts' n targs' args' rets' cstrs' b'
-    simplify (ImplementationDecl atts name targs args rets b) = do
-        atts' <- simplifyMonoid atts
-        targs' <- simplifyMonoid targs
-        args' <- simplifyMonoid args
-        rets' <- simplifyMonoid rets
-        b' <- simplifyMonoid b
-        return $ Just $ ImplementationDecl atts' name targs' args' rets' b'
-    simplify d = return $ Just d
+    simplify d = do
+        opts <- Reader.ask
+        case (bareDeclName d,vcgen opts) of
+            (Just n,Dafny) -> if List.elem n dafnyAnns
+                then return Nothing
+                else simplify' d
+            otherwise -> simplify' d
+      where
+        simplify' (AxiomDecl atts e) = do
+            atts' <- simplifyMonoid atts
+            liftM (fmap (AxiomDecl atts')) $ simplifyAs posTT e
+        simplify' (ProcedureDecl atts n targs args rets cstrs b) = do
+            atts' <- simplifyMonoid atts
+            targs' <- simplifyMonoid targs
+            args' <- simplifyMonoid args
+            rets' <- simplifyMonoid rets
+            cstrs' <- simplifyMonoid cstrs
+            b' <- simplifyMonoid b
+            return $ Just $ ProcedureDecl atts' n targs' args' rets' cstrs' b'
+        simplify' (ImplementationDecl atts name targs args rets b) = do
+            atts' <- simplifyMonoid atts
+            targs' <- simplifyMonoid targs
+            args' <- simplifyMonoid args
+            rets' <- simplifyMonoid rets
+            b' <- simplifyMonoid b
+            return $ Just $ ImplementationDecl atts' name targs' args' rets' b'
+        simplify' d = return $ Just d
 
 instance Simplify SpecClause where
     simplify e = do
