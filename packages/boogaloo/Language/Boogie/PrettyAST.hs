@@ -292,3 +292,7 @@ idTypeWhereDoc (IdTypeWhere id t w) = idpretty (id, t) <+> case w of
 
 instance Pretty a => Pretty (Pos a) where
   pretty (Pos _ x) = pretty x
+ 
+instance (Pretty a,Pretty b) => Pretty (Either a b) where
+  pretty = either pretty pretty
+    

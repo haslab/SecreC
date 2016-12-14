@@ -46,7 +46,7 @@ toBasicBlocks' = toBasicBlocks'' Nothing
     toBasicBlocks'' Nothing (Right (unPos -> ([l],s)):ss) = toBasicBlocks'' (Just (l,[Right s])) ss
     toBasicBlocks'' (Just b) (Right (unPos -> ([l],s)):ss) = b : toBasicBlocks'' (Just (l,[Right s])) ss
     toBasicBlocks'' (Just (l,b)) (Right (unPos -> ([],s)):ss) = toBasicBlocks'' (Just (l,b++[Right s])) ss
-    toBasicBlocks'' b bs = error $ "toBasicBlocks'' " ++ show b ++ " " ++ show bs
+    toBasicBlocks'' b bs = error $ "toBasicBlocks'' " ++ show (pretty b) ++ " " ++ show (pretty bs)
 
 returnAsLastBlock :: [BasicBlock] -> [BasicBlock]
 returnAsLastBlock bs = everywhere (mkT replaceReturn) bs ++ [(ret,[Right $ Pos noPos Return])]
