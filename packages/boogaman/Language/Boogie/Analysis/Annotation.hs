@@ -9,13 +9,19 @@ import Language.Boogie.Position
 import Data.List as List
 import Data.Generics
 
+isDafnyAxiom :: String -> Bool
+isDafnyAxiom str = List.elem str $ concat $ map dafnyAxioms dafnyNames
+
 dafnyAxioms name = [dafnyFrameAxiom,dafnyConsqAxiom]
     where
     dafnyFrameAxiom = "// frame axiom for _0_prelude.__default."++name
     dafnyConsqAxiom = "// consequence axiom for _0_prelude.__default."++name
 
+dafnyNames :: [String]
+dafnyNames = ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
+
 dafnyAnns :: [String]
-dafnyAnns = concat $ map dafnyAnn ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
+dafnyAnns = concat $ map dafnyAnn dafnyNames
     where
     dafnyAnn name = ["_0_prelude.__default."++name
               ,"_0_prelude.__default."++name++"#canCall"

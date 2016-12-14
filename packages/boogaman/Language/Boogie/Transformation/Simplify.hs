@@ -23,6 +23,8 @@ import Data.Generics
 import Data.List as List
 import qualified Data.Set as Set
 
+import Debug.Trace
+
 runSimplify :: Simplify a => Options -> a -> a
 runSimplify opts x = Reader.runReader (simplifyId x) opts
 
@@ -71,15 +73,12 @@ instance Simplify Program where
         return $ Just $ Program decls'
       where
         simplifyDecls [] = return []
-        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) = case (bareDeclName d) of
-            Nothing -> do
+        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) = if isDafnyAxiom c
+            then simplifyDecls xs
+            else do
                 ys' <- simplifyDecls ys
+                --trace ("comment " ++ show c ++ " does not match " ++ show (pretty d)) $
                 return (Left c : ys')
-            Just n -> if List.elem c (dafnyAxioms n)
-                then simplifyDecls xs
-                else do
-                    ys' <- simplifyDecls ys
-                    return (Left c : ys')
         simplifyDecls (Left c:xs) = do
             xs' <- simplifyDecls xs
             return $ Left c : xs'
