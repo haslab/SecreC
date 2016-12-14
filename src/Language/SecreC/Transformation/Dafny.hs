@@ -701,10 +701,19 @@ propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
 genDafnyInvariantAssumptions :: DafnyK m => Position -> AnnKind -> [(VarIdentifier,Type)] -> DafnyM m AnnsDoc
 genDafnyInvariantAssumptions p annK xs = do
     anns <- getAssumptions
-    lift $ debugTc $ liftIO $ putStrLn $ "genDafnyInvariantAssumptions " ++ show anns
+    lift $ debugTc $ do
+        ppas <- ppAnns anns
+        liftIO $ putStrLn $ "genDafnyInvariantAssumptions " ++ pprid p ++ " " ++ show ppas
     let anns' = filter isUntouched anns
+    lift $ debugTc $ do
+        ppas' <- ppAnns anns'
+        liftIO $ putStrLn $ "genDafnyInvariantAssumptions " ++ pprid p ++ " " ++ show ppas'
     concatMapM propagate anns'
   where
+    ppAnns xs = liftM vcat $ mapM ppAnn xs
+    ppAnn (_,_,vs,pe,_) = do
+        pvs <- liftM (sepBy space) $ mapM pp $ Set.toList vs
+        return $ pe <+> text "with variables" <+> pvs
     isUntouched (_,_,vs,_,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
     propagate (_,_,vs,pe,isLeak) = annExpr (Just False) isLeak isLeak annK vs pe
 
