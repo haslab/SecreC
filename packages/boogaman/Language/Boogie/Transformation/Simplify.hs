@@ -129,8 +129,8 @@ simplifyBareExpr (Quantified q ids idts trgs e) = do
             let vs = fvs e'
             let ids' = filter (`Set.member` vs) ids
             let idts' = filter (\(i,t) -> Set.member i vs) idts
-            let trgs' = cleanQTriggerAttributes (Just $ Set.toList vs) trgs
-            return $ Quantified q ids' idts' trgs' e'
+            --let trgs' = cleanQTriggerAttributes (Just $ Set.toList vs) trgs
+            return $ Quantified q ids' idts' trgs e'
 simplifyBareExpr (BinaryExpression o e1 e2) = do
     e1' <- simplifyExpr (isBoolBinOp o) e1
     e2' <- simplifyExpr (isBoolBinOp o) e2
