@@ -20,12 +20,11 @@ dafnyAnns = concat $ map dafnyAnn ["PublicIn","PublicOut","PublicMid","Declassif
 
 boxE :: BareExpression -> Maybe BareExpression
 boxE (Application "$Box" [e]) = Just $ unPos e
-boxE e@(Application (List.isPrefixOf "$" -> True) es) = Just e
-boxE e = Nothing
+boxE e = Just e
 
 unboxE :: BareExpression -> Maybe BareExpression
 unboxE (Application "$Unbox" [e]) = Just $ unPos e
-unboxE e = Nothing
+unboxE e = Just e
 
 dafnyAppE :: Bool -> Bool -> String -> BareExpression -> Maybe BareExpression
 dafnyAppE True isPoly name (unboxE -> Just e) = dafnyAppE False isPoly name e
