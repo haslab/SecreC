@@ -118,6 +118,14 @@ withAssumptions m = do
     State.modify $ \env -> env { assumptions = anns }
     return x
 
+resetAssumptions :: DafnyK m => DafnyM m a -> DafnyM m a
+resetAssumptions m = do
+    anns <- getAssumptions
+    State.modify $ \env -> env { assumptions = [] }
+    x <- m
+    State.modify $ \env -> env { assumptions = anns }
+    return x
+
 dropAssumptions :: DafnyK m => Set VarIdentifier -> DafnyM m a -> DafnyM m a
 dropAssumptions xs m = do
     let aux (_,_,vs,_,_) = Set.null $ Set.intersection vs xs
@@ -505,7 +513,7 @@ newDafnyArg l (isConst,VarName t v@(VIden vv),isVariadic) = do
     return ([def,ass],TSubsts $ Map.singleton vv $ IdxT $ fmap typed $ varExpr tv')
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
-decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) cl)) = resetAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pargs',ssargs) <- newDafnyArgs l args
@@ -533,7 +541,7 @@ decToDafny l dec@(emptyDec -> Just (mid,ProcType p pn args ret anns (Just body) 
     annframes <- propagateDafnyAssumptions p EnsureK (decClassReads cl) (decClassWrites cl)
     return $ Just (p,tag <+> ppn <+> pargs <+> pret $+$ pcl $+$ annLinesProcC annframes $+$ annLinesProcC anns' $+$ pbody)
   where did = pIdenToDafnyId pn mid
-decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just body) cl)) = resetAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     pvars <- liftM (parens . sepBy comma) $ mapM (varToDafny . fmap (Typed l) . snd3) args
     let result = ppn <+> pvars
@@ -547,7 +555,7 @@ decToDafny l dec@(emptyDec -> Just (mid,FunType isLeak p pn args ret anns (Just 
         let tag = if isAnnDecClass cl then text "function" else text "function method"
         return $ Just (p,tag <+> ppn <+> pargs <+> char ':' <+> pret $+$ pcl $+$ annLinesProcC fanns $+$ vbraces pbody)
   where did = fIdenToDafnyId pn mid isLeak
-decToDafny l dec@(targsDec -> Just (mid,targs,LemmaType isLeak p pn args anns (Just body) cl)) = withAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l dec@(targsDec -> Just (mid,targs,LemmaType isLeak p pn args anns (Just body) cl)) = resetAssumptions $ withLeakMode isLeak $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pargs',ssargs) <- newDafnyArgs l args
@@ -568,7 +576,7 @@ decToDafny l (emptyDec -> Just (mid,StructType p sn (Just atts) cl)) = withLeakM
     patts <- structAttsToDafny l psn atts
     return $ Just (p,text "datatype" <+> psn <+> char '=' <+> psn <> parens patts)
   where did = SId sn mid
-decToDafny l d@(targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = withAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
+decToDafny l d@(targsDec -> Just (mid,targs,AxiomType isLeak p args anns cl)) = resetAssumptions $ insideDecl did $ withInAnn (decClassAnn cl) $ do
     leakMode <- getLeakMode
     if (leakMode >= isLeak)
         then do

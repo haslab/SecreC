@@ -289,11 +289,12 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (VarName iden loc) w
     pp (VarName l iden) = do
         is <- isDebug
         pid <- pp iden
-        if is
-            then do
-                pl <- pp l
-                return $ pid <+> text "::" <+> pl
-            else return pid
+        return pid
+        --if is
+        --    then do
+        --        pl <- pp l
+        --        return $ pid <+> text "::" <+> pl
+        --    else return pid
 
 data TypeName iden loc = TypeName loc iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -1537,11 +1538,12 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Expression iden loc
     pp e = do
         is <- isDebug
         pe <- ppExpr e
-        if is
-            then do
-                pl <- pp (loc e)
-                return $ pe <+> text "::" <+> pl
-            else return pe
+        return pe
+        --if is
+        --    then do
+        --        pl <- pp (loc e)
+        --        return $ pe <+> text "::" <+> pl
+        --    else return pe
 
 ppExpr :: (PP m loc,Location loc,DebugM m,PP m iden) => Expression iden loc -> m Doc
 ppExpr (BuiltinExpr l n e) = do

@@ -2774,8 +2774,8 @@ data Typed a = Typed a Type
 instance Binary a => Binary (Typed a)
 instance Hashable a => Hashable (Typed a)
 
-instance PP m a => PP m (Typed a) where
-    pp = pp . unTyped
+instance (DebugM m,PP m a) => PP m (Typed a) where
+    pp = pp . typed
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Typed a) where
     traverseVars f (Typed a t) = do
