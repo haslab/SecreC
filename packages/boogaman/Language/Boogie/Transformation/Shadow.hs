@@ -463,7 +463,7 @@ shadowBareExpression p opts m e@(isPublicExpr opts -> Just (l,PublicMid)) = do
 shadowBareExpression p opts (isDualMode -> True) e@(isPublicExpr opts -> Just (l,_)) = do
     lShadow <- shadowBareExpression p opts ShadowE l
     return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
-shadowBareExpression p opts m e@(isDeclassifiedExpr opts -> Just (_,True)) = error "declassified out expression not supported"
+shadowBareExpression p opts mode e@(isDeclassifiedExpr opts -> Just (_,True)) = error $ show p ++ ": declassified out expression not supported in " ++ show mode ++ " " ++ show (pretty e)
 shadowBareExpression p opts (isDualMode -> True) e@(isDeclassifiedExpr opts -> Just (l,False)) = do
     lShadow <- shadowBareExpression p opts ShadowE l
     return $ BinaryExpression Eq (Pos noPos l) (Pos noPos lShadow)
