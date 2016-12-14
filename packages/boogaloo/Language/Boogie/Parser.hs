@@ -432,6 +432,9 @@ body = braces (do
   statements <- statementList
   return (locals, statements))
   
+commentOrSpec :: Parser (Either Comment Contract)
+commentOrSpec = liftM Left comment <|> liftM Right spec
+  
 procDecl :: Parser BareDecl
 procDecl = do
   reserved "procedure"
@@ -444,10 +447,10 @@ procDecl = do
   where 
     noBody atts name tArgs args rets = do 
       semi
-      specs <- many spec
+      specs <- many commentOrSpec
       return (ProcedureDecl atts name tArgs (ungroupWhere args) (ungroupWhere rets) specs Nothing)
     withBody atts name tArgs args rets = do
-      specs <- many spec
+      specs <- many commentOrSpec
       b <- body
       return (ProcedureDecl atts name tArgs (ungroupWhere args) (ungroupWhere rets) specs (Just b))
 

@@ -14,6 +14,7 @@ import Data.Set(Set(..))
 import qualified Data.Set as Set
 import Data.Map(Map(..))
 import qualified Data.Map as Map
+import Data.Either
 
 type AxiomM = State AxiomSt
 
@@ -56,7 +57,7 @@ axiomatizeBareDecl opts d@(ProcedureDecl atts name targs args _ contracts _) = d
         then do
             let args' = map (\itw -> (itwId itw,itwType itw)) args
             let wheres = map itwWhere args
-            let (requires,modifies,ensures) = splitContracts contracts
+            let (requires,modifies,ensures) = splitContracts $ rights contracts
             (gvars,gwheres) <- findGlobalVars modifies
             let leakatt = if isLeakFunName opts name then [Attribute "leakage" []] else []
             let ax = AxiomDecl (leakatt ++ atts) $ Pos noPos $ Quantified Forall targs (args'++gvars) [] $ andExprs (wheres++gwheres++requires) `impliesExpr` andExprs (filter (not . hasOldExpr) ensures)

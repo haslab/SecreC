@@ -271,6 +271,12 @@ simplifyAs empty x = do
         Just ((==empty)->True) -> return Nothing
         otherwise -> return mb
 
+instance Simplify [Either Comment Contract] where
+    simplify = simplifyList
+instance Simplify (Either Comment Contract) where
+    simplify (Left c) = return $ Just $ Left c
+    simplify (Right x) = liftM (fmap Right) $ simplify x
+
 instance Simplify Contract where
     simplify c = Reader.ask >>= \opts -> simplify' opts c
       where

@@ -188,7 +188,7 @@ data BareDecl =
   FunctionDecl [Attribute] Id [Id] [FArg] FArg (Maybe Expression) |            -- ^ 'FunctionDecl' @name type_args formals ret body@
   AxiomDecl [Attribute] Expression |
   VarDecl [Attribute] [IdTypeWhere] |
-  ProcedureDecl [Attribute] Id [Id] [IdTypeWhere] [IdTypeWhere] [Contract] (Maybe Body) |  -- ^ 'ProcedureDecl' @name type_args formals rets contract body@
+  ProcedureDecl [Attribute] Id [Id] [IdTypeWhere] [IdTypeWhere] [Either Comment Contract] (Maybe Body) |  -- ^ 'ProcedureDecl' @name type_args formals rets contract body@
   ImplementationDecl [Attribute] Id [Id] [IdType] [IdType] [Body]                          -- ^ 'ImplementationDecl' @name type_args formals rets body@
   deriving (Eq,Show)
   

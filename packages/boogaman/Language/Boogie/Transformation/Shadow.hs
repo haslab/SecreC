@@ -93,16 +93,17 @@ isPrivateFArg :: Options -> FArg -> Bool
 isPrivateFArg opts (Nothing,_) = True
 isPrivateFArg opts (Just i,_) = isLeakVarName opts i
 
-ppContracts :: Options -> [Contract] -> (Set Id,Leakage)
+ppContracts :: Options -> [Either Comment Contract] -> (Set Id,Leakage)
 ppContracts opts [] = (mempty,mempty) 
 ppContracts opts (c:cs) = (m `mappend` ms,leak `mappend` leaks)
     where
     (m,leak) = ppContract opts c
     (ms,leaks) = ppContracts opts cs
-ppContract :: Options -> Contract -> (Set Id,Leakage)
-ppContract opts c@(Modifies _ ids) = (Set.fromList ids,mempty)
-ppContract opts c@(Requires _ e) = (mempty,Leakage (publicIds opts e) mempty)
-ppContract opts c@(Ensures _ e) = (mempty,Leakage (publicIds opts e) mempty)
+ppContract :: Options -> Either Comment Contract -> (Set Id,Leakage)
+ppContract opts (Left c) = (Set.empty,mempty)
+ppContract opts (Right c@(Modifies _ ids)) = (Set.fromList ids,mempty)
+ppContract opts (Right c@(Requires _ e)) = (mempty,Leakage (publicIds opts e) mempty)
+ppContract opts (Right c@(Ensures _ e)) = (mempty,Leakage (publicIds opts e) mempty)
 
 ppMaybeBody :: Options -> Set Id -> Maybe Body -> (Maybe Body,Leakage)
 ppMaybeBody opts modifies Nothing = (Nothing,mempty)
@@ -188,7 +189,7 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
         -- duplicate parameters, returns and contracts
         args' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip bools args
         rets' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip rbools rets
-        contracts' <- concatMapM (shadowContract opts name DualE) contracts
+        contracts' <- concatMapM (shadowCommentOrContract opts name DualE) contracts
         
         -- create a fresh shadow assertion variable
         shadow_ok <- freshVariable "shadow_ok"
@@ -209,7 +210,7 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
         -- duplicate parameters, returns and contracts
         args' <- concatMapM (shadowIdTypeWhere opts False) args
         rets' <- concatMapM (shadowIdTypeWhere opts False) rets
-        contracts' <- concatMapM (shadowContract opts name ShadowE) contracts
+        contracts' <- concatMapM (shadowCommentOrContract opts name ShadowE) contracts
         
         body' <- mapM (shadowBody opts modifies leaks False) body
         
@@ -329,6 +330,12 @@ shadowBasicBlocks opts modifies leaks False bs = do
     bbs <- lift $ flattenBasicBlocks bs (fst $ last bs)
     bbs' <- forM bbs $ \(bb,next) -> prodBasicBlocks opts ShadowE bb
     return $ concat bbs'
+
+shadowCommentOrContract :: MonadIO m => Options -> Id -> ShadowEMode -> Either Comment Contract -> ShadowM m [Either Comment Contract]
+shadowCommentOrContract opts proc mode (Left c) = return [Left c]
+shadowCommentOrContract opts proc mode (Right c) = do
+    cs' <- shadowContract opts proc mode c
+    return $ map Right cs'
 
 shadowContract :: MonadIO m => Options -> Id -> ShadowEMode -> Contract -> ShadowM m [Contract]
 shadowContract opts proc DualE c@(Requires free e) | hasLeakageFunAnn opts e = do

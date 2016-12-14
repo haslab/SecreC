@@ -688,7 +688,7 @@ checkFunctionSignature name tv args ret = do
     addFSig name sig c = c { ctxFunctions = M.insert name sig (ctxFunctions c) }
       
 -- | Check uniqueness of procedure name, types of formals and add procedure to context      
-checkProcSignature :: Id -> [Id] -> [IdTypeWhere] -> [IdTypeWhere] -> [Contract] -> Typing ()
+checkProcSignature :: Id -> [Id] -> [IdTypeWhere] -> [IdTypeWhere] -> [Either Comment Contract] -> Typing ()
 checkProcSignature name tv args rets specs = do
   cnames <- gets funProcNames
   if name `elem` cnames
@@ -702,7 +702,7 @@ checkProcSignature name tv args rets specs = do
         else do
           argTypes <- gets $ \c -> map (mapItwType (resolve c)) args
           retTypes <- gets $ \c -> map (mapItwType (resolve c)) rets               
-          modify $ addPSig name (PSig name tv argTypes retTypes specs)
+          modify $ addPSig name (PSig name tv argTypes retTypes $ rights specs)
   where
     params = args ++ rets
     checkParams = do
@@ -766,24 +766,24 @@ checkFunction name tv args body = do
     addFArg _ = return ()
         
 -- | Check where-parts of procedure arguments and statements in its body
-checkProcedure :: [Id] -> [IdTypeWhere] -> [IdTypeWhere] -> [Contract] -> (Maybe Body) -> Typing ()
+checkProcedure :: [Id] -> [IdTypeWhere] -> [IdTypeWhere] -> [Either Comment Contract] -> (Maybe Body) -> Typing ()
 checkProcedure tv args rets specs mb = do 
   modify $ setTypeVars tv
   mapAccum_ (checkIdType localScope ctxIns setIns) (map noWhere args)
   locally $ mapAccum_ checkWhere args
-  mapAccum_ (locally . checkMatch (text "precondition") BoolType . specExpr) (preconditions specs)
+  mapAccum_ (locally . checkMatch (text "precondition") BoolType . specExpr) (preconditions $ rights specs)
   mapAccum_ (checkIdType localScope ctxLocals setLocals) (map noWhere rets)
   locally $ mapAccum_ checkWhere rets
   modify $ setTwoState True
-  mapAccum_ (locally . checkMatch (text "postcondition") BoolType . specExpr) (postconditions specs)
+  mapAccum_ (locally . checkMatch (text "postcondition") BoolType . specExpr) (postconditions $ rights specs)
   cglobs <- gets ctxGlobals
-  let invalidModifies = modifies specs \\ M.keys cglobs
+  let invalidModifies = modifies (rights specs) \\ M.keys cglobs
   if not (null invalidModifies)
     then throwTypeError (text "Identifier in a modifies clause does not denote a global variable:" <+> commaSep (map text invalidModifies))
     else case mb of
       Nothing -> return ()
       Just body -> do
-        modify $ setModifies (modifies specs)
+        modify $ setModifies (modifies $ rights specs)
         checkBody body
   
 -- | Check procedure body  

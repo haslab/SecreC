@@ -220,7 +220,7 @@ procedureDoc atts name fv args rets specs mb =
   text "returns" <+>
   parens (commaSep (map idTypeWhereDoc rets)) <>
   option (isNothing mb) semi $+$
-  vsep (map specDoc specs)) $+$
+  vsep (map (either text specDoc) specs)) $+$
   optionMaybe mb bodyDoc
   where
     specDoc (Requires free e) = option free (text "free") <+>
