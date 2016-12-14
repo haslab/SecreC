@@ -7,6 +7,7 @@ import Language.Boogie.Transformation.Shadow
 import Language.Boogie.Transformation.Axiomatize hiding (axioms,globalVars)
 import Language.Boogie.Transformation.Leakage
 import Language.Boogie.Analysis.Leakage hiding (leakage)
+import Language.Boogie.Analysis.Annotation
 import qualified Language.Boogie.Transformation.Simplify as S
 import Language.Boogie.AST
 import Language.Boogie.Options
@@ -92,7 +93,7 @@ shadowP :: Options -> Program -> IO Program
 shadowP opts p = do
     (exemptions,tyExemptions) <- getExemptions opts (vcgen opts) p
     if shadow opts
-        then runShadow opts exemptions tyExemptions p
+        then runShadow opts exemptions tyExemptions $ gReplaceCanCall opts p
         else return $ removeLeakageAnns opts True p
 
 

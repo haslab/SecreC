@@ -48,22 +48,28 @@ isFreeExpr vc (isAnn vc False False "Free" -> Just i) = Just i
 isFreeExpr vc _ = Nothing
 
 replaceFrees :: Options -> BareExpression -> BareExpression
-replaceFrees opts (isAnn opts False False "Free#canCall" -> Just i) = tt
-replaceFrees opts (isFreeExpr opts -> Just e) = e
-replaceFrees opts e = e
+replaceFrees opts e = maybe e id $ replaceFreesMb opts e
+
+replaceFreesMb :: Options -> BareExpression -> Maybe BareExpression
+replaceFreesMb opts (isAnn opts False False "Free#canCall" -> Just i) = Just tt
+replaceFreesMb opts (isFreeExpr opts -> Just e) = Just e
+replaceFreesMb opts e = Nothing
 
 gReplaceCanCall :: Data a => Options -> a -> a
 gReplaceCanCall opts@(vcgen -> Dafny) = everywhere (mkT (replaceCanCall opts))
 gReplaceCanCall opts@(vcgen -> NoVCGen) = id
 
 replaceCanCall :: Options -> BareExpression -> BareExpression
-replaceCanCall opts (isAnn opts False True "PublicIn#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False True "PublicOut#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False True "PublicMid#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False True "Leak#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False True "DeclassifiedIn#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False True "DeclassifiedOut#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False False "Leakage#canCall" -> Just i) = tt
-replaceCanCall opts (isAnn opts False False "Free#canCall" -> Just i) = tt
-replaceCanCall opts e = e
+replaceCanCall opts e = maybe e id $ replaceCanCallMb opts e
+
+replaceCanCallMb :: Options -> BareExpression -> Maybe BareExpression
+replaceCanCallMb opts (isAnn opts False True "PublicIn#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "PublicOut#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "PublicMid#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "Leak#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "DeclassifiedIn#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False True "DeclassifiedOut#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False False "Leakage#canCall" -> Just i) = Just tt
+replaceCanCallMb opts (isAnn opts False False "Free#canCall" -> Just i) = Just tt
+replaceCanCallMb opts e = Nothing
 

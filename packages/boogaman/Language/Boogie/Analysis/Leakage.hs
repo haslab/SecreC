@@ -239,7 +239,7 @@ isDeclassifiedExpr vc (isAnn vc False True "DeclassifiedOut" -> Just i) = Just (
 isDeclassifiedExpr vc _ = Nothing
 
 removeLeakageAnns :: Data a => Options -> Bool -> a -> a
-removeLeakageAnns opts noUser = everywhere (mkT removeLeakageExpr) . gReplaceCanCall opts . gReplaceFrees opts
+removeLeakageAnns opts noUser = everywhere (mkT removeLeakageExpr)
     where
     removeLeakageExpr :: BareExpression -> BareExpression
     removeLeakageExpr (isPublicExpr opts -> Just _) = tt
@@ -248,7 +248,11 @@ removeLeakageAnns opts noUser = everywhere (mkT removeLeakageExpr) . gReplaceCan
     removeLeakageExpr (isLeakageExpr opts -> Just x) = x
     removeLeakageExpr e@(Application name@(isLeakFunName opts -> True) _) | noUser = tt
     removeLeakageExpr e@(hasLeakFunName opts -> True) | noUser = error $ "user-defined leakage functions not supported on non-dual mode: " ++ show (pretty e)
-    removeLeakageExpr e = e
+    removeLeakageExpr e = case replaceFreesMb opts e of
+        Just e' -> e'
+        Nothing -> case replaceCanCallMb opts e of
+            Just e' -> e'
+            Nothing -> e
 
 hasLeak :: Data a => Options -> a -> Maybe (Set BareExpression)
 hasLeak opts s = if Set.null m then Nothing else Just m
