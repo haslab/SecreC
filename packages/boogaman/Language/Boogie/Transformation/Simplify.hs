@@ -77,9 +77,10 @@ instance Simplify Program where
       where
         simplifyDecls [] = return []
         simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) | isDafnyAxiom c = do
-            ys' <- simplifyDecls ys
-            --trace ("comment " ++ show c ++ " does not match " ++ show (pretty d)) $
-            return (Left c : ys')
+            simplifyDecls xs
+--            ys' <- simplifyDecls ys
+--            trace ("comment " ++ show c ++ " does not match " ++ show (pretty d)) $
+--                return (Left c : ys')
         simplifyDecls (Left c:xs) = do
             xs' <- simplifyDecls xs
             return $ Left c : xs'
