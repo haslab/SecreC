@@ -21,8 +21,14 @@ data AxiomSt = AxiomSt { pAxioms :: Set Id, pGlobalVars :: Map Id (Type,Expressi
 
 axiomatizeProgram :: Options -> Program -> AxiomM Program
 axiomatizeProgram opts (Program decls) = do
-    decls' <- concatMapM (axiomatizeDecl opts) decls
+    decls' <- concatMapM (axiomatizeCommentOrDecl opts) decls
     return $ Program decls'
+
+axiomatizeCommentOrDecl :: Options -> Either Comment Decl -> AxiomM [Either Comment Decl]
+axiomatizeCommentOrDecl opts (Left c) = return [Left c]
+axiomatizeCommentOrDecl opts (Right d) = do
+    ds' <- axiomatizeDecl opts d
+    return $ map Right ds'
 
 axiomatizeDecl :: Options -> Decl -> AxiomM [Decl]
 axiomatizeDecl opts (Pos p d) = do

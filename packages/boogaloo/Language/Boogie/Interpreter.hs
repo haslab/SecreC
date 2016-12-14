@@ -37,6 +37,7 @@ import Language.Boogie.NormalForm
 import Language.Boogie.BasicBlocks
 import Data.Maybe
 import Data.Function
+import Data.Either
 import Data.List
 import Data.Map (Map, (!))
 import qualified Data.Map as M
@@ -1183,7 +1184,7 @@ generate f = do
 -- | Collect procedure implementations, and constant/function/global variable constraints
 preprocess :: (Monad m, Functor m) => Program -> SafeExecution m ()
 preprocess (Program decls) = do
-  mapM_ processDecl decls
+  mapM_ processDecl $ rights decls
   fs <- use envFunctions
   mapM_ (detectMacro fs) (M.keys fs)
   where

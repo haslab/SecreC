@@ -9,6 +9,11 @@ import Language.Boogie.Position
 import Data.List as List
 import Data.Generics
 
+dafnyAxioms name = [dafnyFrameAxiom,dafnyConsqAxiom]
+    where
+    dafnyFrameAxiom = "// frame axiom for _0_prelude.__default."++name
+    dafnyConsqAxiom = "// consequence axiom for _0_prelude.__default."++name
+
 dafnyAnns :: [String]
 dafnyAnns = concat $ map dafnyAnn ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
     where

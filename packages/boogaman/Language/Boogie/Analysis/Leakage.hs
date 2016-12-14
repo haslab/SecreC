@@ -22,6 +22,7 @@ import Data.Graph.Inductive.PatriciaTree as Gr
 import Data.Data
 import Data.Generics
 import Data.List as List
+import Data.Either
 
 import Control.Monad.State as State
 
@@ -359,7 +360,7 @@ instance FVS [SpecClause] where
     fvs = mconcat . map fvs
     
 programDefs :: Program -> Set Id
-programDefs (Program decls) = mconcat $ map (declDefs . unPos) decls
+programDefs (Program decls) = mconcat $ map (declDefs . unPos) $ rights decls
 
 declDefs :: BareDecl -> Set Id
 declDefs (TypeDecl {}) = Set.empty

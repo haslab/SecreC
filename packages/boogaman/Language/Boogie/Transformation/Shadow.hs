@@ -50,8 +50,14 @@ runShadowM exemptions typeExemptions m = evalStateT m (ShadowSt 0 Set.empty exem
 -- preprocess program
 ppProgram :: MonadIO m => Options -> Program -> ShadowM m Program
 ppProgram opts (Program decls) = do
-    decls' <- mapM (mapM $ ppDecl opts) decls
+    decls' <- mapM (ppCommentOrDecl opts) decls
     return $ Program decls'
+
+ppCommentOrDecl :: MonadIO m => Options -> Either Comment Decl -> ShadowM m (Either Comment Decl)
+ppCommentOrDecl opts (Left c) = return (Left c)
+ppCommentOrDecl opts (Right d) = do
+    d' <- mapM (ppDecl opts) d
+    return $ Right d'
 
 mergeProcs (bools,rbools,ids,leaks) (bools',rbools',ids',leaks') = (bools,rbools,mappend ids ids',mappend leaks' leaks')
 
@@ -139,8 +145,14 @@ unlessExemptFVS' x def f m = do
 
 shadowProgram :: MonadIO m => Options -> Program -> ShadowM m Program
 shadowProgram opts (Program decls) = do
-    decls' <- concatMapM (shadowDecl opts) decls
+    decls' <- concatMapM (shadowCommentOrDecl opts) decls
     return $ Program decls'
+
+shadowCommentOrDecl :: MonadIO m => Options -> Either Comment Decl -> ShadowM m [Either Comment Decl]
+shadowCommentOrDecl opts (Left c) = return [Left c]
+shadowCommentOrDecl opts (Right d) = do
+    ds' <- shadowDecl opts d 
+    return $ map Right ds'
 
 shadowDecl :: MonadIO m => Options -> Decl -> ShadowM m [Decl]
 shadowDecl opts (Pos p d) = do

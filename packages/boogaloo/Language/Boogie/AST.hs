@@ -12,9 +12,12 @@ import Data.List
 
 {- Basic -}
 
+type Comment = String
+type Comments = [String]
+
 -- | Program: a list of top-level declarations
-newtype Program = Program [Decl]
-  deriving Eq
+newtype Program = Program [Either Comment Decl]
+  deriving (Eq,Show)
 
 {- Types -}
 
@@ -25,7 +28,7 @@ data GenType fv =
   IntType |                                 -- ^ int
   MapType [fv] [GenType fv] (GenType fv) |  -- 'MapType' @type_vars domains range@ : arrow type (used for maps, function and procedure signatures)
   IdType Id [GenType fv]                    -- 'IdType' @name args@: type denoted by an identifier (either type constructor, possibly with arguments, or a type variable)
-  deriving (Data, Typeable)
+  deriving (Data, Typeable,Show)
   
 -- | Regular types with free variables represented as identifiers 
 type Type = GenType Id
@@ -59,15 +62,15 @@ instance Ord Type where
 
 -- | Unary operators
 data UnOp = Neg | Not
-  deriving (Eq, Ord, Data, Typeable)
+  deriving (Eq, Ord, Data, Typeable,Show)
 
 -- | Binary operators  
 data BinOp = Plus | Minus | Times | Div | Mod | And | Or | Implies | Explies | Equiv | Eq | Neq | Lc | Ls | Leq | Gt | Geq
-  deriving (Eq, Ord, Data, Typeable)
+  deriving (Eq, Ord, Data, Typeable,Show)
 
 -- | Quantifiers
 data QOp = Forall | Exists | Lambda
-  deriving (Eq, Ord, Data, Typeable)
+  deriving (Eq, Ord, Data, Typeable,Show)
   
 -- | Expression with a source position attached  
 type Expression = Pos BareExpression
@@ -89,7 +92,7 @@ data BareExpression =
   UnaryExpression UnOp Expression |
   BinaryExpression BinOp Expression Expression |
   Quantified QOp [Id] [IdType] [QTriggerAttribute] Expression         -- ^ 'Quantified' @qop type_vars bound_vars triggers expr@
-  deriving (Eq, Ord, Data, Typeable)  -- syntactic equality
+  deriving (Eq, Ord, Data, Typeable,Show)  -- syntactic equality
   
 -- | 'mapSelectExpr' @m args@ : map selection expression with position of @m@ attached
 mapSelectExpr m args = attachPos (position m) (MapSelection m args)  
@@ -104,7 +107,7 @@ fromLiteral (Pos _ (Literal v)) = v
   
 -- | Wildcard or expression  
 data WildcardExpression = Wildcard | Expr Expression
-  deriving Eq
+  deriving (Eq,Show)
   
 -- | Expressions without free variables  
 type Thunk = Expression  
@@ -126,7 +129,7 @@ data BareStatement = Predicate [Attribute] SpecClause |   -- ^ Predicate stateme
   Return |
   Goto [Id] |                                             -- ^ 'Goto' @labels@
   Skip                                                    -- ^ only used at the end of a block
-  deriving Eq -- syntactic equality
+  deriving (Eq,Show) -- syntactic equality
 
 -- | Statement labeled by multiple labels with a source position attached  
 type LStatement = Pos BareLStatement
@@ -157,20 +160,20 @@ type BasicBody = ([IdTypeWhere],Id,Map Id [Statement])
 
 -- | Types of specification clauses
 data SpecType = Inline | Precondition | Postcondition | LoopInvariant | Where | Axiom
-  deriving Eq
+  deriving (Eq,Show)
 
 -- | Specification clause
 data SpecClause = SpecClause {
   specType :: SpecType,   -- ^ Source of the clause
   specFree :: Bool,       -- ^ Is it free (assumption) or checked (assertions)?
   specExpr :: Expression  -- ^ Boolean expression
-  } deriving Eq
+  } deriving (Eq,Show)
 
 -- | Procedure contract clause 
 data Contract = Requires Bool Expression |  -- ^ 'Requires' @e free@
   Modifies Bool [Id] |                      -- ^ 'Modifies' @var_names free@
   Ensures Bool Expression                   -- ^ 'Ensures' @e free@
-  deriving Eq
+  deriving (Eq,Show)
 
 {- Declarations -}
 
@@ -186,7 +189,7 @@ data BareDecl =
   VarDecl [Attribute] [IdTypeWhere] |
   ProcedureDecl [Attribute] Id [Id] [IdTypeWhere] [IdTypeWhere] [Contract] (Maybe Body) |  -- ^ 'ProcedureDecl' @name type_args formals rets contract body@
   ImplementationDecl [Attribute] Id [Id] [IdType] [IdType] [Body]                          -- ^ 'ImplementationDecl' @name type_args formals rets body@
-  deriving Eq
+  deriving (Eq,Show)
   
 {- Values -}
 
@@ -204,7 +207,7 @@ data Value = IntValue Integer |  -- ^ Integer value
   BoolValue Bool |               -- ^ Boolean value
   CustomValue Type Ref |         -- ^ Value of a user-defined type
   Reference Type Ref             -- ^ Map reference
-  deriving (Eq, Ord, Data, Typeable)
+  deriving (Eq, Ord, Data,Show,Typeable)
   
 -- | Type of a value
 valueType :: Value -> Type
@@ -226,13 +229,13 @@ unValueBool (BoolValue b) = b
 
 -- | Attribute value
 data AttrValue = EAttr Expression | SAttr String
-  deriving (Eq,Ord,Data,Typeable)
+  deriving (Eq,Ord,Data,Show,Typeable)
 
 -- | Attribute
 data Attribute = Attribute {
   aTag :: Id,
   aValues :: [AttrValue]
-  } deriving (Eq,Ord,Data,Typeable)
+  } deriving (Eq,Ord,Data,Show,Typeable)
     
 {- Misc -}
 
@@ -244,7 +247,7 @@ data NewType = NewType {
   tId :: Id,
   tArgs :: [Id],
   tValue :: Maybe Type
-  } deriving Eq
+  } deriving (Eq,Show)
 
 -- | Name declaration (identifier, type)
 type IdType = (Id, Type)
@@ -254,7 +257,7 @@ data IdTypeWhere = IdTypeWhere {
   itwId :: Id, 
   itwType :: Type, 
   itwWhere :: Expression 
-  } deriving Eq
+  } deriving (Eq,Show)
   
 -- | Strip the where clause  
 noWhere itw = (itwId itw, itwType itw)

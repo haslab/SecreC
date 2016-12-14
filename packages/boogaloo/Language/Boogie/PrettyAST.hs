@@ -18,7 +18,7 @@ import qualified Data.Map as M
 
 -- | Pretty-printed program
 instance Pretty Program where 
-  pretty (Program decls) = (vsep . punctuate linebreak . map pretty) decls
+  pretty (Program decls) = (vsep . punctuate linebreak . map (either pretty pretty)) decls
       
 {- Types -}
 
@@ -290,12 +290,3 @@ idTypeWhereDoc (IdTypeWhere id t w) = idpretty (id, t) <+> case w of
 
 instance Pretty a => Pretty (Pos a) where
   pretty (Pos _ x) = pretty x
-
-instance Show BareExpression where
-    show = show . pretty
-
-instance Show Type where
-    show = show . pretty
-
-instance Show Value where
-    show = show . pretty

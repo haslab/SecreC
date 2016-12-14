@@ -41,6 +41,7 @@ import Language.Boogie.ErrorAccum
 import Language.Boogie.Position
 import Language.Boogie.Pretty
 import Data.List
+import Data.Either
 import Data.Maybe
 import Data.Map (Map, (!))
 import qualified Data.Map as M
@@ -825,12 +826,12 @@ checkImplementation name tv args rets bodies = do
 -- | Check program in several passes
 checkProgram :: Program -> Typing ()
 checkProgram (Program decls) = do
-  mapAccum_ collectTypes decls                          -- collect type names from type declarations
-  locally $ mapAccum_ checkTypeSynonyms decls           -- check values of type synonyms
+  mapAccum_ collectTypes (rights decls)                          -- collect type names from type declarations
+  locally $ mapAccum_ checkTypeSynonyms (rights decls)           -- check values of type synonyms
   typeSynonyms <- gets $ M.keys . ctxTypeSynonyms
-  locally $ mapAccum_ (checkCycles decls) typeSynonyms  -- check that type synonyms do not form a cycle 
-  mapAccum_ checkSignatures decls                       -- check variable, constant, function and procedure signatures
-  mapAccum_ checkBodies decls                           -- check axioms, function and procedure bodies, constant parent info          
+  locally $ mapAccum_ (checkCycles $ rights decls) typeSynonyms  -- check that type synonyms do not form a cycle 
+  mapAccum_ checkSignatures (rights decls)                       -- check variable, constant, function and procedure signatures
+  mapAccum_ checkBodies (rights decls)                           -- check axioms, function and procedure bodies, constant parent info          
     
 {- Misc -}
 

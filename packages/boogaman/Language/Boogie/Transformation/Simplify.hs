@@ -66,7 +66,27 @@ instance Simplify a => Simplify (Pos a) where
     simplify (Pos p x) = liftM (fmap (Pos p)) (simplify x)
 
 instance Simplify Program where
-    simplify (Program decls) = liftM (fmap Program) (simplify decls)
+    simplify (Program decls) = do
+        decls' <- simplifyDecls decls
+        return $ Just $ Program decls'
+      where
+        simplifyDecls [] = return []
+        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) = case (bareDeclName d) of
+            Nothing -> do
+                ys' <- simplifyDecls ys
+                return (Left c : ys')
+            Just n -> if List.elem c (dafnyAxioms n)
+                then simplifyDecls xs
+                else do
+                    ys' <- simplifyDecls ys
+                    return (Left c : ys')
+        simplifyDecls (Left c:xs) = do
+            xs' <- simplifyDecls xs
+            return $ Left c : xs'
+        simplifyDecls (Right d:xs) = do
+            d' <- simplifyId d
+            xs' <- simplifyDecls xs
+            return (Right d':xs')   
 
 instance Simplify BareExpression where
     simplify e = return $ Just e --do

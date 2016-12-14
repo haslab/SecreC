@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 -- | Parsec-based parser for Boogie 2
 module Language.Boogie.Parser (
   program,
@@ -12,12 +14,15 @@ import Language.Boogie.Util
 import Language.Boogie.Position
 import Language.Boogie.Tokens
 import Data.List
+import Data.Char
+import Data.Maybe
 import Data.Map ((!), elems)
-import Text.ParserCombinators.Parsec hiding (token, label)
+import Text.ParserCombinators.Parsec hiding (token, label,try)
 import qualified Text.ParserCombinators.Parsec.Token as P
 import Text.Parsec (ParsecT(..))
 import qualified Text.Parsec as P
-import Text.ParserCombinators.Parsec.Expr
+import qualified Text.ParserCombinators.Parsec.Expr as P
+import qualified Text.ParserCombinators.Parsec.Char as P
 import Control.Monad
 import Control.Applicative ((<$>), (<*>), (<*), (*>))
 
@@ -27,9 +32,15 @@ import Control.Applicative ((<$>), (<*>), (<*), (*>))
 program :: Parser Program
 program = do 
   whiteSpace
-  p <- many decl
+  p <- many commentOrDecl
   eof
   return $ Program p
+
+commentOrDecl :: Parser (Either Comment Decl)
+commentOrDecl = c1 <|> c2
+  where
+    c2 = liftM Right decl
+    c1 = liftM Left comment
 
 {- Lexical analysis -}
 
@@ -44,9 +55,9 @@ opLetter = nub (concatMap tail opNames)
 
 boogieDef :: P.LanguageDef st
 boogieDef = P.LanguageDef 
-  commentStart
-  commentEnd
-  commentLine
+  ""
+  ""
+  ""
   False
   (letter <|> oneOf identifierChars)
   (alphaNum <|> oneOf identifierChars)
@@ -71,7 +82,7 @@ stringLiteral = P.stringLiteral lexer
 natural = P.natural lexer
 integer = P.integer lexer
 symbol = P.symbol lexer
-whiteSpace = P.whiteSpace lexer
+whiteSpace = P.whiteSpace lexer 
 angles = P.angles lexer
 brackets = P.brackets lexer
 parens = P.parens lexer
@@ -93,7 +104,7 @@ typeAtom = choice [
   ]
        
 typeArgs :: Parser [Id]
-typeArgs = try (angles (commaSep1 identifier)) <|> return []
+typeArgs = P.try (angles (commaSep1 identifier)) <|> return []
        
 mapType :: Parser Type
 mapType = do
@@ -145,7 +156,7 @@ atom = choice [
   varOrCall,
   old,
   ifThenElse,
-  node <$> try (parens expression),
+  node <$> P.try (parens expression),
   parens quantified
   ]
   where
@@ -202,20 +213,20 @@ coercionExpression = do
     
 -- | Expression parser    
 expression :: Parser Expression  
-expression = buildExpressionParser table coercionExpression <?> "expression"
+expression = P.buildExpressionParser table coercionExpression <?> "expression"
 
 table = [[unOp Neg, unOp Not],
-     [binOp Times AssocLeft, binOp Div AssocLeft, binOp Mod AssocLeft],
-     [binOp Plus AssocLeft, binOp Minus AssocLeft],
+     [binOp Times P.AssocLeft, binOp Div P.AssocLeft, binOp Mod P.AssocLeft],
+     [binOp Plus P.AssocLeft, binOp Minus P.AssocLeft],
      --[binOp Concat AssocLeft],
-     [binOp Eq AssocNone, binOp Neq AssocNone, binOp Ls AssocNone, binOp Leq AssocNone, binOp Gt AssocNone, binOp Geq AssocNone, binOp Lc AssocNone],
-     [binOp And AssocLeft], -- ToDo: && and || on the same level but do not interassociate
-     [binOp Or AssocLeft],
-     [binOp Implies AssocRight, binOp Explies AssocLeft], -- Mixing is prevented by different associativities
-     [binOp Equiv AssocRight]]
+     [binOp Eq P.AssocNone, binOp Neq P.AssocNone, binOp Ls P.AssocNone, binOp Leq P.AssocNone, binOp Gt P.AssocNone, binOp Geq P.AssocNone, binOp Lc P.AssocNone],
+     [binOp And P.AssocLeft], -- ToDo: && and || on the same level but do not interassociate
+     [binOp Or P.AssocLeft],
+     [binOp Implies P.AssocRight, binOp Explies P.AssocLeft], -- Mixing is prevented by different associativities
+     [binOp Equiv P.AssocRight]]
   where
-    binOp op assoc = Infix (reservedOp (binOpTokens ! op) >> return (\e1 e2 -> attachPos (position e1) (BinaryExpression op e1 e2))) assoc
-    unOp op = Prefix (do
+    binOp op assoc = P.Infix (reservedOp (binOpTokens ! op) >> return (\e1 e2 -> attachPos (position e1) (BinaryExpression op e1 e2))) assoc
+    unOp op = P.Prefix (do
       pos <- getPosition
       reservedOp (unOpTokens ! op)
       return (\e -> attachPos pos (UnaryExpression op e)))
@@ -243,7 +254,7 @@ call :: Parser BareStatement
 call = do
   reserved "call"
   atts <- (many attribute)
-  lefts <- option [] (try lhss)
+  lefts <- P.option [] (P.try lhss)
   id <- identifier
   args <- parens (commaSep expression)
   semi
@@ -297,7 +308,7 @@ statement = attachPosBefore (choice [
   do { reserved "assume"; attrs <- many attribute; e <- expression; semi; return $ Predicate attrs (SpecClause Inline True e) },
   do { reserved "havoc"; ids <- commaSep1 identifier; semi; return $ Havoc ids },
   assign,
-  try call,
+  P.try call,
   callForall,
   ifStatement,
   whileStatement,
@@ -315,15 +326,15 @@ label = do
   
 lStatement :: Parser LStatement
 lStatement = attachPosBefore $ do
-  lbs <- many (try label)
+  lbs <- many (P.try label)
   s <- statement
   return (lbs, s)
 
 statementList :: Parser Block
 statementList = do
-  lstatements <- many (try lStatement)
+  lstatements <- many (P.try lStatement)
   pos1 <- getPosition
-  lempty <- many (try label)
+  lempty <- many (P.try label)
   pos2 <- getPosition
   return $ if null lempty
     then lstatements 
@@ -372,7 +383,7 @@ functionDecl = do
   attrs <- many attribute
   name <- identifier
   tArgs <- typeArgs
-  args <- parens (option [] (try namedArgs <|> unnamedArgs))  
+  args <- parens (P.option [] (P.try namedArgs <|> unnamedArgs))  
   ret <- returns <|> returnType
   body <- (semi >> return Nothing) <|> (Just <$> braces expression)
   return $ FunctionDecl attrs name tArgs args ret body
@@ -383,7 +394,7 @@ functionDecl = do
       reserved "returns"
       parens fArg
     fArg = do
-      name <- optionMaybe (try (identifier <* reservedOp ":"))
+      name <- P.optionMaybe (P.try (identifier <* reservedOp ":"))
       t <- type_
       return (name, t)      
     returnType = do
@@ -521,3 +532,26 @@ attribute = (braces (do
   vals <- commaSep ((EAttr <$> expression) <|> (SAttr <$> stringLiteral))
   return $ Attribute tag vals
   )) <?> "attribute"  
+  
+onlySpace :: (P.Stream s m Char) => P.ParsecT s u m ()
+onlySpace = skipMany (simpleSpace <?> "")
+
+simpleSpace :: (P.Stream s m Char) => P.ParsecT s u m ()
+simpleSpace = P.skipMany1 (P.satisfy isSpace)
+
+comment :: (P.Stream s m Char) => P.ParsecT s u m String
+comment = oneLineComment
+
+oneLineComment :: (P.Stream s m Char) => P.ParsecT s u m String
+oneLineComment = do
+    c <- P.try (P.string "//")
+    cs <- many (P.satisfy (/= '\n'))
+    simpleSpace
+    return (c++cs)
+
+
+
+   
+      
+      
+      
