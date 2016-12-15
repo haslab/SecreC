@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --path="examples" --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp
+#OPTIONS_SECREC --path="examples" --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains
 
 module apriori_spec2;
 
@@ -9,13 +9,13 @@ import apriori_spec;
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
-//@     assertion(shape(f.items)[0] == shape(f.cache)[0])
+//@     shape(f.items)[0] == shape(f.cache)[0]
 //@     &&
-//@     assertion(shape(f.items)[1] == k)
+//@     shape(f.items)[1] == k
 //@     &&
-//@     assertion(shape(f.cache)[1] == shape(db)[0])
+//@     shape(f.cache)[1] == shape(db)[0]
 //@     &&
-//@     assertion(forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k))
+//@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
 
 //x //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)

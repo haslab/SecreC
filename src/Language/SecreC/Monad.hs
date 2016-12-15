@@ -171,6 +171,7 @@ data Options
         , entryPoints           :: [String]
         , defaults              :: Bool
         , progress              :: Bool
+        , ignoreSpecDomains     :: Bool
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
@@ -209,6 +210,7 @@ instance Monoid Options where
         , entryPoints = entryPoints x ++ entryPoints y
         , defaults = defaults x && defaults y
         , progress = progress x || progress y
+        , ignoreSpecDomains = ignoreSpecDomains x || ignoreSpecDomains y
         }
 
 defaultOptions :: Options
@@ -221,6 +223,7 @@ defaultOptions = Opts
     , simplify = True
     , typeCheck = True
     , debugCheck = False
+    , ignoreSpecDomains = False
     , debugLexer = False
     , debugParser = False
     , debugTypechecker = False

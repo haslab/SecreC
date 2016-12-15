@@ -777,12 +777,27 @@ coercesDec = do
         liftIO $ putStrLn $ "added base coercion dec " ++ ppd
     return dec
 
-checkCoercion :: CoercionOpt -> CstrState -> Bool
-checkCoercion c st@(cstrDecK -> AKind) = False
-checkCoercion OffC st = False
-checkCoercion DefaultsC st = cstrIsDef st
-checkCoercion OnC st = not $ cstrIsAnn st
-checkCoercion ExtendedC st = True
+checkNoSecM :: Monad m => TcM m Bool
+checkNoSecM = do
+    cl <- State.gets decClass
+    opts <- askOpts
+    if ignoreSpecDomains opts && isAnnDecClass cl
+        then return True
+        else return False
+
+checkCoercionM :: Monad m => TcM m Bool
+checkCoercionM = do
+    opts <- askOpts
+    st <- getCstrState
+    noSec <- checkNoSecM
+    return $ not noSec && checkCoercion (implicitCoercions opts) st
+  where
+    checkCoercion :: CoercionOpt -> CstrState -> Bool
+    checkCoercion c st@(cstrDecK -> AKind) = False
+    checkCoercion OffC st = False
+    checkCoercion DefaultsC st = cstrIsDef st
+    checkCoercion OnC st = not $ cstrIsAnn st
+    checkCoercion ExtendedC st = True
 
 -- flips errors whenever typechecking is expected to fail
 failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
@@ -3104,3 +3119,4 @@ debugTc :: Monad m => TcM m () -> TcM m ()
 debugTc m = do
     opts <- askOpts
     if debug opts then m else return ()
+

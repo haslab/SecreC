@@ -566,10 +566,9 @@ resolveTcCstr l mode kid k = do
     resolveTcCstr' kid k@(Equals t1 t2) = do
         equals l t1 t2
     resolveTcCstr' kid k@(Coerces bvs e1 x2) = do
-        opts <- askOpts
-        st <- getCstrState
         ppk <- ppr k
-        if checkCoercion (implicitCoercions opts) st
+        doCoerce <- checkCoercionM
+        if doCoerce
             then coerces l bvs e1 x2
             else unifiesExpr l (varExpr x2) e1
     --resolveTcCstr' kid k@(CoercesN exs) = do
@@ -1220,9 +1219,7 @@ tcCoercesN l isTop es t = do
 
 tcCoerces :: ProverK loc m => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM m Expr
 tcCoerces l isTop bvs e t = do
-    opts <- askOpts
-    st <- getCstrState
-    let doCoerce = checkCoercion (implicitCoercions opts) st
+    doCoerce <- checkCoercionM
     debugTc $ do
         ppe <- pp e
         ppt <- pp t
@@ -1440,12 +1437,16 @@ coercesDimSizes l bvs e1@(loc -> ComplexT ct1@(CType s1 b1 d1)) x2@(loc -> Compl
 
 coercesSec :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
 coercesSec l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = do
-    pp1 <- (ppExprTy e1)
-    pp2 <- (ppVarTy x2)
-    addErrorM l (TypecheckerError (locpos l) . (CoercionException "security type") pp1 pp2 . Just) $ do
-        s2 <- cSecM l t2
-        opts <- askOpts
-        coercesSec' l bvs e1 ct1 x2 s2
+    noSec <- checkNoSecM
+    if noSec
+        then assignsExprTy l x2 e1
+        else do
+            pp1 <- (ppExprTy e1)
+            pp2 <- (ppVarTy x2)
+            addErrorM l (TypecheckerError (locpos l) . (CoercionException "security type") pp1 pp2 . Just) $ do
+                s2 <- cSecM l t2
+                opts <- askOpts
+                coercesSec' l bvs e1 ct1 x2 s2
 
 coercesSec' :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> ComplexType -> Var -> SecType -> TcM m ()
 coercesSec' l bvs e1 ct1@(cSec -> Just s1) x2 s2 = do
@@ -1849,8 +1850,12 @@ comparesArray l isLattice = readable2 comparesArray' l
     comparesArray' a1 a2 = constraintError (ComparisonException "array type") l a1 pp a2 pp Nothing
 
 comparesSec :: (ProverK loc m) => loc -> Bool -> SecType -> SecType -> TcM m (Comparison (TcM m))
-comparesSec l isLattice = readable2 (comparesSec' isLattice) l
-    where
+comparesSec l isLattice s1 s2 = do
+    noSec <- checkNoSecM
+    if noSec
+        then return $ Comparison s1 s2 EQ EQ False
+        else readable2 (comparesSec' isLattice) l s1 s2
+  where
     comparesSec' isLattice t1@Public t2@Public = return (Comparison t1 t2 EQ EQ False)
     comparesSec' isLattice t1@(Private d1 k1) t2@(Private d2 k2) | d1 == d2 && k1 == k2 = do
         return (Comparison t1 t2 EQ EQ False)
@@ -1886,8 +1891,12 @@ comparesSec l isLattice = readable2 (comparesSec' isLattice) l
     comparesSec' isLattice t1 t2 = constraintError (ComparisonException $ show isLattice ++ " security type") l t1 pp t2 pp Nothing
 
 comparesKind :: (ProverK loc m) => loc -> Bool -> KindType -> KindType -> TcM m (Comparison (TcM m))
-comparesKind l isLattice = readable2 (comparesKind' isLattice) l
-    where
+comparesKind l isLattice k1 k2 = do
+    noSec <- checkNoSecM
+    if noSec
+        then return $ Comparison k1 k2 EQ EQ False
+        else readable2 (comparesKind' isLattice) l k1 k2 
+  where
     comparesKind' isLattice t1@PublicK t2@PublicK = return (Comparison t1 t2 EQ EQ False)
     comparesKind' isLattice t1@(PrivateK k1) t2@(PrivateK k2) | k1 == k2 = return (Comparison t1 t2 EQ EQ False)
     comparesKind' True t1@PublicK t2@(PrivateK {}) = do
@@ -2236,24 +2245,29 @@ matchComplexClass l isNotVoid c = do
     
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
-unifiesSec l = readable2 unifiesSec' l
+unifiesSec l s1 s2 = do
+      noSec <- checkNoSecM
+      readable2 (unifiesSec' noSec) l s1 s2
     where
-    unifiesSec' Public Public = return ()
-    unifiesSec' (Private d1 k1) (Private d2 k2) | d1 == d2 && k1 == k2 = do
+    unifiesSec' noSec Public Public = return ()
+    unifiesSec' noSec (Private d1 k1) (Private d2 k2) | d1 == d2 && k1 == k2 = do
         return ()
-    unifiesSec' d1@(getReadableVar -> Just (v1,k1)) d2@(getReadableVar -> Just (v2,k2)) | isWritable v1 == isWritable v2 = do
+    unifiesSec' True (Private d1 k1) (Private d2 k2) = return ()
+    unifiesSec' True Public (Private d2 k2) = return ()
+    unifiesSec' True (Private d1 k1) Public = return ()
+    unifiesSec' noSec d1@(getReadableVar -> Just (v1,k1)) d2@(getReadableVar -> Just (v2,k2)) | isWritable v1 == isWritable v2 = do
         o <- chooseWriteVar l v1 v2
         case o of
             LT -> addSVarSubstM l CheckS (v1,k1) d2
             GT -> addSVarSubstM l CheckS (v2,k2) d1
             EQ -> addSVarSubstM l CheckS (v1,k1) d2 
-    unifiesSec' (getWritableVar -> Just (v1,k1)) s2 = do
+    unifiesSec' noSec (getWritableVar -> Just (v1,k1)) s2 = do
         (k,s2') <- matchSecClass l k1 s2
         addSVarSubstM l CheckS (v1,k) s2'
-    unifiesSec' s1 (getWritableVar -> Just (v2,k2)) = do
+    unifiesSec' noSec s1 (getWritableVar -> Just (v2,k2)) = do
         (k,s1') <- matchSecClass l k2 s1
         addSVarSubstM l CheckS (v2,k) s1'
-    unifiesSec' t1 t2 = do
+    unifiesSec' noSec t1 t2 = do
         pp1 <- pp t1
         pp2 <- pp t2
         addErrorM l
@@ -2278,11 +2292,16 @@ matchSecClass l k s = do
     genTcError (locpos l) False $ text "security kind mismatch" <+> ppk <+> text "against" <+> pps
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
-unifiesKind l = readable2 unifiesKind' l
-    where
-    unifiesKind' PublicK PublicK = return ()
-    unifiesKind' (PrivateK k1) (PrivateK k2) | k1 == k2 = return ()
-    unifiesKind' k1@(getReadableVar -> Just (v1,priv1)) k2@(getReadableVar -> Just (v2,priv2)) | isWritable v1 == isWritable v2 = do
+unifiesKind l k1 k2 = do
+    noSec <- checkNoSecM
+    readable2 (unifiesKind' noSec) l k1 k2 
+  where
+    unifiesKind' noSec PublicK PublicK = return ()
+    unifiesKind' noSec (PrivateK k1) (PrivateK k2) | k1 == k2 = return ()
+    unifiesKind' True (PrivateK k1) (PrivateK k2) = return ()
+    unifiesKind' True PublicK (PrivateK {}) = return ()
+    unifiesKind' True (PrivateK {}) PublicK = return ()
+    unifiesKind' noSec k1@(getReadableVar -> Just (v1,priv1)) k2@(getReadableVar -> Just (v2,priv2)) | isWritable v1 == isWritable v2 = do
         let priv = max priv1 priv2
         case compare priv1 priv2 of
             LT -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v1) (KindT k2)
@@ -2292,13 +2311,13 @@ unifiesKind l = readable2 unifiesKind' l
                 case o of
                     GT -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v2) (KindT k1)
                     otherwise -> addSubstM l (SubstMode CheckS True) (VarName (KType priv) $ VIden v1) (KindT k2)
-    unifiesKind' (getWritableVar -> Just (v1,priv1)) k2 = do
+    unifiesKind' noSec (getWritableVar -> Just (v1,priv1)) k2 = do
         (priv1',k2') <- matchKindClass l priv1 k2
         addSubstM l (SubstMode CheckS True) (VarName (KType priv1') $ VIden v1) (KindT k2')
-    unifiesKind' k1 (getWritableVar -> Just (v2,priv2)) = do
+    unifiesKind' noSec k1 (getWritableVar -> Just (v2,priv2)) = do
         (priv2',k1') <- matchKindClass l priv2 k1
         addSubstM l (SubstMode CheckS True) (VarName (KType priv2') $ VIden v2) (KindT k1')
-    unifiesKind' t1 t2 = do
+    unifiesKind' noSec t1 t2 = do
         pp1 <- pp t1
         pp2 <- pp t2
         addErrorM l
@@ -3043,9 +3062,8 @@ checkIndex l e = do
 pDecCstrM :: (ProverK loc m) => loc -> Maybe [EntryEnv] -> Bool -> Bool -> Bool -> PIdentifier -> (Maybe [(Type,IsVariadic)]) -> [(IsConst,Either Expr Type,IsVariadic)] -> Type -> TcM m (DecType,[(IsConst,Either Expr Type,IsVariadic)])
 pDecCstrM l entries isTop isCtx doCoerce pid targs es tret = do
     dec <- newDecVar False Nothing
-    opts <- askOpts
-    st <- getCstrState
-    if (doCoerce && checkCoercion (implicitCoercions opts) st)
+    checkCoerce <- checkCoercionM
+    if (doCoerce && checkCoerce)
         then do
             xs <- forM es $ coerceArg isTop
             tcTop_ l isTop $ PDec isCtx entries pid targs xs tret dec

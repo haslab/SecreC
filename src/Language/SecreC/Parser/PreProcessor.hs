@@ -243,6 +243,7 @@ optionsDecl  = Opts {
     , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
     , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"
     , writeSCI = writeSCI defaultOptions &= help "Write typechecking result to SecreC interface files" &= groupname "Verification:Typechecker"
+    , ignoreSpecDomains = ignoreSpecDomains defaultOptions &= help "Ignore domains in specifications" &= groupname "Verification:Typechecker"
     
     -- Analysis
     , entryPoints = entryPoints defaultOptions &= help "starting procedures and structs for analysis" &= groupname "Verification:Analysis"

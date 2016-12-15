@@ -120,9 +120,7 @@ matchTemplate l oldentries kid n targs pargs ret check = do
     entries <- case oldentries of
         Nothing -> check >>= sortEntries l
         Just es -> return es
-    opts <- askOpts
-    st <- getCstrState
-    let isLattice = checkCoercion (implicitCoercions opts) st
+    isLattice <- checkCoercionM
     debugTc $ do
         ppentries <- mapM (pp . entryType) entries
         liftIO $ putStrLn $ "matches " ++ show (vcat $ ppentries)
