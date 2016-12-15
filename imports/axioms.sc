@@ -43,3 +43,15 @@ module axioms;
 //x //@ axiom<domain D,type T> (D T x)
 //x //@ ensures size({x}) == 1;
 //x //@ ensures assertion<D>({x}[0] == x);
+
+// multiplication is commutative
+//@ axiom <domain D> (D uint[[1]] xs, D uint[[1]] ys)
+//@ requires size(xs) == size(ys);
+//@ ensures xs * ys == ys * xs;
+    
+// multiplication is associative
+//@ axiom <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
+//@ requires size(xs) == size(ys) && size(ys) == size(zs);
+//@ ensures xs * (ys * zs) == (xs * ys) * zs;
+
+

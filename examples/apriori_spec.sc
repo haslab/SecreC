@@ -138,7 +138,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
 //@ }
 
-
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
@@ -148,12 +147,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
-
-//@ lemma TransactionsCommu (uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db)
-//@ requires IsDB(db);
-//@ requires IsItemSetOf(xs,db);
-//@ requires IsItemSetOf(ys,db);
-//@ ensures transactions(xs,db) * transactions(ys,db) == transactions(ys,db) * transactions(xs,db);
 
 //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
 //@ requires k > 1;
@@ -168,9 +161,16 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires C_dot == transactions(xs,db) * transactions(ys,db);
 //@ requires init(xs) == init(ys);
 //@ ensures CandidateCache(C,C_dot,db,k);
-//x //@ {
-//x //@ }
-
+//@ {
+//@     TransactionsSnoc(xs,db);
+//@     TransactionsSnoc(ys,db);
+//@     assert
+//@         (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
+//@         ==
+//@         ((transactions(init(xs),db) * transactions(init(ys),db)) * transaction(last(xs),db)) * transaction(last(ys),db);
+//@     TransactionsIdem(init(xs),db);
+//@     TransactionsSnoc(C,db);
+//@ }
           
 //* Leakage functions
 

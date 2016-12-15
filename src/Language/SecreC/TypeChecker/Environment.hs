@@ -1811,7 +1811,7 @@ substFromTSubstsDec msg l x doBounds ssBounds (DecType i isRec ts hctx bctx spec
 substFromTSubsts :: (VarsG (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubsts msg stop l tys doBounds ssBounds x = if tys == emptyTSubsts
     then return x
-    else tcProgress Nothing (Just msg) $ substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
+    else {-tcProgress Nothing (Just msg) $ -} substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
     
 substsProxyFromTSubsts :: ProverK loc m => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do

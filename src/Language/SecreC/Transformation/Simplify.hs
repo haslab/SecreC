@@ -408,7 +408,9 @@ simplifyExpression isExpr vret (SetComprehensionExpr l t x px fx) = do
     (ss1,[(t',x')]) <- simplifyQuantifierArgs [(t,x)]
     (ss3,px') <- simplifyNonVoidExpression isExpr px
     (ss4,fx') <- simplifyMaybe (simplifyNonVoidExpression isExpr) fx
-    assignRetExpr vret (ss1++ss3++ss4,Just $ SetComprehensionExpr l t' x' px' fx')
+    ssq <- stmtsAnns (ss1 ++ ss3 ++ ss4)
+    let (map fst -> pre,map fst -> post) = List.partition snd $ map stmtAnnExpr ssq
+    assignRetExpr vret ([],Just $ SetComprehensionExpr l t' x' (andExprsLoc $ pre++[px']) fx')
 simplifyExpression isExpr vret (ToVArrayExpr l e i) = do
     (ss1,e') <- simplifyNonVoidExpression isExpr e
     (ss2,i') <- simplifyNonVoidExpression isExpr i
@@ -424,7 +426,7 @@ simplifyExpression isExpr vret (QuantifiedExpr l q args e) = do
     (sse,e') <- simplifyNonVoidExpression True e
     ssq <- stmtsAnns (argsc ++ sse)
     let (map fst -> pre,map fst -> post) = List.partition snd $ map stmtAnnExpr ssq
-    assignRetExpr vret (sse,Just $ QuantifiedExpr l q args' $ impliesExprLoc (andExprsLoc pre) $ andExprsLoc $ post++[e'])
+    assignRetExpr vret ([],Just $ QuantifiedExpr l q args' $ impliesExprLoc (andExprsLoc pre) $ andExprsLoc $ post++[e'])
 simplifyExpression isExpr vret (ArrayConstructorPExpr t es) = do
     (sses,es') <- simplifyExpressions isExpr es
     assignRetExpr vret (sses,Just $ ArrayConstructorPExpr t es')
