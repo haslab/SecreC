@@ -237,18 +237,18 @@ tcStmt ret (AnnStatement l ann) = tcStmtBlock l "annotation statement" $ do
     return (AnnStatement (Typed l t) ann',t)
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))
-tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "decreases annotation" $ insideAnnotation $ withLeak False $ do
+tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "decreases annotation" $ insideAnnotation $ withKind FKind $ withLeak False $ do
     (e') <- tcAnnExpr Nothing e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "invariant annotation" $ insideAnnotation $ do
+tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "invariant annotation" $ insideAnnotation $ withKind FKind $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation GIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ do
+tcStmtAnn (AssumeAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind FKind $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (AssertAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ do
+tcStmtAnn (AssertAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind FKind $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssertAnn (Typed l $ typed $ loc e') isLeak' e'
 tcStmtAnn (EmbedAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind PKind $ do
