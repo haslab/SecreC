@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=offc
+#OPTIONS_SECREC --implicitcoercions=offc --ignorespecdomains
 
 module axioms;
 
