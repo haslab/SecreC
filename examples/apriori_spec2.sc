@@ -12,8 +12,8 @@ import apriori_spec;
 //@     shape(f.items)[0] == shape(f.cache)[0]
 //@     &&
 //@     shape(f.items)[1] == k
-//x //@     &&
-//x //@     shape(f.cache)[1] == shape(db)[0]
+//@     &&
+//@     shape(f.cache)[1] == shape(db)[0]
 //x //@     &&
 //x //@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
