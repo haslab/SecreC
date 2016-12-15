@@ -32,9 +32,9 @@ import apriori_spec;
 //x //@ requires init(xs) == init(ys);
 //x //@ ensures CandidateCache(C,C_dot,db,k);
 
-//* Leakage functions
-
-//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
-//@ noinline;
-//@ requires IsDB(db);
-//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
+//x //* Leakage functions
+//x 
+//x //@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
+//x //@ noinline;
+//x //@ requires IsDB(db);
+//x //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
