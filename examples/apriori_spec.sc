@@ -145,23 +145,3 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
-
-//x //@ axiom<> (uint i, uint sz)
-//x //@ requires i < sz;
-//x //@ ensures IsItemSet({i},sz);
-
-//x //@ lemma SameItemTransactions(uint i, pd_shared3p uint[[2]] db)
-//x //@ requires IsDB(db);
-//x //@ requires i < shape(db)[1];
-//x //@ ensures db[:,i] * db[:,i] == db[:,i];
-//x //@ {}
-
-//x //@ assert transactions(prev.items[i,:]) == transactions(init(prev.items[i,:])) * transaction(last(prev.items[i,:]));
-//x //@ assert transactions(prev.items[j,:]) == transactions(init(prev.items[j,:])) * transaction(last(prev.items[j,:]));
-//x //@ assert transactions(C) == transactions(prev.items[i,:]) * transaction(last(prev.items[j,:]));
-
-//x //@ function bool AllFrequents(frequent[[1]] freqs, pd_shared3p uint[[2]] db, uint threshold)
-//x //@ noinline;
-//x //@ {
-//x //@     forall uint[[1]] js; IsItemSetOf(js,db) && declassify(frequency(js,db)) >= threshold ==> in(js,set(freqs[size(js)-1].items))
-//x //@ }

@@ -71,10 +71,6 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[0] <= i;
     //@ invariant FrequentsCache(f,db,threshold,1);
     {
-        //x //@ assert size({i}) == 1;
-        //x //@ assert size(db[:,i]) == shape(db)[0];
-        //x //@ assert IsItemSetOf({i},db);
-        //x //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
@@ -83,8 +79,8 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uint k)
 //@ requires IsDB(db);
 //@ requires k >= 1;
-//@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(prev,db,threshold,k);
+//@ leakage requires LeakFrequents(db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold,k+1);
 {
     frequent next = newfrequent(k+1,db);
@@ -100,10 +96,10 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
       {
         bool prefixEqual = true;
         uint n = 0;
-        //@ assert prev.items[i,:n] == {};
-        //@ assert prev.items[j,:n] == {};
-        //@ assert prev.items[i,:n] == prev.items[j,:n];
-        //@ assert prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
+        //x //@ assert prev.items[i,:n] == {};
+        //x //@ assert prev.items[j,:n] == {};
+        //x //@ assert prev.items[i,:n] == prev.items[j,:n];
+        //x //@ assert prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
         for (; n < k - 1; n=n+1)
         //@ invariant n < k;
         //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
@@ -140,7 +136,6 @@ uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold);
-//x //@ free ensures AllFrequents(\result,db,threshold);
 {
   frequent freq = apriori_1(db,threshold);
   
