@@ -92,7 +92,9 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     size(fcache) == shape(db)[0]
 //@     &&
 //@     IsItemSetOf(fitems,db)
+//@     &&
 //@     declassify(frequency(fitems,db)::pd_shared3p uint) >= threshold
+//@     &&
 //@     declassify(fcache == transactions(fitems,db))
 //@ }
 
