@@ -1399,7 +1399,7 @@ expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (De
     let pe = pn <> parens (sepBy comma pargs)
     annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr e) annK vs pe (typed l)
     qExprToDafny isQExpr (annargs++annp) pe
-expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
+expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = withAssumptions $ do
     let pq = quantifierToDafny q
     (annpargs,pargs) <- quantifierArgsToDafny annK args
     vs <- lift $ liftM Set.unions $ mapM usedVs' args
@@ -1408,7 +1408,7 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     lift $ debugTc $ do
         liftIO $ putStrLn $ "quantifierExprToDafny " ++ show vs ++ "\n" ++ show pe ++ "\n --> \n" ++ show pe'
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
-expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
+expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = withAssumptions $ do
     (annarg,parg) <- quantifierArgToDafny annK (t,x)
     vs <- lift $ usedVs' (t,x)
     (annpe,pppx) <- expressionToDafny isLVal (Just vs) annK px
