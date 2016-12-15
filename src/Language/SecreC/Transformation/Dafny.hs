@@ -338,15 +338,23 @@ withModule c m = do
 
 loadDafnyId :: DafnyK m => Position -> DafnyId -> DafnyM m (Maybe DafnyId)
 loadDafnyId l n = do
-    e <- lookupDafnyId l n
-    let dec = unDecT $ entryType e
-    mb <- loadDafnyDec l dec
-    case mb of
-        Nothing -> lift $ debugTc $ do
-            ppd <- ppr dec
-            liftIO $ putStrLn $ "loadDafnyId: did not load " ++ ppd
-        otherwise -> return ()
-    return mb
+    mbe <- lookupDafnyIdMb l n
+    case mbe of
+        Nothing -> do
+            lift $ debugTc $ do
+                ppn <- ppr n
+                liftIO $ putStrLn $ "loadDafnyId: did not load " ++ ppn
+            return Nothing
+        Just e -> do
+            let dec = unDecT $ entryType e
+            mb <- loadDafnyDec l dec
+            case mb of
+                Nothing -> do
+                    lift $ debugTc $ do
+                        ppd <- ppr dec
+                        liftIO $ putStrLn $ "loadDafnyId: did not load " ++ ppd
+                    return Nothing
+                Just did -> return $ Just did
 
 lookupAndLoadDafnyDec :: DafnyK m => Position -> DecType -> DafnyM m DafnyId
 lookupAndLoadDafnyDec l dec = if hasDecBody dec
