@@ -95,12 +95,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
       //@ invariant FrequentsCache(next,db,threshold,k+1);
       {
         bool prefixEqual = true;
-        uint n = 0;
-        //x //@ assert prev.items[i,:n] == {};
-        //x //@ assert prev.items[j,:n] == {};
-        //x //@ assert prev.items[i,:n] == prev.items[j,:n];
-        //x //@ assert prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
-        for (; n < k - 1; n=n+1)
+        for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
         //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
         {
@@ -111,19 +106,17 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-          //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
-          //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
-          //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
-          //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
-          //@ assert prev.items[j,k-1] < shape(db)[1];
+          //x //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
+          //x //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
+          //x //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
+          //x //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
+          //x //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
           //@ assert (last(prev.items[i,:]) == prev.items[i,k-1] :: bool);
           //@ assert IsItemSetOf(C,db);
           pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db,k+1);
           next = AddFrequent(next,C,C_dot,db,threshold);
-          //x //@ assert size(C) == k+1;
-          //x //@ assert shape(next.items)[1] == k+1;
         }
       }
     }
