@@ -2242,7 +2242,12 @@ matchComplexClass l isNotVoid c = do
     ppis <- pp isNotVoid
     ppc <- pp c
     genTcError (locpos l) False $ text "complex kind mismatch" <+> ppis <+> text "against" <+> ppc
-    
+
+isTokSec :: SecType -> Bool
+isTokSec Public = True
+isTokSec (Private {}) = True
+isTokSec (getTokVar -> Just v) = True
+isTokSec s = False
 
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 unifiesSec l s1 s2 = do
@@ -2252,9 +2257,7 @@ unifiesSec l s1 s2 = do
     unifiesSec' noSec Public Public = return ()
     unifiesSec' noSec (Private d1 k1) (Private d2 k2) | d1 == d2 && k1 == k2 = do
         return ()
-    unifiesSec' True (Private d1 k1) (Private d2 k2) = return ()
-    unifiesSec' True Public (Private d2 k2) = return ()
-    unifiesSec' True (Private d1 k1) Public = return ()
+    unifiesSec' True (isTokSec -> True) (isTokSec -> True) = return ()
     unifiesSec' noSec d1@(getReadableVar -> Just (v1,k1)) d2@(getReadableVar -> Just (v2,k2)) | isWritable v1 == isWritable v2 = do
         o <- chooseWriteVar l v1 v2
         case o of
@@ -2291,6 +2294,12 @@ matchSecClass l k s = do
     pps <- pp s
     genTcError (locpos l) False $ text "security kind mismatch" <+> ppk <+> text "against" <+> pps
 
+isTokKind :: KindType -> Bool
+isTokKind PublicK = True
+isTokKind (PrivateK {}) = True
+isTokKind (getTokVar -> Just v) = True
+isTokKind k = False
+
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 unifiesKind l k1 k2 = do
     noSec <- checkNoSecM
@@ -2298,9 +2307,7 @@ unifiesKind l k1 k2 = do
   where
     unifiesKind' noSec PublicK PublicK = return ()
     unifiesKind' noSec (PrivateK k1) (PrivateK k2) | k1 == k2 = return ()
-    unifiesKind' True (PrivateK k1) (PrivateK k2) = return ()
-    unifiesKind' True PublicK (PrivateK {}) = return ()
-    unifiesKind' True (PrivateK {}) PublicK = return ()
+    unifiesKind' True (isTokKind -> True) (isTokKind -> True) = return ()
     unifiesKind' noSec k1@(getReadableVar -> Just (v1,priv1)) k2@(getReadableVar -> Just (v2,priv2)) | isWritable v1 == isWritable v2 = do
         let priv = max priv1 priv2
         case compare priv1 priv2 of
