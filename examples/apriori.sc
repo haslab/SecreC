@@ -103,13 +103,11 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         for (; n < k - 1; n=n+1)
         //@ invariant n < k;
         //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
-        //x //@ invariant prefixEqual == forall uint m; m < n ==> prev.items[i,m] == prev.items[j,m];
         {
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
           }
-          //@ SnocRange(prev.items,i,n);
-          //@ SnocRange(prev.items,j,n);
+          //@ SnocRange(prev.items,i,n); SnocRange(prev.items,j,n);
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
@@ -124,8 +122,8 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
           pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db,k+1);
           next = AddFrequent(next,C,C_dot,db,threshold);
-          //@ assert size(C) == k+1;
-          //@ assert shape(next.items)[1] == k+1;
+          //x //@ assert size(C) == k+1;
+          //x //@ assert shape(next.items)[1] == k+1;
         }
       }
     }
