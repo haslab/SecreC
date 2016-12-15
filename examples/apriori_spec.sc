@@ -13,7 +13,7 @@ template<domain D>
 D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 //@ inline;
 //@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i]);
+//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i] :: D uint);
 //@ free ensures assertion(\result[size(xs)] == x);
 {
     return cat(xs,{x});
