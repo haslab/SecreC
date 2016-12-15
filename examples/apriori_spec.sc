@@ -106,19 +106,19 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assertion(frequency(fitems,db) >= threshold)
 //@ }
 
-//x //@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
-//x //@ noinline;
-//x //@ requires IsDB(db);
-//x //@ {
-//x //@     shape(f.items)[0] == shape(f.cache)[0]
-//x //@     &&
-//x //@     shape(f.items)[1] == k
-//x //@     &&
-//x //@     shape(f.cache)[1] == shape(db)[0]
-//x //@     &&
-//x //@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
-//x //@ }
-//x 
+//@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ noinline;
+//@ requires IsDB(db);
+//@ {
+//@     shape(f.items)[0] == shape(f.cache)[0]
+//@     &&
+//@     shape(f.items)[1] == k
+//@     &&
+//@     shape(f.cache)[1] == shape(db)[0]
+//@     &&
+//@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//@ }
+
 //x //* Correctness proofs
 //x 
 //x //@ template<domain D>
