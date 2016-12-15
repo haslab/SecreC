@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=leakv --entrypoints="apriori"
+#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=funcv --entrypoints="apriori"
 
 /*
  * This file is a part of the Sharemind framework.
@@ -46,12 +46,13 @@ D uint [[2]] load_db ()
 frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
-//@ requires shape(f.cache)[1] == size(C_dot);
-//@ requires shape(f.items)[0] == shape(f.cache)[0];
-//@ ensures shape(\result.items)[0] == shape(\result.cache)[0];
+//@ requires FrequentCache(C,C_dot,db,threshold,size(C));
+//x //@ requires shape(f.items)[0] == shape(f.cache)[0];
+//x //@ requires shape(f.cache)[1] == size(C_dot);
+//x //@ ensures shape(\result.items)[0] == shape(\result.cache)[0];
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
 //@ ensures shape(\result.cache)[1] == size(C_dot);
-//@ requires assertion<pd_shared3p>(C_dot == transactions(C,db) :: pd_shared3p bool);
+//x //@ requires assertion<pd_shared3p>(C_dot == transactions(C,db) :: pd_shared3p bool);
 //@ leakage requires LeakFrequents(db,threshold);
 //@ requires FrequentsCache(f,db,threshold,size(C));
 //@ ensures FrequentsCache(\result,db,threshold,size(C));

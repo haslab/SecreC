@@ -83,6 +83,19 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
+//@ function bool FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ noinline;
+//@ requires IsDB(db);
+//@ {
+//@     size(fitems) == k
+//@     &&
+//@     size(fcache) == shape(db)[0]
+//@     &&
+//@     IsItemSetOf(fitems,db)
+//@     declassify(frequency(fitems,db)::pd_shared3p uint) >= threshold
+//@     declassify(fcache == transactions(fitems,db))
+//@ }
+
 //@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ noinline;
 //@ requires IsDB(db);
