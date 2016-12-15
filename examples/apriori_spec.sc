@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori"
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop
 
 module apriori_spec;
 
@@ -25,7 +25,7 @@ D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ free ensures shape(\result)[1] == shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:]);
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:] :: D uint[[1]]);
 //@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
 {
     return cat(xs,reshape(x,1,size(x)));
