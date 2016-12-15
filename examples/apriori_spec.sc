@@ -71,25 +71,22 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
-//x //@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
-//x //@ noinline;
-//x //@ requires IsDB(db);
-//x //@ requires IsItemSetOf(is,db);
-//x //@ ensures size(\result) == shape(db)[0];
-//x //@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
-//x 
-//x //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
-//x //x //@ noinline;
-//x //x //@ requires IsDB(db);
-//x //x //@ requires IsItemSetOf(is,db);
-//x //@ { sum(transactions(is,db)) }
-//x 
-//x //@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
-//x //@ {
-//x //@     size(fitems) == k
-//x //@     &&
-//x //@     IsItemSetOf(fitems,db)
-//x //@ }
+//@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
+//@ noinline;
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(is,db);
+//@ ensures size(\result) == shape(db)[0];
+//@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
+
+//@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
+//@ { sum(transactions(is,db)) }
+ 
+//@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
+//@ {
+//@     size(fitems) == k
+//@     &&
+//@     IsItemSetOf(fitems,db)
+//@ }
 //x 
 //x //@ function bool CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //x //@ {
