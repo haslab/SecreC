@@ -106,47 +106,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assertion(frequency(fitems,db) >= threshold)
 //@ }
 
-//x //@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
-//x //@ noinline;
-//x //@ requires IsDB(db);
-//x //@ {
-//x //@     shape(f.items)[0] == shape(f.cache)[0]
-//x //@     &&
-//x //@     shape(f.items)[1] == k
-//x //@     &&
-//x //@     shape(f.cache)[1] == shape(db)[0]
-//x //@     &&
-//x //@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
-//x //@ }
 
-//* Correctness proofs
-
-//@ template<domain D>
-//@ void SnocRange (D uint[[2]] xs, uint i, uint n)
-//@ inline;
-//@ {
-//@     assert assertion(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
-//@ }
-
-//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
-//@ requires k > 1;
-//@ requires IsDB(db);
-//@ requires IsItemSetOf(xs,db);
-//@ requires IsItemSetOf(ys,db);
-//@ requires size(xs) == k-1;
-//@ requires size(xs) == size(ys);
-//@ requires Candidate(C,db,k);
-//@ requires size(C_dot) == shape(db)[0];
-//@ requires (C == snoc(xs,last(ys)) :: bool);
-//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db));
-//@ requires init(xs) == init(ys);
-//@ ensures CandidateCache(C,C_dot,db,k);
-
-//* Leakage functions
-
-//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
-//@ noinline;
-//@ requires IsDB(db);
-//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
 
           
