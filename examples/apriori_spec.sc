@@ -1,3 +1,5 @@
+#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop
+
 module apriori_spec;
 
 import shared3p;
