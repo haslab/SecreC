@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop
+#OPTIONS_SECREC --paths="examples" --implicitcoercions=offc --backtrack=noneb --matching=gorderedm --promote=nop
 
 module apriori_spec;
 
