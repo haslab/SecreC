@@ -106,28 +106,28 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assertion(frequency(fitems,db) >= threshold)
 //@ }
 
-//@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
-//@ noinline;
-//@ requires IsDB(db);
+//x //@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//x //@ noinline;
+//x //@ requires IsDB(db);
+//x //@ {
+//x //@     shape(f.items)[0] == shape(f.cache)[0]
+//x //@     &&
+//x //@     shape(f.items)[1] == k
+//x //@     &&
+//x //@     shape(f.cache)[1] == shape(db)[0]
+//x //@     &&
+//x //@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//x //@ }
+
+//* Correctness proofs
+
+//@ template<domain D>
+//@ void SnocRange (D uint[[2]] xs, uint i, uint n)
+//@ inline;
 //@ {
-//@     shape(f.items)[0] == shape(f.cache)[0]
-//@     &&
-//@     shape(f.items)[1] == k
-//@     &&
-//@     shape(f.cache)[1] == shape(db)[0]
-//@     &&
-//@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//@     assert assertion(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
 //@ }
 
-//x //* Correctness proofs
-//x 
-//x //@ template<domain D>
-//x //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
-//x //@ inline;
-//x //@ {
-//x //@     assert assertion<D>(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
-//x //@ }
-//x 
 //x //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
 //x //@ requires k > 1;
 //x //@ requires IsDB(db);
