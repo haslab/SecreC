@@ -947,13 +947,20 @@ getEntries l filterf onlyRecs isAnn isLeak (AKind) = getFunctions filterf False 
 getEntries l filterf onlyRecs isAnn isLeak (LKind) = do
     xs <- getFunctions filterf False onlyRecs isAnn isLeak
     ys <- getLemmas filterf False onlyRecs isAnn isLeak 
-    return $ Map.unionWith Map.union xs ys
+    zs <- getProcedures (filterOnlyAnns . filterf) False onlyRecs True isLeak
+    return $ Map.unionWith Map.union xs (Map.unionWith Map.union ys zs)
 getEntries l filterf onlyRecs isAnn isLeak (PKind) = do
     xs <- getFunctions filterf False onlyRecs isAnn isLeak
     ys <- getLemmas filterf False onlyRecs isAnn isLeak 
     zs <- getProcedures filterf False onlyRecs isAnn isLeak
-    return $ Map.unionWith Map.union (Map.unionWith Map.union xs zs) ys
+    return $ Map.unionWith Map.union xs (Map.unionWith Map.union ys zs)
 --getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
+
+filterOnlyAnns :: Map x (Map y EntryEnv) -> Map x (Map y EntryEnv)
+filterOnlyAnns = Map.map filterOnlyAnns1
+    where
+    filterOnlyAnns1 :: (Map y EntryEnv) -> (Map y EntryEnv)
+    filterOnlyAnns1 = Map.filter (\e -> isAnnDecClass $ decDecClass $ unDecT $ entryType e)
 
 chgDecClassM :: Monad m => (DecClass -> DecClass) -> TcM m ()
 chgDecClassM fcl = State.modify $ \env -> env { decClass = fcl $ decClass env }
