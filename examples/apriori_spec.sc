@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=nop
+#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=lpromote
 
 module apriori_spec;
 
