@@ -13,8 +13,8 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 context<>
 //@ inline;
 //@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> \result[i] == xs[i];
-//@ free ensures \result[size(xs)] == x;
+//@ free ensures forall uint i; i < size(xs) ==> assertion(\result[i] == xs[i]);
+//@ free ensures assertion(\result[size(xs)] == x);
 {
     return cat(xs,{x});
 }
@@ -26,8 +26,8 @@ context<>
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ free ensures shape(\result)[1] == shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] == xs[i,:];
-//@ free ensures \result[shape(xs)[0],:] == x;
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion(\result[i,:] == xs[i,:]);
+//@ free ensures assertion(\result[shape(xs)[0],:] == x);
 {
     return cat(xs,reshape(x,1,size(x)));
 }
@@ -55,7 +55,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ function bool IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ {
-//@     forall pd_shared3p uint x; in(x,db) ==> x <= 1
+//@     forall pd_shared3p uint x; assertion(in(x,db) ==> x <= 1)
 //@ }
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
@@ -93,7 +93,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     &&
 //@     size(fcache) == shape(db)[0]
 //@     &&
-//@     fcache == transactions(fitems,db)
+//@     assertion(fcache == transactions(fitems,db))
 //@ }
 
 //@ function bool FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
@@ -102,7 +102,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ {
 //@     CandidateCache(fitems,fcache,db,k)
 //@     &&
-//@     frequency(fitems,db) >= threshold
+//@     assertion(frequency(fitems,db) >= threshold)
 //@ }
 
 //@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
@@ -127,8 +127,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires size(xs) == size(ys);
 //@ requires Candidate(C,db,k);
 //@ requires size(C_dot) == shape(db)[0];
-//@ requires C == snoc(xs,last(ys));
-//@ requires C_dot == transactions(xs,db) * transactions(ys,db);
+//@ requires (C == snoc(xs,last(ys)) :: bool);
+//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db));
 //@ requires init(xs) == init(ys);
 //@ ensures CandidateCache(C,C_dot,db,k);
 
@@ -146,7 +146,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ context<>
 //@ inline;
 //@ {
-//@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
+//@     assert assertion(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
 //@ }
 
           
