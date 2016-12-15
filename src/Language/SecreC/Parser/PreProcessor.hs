@@ -184,9 +184,9 @@ matchingMsg = PP.text "Solving order for constraints" $+$ PP.nest 4 (
 
 promoteMsg :: Doc
 promoteMsg = PP.text "Promote constraints when matching template instantiations" $+$ PP.nest 4 (
-        PP.text "lpromote" <+> PP.char '=' <+> PP.text "Promote only local constraints"
-    $+$ PP.text "gpromote" <+> PP.char '=' <+> PP.text "Promote global constraints"
-    $+$ PP.text "nopromote" <+> PP.char '=' <+> PP.text "Do not promote constraints"
+        PP.text "localp" <+> PP.char '=' <+> PP.text "Promote only local constraints"
+    $+$ PP.text "globalp" <+> PP.char '=' <+> PP.text "Promote global constraints"
+    $+$ PP.text "nop" <+> PP.char '=' <+> PP.text "Do not promote constraints"
     )
 
 backtrackMsg :: Doc
