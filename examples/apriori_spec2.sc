@@ -14,8 +14,8 @@ import apriori_spec;
 //@     shape(f.items)[1] == k
 //@     &&
 //@     shape(f.cache)[1] == shape(db)[0]
-//x //@     &&
-//x //@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//@     &&
+//@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
 
 //x //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
