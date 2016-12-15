@@ -109,8 +109,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //* Correctness proofs
 
 //@ template<domain D>
-//@ context<>
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
+//@ context<>
 //@ inline;
 //@ {
 //@     assert assertion(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
