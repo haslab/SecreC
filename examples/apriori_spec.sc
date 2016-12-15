@@ -83,18 +83,20 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
-//@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
+//@ noinline;
+//@ requires IsDB(db);
 //@ {
 //@     size(fitems) == k
 //@     &&
 //@     IsItemSetOf(fitems,db)
 //@ }
 
-//@ function bool CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ function bool CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
-//@     Candidate(fitems,db,threshold,k)
+//@     Candidate(fitems,db,k)
 //@     &&
 //@     size(fcache) == shape(db)[0]
 //@     &&
@@ -103,7 +105,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ function bool FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ {
-//@     CandidateCache(fitems,fcache,db,threshold,k)
+//@     CandidateCache(fitems,fcache,db,k)
 //@     &&
 //@     declassify(frequency(fitems,db)::pd_shared3p uint) >= threshold
 //@ }
