@@ -15,9 +15,15 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
     return cat(xs,{x});
 }
 
-//@ lemma Snoc1 <domain D> (D uint[[1]] xs)
-//@ requires size(xs) > 0;
-//@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
+//x //@ lemma Snoc1 <domain D> (D uint[[1]] xs)
+//x //@ requires size(xs) > 0;
+//x //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
+//x //@ {}
+
+//@ lemma SnocRange <domain D> (D uint[[2]] xs, uint i, uint n)
+//@ requires i < shape(xs)[0];
+//@ requires n < shape(xs)[1];
+//@ ensures assertion<D>(xs[i,n+1] == snoc(xs[i,:n],xs[i,n]));
 //@ {}
 
 template<domain D>
