@@ -2,8 +2,9 @@
 
 module apriori_spec;
 
-import shared3p;
+//import shared3p;
 
+kind shared3p;
 domain pd_shared3p shared3p;
 
 //* Utility functions
@@ -68,12 +69,15 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
+//@ function pd_shared3p uint[[1]] transaction (uint i, pd_shared3p uint[[2]] db)
+//@ { db[:,i] }
+
 //@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
+//@ { (size(is) == 1) ? transaction(is[0],db) : transaction(is[0],db) * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ { sum(transactions(is,db)) }
@@ -116,27 +120,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
 
-//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
-//@ requires k > 1;
-//@ requires IsDB(db);
-//@ requires IsItemSetOf(xs,db);
-//@ requires IsItemSetOf(ys,db);
-//@ requires size(xs) == k-1;
-//@ requires size(xs) == size(ys);
-//@ requires Candidate(C,db,k);
-//@ requires size(C_dot) == shape(db)[0];
-//@ requires (C == snoc(xs,last(ys)) :: bool);
-//@ requires C_dot == transactions(xs,db) * transactions(ys,db);
-//@ requires init(xs) == init(ys);
-//@ ensures CandidateCache(C,C_dot,db,k);
-
-//* Leakage functions
-
-//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
-//@ noinline;
-//@ requires IsDB(db);
-//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
-
 //* Correctness proofs
 
 //@ template<domain D>
@@ -147,4 +130,42 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
 //@ }
 
+//@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ ensures transactions(xs,db) * transactions(xs,db) == transactions(xs,db);
+
+//@ lemma TransactionsSnoc (uint[[1]] xs, pd_shared3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
+
+//@ lemma TransactionsCommu (uint[[1]] xs, uint[[1]] ys)
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ requires IsItemSetOf(ys,db);
+//@ ensures transactions(xs,db) * transactions(ys,db) == transactions(ys,db) * transactions(xs,db);
+
+//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
+//@ requires k > 1;
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ requires IsItemSetOf(ys,db);
+//@ requires size(xs) == k-1;
+//@ requires size(xs) == size(ys);
+//@ requires Candidate(C,db,k);
+//@ requires size(C_dot) == shape(db)[0];
+//@ requires C == snoc(xs,last(ys));
+//@ requires C_dot == transactions(xs,db) * transactions(ys,db);
+//@ requires init(xs) == init(ys);
+//@ ensures CandidateCache(C,C_dot,db,k);
+//x //@ {
+//x //@ }
+
           
+//* Leakage functions
+
+//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
+//@ noinline;
+//@ requires IsDB(db);
+//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
