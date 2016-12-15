@@ -78,7 +78,11 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[0] <= i;
     //@ invariant FrequentsCache(f,db,threshold,1);
     {
-      //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
+        //@ assert size({i}) == 1;
+        //@ assert size(db[:,i]) == shape(db)[0];
+        //@ assert IsItemSetOf({i},db);
+        //@ assert declassify(frequency({i},db)::pd_shared3p uint) >= threshold;
+        //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
