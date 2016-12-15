@@ -98,7 +98,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
     //@ invariant i <= prev_F_size;
     //@ invariant FrequentsCache(next,db,threshold,k+1);
     {
-      for (uint j = i + 1; j < prev_F_size; j=j+1) // for each other itemset in F
+      for (uint j = i + 1; j < prev_F_size; j=j+1)
       //@ invariant i < j && j <= prev_F_size;
       //@ invariant FrequentsCache(next,db,threshold,k+1);
       {
