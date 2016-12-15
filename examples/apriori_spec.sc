@@ -66,11 +66,11 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@    && (forall uint k; k < size(is) ==> is[k] < sz)
 //@    && (forall uint i, uint j; i < j && j < size(is) ==> is[i] < is[j])
 //@ }
-//x 
-//x //@ function bool IsItemSetOf (uint[[1]] is, pd_shared3p uint[[2]] db)
-//x //@ requires IsDB(db);
-//x //@ { IsItemSet(is,shape(db)[1]) }
-//x 
+
+//@ function bool IsItemSetOf (uint[[1]] is, pd_shared3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ { IsItemSet(is,shape(db)[1]) }
+
 //x //@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
 //x //@ noinline;
 //x //@ requires IsDB(db);
