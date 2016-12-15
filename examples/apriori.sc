@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=leakv --entrypoints="apriori"
+#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori"
 
 /*
  * This file is a part of the Sharemind framework.
@@ -13,10 +13,10 @@
 
 module apriori;
 
-//import stdlib;
-//import shared3p;
-//import table_database;
-//import shared3p_table_database;
+import stdlib;
+import shared3p;
+import table_database;
+import shared3p_table_database;
 import axioms;
 
 import apriori_spec;
