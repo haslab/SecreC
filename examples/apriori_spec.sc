@@ -93,9 +93,9 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     &&
 //@     IsItemSetOf(fitems,db)
 //@     &&
-//@     declassify(frequency(fitems,db)::pd_shared3p uint) >= threshold
-//@     &&
 //@     declassify(fcache == transactions(fitems,db))
+//@     &&
+//@     declassify(frequency(fitems,db)::pd_shared3p uint) >= threshold
 //@ }
 
 //@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
