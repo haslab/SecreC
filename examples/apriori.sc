@@ -46,7 +46,7 @@ D uint [[2]] load_db ()
 frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
-//@ requires CandidateCache(C,C_dot,db,threshold,size(C));
+//@ requires CandidateCache(C,C_dot,db,size(C));
 //x //@ requires shape(f.items)[0] == shape(f.cache)[0];
 //x //@ requires shape(f.cache)[1] == size(C_dot);
 //x //@ ensures shape(\result.items)[0] == shape(\result.cache)[0];
