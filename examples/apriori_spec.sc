@@ -147,3 +147,5 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
 
+          //x //@ assert (prev.items[i,:k-1] == prev.items[j,:k-1] :: bool);
+            //x //@ assert IsItemSetOf(C,db);
