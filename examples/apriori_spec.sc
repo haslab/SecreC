@@ -20,11 +20,18 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 //x //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
 //x //@ {}
 
-//@ lemma SnocRange <domain D> (D uint[[2]] xs, uint i, uint n)
-//@ requires i < shape(xs)[0];
-//@ requires n < shape(xs)[1];
-//@ ensures assertion<D>(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
-//@ {}
+//x //@ lemma SnocRange <domain D> (D uint[[2]] xs, uint i, uint n)
+//x //@ requires i < shape(xs)[0];
+//x //@ requires n < shape(xs)[1];
+//x //@ ensures assertion<D>(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
+//x //@ {}
+
+//@ template<domain D>
+//@ void SnocRange (D uint[[2]] xs, uint i, uint n)
+//@ inline;
+//@ {
+//@     assert assertion<D>(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
+//@ }
 
 template<domain D>
 D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)

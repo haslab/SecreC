@@ -183,7 +183,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = tcTemplate l $ withInCtx Tru
     dec2AxiomDecl l dec
 
 tcLemmaDecl :: ProverK loc m => LemmaDeclaration Identifier loc -> TcM m (LemmaDeclaration GIdentifier (Typed loc))
-tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate l $ withInCtx True $ withKind LKind $ defaultInline $ withLeak isLeak $ do
+tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) = tcTemplate l $ withInCtx True $ withKind PKind $ defaultInline $ withLeak isLeak $ do
     (tvars',vars') <- tcAddDeps l "tcAxiomDecl" $ do
         (qs',tvars') <- mapAndUnzipM tcTemplateQuantifier qs
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps

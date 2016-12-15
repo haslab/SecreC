@@ -251,7 +251,7 @@ tcStmtAnn (AssumeAnn l isLeak e) = tcStmtBlock l "annotation statement" $ inside
 tcStmtAnn (AssertAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ do
     (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
     return $ AssertAnn (Typed l $ typed $ loc e') isLeak' e'
-tcStmtAnn (EmbedAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind LKind $ do
+tcStmtAnn (EmbedAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind PKind $ do
     (isLeak',(e',t)) <- checkLeak l isLeak $ tcStmt (ComplexT Void) e
     return $ EmbedAnn (Typed l t) isLeak' e'
 
