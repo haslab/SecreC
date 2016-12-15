@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop
+#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=tryb --matching=gorderedm --promote=nop
 
 module apriori_spec;
 
@@ -11,9 +11,10 @@ domain pd_shared3p shared3p;
 
 template<domain D>
 D uint[[1]] snoc (D uint[[1]] xs, D uint x)
+context<>
 //@ inline;
 //@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i] :: D uint);
+//@ free ensures forall uint i; i < size(xs) ==> assertion(\result[i] == xs[i]);
 //@ free ensures assertion(\result[size(xs)] == x);
 {
     return cat(xs,{x});
@@ -21,12 +22,13 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 
 template<domain D>
 D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)
+context<>
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ free ensures shape(\result)[1] == shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:] :: D uint[[1]]);
-//@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion(\result[i,:] == xs[i,:]);
+//@ free ensures assertion(\result[shape(xs)[0],:] == x);
 {
     return cat(xs,reshape(x,1,size(x)));
 }
