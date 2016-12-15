@@ -78,9 +78,9 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
-//@ noinline;
-//@ requires IsDB(db);
-//@ requires IsItemSetOf(is,db);
+//x //@ noinline;
+//x //@ requires IsDB(db);
+//x //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
 
 //@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
