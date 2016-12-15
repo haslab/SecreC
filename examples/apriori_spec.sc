@@ -130,6 +130,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
 //@ }
 
+
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
