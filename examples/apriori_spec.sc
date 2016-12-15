@@ -132,12 +132,13 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemSetOf(ys,db);
 //@ requires size(xs) == k-1;
 //@ requires size(xs) == size(ys);
-//@ requires Candidate(C,db,threshold,k);
+//@ requires Candidate(C,db,k);
 //@ requires size(C_dot) == shape(db)[0];
 //@ requires (C == snoc(xs,last(ys)) :: bool);
 //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_shared3p bool);
 //@ requires init(xs) == init(ys);
-//@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
+//@ ensures CandidateCache(C,C_dot,db,k);
+//x //@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
 
 //* Leakage functions
 
