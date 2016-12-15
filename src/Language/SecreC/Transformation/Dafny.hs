@@ -730,18 +730,14 @@ genDafnyInvariantAssumptions :: DafnyK m => Position -> AnnKind -> [(VarIdentifi
 genDafnyInvariantAssumptions p annK xs = do
     anns <- getAssumptions
     lift $ debugTc $ do
-        ppas <- ppAnns anns
+        ppas <- ppAnnLs anns
         liftIO $ putStrLn $ "genDafnyInvariantAssumptions " ++ pprid p ++ " " ++ show ppas
     let anns' = filter isUntouched anns
     lift $ debugTc $ do
-        ppas' <- ppAnns anns'
+        ppas' <- ppAnnLs anns'
         liftIO $ putStrLn $ "genDafnyInvariantAssumptions " ++ pprid p ++ " " ++ show ppas'
     concatMapM propagate anns'
   where
-    ppAnns xs = liftM vcat $ mapM ppAnn xs
-    ppAnn (_,_,vs,pe,_) = do
-        pvs <- liftM (sepBy space) $ mapM pp $ Set.toList vs
-        return $ pe <+> text "with variables" <+> pvs
     isUntouched (_,_,vs,_,_) = Set.null $ Set.difference vs (Set.fromList $ map fst xs)
     propagate (_,_,vs,pe,isLeak) = annExpr (Just False) isLeak isLeak annK vs pe
 
@@ -1408,7 +1404,7 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = do
     (annpargs,pargs) <- quantifierArgsToDafny annK args
     vs <- lift $ liftM Set.unions $ mapM usedVs' args
     (anne,pe) <- expressionToDafny isLVal (Just vs) annK e
-    let (anns,pe') = annotateExpr (annpargs++anne) vs pe
+    (anns,pe') <- annotateExpr (annpargs++anne) vs pe
     lift $ debugTc $ do
         liftIO $ putStrLn $ "quantifierExprToDafny " ++ show vs ++ "\n" ++ show pe ++ "\n --> \n" ++ show pe'
     return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
@@ -1418,7 +1414,7 @@ expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = do
     (annpe,pppx) <- expressionToDafny isLVal (Just vs) annK px
     (annfe,pfx) <- mapExpressionToDafny isLVal (Just vs) annK fx
     ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
-    let (anns,pppx') = annotateExpr (annarg++annpe++annfe) vs pppx
+    (anns,pppx') <- annotateExpr (annarg++annpe++annfe) vs pppx
     let pme = parens (text "set" <+> parg <+> char '|' <+> pppx' <+> ppfx)
     return (anns,pme)
 expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
@@ -1442,12 +1438,17 @@ expressionToDafny isLVal isQExpr annK e = do
     genError (unTyped $ loc e) $ text "expressionToDafny:" <+> ppid isLVal <+> ppannK <+> ppe
 
 qExprToDafny :: DafnyK m => IsQExpr -> AnnsDoc -> Doc -> DafnyM m (AnnsDoc,Doc)
-qExprToDafny (Just vs) anne e = return $ annotateExpr anne vs e
+qExprToDafny (Just vs) anne e = annotateExpr anne vs e
 qExprToDafny Nothing anne e = return (anne,e)
 
-annotateExpr :: AnnsDoc -> Set VarIdentifier -> Doc -> (AnnsDoc,Doc)
-annotateExpr anne vs pe = (anne',pppre (pppost pe))
-    where
+annotateExpr :: DafnyK m => AnnsDoc -> Set VarIdentifier -> Doc -> DafnyM m (AnnsDoc,Doc)
+annotateExpr anne vs pe = do
+    lift $ debugTc $ do
+        ppas <- ppAnnLs anne'
+        ppvs <- liftM (sepBy space) $ mapM pp $ Set.toList vs
+        liftIO $ putStrLn $ "annotateExpr: " ++ show ppvs ++ "\n" ++ show ppas
+    return (anne',pppre (pppost pe))
+  where
     pppre = maybe id (\p x -> parens (p <+> text "==>" <+> x)) (ands pre)
     pppost = maybe id (\p x -> parens (p <+> text "&&" <+> x)) (ands post)
     (deps,anne') = List.partition (\(k,_,evs,_,_) -> k /= ReadsK && not (Set.null $ Set.intersection evs vs)) anne
@@ -1817,4 +1818,7 @@ ppModule (Just (mn,blk)) = do
 ppDafnyIdM :: DafnyK m => DafnyId -> DafnyM m Doc
 ppDafnyIdM did = lift $ ppDafnyId did
 
-
+ppAnnLs xs = liftM vcat $ mapM ppAnnL xs
+ppAnnL (_,_,vs,pe,_) = do
+    pvs <- liftM (sepBy space) $ mapM pp $ Set.toList vs
+    return $ pe <+> text "with variables" <+> pvs
