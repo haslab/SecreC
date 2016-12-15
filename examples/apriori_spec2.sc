@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --path="examples" --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains
+#OPTIONS_SECREC --path="examples" --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --verify=funcv --entrypoints="FrequentsCache:JoinCaches:LeakFrequents"
 
 module apriori_spec2;
 
