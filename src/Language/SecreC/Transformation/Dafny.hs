@@ -510,6 +510,7 @@ newDafnyArg l (isConst,VarName t v@(VIden vv),isVariadic) = do
     let tl = notTyped "newArg" l
     let def = VarStatement tl $ VariableDeclaration tl False True t' $ WrapNe $ VariableInitialization tl tv' Nothing Nothing
     let ass = ExpressionStatement tl $ BinaryAssign tl (varExpr tv') (BinaryAssignEqual tl) (varExpr tv)
+    annframes <- copyDafnyAssumptions l v v'
     return ([def,ass],TSubsts $ Map.singleton vv $ IdxT $ fmap typed $ varExpr tv')
 
 decToDafny :: DafnyK m => Position -> DecType -> DafnyM m (Maybe (Position,Doc))
@@ -694,6 +695,17 @@ genDafnyArrays l False annK vs pv tv = do
                     return $ readarr++notnull
                 otherwise -> return []
         otherwise -> return []
+
+-- copy dafny assumptions for variable assignments
+copyDafnyAssumptions :: DafnyK m => Position -> GIdentifier -> GIdentifier -> DafnyM m ()
+copyDafnyAssumptions p (VIden v) (VIden v') = do
+    anns <- getAssumptions
+    let anns' = foldr chgVar [] anns
+    State.modify $ \env -> env { assumptions = assumptions env ++ anns' }
+  where
+    chgVar (annk,isFree,vs,doc,isLeak) xs = if Set.member v vs
+        then (annk,isFree,Set.insert v' $ Set.delete v vs,doc,isLeak) : xs
+        else xs
 
 propagateDafnyAssumptions :: DafnyK m => Position -> AnnKind -> DecClassVars -> DecClassVars -> DafnyM m AnnsDoc
 propagateDafnyAssumptions p annK (rs,_) (ws,_) = do
@@ -901,6 +913,9 @@ statementToDafny (ExpressionStatement _ (BinaryAssign l le (BinaryAssignEqual _)
     (post,pass) <- dropAssumptions leftvs $ assignmentToDafny StmtK le (Left pre)
     let (anns1,pres') = annLinesC StmtKC pres
     let (anns2,post') = annLinesC StmtKC post
+    case (le,re) of
+        (RVariablePExpr _ (VarName _ v'),RVariablePExpr _ (VarName _ v)) -> copyDafnyAssumptions (unTyped l) v v'
+        otherwise -> return ()
     return (anns1++anns2,pres' $+$ pass <> semicolon $+$ post')
 statementToDafny es@(ExpressionStatement (Typed l _) e) = do
     let t = typed $ loc e
