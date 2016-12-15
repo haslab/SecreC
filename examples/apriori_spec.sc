@@ -128,26 +128,25 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assert assertion(xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]));
 //@ }
 
-//x //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
-//x //@ requires k > 1;
-//x //@ requires IsDB(db);
-//x //@ requires IsItemSetOf(xs,db);
-//x //@ requires IsItemSetOf(ys,db);
-//x //@ requires size(xs) == k-1;
-//x //@ requires size(xs) == size(ys);
-//x //@ requires Candidate(C,db,k);
-//x //@ requires size(C_dot) == shape(db)[0];
-//x //@ requires (C == snoc(xs,last(ys)) :: bool);
-//x //@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db) :: pd_shared3p bool);
-//x //@ requires init(xs) == init(ys);
-//x //@ ensures CandidateCache(C,C_dot,db,k);
-//x //x //@ ensures assertion(C_dot == transactions(C,db) :: pd_shared3p bool);
-//x 
-//x //* Leakage functions
-//x 
-//x //@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
-//x //@ noinline;
-//x //@ requires IsDB(db);
-//x //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= classify(threshold)) }
+//@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
+//@ requires k > 1;
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ requires IsItemSetOf(ys,db);
+//@ requires size(xs) == k-1;
+//@ requires size(xs) == size(ys);
+//@ requires Candidate(C,db,k);
+//@ requires size(C_dot) == shape(db)[0];
+//@ requires (C == snoc(xs,last(ys)) :: bool);
+//@ requires assertion(C_dot == transactions(xs,db) * transactions(ys,db));
+//@ requires init(xs) == init(ys);
+//@ ensures CandidateCache(C,C_dot,db,k);
+
+//* Leakage functions
+
+//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
+//@ noinline;
+//@ requires IsDB(db);
+//@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
 
           
