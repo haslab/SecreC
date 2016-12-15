@@ -46,7 +46,7 @@ D uint [[2]] load_db ()
 frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(C,db);
-//@ requires FrequentCache(C,C_dot,db,threshold,size(C));
+//@ requires CandidateCache(C,C_dot,db,threshold,size(C));
 //x //@ requires shape(f.items)[0] == shape(f.cache)[0];
 //x //@ requires shape(f.cache)[1] == size(C_dot);
 //x //@ ensures shape(\result.items)[0] == shape(\result.cache)[0];
@@ -82,8 +82,6 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
         //@ assert size(db[:,i]) == shape(db)[0];
         //@ assert IsItemSetOf({i},db);
         //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
-        //@ assert frequency({i}) == sum(db[:,i]);
-        //@ assert declassify(frequency({i},db)::pd_shared3p uint) >= threshold;
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
