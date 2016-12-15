@@ -52,7 +52,6 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
 {
     pd_shared3p uint frequence = sum (C_dot);
-    //x //@ assert assertion(frequency(C,db) == frequence);
     if (declassify (frequence >= threshold)) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
@@ -72,10 +71,10 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[0] <= i;
     //@ invariant FrequentsCache(f,db,threshold,1);
     {
-        //@ assert size({i}) == 1;
-        //@ assert size(db[:,i]) == shape(db)[0];
-        //@ assert IsItemSetOf({i},db);
-        //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
+        //x //@ assert size({i}) == 1;
+        //x //@ assert size(db[:,i]) == shape(db)[0];
+        //x //@ assert IsItemSetOf({i},db);
+        //x //@ assert assertion(db[:,i] == transactions({i},db) :: pd_shared3p bool);
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
     return f;
