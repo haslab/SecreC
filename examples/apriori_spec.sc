@@ -140,7 +140,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemSetOf(xs,db);
 //@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
 
-//@ lemma TransactionsCommu (uint[[1]] xs, uint[[1]] ys)
+//@ lemma TransactionsCommu (uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
