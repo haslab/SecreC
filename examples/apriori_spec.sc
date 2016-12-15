@@ -1,4 +1,3 @@
-#OPTIONS_SECREC --paths="examples" --implicitcoercions=offc --backtrack=noneb --matching=gorderedm --promote=nop
 
 module apriori_spec;
 
@@ -43,8 +42,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 {
    frequent f;
    uint[[2]] F (0,F_size);
-   //pd_shared3p uint[[2]] F_cache (0,shape(db)[0]);
-   pd_shared3p uint[[2]] F_cache = reshape(classify({}),0,shape(db)[0]);
+   pd_shared3p uint[[2]] F_cache (0,shape(db)[0]);
+   //pd_shared3p uint[[2]] F_cache = reshape(classify({}),0,shape(db)[0]);
    f.items = F;
    f.cache = F_cache;
    return f;

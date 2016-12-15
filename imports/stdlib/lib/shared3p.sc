@@ -74,20 +74,20 @@ kind shared3p;
 
 
 
-/*******************************
-    classify
-********************************/
-/**
-* \cond
-*/
-template <domain D : shared3p, type T, dim N>
-D T[[N]] classify(T[[N]] value) {
-    D T[[N]] out = value;
-    return out;
-}
-/**
-* \endcond
-*/
+// /*******************************
+//     classify
+// ********************************/
+// /**
+// * \cond
+// */
+// template <domain D : shared3p, type T, dim N>
+// D T[[N]] classify(T[[N]] value) {
+//     D T[[N]] out = value;
+//     return out;
+// }
+// /**
+// * \endcond
+// */
 
 /*******************************
     sign, abs
