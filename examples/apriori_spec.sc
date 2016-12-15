@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains
+#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
 
 module apriori_spec;
 
@@ -10,7 +10,6 @@ domain pd_shared3p shared3p;
 
 template<domain D>
 D uint[[1]] snoc (D uint[[1]] xs, D uint x)
-context<>
 //@ inline;
 //@ free ensures size(\result) == size(xs) + 1;
 //@ free ensures forall uint i; i < size(xs) ==> assertion(\result[i] == xs[i]);
@@ -21,7 +20,6 @@ context<>
 
 template<domain D>
 D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)
-context<>
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
 //@ free ensures shape(\result)[0] == shape(xs)[0] + 1;

@@ -19,7 +19,7 @@ import table_database;
 import shared3p_table_database;
 import axioms;
 
-import apriori_spec2;
+import apriori_spec;
 
 template <domain D>
 D uint [[2]] load_db ()
