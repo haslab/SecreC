@@ -10,8 +10,8 @@ import apriori_spec;
 //@ requires IsDB(db);
 //@ {
 //@     shape(f.items)[0] == shape(f.cache)[0]
-//x //@     &&
-//x //@     shape(f.items)[1] == k
+//@     &&
+//@     shape(f.items)[1] == k
 //x //@     &&
 //x //@     shape(f.cache)[1] == shape(db)[0]
 //x //@     &&
