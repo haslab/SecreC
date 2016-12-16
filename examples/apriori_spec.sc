@@ -166,8 +166,13 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires size(xs) > 1;
 //@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
 //@ {
-//@     assert IsItemSetOf(init(xs),db);
-//@     assume transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
+//@     assert transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
+//@     TransactionsSnoc(tail(xs),db);
+//@     MulAssoc(transaction(head(xs),db),transactions(init(tail(xs)),db),transaction(last(xs),db));
+//@     assert head(xs) == head(init(xs));
+//@     assert init(tail(xs)) == tail(init(xs));
+//@     assert transactions(init(xs),db) == transaction(head(init(xs)),db),transactions(tail(init(xs)),db);
+//@     
 //@ }
 
 //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)

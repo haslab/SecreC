@@ -604,6 +604,26 @@ context<>
 }
 
 template<domain D,type T>
+function D T head (D T[[1]] xs)
+context<>
+//@ inline;
+//@ requires size(xs) > 0;
+{
+    xs[0]
+}
+
+template<domain D,type T>
+function D T[[1]] tail (D T[[1]] xs)
+context<>
+//@ inline;
+//@ requires size(xs) > 0;
+//@ free ensures size(\result) == size(xs) - 1;
+//@ free ensures forall uint i; 0 < i && i < size(xs) ==> assertion<D>(\result[i-1] == xs[i]);
+{
+    xs[1:]
+}
+
+template<domain D,type T>
 function D T[[1]] init (D T[[1]] xs)
 context<>
 //@ inline;
