@@ -164,8 +164,8 @@ markVerifiedFiles vids fids lids xs = mapM_ markVerifiedFile xs
     vids' = Map.unionsWith appendVerifyOpt [vids,Map.fromSet (const FuncV) fids,Map.fromSet (const LeakV) lids]
     markVerifiedFile :: (TypedModuleFile,OutputType) -> TcM IO ()
     markVerifiedFile (mf,_) = do
-        let fn = moduleFileName mf
-        liftTcM $ updateModuleSCIHeader fn markVerifiedHeader
+        let scifn = replaceExtension (moduleFileName mf) "sci"
+        liftTcM $ updateModuleSCIHeader scifn markVerifiedHeader
     markVerifiedHeader :: SCIHeader -> SecrecM IO (Maybe SCIHeader)
     markVerifiedHeader scih = do
         let sameId did = dafnyIdModule did == sciHeaderId scih
