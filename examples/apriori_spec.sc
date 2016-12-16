@@ -173,7 +173,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@         assert last(xs) < shape(db)[1];
 //@         assert IsItemSetOf(init(ys),db);
 //@         assert last(ys) < shape(db)[1];
-//@         assume
+//@         assert
 //@             (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
 //@             ==
 //@             ((transactions(init(xs),db) * transactions(init(ys),db)) * transaction(last(xs),db)) * transaction(last(ys),db);
