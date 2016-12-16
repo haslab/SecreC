@@ -147,6 +147,10 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
+//@ {
+//@     assert IsItemSetOf(init(xs),db);
+//@     assume transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
+//@ }
 
 //@ lemma JoinCaches(uint[[1]] C, pd_shared3p uint[[1]] C_dot, uint[[1]] xs, uint[[1]] ys, pd_shared3p uint[[2]] db, uint k)
 //@ requires k > 1;
@@ -168,7 +172,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assert last(xs) < shape(db)[1];
 //@     assert IsItemSetOf(init(ys),db);
 //@     assert last(ys) < shape(db)[1];
-//@     assert
+//@     assume
 //@         (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
 //@         ==
 //@         ((transactions(init(xs),db) * transactions(init(ys),db)) * transaction(last(xs),db)) * transaction(last(ys),db);
