@@ -184,8 +184,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemOf(i,db);
 //@ ensures db[:,i] * db[:,i] == db[:,i];
 //@ {
-//@     assert shape(db)[0] == size(db[:,i]);
-//@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] == db[j,i] && db[j,i] <= 1;
+//x //@     assert shape(db)[0] == size(db[:,i]);
+//x //@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] == db[j,i] && db[j,i] <= 1;
 //@     MulBool(db[:,i]);
 //@ }
 
