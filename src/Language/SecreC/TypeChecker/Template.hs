@@ -446,22 +446,14 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
     let isVerify = verify opts /= NoneV
     ord' <- comparesDecIds l isVerify sameMatch True (entryType e1) (entryType e2)
     case (sameMatch,ord') of
+        (_,Just LT) -> return $ Comparison e1 e2 LT LT ko -- favor annotations
+        (_,Just GT) -> return $ Comparison e1 e2 GT GT ko -- favor annotations
         (True,Just EQ) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Just EQ) -> return ord
         (True,Nothing) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Nothing) -> return ord
         (_,Just o') -> return $ Comparison e1 e2 o' EQ ko
-    
---    ord' <- if (mappend o isLat == EQ) 
---        then do
---            let ord' = comparesDecIds True (entryType e1) (entryType e2)
---            case ord' of
---                Just EQ -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
---                Just o' -> return $ Comparison e1 e2 o' EQ ko
---                Nothing -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances def defs
---        else return ord
---    return ord'
-    
+
 sameTemplateDecs :: (ProverK Position m) => Position -> DecType -> DecType -> TcM m ()
 sameTemplateDecs l d1 d2 = do
     Comparison _ _ o1 o2 _ <- compareTemplateEntries PP.empty l True (EntryEnv l $ DecT d1) (EntryEnv l $ DecT d2)
