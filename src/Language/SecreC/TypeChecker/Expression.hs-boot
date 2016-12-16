@@ -22,6 +22,8 @@ tcVariadicArg :: (PP (TcM m) (a GIdentifier (Typed loc)),VarsGTcM m,Located (a G
 
 landExprs :: (ProverK loc m) => loc -> Bool -> Expression GIdentifier Type -> Expression GIdentifier Type -> TcM m (Expression GIdentifier Type)
 
+tcQVar :: ProverK loc m => loc -> (TypeSpecifier Identifier loc,VarName Identifier loc) -> TcM m (TypeSpecifier GIdentifier (Typed loc),VarName GIdentifier (Typed loc))
+
 tcAnnGuard :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 
 tcAnnExpr :: (ProverK loc m) => Maybe Type -> Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
@@ -69,3 +71,5 @@ multiplyIndexExprs :: (ProverK loc m) => loc -> Bool -> Expression GIdentifier T
 tcIndexCond :: (ProverK loc m) => Expression Identifier loc -> TcM m (Expression GIdentifier (Typed loc))
 
 negBoolExprLoc :: Location loc => Expression iden (Typed loc) -> Expression iden (Typed loc)
+
+tcQuantifier :: ProverK loc m => Quantifier loc -> TcM m (Quantifier (Typed loc))

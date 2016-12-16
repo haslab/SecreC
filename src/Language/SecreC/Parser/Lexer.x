@@ -77,6 +77,7 @@ tokens :-
 <0>                     numeric                 { lexerTokenInfo NUMERIC }
 <0>                     primitive               { lexerTokenInfo PRIMITIVE }
 <0>                     function                { lexerTokenInfo FUNCTION }
+<0>                     predicate               { lexerTokenInfo PREDICATE }
 <0>                     havoc                   { lexerTokenInfo HAVOC }
 <0>                     \\result                { lexerAnnTokenInfo RESULT }
 <0>                     forall                  { lexerAnnTokenInfo FORALL }

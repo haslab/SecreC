@@ -3,7 +3,7 @@
 module Language.SecreC.TypeChecker.Statement where
 
 import Language.SecreC.Vars
-import Language.SecreC.Utils
+import Language.SecreC.Utils as Utils
 import Language.SecreC.Monad
 import Language.SecreC.Syntax
 import Language.SecreC.Parser.Tokens
@@ -235,6 +235,22 @@ tcStmt ret (AnnStatement l ann) = tcStmtBlock l "annotation statement" $ do
     (ann') <- mapM tcStmtAnn ann
     let t = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
     return (AnnStatement (Typed l t) ann',t)
+tcStmt ret qs@(QuantifiedStatement l q vs anns s) = tcStmtBlock l "quantified statement" $ do
+    ppqs <- pp qs
+    onlyAnn l ppqs $ tcLocal l "tcStmt quant" $ do
+        q' <- tcQuantifier q
+        vs' <- mapM (tcQVar l) vs
+        mapM_ checkEnsures anns
+        anns' <- tcProcedureAnns anns
+        (s',t) <- tcStmts (ComplexT Void) s
+        topTcCstrM_ l $ Unifies (ComplexT Void) ret
+        return (QuantifiedStatement (Typed l t) q' vs' anns' s',t)
+
+checkEnsures :: (PP (TcM m) iden,ProverK loc m) => ProcedureAnnotation iden loc -> TcM m ()
+checkEnsures (EnsuresAnn {}) = return ()
+checkEnsures ann = do
+    ppann <- pp ann
+    genTcError (locpos $ loc ann) False $ text "unsupported annotation in quantified statement: " <+> ppann
 
 tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnotation GIdentifier (Typed loc))
 tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "decreases annotation" $ insideAnnotation $ withKind FKind $ withLeak False $ do
@@ -327,7 +343,26 @@ tcDefaultInitExpr l False ty szs Nothing = liftM Just $ withDef True $ do
     topTcCstrM_ l $ Default szsl x
     return $ fmap (Typed l) x
 
-    
+tcProcedureAnns :: ProverK loc m => [ProcedureAnnotation Identifier loc] -> TcM m [ProcedureAnnotation GIdentifier (Typed loc)]
+tcProcedureAnns xs = do
+    (inlines,anns') <- Utils.mapAndUnzipM tcProcedureAnn xs
+    case catMaybes inlines of
+        [] -> return ()
+        is -> chgDecClassM $ chgInlineDecClass (last is)
+    return anns'
+
+tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (Maybe Bool,ProcedureAnnotation GIdentifier (Typed loc))
+tcProcedureAnn (PDecreasesAnn l e) = tcStmtBlock l "decreases annotation" $ tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
+    (e') <- tcAnnExpr Nothing e
+    return (Nothing,PDecreasesAnn (Typed l $ typed $ loc e') e')
+tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcStmtBlock l "requires annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+    return (Nothing,RequiresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
+tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcStmtBlock l "ensures annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+    return (Nothing,EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
+tcProcedureAnn (InlineAnn l isInline) = tcStmtBlock l "inline annotation" $ tcAddDeps l "pann" $ do
+    return (Just isInline,InlineAnn (notTyped "inline" l) isInline)
 
 
 

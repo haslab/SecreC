@@ -886,6 +886,21 @@ annLinesProcC anns = d
                 xs -> [(ReadsK,Just False,Set.empty,PP.sepBy PP.comma xs,False)]
     ([],d) = annLinesC ProcKC (readk++anns'')
 
+quantifierAnnsToDafny :: DafnyK m => Set VarIdentifier -> [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m (AnnsDoc,AnnsDoc)
+quantifierAnnsToDafny qvs xs = do
+    (anns,ens) <- Utils.mapAndUnzipM (quantifierAnnToDafny qvs) xs
+    return (concat anns,concat ens)
+
+quantifierAnnToDafny :: DafnyK m => Set VarIdentifier -> ProcedureAnnotation GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,AnnsDoc)
+quantifierAnnToDafny qvs (EnsuresAnn l isFree isLeak e) = withInAnn True $ do
+    leakMode <- getLeakMode
+    withLeakMode isLeak $ do
+        vs <- lift $ usedVs' e
+        (anne,pe) <- expressionToDafny False Nothing EnsureK e
+        (anns,pe') <- annotateExpr anne qvs pe
+        ens <- annExpr (boolIsFree isFree) isLeak leakMode EnsureK vs pe'
+        return (anns,ens)
+
 procedureAnnsToDafny :: DafnyK m => [ProcedureAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 procedureAnnsToDafny xs = liftM concat $ mapM (procedureAnnToDafny) xs
 
@@ -923,6 +938,16 @@ addAnnsC c anns doc = do
     return (anns1,anns2 $+$ doc)
 
 statementToDafny :: DafnyK m => Statement GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
+statementToDafny qs@(QuantifiedStatement l q args ann s) = withAssumptions $ do
+    let pq = quantifierToDafny q
+    (annpargs,pargs) <- quantifierArgsToDafny StmtK args
+    vs <- lift $ liftM Set.unions $ mapM usedVs' args
+    (preqs,pens) <- quantifierAnnsToDafny vs ann
+    (anns,ps) <- statementsToDafny s
+    let (topanns,passerts) = annLinesC StmtKC (preqs++anns)
+    lift $ debugTc $ do
+        liftIO $ putStrLn $ "quantifierStmtToDafny " ++ show vs ++ "\n" ++ show ps
+    return (topanns,pq <+> parens pargs $+$ annLinesProcC pens $+$ vbraces (passerts $+$ ps))
 statementToDafny (CompoundStatement _ ss) = do
     (anns,pss) <- statementsToDafny ss
     return (anns,vbraces pss)

@@ -554,12 +554,16 @@ scAxiomDeclaration = apA5 scLeak (scTok AXIOM) scTArgs (scParens scProcedurePara
 scFunctionDeclaration :: (MonadIO m,MonadCatch m) => ScParserT m (FunctionDeclaration Identifier Position)
 scFunctionDeclaration = do
     isLeak <- scLeak
-    x0 <- scTok FUNCTION
-    scTypeSpecifierCont $ \x1 -> do
-        (o1 isLeak x0 x1 <|> o2 isLeak x0 x1) <?> "function definition"
+    (scFun isLeak <|> scPred isLeak)
   where
+    scFun isLeak = scTok FUNCTION >>= \x0 -> (scTypeSpecifierCont $ \x1 -> cont isLeak x0 x1)
+    scPred isLeak = scTok PREDICATE >>= \x0 -> cont isLeak x0 boolTypeSpec
+    cont isLeak x0 x1 = (o1 isLeak x0 x1 <|> o2 isLeak x0 x1) <?> "function definition"
     o1 isLeak x0 x1 = apA6 (scTok OPERATOR) scOp (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundExpression (\x2 x3 xc x4 x5 x6 -> OperatorFunDeclaration (loc x0) isLeak x1 x3 xc x4 x5 (unLoc x6))
     o2 isLeak x0 x1 = apA5 scProcedureId (scParens scProcedureParameterList) scTemplateContext scProcedureAnnotations scCompoundExpression (\x2 x3 xc x4 x5 -> FunDeclaration (loc x0) isLeak x1 x2 x3 xc x4 (unLoc x5))
+    
+boolTypeSpec :: TypeSpecifier Identifier Position
+boolTypeSpec = TypeSpecifier noloc Nothing (PrimitiveSpecifier noloc $ DatatypeBool noloc) Nothing
     
 scProcedureParameterList :: (Monad m,MonadCatch m) => ScParserT m [ProcedureParameter Identifier Position]
 scProcedureParameterList = sepBy scProcedureParameter (scChar ',') <?> "procedure parameters"
@@ -602,6 +606,7 @@ scCompoundExpression = scCBrackets' $ \x1 -> apA (scExpression) (\x2 -> Loc (loc
 scBaseStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
 scBaseStatement = (apA scCompoundStatement (\x1 -> CompoundStatement (loc x1) (unLoc x1))
           <|> scIfStatement
+          <|> scQuantifiedStatement
           <|> scForStatement
           <|> scWhileStatement
           <|> scDowhileStatement
@@ -905,6 +910,13 @@ scSetExpr = scAnn $ do
         return $ SetComprehensionExpr (loc x1) t x px fx
     o2 x1 = apA (scParens scExpression) (\x2 -> ToSetExpr (loc x1) x2)
     o3 x1 = scCBrackets' (\_ -> apA scExpressionList (SetConstructorPExpr (loc x1)))
+
+scQuantifiedStatement :: (MonadIO m,MonadCatch m) => ScParserT m (Statement Identifier Position)
+scQuantifiedStatement = scAnn $ apA4 scQuantifier (scParens (sepBy1 scQVar (scChar ','))) scProcedureAnnotations scCompoundStatement (\x1 x2 x3 x4 -> QuantifiedStatement (loc x1) x1 x2 x3 $ unLoc x4)
+    where
+    scQVar = scTypeSpecifierCont $ \x -> do
+        y <- scVarId
+        return (x,y)
 
 scQuantifiedExpr :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
 scQuantifiedExpr = scAnn $ apA4 scQuantifier (sepBy1 scQVar (scChar ',')) (scChar ';') scExpression (\x1 x2 x3 x4 -> QuantifiedExpr (loc x1) x1 x2 x4)

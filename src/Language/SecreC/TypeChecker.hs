@@ -332,27 +332,6 @@ tcProcedureDecl _ _ addProcToRec addProc (ProcedureDeclaration l ret (ProcedureN
     proc'' <- addProc recdt bdecctx proc'
     dec2ProcDecl l $ unDecT $ typed $ loc proc''
 
-tcProcedureAnns :: ProverK loc m => [ProcedureAnnotation Identifier loc] -> TcM m [ProcedureAnnotation GIdentifier (Typed loc)]
-tcProcedureAnns xs = do
-    (inlines,anns') <- mapAndUnzipM tcProcedureAnn xs
-    case catMaybes inlines of
-        [] -> return ()
-        is -> chgDecClassM $ chgInlineDecClass (last is)
-    return anns'
-
-tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (Maybe Bool,ProcedureAnnotation GIdentifier (Typed loc))
-tcProcedureAnn (PDecreasesAnn l e) = tcStmtBlock l "decreases annotation" $ tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
-    (e') <- tcAnnExpr Nothing e
-    return (Nothing,PDecreasesAnn (Typed l $ typed $ loc e') e')
-tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcStmtBlock l "requires annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
-    return (Nothing,RequiresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
-tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcStmtBlock l "ensures annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
-    return (Nothing,EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
-tcProcedureAnn (InlineAnn l isInline) = tcStmtBlock l "inline annotation" $ tcAddDeps l "pann" $ do
-    return (Just isInline,InlineAnn (notTyped "inline" l) isInline)
-
 tcProcedureParam :: (ProverK loc m) => ProcedureParameter Identifier loc -> TcM m (ProcedureParameter GIdentifier (Typed loc),(Bool,Var,IsVariadic))
 tcProcedureParam (ProcedureParameter l False s isVariadic (VarName vl vi)) = do
     s' <- tcTypeSpec s isVariadic True

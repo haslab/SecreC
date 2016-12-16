@@ -147,6 +147,7 @@ data Token
     | FREE
     | ANNOTATION [String]
     | FUNCTION
+    | PREDICATE
     | AXIOM
     | HAVOC
     | INLINE
@@ -255,6 +256,7 @@ instance Monad m => PP m Token where
     pp FORALL =                 return $ text "forall"
     pp EXISTS =                 return $ text "exists"
     pp MULTISET =               return $ text "multiset"
+    pp PREDICATE =              return $ text "predicate"
     pp SET =                    return $ text "set"
     pp FREE =                   return $ text "free"
     pp FUNCTION =               return $ text "function"

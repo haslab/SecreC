@@ -1240,6 +1240,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (ForInitializer iden
 
 data Statement iden loc
     = CompoundStatement loc [Statement iden loc]
+    | QuantifiedStatement loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] [ProcedureAnnotation iden loc] [Statement iden loc]
     | IfStatement loc (Expression iden loc) (Statement iden loc) (Maybe (Statement iden loc))
     | ForStatement loc (ForInitializer iden loc) (Maybe (Expression iden loc)) (Maybe (Expression iden loc)) [LoopAnnotation iden loc] (Statement iden loc)
     | WhileStatement loc (Expression iden loc) [LoopAnnotation iden loc] (Statement iden loc)
@@ -1261,6 +1262,7 @@ instance (Hashable iden,Hashable loc) => Hashable (Statement iden loc)
 instance Location loc => Located (Statement iden loc) where
     type (LocOf (Statement iden loc)) = loc
     loc (CompoundStatement l _) = l
+    loc (QuantifiedStatement l _ _ _ _) = l
     loc (IfStatement l _ _ _) = l
     loc (ForStatement l _ _ _ _ _) = l
     loc (WhileStatement l _ _ _) = l
@@ -1275,6 +1277,7 @@ instance Location loc => Located (Statement iden loc) where
     loc (ExpressionStatement l _) = l
     loc (AnnStatement l _) = l
     updLoc (CompoundStatement _ x) l = CompoundStatement l x
+    updLoc (QuantifiedStatement _ x y z w) l = QuantifiedStatement l x y z w
     updLoc (IfStatement _ x y z) l = IfStatement l x y z
     updLoc (ForStatement _ x y z w s) l = ForStatement l x y z w s
     updLoc (WhileStatement _ x y z) l = WhileStatement l x y z
@@ -1294,6 +1297,11 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [Statement iden loc]
     pp ss = liftM vcat $ mapM pp ss
  
 instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Statement iden loc) where
+    pp (QuantifiedStatement l q vs anns s) = do
+        pp1 <- mapM (\(t,v) -> do { p1 <- pp t; p2 <- pp v; return $ p1 <+> p2 }) vs
+        ppanns <- mapM pp anns
+        pp2 <- pp $ CompoundStatement noloc s
+        return $ text "forall" <+> parens (sepBy comma pp1) $+$ vcat ppanns $+$ pp2
     pp (CompoundStatement _ ss) = do
         ppss <- pp ss
         return $ lbrace $+$ nest 4 ppss $+$ rbrace

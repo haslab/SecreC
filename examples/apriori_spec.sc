@@ -53,23 +53,23 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //* Correctness functions
 
-//@ function bool IsBool (pd_shared3p uint[[1]] xs)
+//@ predicate IsBool (pd_shared3p uint[[1]] xs)
 //@ noinline;
 //@ {
 //@     forall pd_shared3p uint x; in(x,xs) ==> x <= 1
 //@ }
 
-//@ function bool IsDB (pd_shared3p uint[[2]] db)
+//@ predicate IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ {
 //@     forall pd_shared3p uint x; in(x,db) ==> x <= 1
 //@ }
 
-//@ function bool IsItemSet (uint[[1]] is, uint sz)
+//@ predicate IsItemSet (uint[[1]] is, uint sz)
 //@ noinline;
 //@ { size(is) > 0 && forall uint k; k < size(is) ==> is[k] < sz }
 
-//@ function bool IsItemSetOf (uint[[1]] is, pd_shared3p uint[[2]] db)
+//@ predicate IsItemSetOf (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
@@ -91,7 +91,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemSetOf(is,db);
 //@ { sum(transactions(is,db)) }
  
-//@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
+//@ predicate Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
 //@ {
 //@     size(fitems) == k
@@ -99,7 +99,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     IsItemSetOf(fitems,db)
 //@ }
 
-//@ function bool CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
+//@ predicate CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
 //@ {
 //@     Candidate(fitems,db,k)
@@ -109,7 +109,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     fcache == transactions(fitems,db)
 //@ }
 
-//@ function bool FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ predicate FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
@@ -118,7 +118,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     frequency(fitems,db) >= threshold
 //@ }
 
-//@ function bool FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ predicate FrequentsCache(frequent f, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
@@ -181,12 +181,17 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ ensures transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
 //@ {}
 
-//@ lemma TransactionIdem (uint[[1]] i, pd_shared3p uint[[2]] db)
+//@ lemma TransactionIdem (uint i, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires i < shape(db)[1];
 //@ ensures IsBool(transaction(i,db));
 //@ {
-//@     assert forall pd_shared3p uint x; in(x,transaction(i,db)) ==> in(x,db);
+//@     forall (pd_shared3p uint x)
+//@         ensures x <= 1;
+//@     { if (in(x,transaction(i,db))) {
+//@         assert in(x,db);
+//@         }
+//@     }
 //@ }
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
@@ -253,7 +258,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
           
 //* Leakage functions
 
-//@ leakage function bool LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
+//@ leakage predicate LeakFrequents (pd_shared3p uint[[2]] db, uint threshold)
 //@ noinline;
 //@ requires IsDB(db);
 //@ { forall uint[[1]] is; IsItemSetOf(is,db) ==> public (frequency(is,db) >= threshold) }
