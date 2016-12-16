@@ -2477,7 +2477,7 @@ getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> ModuleTcEnv) -
 getModuleField withBody filterf f = do
     (x,y) <- State.gets moduleEnv
     z <- getRecs withBody filterf
-    let xyz = mappend (filterf x) (mappend (filterf y) (filterf z))
+    let xyz = mappend (filterf x) (mappend (filterf y) z)
     return $ f xyz
 
 -- get only the recursive declarations for the lineage
