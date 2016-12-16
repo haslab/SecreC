@@ -67,12 +67,12 @@ instance Monad m => PP m PPArg where
     pp (SecrecOpts opts) = liftM (text "#OPTIONS_SECREC" <+>) (pp opts)
 
 type PPParserT u m a = ParsecT [Char] u m a
-    
+
 runPP :: (MonadIO m) => FilePath -> SecrecM m PPArgs
 runPP file = do
 --    liftIO $ putStrLn $ "parsing ppfile " ++ show file
     str <- liftIO $ readFile file
-    mapM (parsePP file) (filter (isPrefixOf "#") $ lines str)
+    mapM (parsePP file) (filter (\x -> isPrefixOf "#" x || isPrefixOf "//#" x) $ lines str)
 
 parsePP :: MonadIO m => FilePath -> String -> SecrecM m PPArg
 parsePP file str = do
@@ -84,8 +84,7 @@ parsePP file str = do
 
 parsePPArg :: MonadIO m => PPParserT u m PPArg
 parsePPArg = do
-    char '#'
-    string "OPTIONS_SECREC"
+    (string "#OPTIONS_SECREC" <|> string "//#OPTIONS_SECREC")
     spaces
     str <- many anyChar
     o <- cmdArgsRunPP ppMode (words str)

@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
+//#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
 
 module apriori_spec;
 
@@ -159,7 +159,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires size(xs) > 1;
-//@ ensures transactions(xs,db) == transactions(head(xs),db) * transactions(tail(xs),db);
+//@ ensures transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
 //@ {}
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
