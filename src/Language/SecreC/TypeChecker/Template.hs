@@ -446,13 +446,13 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
     let isVerify = verify opts /= NoneV
     ord' <- comparesDecIds l isVerify sameMatch True (entryType e1) (entryType e2)
     case (sameMatch,ord') of
-        (_,Just LT) -> return $ Comparison e1 e2 LT LT ko -- blindly favor annotations
-        (_,Just GT) -> return $ Comparison e1 e2 GT GT ko -- blindly favor annotations
+        --(_,Just LT) -> return $ Comparison e1 e2 LT LT ko -- blindly favor annotations
+        --(_,Just GT) -> return $ Comparison e1 e2 GT GT ko -- blindly favor annotations
         (True,Just EQ) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Just EQ) -> return ord
         (True,Nothing) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Nothing) -> return ord
-        --(_,Just o') -> return $ Comparison e1 e2 o' EQ ko
+        (_,Just o') -> return $ Comparison e1 e2 o' EQ ko
 
 sameTemplateDecs :: (ProverK Position m) => Position -> DecType -> DecType -> TcM m ()
 sameTemplateDecs l d1 d2 = do
@@ -527,17 +527,17 @@ comparesDecIds l isVerify sameMatch allowReps (DecT d1@(DecType j1 isRec1 _ _ _ 
     let mb = compareDecTypeK sameMatch allowReps j1 isRec1 j2 isRec2
     let ocl = compareDecClass isVerify (iDecDecClass b1) (iDecDecClass b2)
     let ok = compareDecKind isVerify (decTyKind d1) (decTyKind d2)
-    let o = mconcat [maybe EQ id ok,ocl,maybe EQ id mb]
-    case o of
-        EQ -> return (Nothing::Maybe Ordering)
-        otherwise -> return $ Just o
-    --case mb of
-    --    Just o -> return $ Just o
-    --    Nothing -> do
-    --        let o = mconcat [maybe EQ id ok,ocl]
-    --        case o of
-    --            EQ -> return (Nothing::Maybe Ordering)
-    --            otherwise -> return $ Just o
+    --let o = mconcat [maybe EQ id ok,ocl,maybe EQ id mb]
+    --case o of
+    --    EQ -> return (Nothing::Maybe Ordering)
+    --    otherwise -> return $ Just o
+    case mb of
+        Just o -> return $ Just o
+        Nothing -> do
+            let o = mconcat [maybe EQ id ok,ocl]
+            case o of
+                EQ -> return (Nothing::Maybe Ordering)
+                otherwise -> return $ Just o
      
 compareDecTypeK :: Bool -> Bool -> ModuleTyVarId -> DecTypeK -> ModuleTyVarId -> DecTypeK -> Maybe Ordering
 compareDecTypeK sameMatch allowReps j1 d1 j2 d2 | j1 == j2 && d1 == d2 = if allowReps then Just LT else Just EQ
