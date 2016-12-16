@@ -127,14 +127,25 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //* Correctness proofs
 
-//@ lemma MulCommu4 <domain D> (uint[[1]] a, uint[[1]] b, uint[[1]] c, uint[[1]] d)
-//@ requires size(a) == size(b) && size(b) == size(c) && size(c) == size(d);
-//@ ensures (a * b) * (c * d) == (a * c) * (b * d);
+//@ lemma MulCommu <domain D> (D uint[[1]] xs, D uint[[1]] ys)
+//@ requires size(xs) == size(ys);
+//@ ensures xs * ys == ys * xs;
+//@ {}
 
 //@ lemma MulAssoc <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
 //@ requires size(xs) == size(ys) && size(ys) == size(zs);
 //@ ensures xs * (ys * zs) == (xs * ys) * zs;
 //@ {}
+
+//@ lemma MulCommu4 <domain D> (uint[[1]] a, uint[[1]] b, uint[[1]] c, uint[[1]] d)
+//@ requires size(a) == size(b) && size(b) == size(c) && size(c) == size(d);
+//@ ensures (a * b) * (c * d) == (a * c) * (b * d);
+//@ {
+//@     MulAssoc(a,b,c * d);
+//@     MulCommu(c,d);
+//@     MulAssoc(b,d,c);
+//@     MulAssoc(a,c,b * d);
+//@ }
 
 //@ template<domain D>
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
