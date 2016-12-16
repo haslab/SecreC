@@ -55,3 +55,5 @@ module axioms;
 //@ ensures xs * (ys * zs) == (xs * ys) * zs;
 
 
+// workaround for empty modules
+void empty() { }
