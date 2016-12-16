@@ -952,7 +952,7 @@ getEntries l filterf onlyRecs isAnn isLeak (LKind) = do
 getEntries l filterf onlyRecs isAnn isLeak (PKind) = do
     xs <- getFunctions filterf False onlyRecs isAnn isLeak
     ys <- getLemmas filterf False onlyRecs isAnn isLeak 
-    zs <- getProcedures filterf False onlyRecs isAnn isLeak
+    zs <- getProcedures (filterOnlyAnns . filterf) False onlyRecs True isLeak
     return $ Map.unionWith Map.union xs (Map.unionWith Map.union ys zs)
 --getEntries l isAnn isLeak k = genTcError (locpos l) $ text "getEntries:" <+> text (show k)
 
@@ -2477,7 +2477,7 @@ getModuleField :: (ProverK Position m) => Bool -> (ModuleTcEnv -> ModuleTcEnv) -
 getModuleField withBody filterf f = do
     (x,y) <- State.gets moduleEnv
     z <- getRecs withBody filterf
-    let xyz = mappend (filterf x) (mappend (filterf y) z)
+    let xyz = mappend (filterf x) (mappend (filterf y) (filterf z))
     return $ f xyz
 
 -- get only the recursive declarations for the lineage
