@@ -205,7 +205,10 @@ toDafny prelude leakMode entries vids = flip State.evalStateT (DafnySt Map.empty
     ds <- State.gets (Map.toList . dafnies)
     let modules = map fst ds
     (types,code) <- printDafnyModules ds
-    let code' = text "module" <+> text "prelude" <+> vbraces (text dfy $+$ types) $+$ code
+    opts <- lift askOpts
+    let code' = if noDafnyModules opts
+                    then text dfy $+$ types $+$ code
+                    else text "module" <+> text "prelude" <+> vbraces (text dfy $+$ types) $+$ code
     axioms <- State.gets (Set.toList . axiomIds)
     paxioms <- mapM (boogieName modules) axioms
     dids <- State.gets (Set.unions . map Map.keysSet . Map.elems . dafnies)
@@ -309,6 +312,7 @@ printDafnyModules xs = do
 
 printDafnyModule :: DafnyK m => Maybe Identifier -> Map DafnyId DafnyEntry -> Map Identifier (Set Identifier) -> DafnyM m (Doc,Doc)
 printDafnyModule mn xs imports = do
+    opts <- lift askOpts
     let (types,rest) = Map.partitionWithKey (\k v -> isTypeDafnyId k) xs
     let cmp (_,p1,_,_,_) (_,p2,_,_,_) = compare p1 p2
     let fourth (x,y,z,w,q) = w
@@ -321,8 +325,13 @@ printDafnyModule mn xs imports = do
     let is = case mn of
                 Nothing -> []
                 Just mname -> maybe [] Set.toList $ Map.lookup mname imports
-    let pis = vcat $ map (\i -> text "import opened" <+> text i) ("prelude":is)
-    return (defstypes,text "module" <+> ppmn <+> vbraces (pis $+$ defsrest))
+    let pis = if noDafnyModules opts
+                then empty
+                else vcat $ map (\i -> text "import opened" <+> text i) ("prelude":is)
+    let modu = if noDafnyModules opts
+                then pis $+$ defsrest
+                else text "module" <+> ppmn <+> vbraces (pis $+$ defsrest)
+    return (defstypes,modu)
 
 resolveEntryPoint :: ProverK Position m => Identifier -> TcM m (Maybe DafnyId)
 resolveEntryPoint n = do
