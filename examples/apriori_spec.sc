@@ -78,7 +78,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 0) ? {} : transaction(is[0],db) * transactions(is[1:],db) }
+//@ { (size(is) == 0) ? reshape({},shape(db)[0]) : transaction(is[0],db) * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
@@ -134,6 +134,10 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ {
 //@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
 //@ }
+
+//@ lemma TransactionsSingle (uint i, pd_shared3p uint[[2]] db)
+//@ requires i < shape(db)[0];
+//@ ensures transaction({i},db) == transaction(i,db);
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
