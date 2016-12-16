@@ -168,6 +168,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ ensures transactions(xs,db) * transactions(xs,db) == transactions(xs,db);
 //@ {
 //@     if (size(xs) == 1) {
+//@         TransactionsIdem({head(xs)},db);
 //@     } else {
 //@         TransactionsDef(xs,db);
 //@         MulCommu4(transaction(head(xs),db),transactions(tail(xs),db),transaction(head(xs),db),transactions(tail(xs),db));
