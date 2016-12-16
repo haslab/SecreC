@@ -1690,6 +1690,7 @@ coercesLitBase l lit@(IntLit _ i) t = readable1 coercesLitInt l t
             ppt <- pp t
             tcWarn (locpos l) $ LiteralOutOfRange (show i) (ppt) (show min) (show max)
     coercesLitInt t2@(TyPrim {}) = constraintError (\x y e -> CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+    coercesLitInt t2@(BVar v@(varIdWrite -> False) (Just NumericClass)) = return ()
     coercesLitInt t2@(BVar v@(varIdWrite -> True) c2) = do
         constraintError (\x y e -> Halt $ CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
     coercesLitInt t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l lit pp t2 pp Nothing  
@@ -1700,6 +1701,7 @@ coercesLitBase l lit@(FloatLit _ f) t = readable1 coercesLitFloat l t
             ppt <- pp t
             tcWarn (locpos l) $ LiteralOutOfRange (show f) (ppt) (show min) (show max)
     coercesLitFloat t2@(TyPrim {}) = constraintError (\x y e -> CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
+    coercesLitFloat t2@(BVar v@(varIdWrite -> False) (Just NumericClass)) = return ()
     coercesLitFloat t2@(BVar v@(varIdWrite -> True) c2) = do
         constraintError (\x y e -> Halt $ CoercionException "literal base type" x y e) l lit pp t2 pp Nothing
     coercesLitFloat t2 = constraintError (\x y mb -> Halt $ CoercionException "literal base type" x y mb) l lit pp t2 pp Nothing  
