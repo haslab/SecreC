@@ -186,12 +186,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires i < shape(db)[1];
 //@ ensures IsBool(transaction(i,db));
 //@ {
-//@     forall (pd_shared3p uint x)
-//@         ensures x <= 1;
-//@     { if (in(x,transaction(i,db))) {
-//@         assert in(x,db);
-//@         }
-//@     }
+//@     assert forall pd_shared3p uint x; in(x,transaction(i,db)) ==> in(x,db);
 //@ }
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
