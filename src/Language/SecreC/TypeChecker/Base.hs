@@ -672,6 +672,9 @@ instance Binary SecrecErrArr where
 instance Hashable SecrecErrArr where
     hashWithSalt salt err = salt
 
+liftTcM :: Monad m => SecrecM m a -> TcM m a
+liftTcM m = TcM $ lift m
+
 newtype TcM m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv) (SecrecM m) a }
     deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv),MonadReader (Int,SecrecErrArr),MonadWriter (),Alternative)
     

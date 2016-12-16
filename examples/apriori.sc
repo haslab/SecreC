@@ -64,7 +64,7 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 //@ leakage requires LeakFrequents(db,threshold);
 //@ ensures FrequentsCache(\result,db,threshold,1);
 {
-    frequent f = newfrequent(1,db);
+    frequent f = newfrequent(1 :: uint,db);
 
     for (uint i = 0; i < shape(db)[1]; i=i+1)
     //@ invariant i <= shape(db)[1];

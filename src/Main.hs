@@ -12,6 +12,8 @@ import qualified Data.Text as Text
 import Data.Generics
 import qualified Data.Set as Set
 import Data.Set (Set(..))
+import qualified Data.Map as Map
+import Data.Map (Map(..))
 
 import Language.SecreC.IO
 import Language.SecreC.Pretty as Pretty
@@ -149,6 +151,29 @@ typecheck modules = flushTcWarnings $ do
 verifyOpts :: [(TypedModuleFile,OutputType)] -> Options
 verifyOpts = mconcat . map (ppOptions . either snd4 sciPPArgs . fst)
 
+ignoreVerifiedFiles :: [(TypedModuleFile,OutputType)] -> TcM IO VDafnyIds
+ignoreVerifiedFiles xs = liftM (Map.unionsWith appendVerifyOpt) $ mapM ignoreVerifiedFile xs
+    where
+    ignoreVerifiedFile :: (TypedModuleFile,OutputType) -> TcM IO VDafnyIds
+    ignoreVerifiedFile x@(Left {},_) = return Map.empty
+    ignoreVerifiedFile x@(Right sci,out) = return $ sciVerified sci
+
+markVerifiedFiles :: VDafnyIds -> Set DafnyId -> Set DafnyId -> [(TypedModuleFile,OutputType)] -> TcM IO ()
+markVerifiedFiles vids fids lids xs = mapM_ markVerifiedFile xs
+    where
+    vids' = Map.unionsWith appendVerifyOpt [vids,Map.fromSet (const FuncV) fids,Map.fromSet (const LeakV) lids]
+    markVerifiedFile :: (TypedModuleFile,OutputType) -> TcM IO ()
+    markVerifiedFile (mf,_) = do
+        let fn = moduleFileName mf
+        liftTcM $ updateModuleSCIHeader fn markVerifiedHeader
+    markVerifiedHeader :: SCIHeader -> SecrecM IO (Maybe SCIHeader)
+    markVerifiedHeader scih = do
+        let sameId did = dafnyIdModule did == sciHeaderId scih
+        let scids = Map.filterWithKey (\k v -> sameId k) vids'
+        if Map.null (Map.difference scids vids)
+            then return Nothing
+            else return $ Just scih { sciHeaderVerified = scids }
+
 verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
 verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
     opts <- askOpts
@@ -160,14 +185,15 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         let bpllfile = "out_leak.bpl"
         let bpllfile2 = "out_leak_product.bpl"
         
+        vids <- ignoreVerifiedFiles files
         -- generate dafny files
         when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
         prelude <- liftIO dafnyPrelude
         es <- getEntryPoints files
-        (dfy,axs) <- toDafny prelude False es
+        (dfy,axs,fids) <- toDafny prelude False es vids
         liftIO $ writeFile dfyfile (show dfy)
         when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output leakage file" <+> text (show dfylfile)
-        (dfyl,axsl) <- toDafny prelude True es
+        (dfyl,axsl,lids) <- toDafny prelude True es vids
         liftIO $ writeFile dfylfile (show dfyl)
         
         liftIO $ hSetBuffering stdout LineBuffering
@@ -189,6 +215,9 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
             BothV -> do
                 (fres,sres) <- concurrently func spec
                 return $ mappend fres sres
+        case res of
+            Status (Left d) -> markVerifiedFiles vids fids lids files
+            Status (Right err) -> return ()
         printStatus res
 
 compileDafny :: (MonadIO m) => Bool -> Bool -> FilePath -> FilePath -> m Status

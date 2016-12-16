@@ -155,10 +155,26 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
 //@ }
 
+//@ lemma TransactionsDef (uint[[1]] xs, pd_shared3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ requires IsItemSetOf(xs,db);
+//@ requires size(xs) > 1;
+//@ ensures transactions(xs,db) == transactions(head(xs),db) * transactions(tail(xs),db);
+//@ {}
+
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ ensures transactions(xs,db) * transactions(xs,db) == transactions(xs,db);
+//@ {
+//@     if (size(xs) == 1) {
+//@     } else {
+//@         TransactionsDef(xs,db);
+//@         MulCommu4(transaction(head(xs),db),transactions(tail(xs),db),transaction(head(xs),db),transactions(tail(xs),db));
+//@         TransactionsIdem({head(xs)},db);
+//@         TransactionsIdem(tail(xs),db);
+//@     }
+//@ }
 
 //@ lemma TransactionsSnoc (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
@@ -168,12 +184,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ {
 //@     if (size(xs) == 2) {
 //@     } else {
-//@         assert transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
+//@         TransactionsDef(xs,db);
 //@         TransactionsSnoc(tail(xs),db);
 //@         MulAssoc(transaction(head(xs),db),transactions(init(tail(xs)),db),transaction(last(xs),db));
 //@         assert head(xs) == head(init(xs));
 //@         assert init(tail(xs)) == tail(init(xs));
-//@         assert transactions(init(xs),db) == transaction(head(init(xs)),db) * transactions(tail(init(xs)),db);
+//@         TransactionsDef(init(xs),db);
 //@     }
 //@ }
 

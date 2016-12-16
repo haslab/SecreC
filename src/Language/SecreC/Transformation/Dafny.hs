@@ -3,6 +3,7 @@
 module Language.SecreC.Transformation.Dafny where
 
 import Language.SecreC.Syntax
+import Language.SecreC.Monad
 import Language.SecreC.TypeChecker.Base
 import Language.SecreC.TypeChecker.Constraint
 import Language.SecreC.TypeChecker.Template
@@ -46,14 +47,6 @@ import Safe
 type DafnyK m = ProverK Position m
 type DafnyM m = StateT DafnySt (TcM m)
 
-data DafnyId
-    = PId POId ModuleTyVarId
-    | FId POId ModuleTyVarId Bool
-    | LId GIdentifier ModuleTyVarId Bool
-    | SId GIdentifier ModuleTyVarId
-    | AId ModuleTyVarId Bool
-  deriving (Data,Typeable,Generic,Show,Eq,Ord)
-
 isTypeDafnyId :: DafnyId -> Bool
 isTypeDafnyId (SId {}) = True
 isTypeDafnyId _ = False
@@ -72,6 +65,9 @@ dafnyIdModuleTyVarId (LId _ tid _) = tid
 dafnyIdModuleTyVarId (SId _ tid) = tid
 dafnyIdModuleTyVarId (AId tid isLeak) = tid
 
+dafnyIdModule :: DafnyId -> Identifier
+dafnyIdModule = maybe "main" id . dafnyIdModuleMb
+
 putDafnyIdModuleTyVarId :: ModuleTyVarId -> DafnyId -> DafnyId
 putDafnyIdModuleTyVarId tid (PId po _) = PId po tid
 putDafnyIdModuleTyVarId tid (FId po _ b) = FId po tid b
@@ -79,13 +75,16 @@ putDafnyIdModuleTyVarId tid (LId g _ b) = LId g tid b
 putDafnyIdModuleTyVarId tid (SId g _) = SId g tid
 putDafnyIdModuleTyVarId tid (AId _ isLeak) = AId tid isLeak
 
-dafnyIdModule :: DafnyId -> Maybe Identifier
-dafnyIdModule = fmap fst . modTyName . dafnyIdModuleTyVarId
+dafnyIdModuleMb :: DafnyId -> Maybe Identifier
+dafnyIdModuleMb = fmap fst . modTyName . dafnyIdModuleTyVarId
 
 type DafnyEntry = ([Type],Position,DafnyId,Doc,DecType)
 
 dropEntryDoc :: DafnyEntry -> DafnyEntry
 dropEntryDoc (ts,p,did,_,dec) = (ts,p,did,PP.empty,dec)
+
+data FreeMode = KeepF | FreeF | DeleteF
+  deriving (Data,Typeable,Show,Eq,Ord)
 
 data DafnySt = DafnySt {
       dafnies :: Map (Maybe Identifier) (Map DafnyId (Map DafnyId DafnyEntry)) -- generated Dafny entries (top-level variables, types, functions, methods), grouped by module, grouped by base ids
@@ -97,13 +96,22 @@ data DafnySt = DafnySt {
     , inAnn :: Bool -- inside an annotation
     , currentModule :: Maybe Identifier
     , assumptions :: AnnsDoc
-    , freeMode :: Int -- for assertions (0=delete, 1=keep, 2=free)
+    , freeMode :: FreeMode
+    , verifiedIds :: VDafnyIds -- dafny entries verified in a previous execution
     }
 
-withFreeMode :: Monad m => Int -> DafnyM m a -> DafnyM m a
+withFreeMode :: Monad m => FreeMode -> DafnyM m a -> DafnyM m a
 withFreeMode isFree m = do
     old <- State.gets freeMode
     State.modify $ \e -> e { freeMode = isFree }
+    x <- m
+    State.modify $ \e -> e { freeMode = old }
+    return x
+    
+addFreeMode :: Monad m => FreeMode -> DafnyM m a -> DafnyM m a
+addFreeMode isFree m = do
+    old <- State.gets freeMode
+    State.modify $ \e -> e { freeMode = appendFreeMode old isFree }
     x <- m
     State.modify $ \e -> e { freeMode = old }
     return x
@@ -152,10 +160,18 @@ getInDecl :: DafnyK m => DafnyM m (Maybe DafnyId)
 getInDecl = State.gets inDecl
     
 insideDecl :: DafnyK m => DafnyId -> DafnyM m x -> DafnyM m x
-insideDecl b m = do
+insideDecl did m = do
     o <- getInDecl
-    State.modify $ \env -> env { inDecl = Just (b) }
-    x <- m
+    State.modify $ \env -> env { inDecl = Just did }
+    vids <- State.gets verifiedIds
+    lmode <- State.gets leakageMode
+    let fmode = case Map.lookup did vids of
+                    Nothing -> KeepF
+                    Just NoneV -> KeepF
+                    Just BothV -> FreeF
+                    Just FuncV -> if lmode==False then FreeF else KeepF
+                    Just LeakV -> if lmode==True then FreeF else KeepF
+    x <- addFreeMode fmode m
     State.modify $ \env -> env { inDecl = o }
     return x
 
@@ -181,8 +197,8 @@ withInAnn b m = do
     State.modify $ \env -> env { inAnn = o }
     return x
 
-toDafny :: DafnyK m => FilePath -> Bool -> [DafnyId] -> TcM m (Doc,[String])
-toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing [] 1) $ do
+toDafny :: DafnyK m => FilePath -> Bool -> [DafnyId] -> VDafnyIds -> TcM m (Doc,[String],Set DafnyId)
+toDafny prelude leakMode entries vids = flip State.evalStateT (DafnySt Map.empty Map.empty leakMode Set.empty Nothing Nothing False Nothing [] KeepF vids) $ do
     dfy <- liftIO $ readFile prelude
     loadAxioms
     mapM_ (loadDafnyId noloc) entries
@@ -192,7 +208,8 @@ toDafny prelude leakMode entries = flip State.evalStateT (DafnySt Map.empty Map.
     let code' = text "module" <+> text "prelude" <+> vbraces (text dfy $+$ types) $+$ code
     axioms <- State.gets (Set.toList . axiomIds)
     paxioms <- mapM (boogieName modules) axioms
-    return (code',paxioms)
+    dids <- State.gets (Set.unions . map Map.keysSet . Map.elems . dafnies)
+    return (code',paxioms,dids)
 
 boogieName :: DafnyK m => [Maybe Identifier] -> DafnyId -> DafnyM m String
 boogieName modules did = do
@@ -200,7 +217,7 @@ boogieName modules did = do
     ppmn <- lift $ ppModuleName mn
     return $ show $ text "InterModuleCall$$_" <> int mnum <> text "_" <> ppmn <> text ".__default." <> text (duplicateUnderscores $ show pdid)
   where
-    mn = dafnyIdModule did
+    mn = dafnyIdModuleMb did
     mnum = fromJust $ List.lookup mn (zip modules [(2::Int)..])
 
 duplicateUnderscores :: String -> String
@@ -388,7 +405,7 @@ loadDafnyDec l dec = do
     current <- getModule
     case decDafnyIds dec of
         Just fid@(bid,did,targs) -> do
-            let mn = dafnyIdModule bid
+            let mn = dafnyIdModuleMb bid
             unless (current==mn) $ State.modify $ \env -> env { imports = addImport current mn (imports env) }
             withModule mn $ do
                 leakMode <- getLeakMode
@@ -442,7 +459,7 @@ findEntry l ((did',(ts',p',uid',doc',dec')):es) fid@(bid,did,ts) dec = do
 
 newEntry :: DafnyK m => Position -> DecType -> (DafnyId,DafnyId,[Type]) -> DafnyM m (Maybe DafnyId)
 newEntry l dec fid@(bid,did,ts) = do
-    let mn = dafnyIdModule bid
+    let mn = dafnyIdModuleMb bid
     State.modify $ \env -> env { dafnies = Map.alter (Just . Map.alter (Just . Map.insert did (ts,noloc,did,empty,dec) . maybe Map.empty id) bid . maybe Map.empty id) mn $ dafnies env }
     mb <- decToDafny l dec
     case mb of
@@ -568,7 +585,9 @@ decToDafny l dec@(targsDec -> Just (mid,targs,LemmaType isLeak p pn args anns (J
     ppn <- ppDafnyIdM did
     (pargs,parganns) <- procedureArgsToDafny l False args
     (pargs',ssargs) <- newDafnyArgs l args
-    body' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty body
+    fmode <- State.gets freeMode
+    let dropBody body = if fmode > KeepF then Nothing else body
+    body' <- lift $ substFromTSubstsNoDec "procedureToDafny" p ssargs False Map.empty $ dropBody body
     pcl <- decClassToDafny cl
     ptargs <- typeArgsToDafny l targs
     panns <- procedureAnnsToDafny anns
@@ -985,30 +1004,23 @@ addAssumptions m = do
     State.modify $ \env -> env { assumptions = assumptions env ++ anns }
     return anns
 
--- 0 = delete
--- 1 = keep
--- 2 = free
-genFree :: Bool -> Bool -> Int
+genFree :: Bool -> Bool -> FreeMode
 genFree isLeak leakMode = case (leakMode,isLeak) of
-    (True,True) -> 1 
-    (True,False) -> 2
-    (False,True) -> 0
-    (False,False) -> 1
+    (True,True) -> KeepF
+    (True,False) -> FreeF
+    (False,True) -> DeleteF
+    (False,False) -> KeepF
 
-appendFreeMode :: Int -> Int -> Int
-appendFreeMode 0 _ = 0
-appendFreeMode _ 0 = 0
-appendFreeMode 2 _ = 2
-appendFreeMode _ 2 = 2
-appendFreeMode 1 1 = 1
+appendFreeMode :: FreeMode -> FreeMode -> FreeMode
+appendFreeMode x y = max x y
 
 annExpr :: DafnyK m => Maybe Bool -> Bool -> Bool -> AnnKind -> Set VarIdentifier -> Doc -> DafnyM m AnnsDoc
 annExpr isFree isLeak leakMode annK vs e = addAssumptions $ do
     mode <- State.gets freeMode
     case (appendFreeMode mode $ genFree isLeak leakMode) of
-        0 -> return []
-        1 -> return [(annK,isFree,vs,e,isLeak)]
-        2 -> return [(annK,Just False,vs,e,isLeak)]
+        DeleteF -> return []
+        KeepF -> return [(annK,isFree,vs,e,isLeak)]
+        FreeF -> return [(annK,Just False,vs,e,isLeak)]
     
 loopAnnToDafny :: DafnyK m => LoopAnnotation GIdentifier (Typed Position) -> DafnyM m AnnsDoc
 loopAnnToDafny (DecreasesAnn l isLeak e) = withInAnn True $ do

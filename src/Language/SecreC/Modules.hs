@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, ScopedTypeVariables, ConstraintKinds, FlexibleContexts, DoAndIfThenElse #-}
+{-# LANGUAGE DeriveDataTypeable, DeriveGeneric, ScopedTypeVariables, ConstraintKinds, FlexibleContexts, DoAndIfThenElse #-}
 
 module Language.SecreC.Modules where
 
@@ -8,7 +8,9 @@ import Data.Foldable as Foldable
 import Data.Maybe as Maybe
 import Data.UnixTime
 import Data.Either
+import Data.Typeable
 import Data.Binary
+import Data.Data
 import Data.Binary.Get
 import Data.ByteString.Lazy (ByteString(..))
 import qualified Data.ByteString.Lazy as BL
@@ -212,12 +214,19 @@ writeModuleSCI ppargs menv m mlength = do
         let fn = moduleFile m
         t <- liftIO $ fileModificationTime fn
         let scifn = replaceExtension fn "sci"
-        let header = SCIHeader fn t (moduleId m) mlength
+        let header = SCIHeader fn t (moduleId m) mlength Map.empty
         let body = SCIBody ppargs (map (fmap locpos) $ moduleImports m) menv
         e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
         case e of
             Nothing -> return ()
             Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
+
+writeSCIByteString :: (MonadIO m) => FilePath -> ByteString -> SecrecM m ()
+writeSCIByteString scifn bstr = do
+    e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ BL.writeFile scifn bstr
+    case e of
+        Nothing -> return ()
+        Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
@@ -242,7 +251,7 @@ readModuleSCI fn = do
     go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
     go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
     
-readModuleSCIHeader :: MonadIO m => FilePath -> SecrecM m (Maybe (ModuleSCIHeader,ByteString))
+readModuleSCIHeader :: MonadIO m => FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
 readModuleSCIHeader fn = do
     let scifn = replaceExtension fn "sci"
     e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BL.readFile scifn
@@ -250,21 +259,27 @@ readModuleSCIHeader fn = do
         Just input -> go (runGetIncremental get) input fn scifn
         Nothing -> return Nothing
   where
-    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe ModuleSCI)
+    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
     go (Done leftover consumed header) input fn scifn = do
-        opts <- ask
-        t <- liftIO $ fileModificationTime fn
-        if (sciHeaderFile header == fn && t <= sciHeaderModTime header)
-            then do
-                sciError $ "SecreC file " ++ show fn ++ " has not changed"
-                let e = runGetOrFail get (BL.chunk leftover input)
-                case e of
-                    Right (_,_,body) -> return $ Just $ ModuleSCI header body
-                    Left (_,_,err) -> sciError ("Error loading SecreC interface file body " ++ show scifn) >> return Nothing
-            else sciError ("SecreC file " ++ show fn ++ " has changed") >> return Nothing
+        return $ Just (header,BL.chunk leftover input)
     go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
     go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
- 
+
+updateModuleSCIHeader :: MonadIO m => FilePath -> (SCIHeader -> SecrecM m (Maybe SCIHeader)) -> SecrecM m ()
+updateModuleSCIHeader scifn chg = do
+    opts <- Reader.ask
+    when (writeSCI opts) $ do
+        mb <- readModuleSCIHeader scifn
+        case mb of
+            Nothing -> sciError ("Error updating SecreC interface file header " ++ show scifn)
+            Just (header,body) -> do
+                mb <- chg header
+                case mb of
+                    Nothing -> return ()
+                    Just header' -> do
+                        writeSCIByteString scifn $ BL.append (encode header') body
+                        sciError ("Updated SecreC interface file header " ++ show scifn)
+
 trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
 trySCI msg io = do
     e <- liftIO $ tryIOError io
@@ -282,11 +297,12 @@ moduleVarId m = maybe (mkVarId "main") id $ moduleIdMb m
 
 moduleGId :: Module GIdentifier loc -> GIdentifier
 moduleGId m = maybe (MIden $ mkVarId "main") id $ moduleIdMb m
-    
-type ModuleFile = Either (UnixTime,PPArgs,Module Identifier Position,Int) ModuleSCI
-type TypedModuleFile = Either (UnixTime,PPArgs,Module GIdentifier (Typed Position),Int) ModuleSCI
 
-moduleFileName :: ModuleFile -> FilePath
+type ModuleFile = GModuleFile Identifier Position
+type TypedModuleFile = GModuleFile GIdentifier (Typed Position)
+type GModuleFile iden loc = Either (UnixTime,PPArgs,Module iden loc,Int) ModuleSCI
+
+moduleFileName :: Location loc => GModuleFile iden loc -> FilePath
 moduleFileName (Left (_,_,m,ml)) = moduleFile m
 moduleFileName (Right sci) = sciFile sci
 
@@ -329,12 +345,23 @@ updModTime sci t = sci { sciHeader = (sciHeader sci) { sciHeaderModTime = t } }
 
 instance Binary ModuleSCI
 
+data DafnyId
+    = PId POId ModuleTyVarId
+    | FId POId ModuleTyVarId Bool
+    | LId GIdentifier ModuleTyVarId Bool
+    | SId GIdentifier ModuleTyVarId
+    | AId ModuleTyVarId Bool
+  deriving (Data,Typeable,Generic,Show,Eq,Ord)
+instance Binary DafnyId
+
+type VDafnyIds = Map DafnyId VerifyOpt
+
 data SCIHeader = SCIHeader {
       sciHeaderFile :: FilePath
     , sciHeaderModTime :: UnixTime
     , sciHeaderId :: Identifier -- module identifier
     , sciHeaderLines :: Int -- number of lines
-    , sciHeaderVerified :: Bool -- has been verified or not
+    , sciHeaderVerified :: VDafnyIds -- has been verified or not
     } deriving Generic
 instance Binary SCIHeader
 
