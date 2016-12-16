@@ -55,15 +55,11 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ predicate IsBool (pd_shared3p uint[[1]] xs)
 //@ noinline;
-//@ {
-//@     forall uint i; i < size(xs) ==> xs[i] <= 1
-//@ }
+//@ { forall uint i; i < size(xs) ==> xs[i] <= 1 }
 
 //@ predicate IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
-//@ {
-//@     forall uint i, uint j; i < shape(db)[0] && j < shape(db)[1] ==> db[i,j] <= 1
-//@ }
+//@ { forall uint i, uint j; i < shape(db)[0] && j < shape(db)[1] ==> db[i,j] <= 1 }
 
 //@ predicate IsItemSet (uint[[1]] is, uint sz)
 //@ noinline;
@@ -91,11 +87,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
  
 //@ predicate Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
-//@ {
-//@     size(fitems) == k
-//@     &&
-//@     IsItemSetOf(fitems,db)
-//@ }
+//@ { size(fitems) == k && IsItemSetOf(fitems,db) }
 
 //@ predicate CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
@@ -168,9 +160,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
 //@ context<>
 //@ inline;
-//@ {
-//@     assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]);
-//@ }
+//@ { assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]); }
 
 //@ lemma TransactionsDef (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
@@ -184,8 +174,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemOf(i,db);
 //@ ensures db[:,i] * db[:,i] == db[:,i];
 //@ {
-//x //@     assert shape(db)[0] == size(db[:,i]);
-//@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] == db[j,i]; // && db[j,i] <= 1;
+//@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] == db[j,i];
 //@     MulBool(db[:,i]);
 //@ }
 
@@ -241,9 +230,9 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@         TransactionsSnoc(xs,db);
 //@         TransactionsSnoc(ys,db);
 //@         assert IsItemSetOf(init(xs),db);
-//@         assert last(xs) < shape(db)[1];
+//@         assert IsItemOf(last(xs),db);
 //@         assert IsItemSetOf(init(ys),db);
-//@         assert last(ys) < shape(db)[1];
+//@         assert IsItemOf(last(ys),db);
 //@         MulCommu4(transactions(init(xs),db),db[:,last(xs)],transactions(init(ys),db),db[:,last(ys)]);
 //@         MulAssoc(transactions(init(xs),db),db[:,last(xs)],db[:,last(ys)]);
 //@         TransactionsIdem(init(xs),db);
