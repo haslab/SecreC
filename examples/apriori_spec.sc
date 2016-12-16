@@ -156,7 +156,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ }
 
 //@ lemma MulBool <domain D> (D uint[[1]] xs)
-//@ requires forall D uint x; in(x,xs) ==> x <= 1;
+//@ requires IsBool(xs);
 //@ ensures xs * xs == xs;
 //@ {
 //@     if (size(xs) == 0) {
