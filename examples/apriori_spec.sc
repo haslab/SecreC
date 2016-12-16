@@ -77,7 +77,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 1) ? transaction(is[0],db) : transaction(is[0],db) * transactions(is[1:],db) }
+//@ { (size(is) == 0) ? {} : transaction(is[0],db) * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
