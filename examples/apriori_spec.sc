@@ -90,7 +90,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
  
 //@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
-//@ ensures IsItemSetOf(is,db);
+//@ ensures IsItemSetOf(fitems,db);
 //@ {
 //@     size(fitems) == k
 //@     &&
@@ -99,7 +99,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ function bool CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
-//@ ensures IsItemSetOf(is,db);
+//@ ensures IsItemSetOf(fitems,db);
 //@ {
 //@     Candidate(fitems,db,k)
 //@     &&
@@ -111,7 +111,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ function bool FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ noinline;
 //@ requires IsDB(db);
-//@ ensures IsItemSetOf(is,db);
+//@ ensures IsItemSetOf(fitems,db);
 //@ {
 //@     CandidateCache(fitems,fcache,db,k)
 //@     &&
