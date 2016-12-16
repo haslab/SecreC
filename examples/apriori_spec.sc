@@ -53,10 +53,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //* Correctness functions
 
-//@ function bool IsDB (pd_shared3p uint[[2]] db)
+//@ template <domain D,numeric type T,dim N { N > 0 }>
+//@ function bool IsDB (D T[[1]] xs)
+//@ context<>
 //@ noinline;
 //@ {
-//@     forall pd_shared3p uint x; in(x,db) ==> x <= 1
+//@     forall pd_shared3p uint x; in(x,xs) ==> x <= 1
 //@ }
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
@@ -71,6 +73,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires i < shape(db)[1];
 //@ ensures size(\result) == shape(db)[0];
+//@ ensures IsDB(\result);
 //@ { db[:,i] }
 
 //@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
@@ -78,6 +81,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
+//@ ensures IsDB(\result);
 //@ { (size(is) == 1) ? transaction(is[0],db) : transaction(is[0],db) * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
