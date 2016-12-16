@@ -190,7 +190,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsItemOf(i,db);
 //@ ensures transaction(i,db) * transaction(i,db) == transaction(i,db);
 //@ {
-//@     assert forall uint j; j < shape(db)[0] ==> transaction(i,db)[j] == db[:,i][j] && db[:,i][j] == db[j,i];
+//@     assert shape(db)[0] == size(transaction(i,db));
+//@     assert forall uint j; j < shape(db)[0] ==> transaction(i,db)[j] == db[:,i][j] && db[:,i][j] == db[j,i] && db[j,i] <= 1;
 //@ }
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
