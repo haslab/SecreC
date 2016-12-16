@@ -164,18 +164,22 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires init(xs) == init(ys);
 //@ ensures CandidateCache(C,C_dot,db,k);
 //@ {
-//@     TransactionsSnoc(xs,db);
-//@     TransactionsSnoc(ys,db);
-//@     assert IsItemSetOf(init(xs),db);
-//@     assert last(xs) < shape(db)[1];
-//@     assert IsItemSetOf(init(ys),db);
-//@     assert last(ys) < shape(db)[1];
-//@     assume
-//@         (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
-//@         ==
-//@         ((transactions(init(xs),db) * transactions(init(ys),db)) * transaction(last(xs),db)) * transaction(last(ys),db);
-//@     TransactionsIdem(init(xs),db);
-//@     TransactionsSnoc(C,db);
+//@     if (size(xs) == 0)
+//@     {
+//@     } else {
+//@         TransactionsSnoc(xs,db);
+//@         TransactionsSnoc(ys,db);
+//@         assert IsItemSetOf(init(xs),db);
+//@         assert last(xs) < shape(db)[1];
+//@         assert IsItemSetOf(init(ys),db);
+//@         assert last(ys) < shape(db)[1];
+//@         assume
+//@             (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
+//@             ==
+//@             ((transactions(init(xs),db) * transactions(init(ys),db)) * transaction(last(xs),db)) * transaction(last(ys),db);
+//@         TransactionsIdem(init(xs),db);
+//@         TransactionsSnoc(C,db);
+//@     }
 //@ }
           
 //* Leakage functions
