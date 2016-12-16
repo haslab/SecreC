@@ -130,6 +130,8 @@ instance Monad m => PP m Options where
         pp24 <- (mapM pp $ entryPoints opts)
         pp25 <- pp (defaults opts)
         pp26 <- pp (progress opts)
+        pp27 <- pp (noDafnyModules opts)
+        pp28 <- pp (ignoreSpecDomains opts)
         return $ PP.sepBy PP.space pp1
             <+> text "--outputs=" <> PP.sepBy (PP.char ':') pp2
             <+> text "--paths=" <> PP.sepBy (PP.char ':') pp3
@@ -159,6 +161,8 @@ instance Monad m => PP m Options where
             <+> text "--entrypoints" <> PP.sepBy (PP.char ':') pp24
             <+> text "--defaults" <> pp25
             <+> text "--progress" <> pp26
+            <+> text "--nodafnymodules" <> pp27
+            <+> text "--ignorespecdomains" <> pp28
 
 contextMsg :: Doc
 contextMsg = PP.text "Controls template constraint resolution" $+$ PP.nest 4 (
@@ -243,6 +247,7 @@ optionsDecl  = Opts {
     , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"
     , writeSCI = writeSCI defaultOptions &= help "Write typechecking result to SecreC interface files" &= groupname "Verification:Typechecker"
     , ignoreSpecDomains = ignoreSpecDomains defaultOptions &= help "Ignore domains in specifications" &= groupname "Verification:Typechecker"
+    , noDafnyModules =  noDafnyModules defaultOptions &= help "Do not generate Dafny modules" &= groupname "Verification:Typechecker"
     
     -- Analysis
     , entryPoints = entryPoints defaultOptions &= help "starting procedures and structs for analysis" &= groupname "Verification:Analysis"

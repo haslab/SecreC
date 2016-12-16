@@ -792,14 +792,16 @@ checkCoercionM :: Monad m => TcM m Bool
 checkCoercionM = do
     opts <- askOpts
     st <- getCstrState
-    return $ checkCoercion (implicitCoercions opts) st
+    noSec <- checkNoSecM
+    return $ checkCoercion noSec (implicitCoercions opts) st
   where
-    checkCoercion :: CoercionOpt -> CstrState -> Bool
-    checkCoercion c st@(cstrDecK -> AKind) = False
-    checkCoercion OffC st = False
-    checkCoercion DefaultsC st = cstrIsDef st
-    checkCoercion OnC st = not $ cstrIsAnn st
-    checkCoercion ExtendedC st = True
+    checkCoercion :: Bool -> CoercionOpt -> CstrState -> Bool
+    checkCoercion True ((< ExtendedC) -> True) st = False
+    checkCoercion noSec c st@(cstrDecK -> AKind) = False
+    checkCoercion noSec OffC st = False
+    checkCoercion noSec DefaultsC st = cstrIsDef st
+    checkCoercion noSec OnC st = not $ cstrIsAnn st
+    checkCoercion noSec ExtendedC st = True
 
 -- flips errors whenever typechecking is expected to fail
 failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
