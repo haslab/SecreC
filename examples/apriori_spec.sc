@@ -54,7 +54,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //* Correctness functions
 
 //@ template <domain D,numeric type T,dim N { N > 0 }>
-//@ function bool IsDB (D T[[1]] xs)
+//@ function bool IsDB (D T[[N]] xs)
 //@ context<>
 //@ noinline;
 //@ {
