@@ -90,7 +90,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
  
 //@ function bool Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
-//@ ensures IsItemSetOf(fitems,db);
 //@ {
 //@     size(fitems) == k
 //@     &&
@@ -99,7 +98,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ function bool CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
-//@ ensures IsItemSetOf(fitems,db);
 //@ {
 //@     Candidate(fitems,db,k)
 //@     &&
@@ -111,7 +109,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ function bool FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
 //@ noinline;
 //@ requires IsDB(db);
-//@ ensures IsItemSetOf(fitems,db);
 //@ {
 //@     CandidateCache(fitems,fcache,db,k)
 //@     &&
@@ -128,7 +125,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     &&
 //@     shape(f.cache)[1] == shape(db)[0]
 //@     &&
-//@     forall uint i; i < shape(f.items)[0] ==> FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//@     forall uint i; i < shape(f.items)[0] ==> IsItemSetOf(is,db) && FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
 
 //* Correctness proofs
@@ -167,6 +164,10 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ {
 //@     TransactionsSnoc(xs,db);
 //@     TransactionsSnoc(ys,db);
+//@     assert IsItemSetOf(init(xs),db);
+//@     assert last(xs) < shape(db)[1];
+//@     assert IsItemSetOf(init(ys),db);
+//@     assert last(ys) < shape(db)[1];
 //@     assert
 //@         (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
 //@         ==
