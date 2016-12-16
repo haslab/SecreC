@@ -56,7 +56,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ predicate IsBool (pd_shared3p uint[[1]] xs)
 //@ noinline;
 //@ {
-//@     forall pd_shared3p uint x; in(x,xs) ==> x <= 1
+//@     forall uint i; i < size(xs) ==> xs[i] <= 1
 //@ }
 
 //@ predicate IsDB (pd_shared3p uint[[2]] db)
