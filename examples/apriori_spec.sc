@@ -62,7 +62,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ predicate IsDB (pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ {
-//@     forall pd_shared3p uint x; in(x,db) ==> x <= 1
+//@     forall uint i; uint j; i < shape(db)[0] && j < shape(db)[1] ==> db[i,j] <= 1
 //@ }
 
 //@ predicate IsItemSet (uint[[1]] is, uint sz)
