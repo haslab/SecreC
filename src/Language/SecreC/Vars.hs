@@ -481,6 +481,14 @@ instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,Var
         l' <- f l
         ss' <- mapM f ss
         return $ CompoundStatement l' ss'
+    traverseVars f (QuantifiedStatement l q vs anns ss) = do
+        l' <- f l
+        q' <- f q
+        varsBlock $ do
+            vs' <- inLHS False $ mapM f vs
+            anns' <- mapM f anns
+            ss' <- varsBlock $ mapM f ss
+            return $ QuantifiedStatement l' q' vs' anns' ss'
     traverseVars f (IfStatement l e s1 s2) = do
         l' <- f l
         e' <- f e

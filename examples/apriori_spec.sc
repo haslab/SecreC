@@ -69,13 +69,17 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ { size(is) > 0 && forall uint k; k < size(is) ==> is[k] < sz }
 
+//@ predicate IsItemOf (uint i, pd_shared3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ { i < shape(db)[1] }
+
 //@ predicate IsItemSetOf (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
 //@ function pd_shared3p uint[[1]] transaction (uint i, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
-//@ requires i < shape(db)[1];
+//@ requires IsItemOf(i,db);
 //@ ensures size(\result) == shape(db)[0];
 //@ { db[:,i] }
 
@@ -183,7 +187,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ lemma TransactionIdem (uint i, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
-//@ requires i < shape(db)[1];
+//@ requires IsItemOf(i,db);
 //@ ensures IsBool(transaction(i,db));
 //@ {
 //@     assert forall pd_shared3p uint x; in(x,transaction(i,db)) ==> in(x,db);
