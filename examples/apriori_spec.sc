@@ -125,7 +125,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     &&
 //@     shape(f.cache)[1] == shape(db)[0]
 //@     &&
-//@     forall uint i; i < shape(f.items)[0] ==> IsItemSetOf(is,db) && FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//@     forall uint i; i < shape(f.items)[0] ==> IsItemSetOf(f.items[i,:],db) && FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
 
 //* Correctness proofs
