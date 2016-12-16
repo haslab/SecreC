@@ -792,8 +792,7 @@ checkCoercionM :: Monad m => TcM m Bool
 checkCoercionM = do
     opts <- askOpts
     st <- getCstrState
-    noSec <- checkNoSecM
-    return $ not noSec && checkCoercion (implicitCoercions opts) st
+    return $ checkCoercion (implicitCoercions opts) st
   where
     checkCoercion :: CoercionOpt -> CstrState -> Bool
     checkCoercion c st@(cstrDecK -> AKind) = False

@@ -147,12 +147,13 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     MulAssoc(a,c,b * d);
 //@ }
 
-//@ lemma MulBool <domain D> (uint[[1]] xs)
+//@ lemma MulBool <domain D> (D uint[[1]] xs)
 //@ requires forall D uint x; in(x,xs) ==> x <= 1;
 //@ ensures xs * xs == xs;
 //@ {
 //@     if (size(xs) == 0) {
 //@     } else {
+//@         assert head(xs) <= 1;
 //@         assert head(xs) * head(xs) == head(xs);
 //@         MulBool(tail(xs));
 //@     }
