@@ -26,14 +26,15 @@ module axioms;
 //x //@ requires size(xs) > 0;
 //x //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
 
-//x //@ lemma Snoc1 <domain D,type T> (D T[[1]] xs)
-//x //@ requires size(xs) > 0;
-//x //@ ensures assertion<D>(xs == snoc(init(xs),last(xs)));
-
 //@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j < shape(xs)[1];
 //@ ensures assertion<D>(xs[i,:][j] == xs[i,j]);
+
+//@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
+//@ requires i < shape(xs)[0];
+//@ requires j < shape(xs)[1];
+//@ ensures assertion<D>(xs[:,j][i] == xs[i,j]);
 
 //x //@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
 //x //@ requires i < shape(xs)[0];
