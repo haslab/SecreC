@@ -153,12 +153,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     MulAssoc(a,c,b * d);
 //@ }
 
-//@ lemma MulBool <domain D> (D uint[[1]] xs)
+//@ lemma MulBool (pd_shared3p uint[[1]] xs)
 //@ requires IsBool(xs);
 //@ ensures xs * xs == xs;
 //@ {
 //@     if (size(xs) == 0) {
-//@         assert head(xs) <= (1 :: uint);
+//@         assume xs * xs == xs;
 //@     } else {
 //@         assert head(xs) <= (1 :: uint);
 //@         assert head(xs) * head(xs) == head(xs);
@@ -181,17 +181,22 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ ensures transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
 //@ {}
 
+//@ lemma TransactionIdem (uint[[1]] x, pd_shared3p uint[[2]] db)
+//@ requires IsDB(db);
+//@ requires x < shape(db)[1];
+//@ ensures IsBool(transaction(x,db));
+
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ ensures transactions(xs,db) * transactions(xs,db) == transactions(xs,db);
 //@ {
 //@     if (size(xs) == 1) {
-//@         MulBool(transaction(head(xs),db));
+//@         TransactionIdem(head(xs),db);
 //@     } else {
 //@         TransactionsDef(xs,db);
 //@         MulCommu4(transaction(head(xs),db),transactions(tail(xs),db),transaction(head(xs),db),transactions(tail(xs),db));
-//@         MulBool(transaction(head(xs),db));
+//@         TransactionIdem(head(xs),db);
 //@         TransactionsIdem(tail(xs),db);
 //@     }
 //@ }
