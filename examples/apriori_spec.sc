@@ -58,7 +58,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ context<>
 //@ noinline;
 //@ {
-//@     forall pd_shared3p uint x; in(x,xs) ==> x <= 1
+//@     forall pd_shared3p T x; in(x,xs) ==> x <= 1
 //@ }
 
 //@ function bool IsItemSet (uint[[1]] is, uint sz)
