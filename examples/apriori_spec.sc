@@ -128,10 +128,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //* Correctness proofs
 
 //@ lemma MulCommu4 <domain D> (uint[[1]] a, uint[[1]] b, uint[[1]] c, uint[[1]] d)
-//@ requires size (a) == size(b);
-//@ requires size (b) == size(c);
-//@ requires size (c) == size(d);
+//@ requires size(a) == size(b) && size(b) == size(c) && size(c) == size(d);
 //@ ensures (a * b) * (c * d) == (a * c) * (b * d);
+
+//@ lemma MulAssoc <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
+//@ requires size(xs) == size(ys) && size(ys) == size(zs);
+//@ ensures xs * (ys * zs) == (xs * ys) * zs;
 
 //@ template<domain D>
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
@@ -172,6 +174,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ {
 //@     if (size(xs) == 1)
 //@     {
+//@         assume C_dot == transactions(C,db);
 //@     } else {
 //@         TransactionsSnoc(xs,db);
 //@         TransactionsSnoc(ys,db);
@@ -180,6 +183,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@         assert IsItemSetOf(init(ys),db);
 //@         assert last(ys) < shape(db)[1];
 //@         MulCommu4(transactions(init(xs),db),transaction(last(xs),db),transactions(init(ys),db),transaction(last(ys),db));
+//@         MulAssoc(transactions(init(xs),db),transaction(last(xs),db),transaction(last(ys),db));
 //@         TransactionsIdem(init(xs),db);
 //@         TransactionsSnoc(C,db);
 //@     }
