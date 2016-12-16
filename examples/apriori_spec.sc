@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --implicitcoercions=extendedc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
+//#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
 
 module apriori_spec;
 
