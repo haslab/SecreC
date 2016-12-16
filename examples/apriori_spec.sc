@@ -134,6 +134,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ lemma MulAssoc <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
 //@ requires size(xs) == size(ys) && size(ys) == size(zs);
 //@ ensures xs * (ys * zs) == (xs * ys) * zs;
+//@ {}
 
 //@ template<domain D>
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
@@ -174,7 +175,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ {
 //@     if (size(xs) == 1)
 //@     {
-//@         assume C_dot == transactions(C,db);
 //@     } else {
 //@         TransactionsSnoc(xs,db);
 //@         TransactionsSnoc(ys,db);
