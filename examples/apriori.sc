@@ -18,7 +18,6 @@ import shared3p;
 import table_database;
 import shared3p_table_database;
 import axioms;
-
 import apriori_spec;
 
 template <domain D>

@@ -1,12 +1,10 @@
-//#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
+//#OPTIONS_SECREC --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --implicitcontext=inferctx
 
 module apriori_spec;
 
-//import shared3p;
-
+import shared3p;
 import axioms;
 
-kind shared3p;
 domain pd_shared3p shared3p;
 
 //* Utility functions
