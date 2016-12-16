@@ -77,18 +77,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ { IsItemSet(is,shape(db)[1]) }
 
-//@ function pd_shared3p uint[[1]] transaction (uint i, pd_shared3p uint[[2]] db)
-//@ requires IsDB(db);
-//@ requires IsItemOf(i,db);
-//@ ensures size(\result) == shape(db)[0];
-//@ { db[:,i] }
-
 //@ function pd_shared3p uint[[1]] transactions (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
 //@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 1) ? transaction(is[0],db) : transaction(is[0],db) * transactions(is[1:],db) }
+//@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
@@ -182,17 +176,17 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires size(xs) > 1;
-//@ ensures transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
+//@ ensures transactions(xs,db) == db[:,head(xs)] * transactions(tail(xs),db);
 //@ {}
 
-//@ lemma TransactionIdem (uint i, pd_shared3p uint[[2]] db)
+//@ lemma SingleTransactionsIdem (uint i, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemOf(i,db);
-//@ ensures transaction(i,db) * transaction(i,db) == transaction(i,db);
+//@ ensures db[:,i] * db[:,i] == db[:,i];
 //@ {
-//@     assert shape(db)[0] == size(transaction(i,db));
-//@     assert forall uint j; j < shape(db)[0] ==> transaction(i,db)[j] == db[:,i][j] && db[:,i][j] == db[j,i] && db[j,i] <= 1;
-//@     MulBool(transaction(i,db));
+//@     assert shape(db)[0] == size(db[:,i]);
+//@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] == db[j,i] && db[j,i] <= 1;
+//@     MulBool(db[:,i]);
 //@ }
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
@@ -201,11 +195,11 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ ensures transactions(xs,db) * transactions(xs,db) == transactions(xs,db);
 //@ {
 //@     if (size(xs) == 1) {
-//@         TransactionIdem(head(xs),db);
+//@         SingleTransactionsIdem(head(xs),db);
 //@     } else {
 //@         TransactionsDef(xs,db);
-//@         MulCommu4(transaction(head(xs),db),transactions(tail(xs),db),transaction(head(xs),db),transactions(tail(xs),db));
-//@         TransactionIdem(head(xs),db);
+//@         MulCommu4(db[:,head(xs)],transactions(tail(xs),db),db[:,head(xs)],transactions(tail(xs),db));
+//@         SingleTransactionsIdem(head(xs),db);
 //@         TransactionsIdem(tail(xs),db);
 //@     }
 //@ }
@@ -214,13 +208,13 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires size(xs) > 1;
-//@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
+//@ ensures transactions(xs,db) == transactions(init(xs),db) * db[:,last(xs)];
 //@ {
 //@     if (size(xs) == 2) {
 //@     } else {
 //@         TransactionsDef(xs,db);
 //@         TransactionsSnoc(tail(xs),db);
-//@         MulAssoc(transaction(head(xs),db),transactions(init(tail(xs)),db),transaction(last(xs),db));
+//@         MulAssoc(db[:,head(xs)],transactions(init(tail(xs)),db),db[:,last(xs)]);
 //@         assert head(xs) == head(init(xs));
 //@         assert init(tail(xs)) == tail(init(xs));
 //@         TransactionsDef(init(xs),db);
@@ -250,8 +244,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@         assert last(xs) < shape(db)[1];
 //@         assert IsItemSetOf(init(ys),db);
 //@         assert last(ys) < shape(db)[1];
-//@         MulCommu4(transactions(init(xs),db),transaction(last(xs),db),transactions(init(ys),db),transaction(last(ys),db));
-//@         MulAssoc(transactions(init(xs),db),transaction(last(xs),db),transaction(last(ys),db));
+//@         MulCommu4(transactions(init(xs),db),db[:,last(xs)],transactions(init(ys),db),db[:,last(ys)]);
+//@         MulAssoc(transactions(init(xs),db),db[:,last(xs)],db[:,last(ys)]);
 //@         TransactionsIdem(init(xs),db);
 //@         TransactionsSnoc(C,db);
 //@     }
