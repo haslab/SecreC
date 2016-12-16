@@ -188,7 +188,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ lemma TransactionIdem (uint i, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemOf(i,db);
-//@ ensures IsBool(transaction(i,db));
+//@ ensures transaction(i,db) * transaction(i,db) == transaction(i,db);
 //@ {
 //@     assert forall uint j; j < shape(db)[0] ==> transaction(i,db)[j] == db[:,i][j] && db[:,i][j] == db[j,i];
 //@ }
