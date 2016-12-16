@@ -127,6 +127,12 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //* Correctness proofs
 
+//@ lemma MulCommu4 <domain D> (uint[[1]] a, uint[[1]] b, uint[[1]] c, uint[[1]] d)
+//@ requires size (a) == size(b);
+//@ requires size (b) == size(c);
+//@ requires size (c) == size(d);
+//@ ensures (a * b) * (c * d) == (a * c) * (b * d);
+
 //@ template<domain D>
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
 //@ context<>
@@ -173,10 +179,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@         assert last(xs) < shape(db)[1];
 //@         assert IsItemSetOf(init(ys),db);
 //@         assert last(ys) < shape(db)[1];
-//@         assert
-//@             (transactions(init(xs),db) * transaction(last(xs),db)) * (transactions(init(ys),db) * transaction(last(ys),db))
-//@             ==
-//@             ((transactions(init(xs),db) * transactions(init(ys),db)) * transaction(last(xs),db)) * transaction(last(ys),db);
+//@         MulCommu4(transactions(init(xs),db),transaction(last(xs),db),transactions(init(ys),db),transaction(last(ys),db));
 //@         TransactionsIdem(init(xs),db);
 //@         TransactionsSnoc(C,db);
 //@     }
