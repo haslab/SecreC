@@ -241,6 +241,29 @@ readModuleSCI fn = do
             else sciError ("SecreC file " ++ show fn ++ " has changed") >> return Nothing
     go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
     go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
+    
+readModuleSCIHeader :: MonadIO m => FilePath -> SecrecM m (Maybe (ModuleSCIHeader,ByteString))
+readModuleSCIHeader fn = do
+    let scifn = replaceExtension fn "sci"
+    e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BL.readFile scifn
+    case e of
+        Just input -> go (runGetIncremental get) input fn scifn
+        Nothing -> return Nothing
+  where
+    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe ModuleSCI)
+    go (Done leftover consumed header) input fn scifn = do
+        opts <- ask
+        t <- liftIO $ fileModificationTime fn
+        if (sciHeaderFile header == fn && t <= sciHeaderModTime header)
+            then do
+                sciError $ "SecreC file " ++ show fn ++ " has not changed"
+                let e = runGetOrFail get (BL.chunk leftover input)
+                case e of
+                    Right (_,_,body) -> return $ Just $ ModuleSCI header body
+                    Left (_,_,err) -> sciError ("Error loading SecreC interface file body " ++ show scifn) >> return Nothing
+            else sciError ("SecreC file " ++ show fn ++ " has changed") >> return Nothing
+    go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
+    go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
  
 trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
 trySCI msg io = do
@@ -294,6 +317,7 @@ data ModuleSCI = ModuleSCI {
     } deriving Generic
 
 sciFile = sciHeaderFile . sciHeader
+sciVerified = sciHeaderVerified . sciHeader
 sciModTime = sciHeaderModTime . sciHeader
 sciId = sciHeaderId . sciHeader
 sciLines = sciHeaderLines . sciHeader
@@ -310,6 +334,7 @@ data SCIHeader = SCIHeader {
     , sciHeaderModTime :: UnixTime
     , sciHeaderId :: Identifier -- module identifier
     , sciHeaderLines :: Int -- number of lines
+    , sciHeaderVerified :: Bool -- has been verified or not
     } deriving Generic
 instance Binary SCIHeader
 

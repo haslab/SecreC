@@ -167,7 +167,6 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ ensures transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
 //@ {
 //@     if (size(xs) == 2) {
-//@         assume transactions(xs,db) == transactions(init(xs),db) * transaction (last(xs),db);
 //@     } else {
 //@         assert transactions(xs,db) == transaction(head(xs),db) * transactions(tail(xs),db);
 //@         TransactionsSnoc(tail(xs),db);
