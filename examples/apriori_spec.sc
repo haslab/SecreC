@@ -158,7 +158,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ ensures xs * xs == xs;
 //@ {
 //@     if (size(xs) == 0) {
-//@         assert heax(xs) <= (1 :: uint);
+//@         assert head(xs) <= (1 :: uint);
 //@     } else {
 //@         assert head(xs) <= (1 :: uint);
 //@         assert head(xs) * head(xs) == head(xs);
