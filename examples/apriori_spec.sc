@@ -133,7 +133,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ lemma MulCommu4 <domain D> (uint[[1]] a, uint[[1]] b, uint[[1]] c, uint[[1]] d)
 //@ requires size(a) == size(b) && size(b) == size(c) && size(c) == size(d);
-//@ ensures (a * b) * (c * d) == (a * c) * (b * d);
+//@ ensures ((a * b) * (c * d)) :: D uint[[1]] == ((a * c) * (b * d)) :: D uint[[1]];
 //@ {
 //@     MulAssoc(a,b,c * d);
 //@     MulCommu(c,d);
