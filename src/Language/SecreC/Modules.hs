@@ -221,12 +221,12 @@ writeModuleSCI ppargs menv m mlength = do
             Nothing -> return ()
             Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
 
-writeSCIByteString :: (MonadIO m) => FilePath -> ByteString -> SecrecM m ()
-writeSCIByteString scifn bstr = do
-    e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ BL.writeFile scifn bstr
+updateSCI :: (MonadIO m) => FilePath -> ByteString -> SecrecM m ()
+updateSCI scifn bstr = do
+    e <- trySCI ("Error updating SecreC interface file header" ++ show scifn) $ BL.writeFile scifn bstr
     case e of
         Nothing -> return ()
-        Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
+        Just () -> sciError $ "Updated SecreC interface file header" ++ show scifn
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
@@ -277,14 +277,17 @@ updateModuleSCIHeader scifn chg = do
                 case mb of
                     Nothing -> return ()
                     Just header' -> do
-                        writeSCIByteString scifn $ BL.append (encode header') body
-                        sciError ("Updated SecreC interface file header " ++ show scifn)
+                        updateSCI scifn $ BL.append (encode header') body
 
 trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
 trySCI msg io = do
     e <- liftIO $ tryIOError io
     case e of
-        Left ioerr -> sciError msg >> return Nothing
+        Left ioerr -> do
+            opts <- Reader.ask
+            sciError msg
+            when (debug opts) $ liftIO $ putStrLn $ "trySCI: " ++ show ioerr
+            return Nothing
         Right x -> return $ Just x
 
 sciError :: MonadIO m => String -> SecrecM m ()
