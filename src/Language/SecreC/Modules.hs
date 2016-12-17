@@ -120,7 +120,7 @@ openModule parent g f n pos load = do
             let g' = insParent parent c $ insNode (c,mfile) g
             -- open imports
             foldlM (openImport c) g' (moduleFileImports mfile)
-    g'' <- dirtyParents n c g'
+    g'' <- dirtyParents c g'
     closeModule n
     return g''
   where
@@ -161,24 +161,24 @@ parseFileWithBuiltin fn = flushWarnings $ do
     return (args,m',mlength)
 
 -- recursively update the modification time of parent modules
-dirtyParents :: ModK m => Identifier -> Node -> ModuleGraph -> ModuleM m ModuleGraph
-dirtyParents n i g = case contextGr g i of
+dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph
+dirtyParents i g = case contextGr g i of
     Nothing -> return g
-    Just (_,_,n,parents) -> dirtyParents' (map snd parents) (moduleFileModificationTime n) g
+    Just (_,_,n,parents) -> dirtyParents' (map snd parents) (moduleFileName n) (moduleFileModificationTime n) g
   where
-    dirtyParents' :: ModK m => [Node] -> UnixTime -> ModuleGraph -> ModuleM m ModuleGraph
-    dirtyParents' [] t g = return g
-    dirtyParents' (i:is) t g = case contextGr g i of
-        Nothing -> dirtyParents' is t g
+    dirtyParents' :: ModK m => [Node] -> FilePath -> UnixTime -> ModuleGraph -> ModuleM m ModuleGraph
+    dirtyParents' [] n t g = return g
+    dirtyParents' (i:is) n t g = case contextGr g i of
+        Nothing -> dirtyParents' is n t g
         Just (_,_,inode,iparents) -> if moduleFileModificationTime inode >= t
             -- we can stop if the parent module has a more recent modification time
-            then dirtyParents' is t g
+            then dirtyParents' is n t g
             -- dirty recursively
             else do
-                inode' <- lift $ update inode t
-                dirtyParents' (is++map snd iparents) t (insNode (i,inode') g)
-    update (Left (_,args,m,mlength)) t = return $ Left (t,args,m,mlength)
-    update (Right sci) t = do
+                inode' <- lift $ update inode n t
+                dirtyParents' (is++map snd iparents) n t (insNode (i,inode') g)
+    update (Left (_,args,m,mlength)) n t = return $ Left (t,args,m,mlength)
+    update (Right sci) n t = do
         sciError $ "The dependency " ++ show n ++ " of the SecreC file " ++ show (sciFile sci) ++ " has changed"
         (args,m,mlines) <- parseFileWithBuiltin (sciFile sci)
         return $ Left (t,args,m,mlines)
