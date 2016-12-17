@@ -132,6 +132,7 @@ instance Monad m => PP m Options where
         pp26 <- pp (progress opts)
         pp27 <- pp (noDafnyModules opts)
         pp28 <- pp (ignoreSpecDomains opts)
+        pp29 <- pp (parallel opts)
         return $ PP.sepBy PP.space pp1
             <+> text "--outputs=" <> PP.sepBy (PP.char ':') pp2
             <+> text "--paths=" <> PP.sepBy (PP.char ':') pp3
@@ -163,6 +164,7 @@ instance Monad m => PP m Options where
             <+> text "--progress" <> pp26
             <+> text "--nodafnymodules" <> pp27
             <+> text "--ignorespecdomains" <> pp28
+            <+> text "--parallel" <> pp29
 
 contextMsg :: Doc
 contextMsg = PP.text "Controls template constraint resolution" $+$ PP.nest 4 (
@@ -222,6 +224,7 @@ optionsDecl  = Opts {
     -- Verification
     , typeCheck             = typeCheck defaultOptions &= name "tc" &= help "Typecheck the SecreC input" &= groupname "Verification"
     , verify    = verify defaultOptions &= help (show verifyMsg) &= groupname "Verification"
+    , parallel    = parallel defaultOptions &= help "Run verification in parallel" &= groupname "Verification"
 
     -- Debugging
     , debug   = debug defaultOptions &= help "Prints developer debugging information" &= groupname "Debugging"

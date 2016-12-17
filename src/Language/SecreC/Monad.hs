@@ -173,6 +173,7 @@ data Options
         , progress              :: Bool
         , ignoreSpecDomains     :: Bool
         , noDafnyModules        :: Bool
+        , parallel              :: Bool
         }
     deriving (Show, Data, Typeable,Generic)
 instance Binary Options
@@ -213,6 +214,7 @@ instance Monoid Options where
         , progress = progress x || progress y
         , ignoreSpecDomains = ignoreSpecDomains x || ignoreSpecDomains y
         , noDafnyModules = noDafnyModules x || noDafnyModules y
+        , parallel = parallel x || parallel y
         }
 
 defaultOptions :: Options
@@ -249,6 +251,7 @@ defaultOptions = Opts
     , forceRecomp = False
     , defaults = True
     , noDafnyModules = False
+    , parallel = False
     }
 
 newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Map Position (Set SecrecWarning)) }
