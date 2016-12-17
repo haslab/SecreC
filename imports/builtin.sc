@@ -564,7 +564,7 @@ context<>
 //@ requires n < N;
 //@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
 //@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
-//@ free ensures shape(\result)[n] == ((shape(x)[n] + shape(y)[n]) :: uint);
+//@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
 {
     havoc D T[[N]] ret;
     __syscall("core.cat", x, y, n,__return ret);
@@ -595,7 +595,7 @@ D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 context<>
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
-//@ free ensures shape(\result)[0] == ((shape(xs)[0] + 1) :: uint);
+//@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
 //@ free ensures shape(\result)[1] == shape(xs)[1];
 //@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:]);
 //@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
