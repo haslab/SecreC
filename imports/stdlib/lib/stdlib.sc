@@ -1,3 +1,4 @@
+//#OPTIONS_SECREC --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop
 
 /*
  * Copyright (C) 2015 Cybernetica
