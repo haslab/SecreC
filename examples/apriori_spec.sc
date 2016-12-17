@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=fullb --matching=unorderedm --promote=localp --ignorespecdomains --implicitcontext=inferctx
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --implicitcontext=inferctx
 
 module apriori_spec;
 
@@ -12,9 +12,9 @@ domain pd_shared3p shared3p;
 template<domain D>
 D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 //@ inline;
-//@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> \result[i] == xs[i];
-//@ free ensures \result[size(xs)] == x;
+//@ free ensures size(\result) === size(xs) + 1;
+//@ free ensures forall uint i; i < size(xs) ==> \result[i] === xs[i];
+//@ free ensures \result[size(xs)] === x;
 {
     return cat(xs,{x});
 }
@@ -22,11 +22,11 @@ D uint[[1]] snoc (D uint[[1]] xs, D uint x)
 template<domain D>
 D uint[[2]] snoc (D uint[[2]] xs, D uint[[1]] x)
 //@ inline;
-//@ requires shape(xs)[1] == size(x);
-//@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
-//@ free ensures shape(\result)[1] == shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] == xs[i,:];
-//@ free ensures \result[shape(xs)[0],:] == x;
+//@ requires shape(xs)[1] === size(x);
+//@ free ensures shape(\result)[0] === shape(xs)[0] + 1;
+//@ free ensures shape(\result)[1] === shape(xs)[1];
+//@ free ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] === xs[i,:];
+//@ free ensures \result[shape(xs)[0],:] === x;
 {
     return cat(xs,reshape(x,1,size(x)));
 }
@@ -75,8 +75,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(is,db);
-//@ ensures size(\result) == shape(db)[0];
-//@ { (size(is) == 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
+//@ ensures size(\result) === shape(db)[0];
+//@ { (size(is) === 1) ? db[:,is[0]] : db[:,is[0]] * transactions(is[1:],db) }
 
 //@ function pd_shared3p uint frequency (uint[[1]] is, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
@@ -85,16 +85,16 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
  
 //@ predicate Candidate(uint[[1]] fitems, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
-//@ { size(fitems) == k && IsItemSetOf(fitems,db) }
+//@ { size(fitems) === k && IsItemSetOf(fitems,db) }
 
 //@ predicate CandidateCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint k)
 //@ requires IsDB(db);
 //@ {
 //@     Candidate(fitems,db,k)
 //@     &&
-//@     size(fcache) == shape(db)[0]
+//@     size(fcache) === shape(db)[0]
 //@     &&
-//@     fcache == transactions(fitems,db)
+//@     fcache === transactions(fitems,db)
 //@ }
 
 //@ predicate FrequentCache(uint[[1]] fitems, pd_shared3p uint[[1]] fcache, pd_shared3p uint[[2]] db, uint threshold, uint k)
@@ -110,11 +110,11 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ {
-//@     shape(f.items)[0] == shape(f.cache)[0]
+//@     shape(f.items)[0] === shape(f.cache)[0]
 //@     &&
-//@     shape(f.items)[1] == k
+//@     shape(f.items)[1] === k
 //@     &&
-//@     shape(f.cache)[1] == shape(db)[0]
+//@     shape(f.cache)[1] === shape(db)[0]
 //@     &&
 //@     forall uint i; i < shape(f.items)[0] ==> IsItemSetOf(f.items[i,:],db) && FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
 //@ }
@@ -122,18 +122,18 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //* Correctness proofs
 
 //@ lemma MulCommu <domain D> (D uint[[1]] xs, D uint[[1]] ys)
-//@ requires size(xs) == size(ys);
-//@ ensures xs * ys == ys * xs;
+//@ requires size(xs) === size(ys);
+//@ ensures xs * ys === ys * xs;
 //@ {}
 
 //@ lemma MulAssoc <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
-//@ requires size(xs) == size(ys) && size(ys) == size(zs);
-//@ ensures xs * (ys * zs) == (xs * ys) * zs;
+//@ requires size(xs) === size(ys) && size(ys) === size(zs);
+//@ ensures xs * (ys * zs) === (xs * ys) * zs;
 //@ {}
 
 //@ lemma MulCommu4 <domain D> (uint[[1]] a, uint[[1]] b, uint[[1]] c, uint[[1]] d)
-//@ requires size(a) == size(b) && size(b) == size(c) && size(c) == size(d);
-//@ ensures (((a * b) * (c * d)) :: D uint[[1]]) == (((a * c) * (b * d)) :: D uint[[1]]);
+//@ requires size(a) === size(b) && size(b) === size(c) && size(c) === size(d);
+//@ ensures ((a * b) * (c * d)) === ((a * c) * (b * d));
 //@ {
 //@     MulAssoc(a,b,c * d);
 //@     MulCommu(c,d);
@@ -143,13 +143,13 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 
 //@ lemma MulBool (pd_shared3p uint[[1]] xs)
 //@ requires IsBool(xs);
-//@ ensures xs * xs == xs;
+//@ ensures xs * xs === xs;
 //@ {
-//@     if (size(xs) == 0) {
-//@         assume xs * xs == xs;
+//@     if (size(xs) === 0) {
+//@         assume xs * xs === xs;
 //@     } else {
 //@         assert head(xs) <= (1 :: uint);
-//@         assert head(xs) * head(xs) == head(xs);
+//@         assert head(xs) * head(xs) === head(xs);
 //@         MulBool(tail(xs));
 //@     }
 //@ }
@@ -158,30 +158,30 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ void SnocRange (D uint[[2]] xs, uint i, uint n)
 //@ context<>
 //@ inline;
-//@ { assert xs[i,:n+1] == snoc(xs[i,:n],xs[i,n]); }
+//@ { assert xs[i,:n+1] === snoc(xs[i,:n],xs[i,n]); }
 
 //@ lemma TransactionsDef (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires size(xs) > 1;
-//@ ensures transactions(xs,db) == db[:,head(xs)] * transactions(tail(xs),db);
+//@ ensures transactions(xs,db) === db[:,head(xs)] * transactions(tail(xs),db);
 //@ {}
 
 //@ lemma SingleTransactionsIdem (uint i, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemOf(i,db);
-//@ ensures db[:,i] * db[:,i] == db[:,i];
+//@ ensures db[:,i] * db[:,i] === db[:,i];
 //@ {
-//@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] == db[j,i];
+//@     assert forall uint j; j < shape(db)[0] ==> db[:,i][j] === db[j,i];
 //@     MulBool(db[:,i]);
 //@ }
 
 //@ lemma TransactionsIdem (uint[[1]] xs, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
-//@ ensures transactions(xs,db) * transactions(xs,db) == transactions(xs,db);
+//@ ensures transactions(xs,db) * transactions(xs,db) === transactions(xs,db);
 //@ {
-//@     if (size(xs) == 1) {
+//@     if (size(xs) === 1) {
 //@         SingleTransactionsIdem(head(xs),db);
 //@     } else {
 //@         TransactionsDef(xs,db);
@@ -195,15 +195,15 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires size(xs) > 1;
-//@ ensures transactions(xs,db) == transactions(init(xs),db) * db[:,last(xs)];
+//@ ensures transactions(xs,db) === transactions(init(xs),db) * db[:,last(xs)];
 //@ {
-//@     if (size(xs) == 2) {
+//@     if (size(xs) === 2) {
 //@     } else {
 //@         TransactionsDef(xs,db);
 //@         TransactionsSnoc(tail(xs),db);
 //@         MulAssoc(db[:,head(xs)],transactions(init(tail(xs)),db),db[:,last(xs)]);
-//@         assert head(xs) == head(init(xs));
-//@         assert init(tail(xs)) == tail(init(xs));
+//@         assert head(xs) === head(init(xs));
+//@         assert init(tail(xs)) === tail(init(xs));
 //@         TransactionsDef(init(xs),db);
 //@     }
 //@ }
@@ -213,16 +213,16 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires IsDB(db);
 //@ requires IsItemSetOf(xs,db);
 //@ requires IsItemSetOf(ys,db);
-//@ requires size(xs) == k-1;
-//@ requires size(xs) == size(ys);
+//@ requires size(xs) === k-1;
+//@ requires size(xs) === size(ys);
 //@ requires Candidate(C,db,k);
-//@ requires size(C_dot) == shape(db)[0];
-//@ requires C == snoc(xs,last(ys));
-//@ requires C_dot == transactions(xs,db) * transactions(ys,db);
-//@ requires init(xs) == init(ys);
+//@ requires size(C_dot) === shape(db)[0];
+//@ requires C === snoc(xs,last(ys));
+//@ requires C_dot === transactions(xs,db) * transactions(ys,db);
+//@ requires init(xs) === init(ys);
 //@ ensures CandidateCache(C,C_dot,db,k);
 //@ {
-//@     if (size(xs) == 1)
+//@     if (size(xs) === 1)
 //@     {
 //@     } else {
 //@         TransactionsSnoc(xs,db);

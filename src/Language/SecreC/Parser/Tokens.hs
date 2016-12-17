@@ -110,6 +110,7 @@ data Token
     | DEC_OP
     | DIV_ASSIGN
     | EQ_OP
+    | SEQ_OP
     | GE_OP
     | INC_OP
     | LAND_OP
@@ -226,6 +227,7 @@ instance Monad m => PP m Token where
     pp DEC_OP =                 return $ text "--"
     pp DIV_ASSIGN =             return $ text "/="
     pp EQ_OP =                  return $ text "=="
+    pp SEQ_OP =                 return $ text "==="
     pp GE_OP =                  return $ text ">="
     pp INC_OP =                 return $ text "++"
     pp LAND_OP =                return $ text "&&"

@@ -168,6 +168,7 @@ tokens :-
 <0>                     \-\-                    { lexerTokenInfo DEC_OP }
 <0>                     \/=                     { lexerTokenInfo DIV_ASSIGN }
 <0>                     ==                      { lexerTokenInfo EQ_OP }
+<0>                     ===                     { lexerTokenInfo SEQ_OP }
 <0>                     >=                      { lexerTokenInfo GE_OP }
 <0>                     \+\+                    { lexerTokenInfo INC_OP }
 <0>                     &&                      { lexerTokenInfo LAND_OP }

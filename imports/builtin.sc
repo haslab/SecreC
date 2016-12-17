@@ -258,7 +258,7 @@ context<>
 }
 
 //@ template<domain D,type T,dim N>
-//@ function D bool operator == (D T[[N]] x,D T[[N]] y)
+//@ function D bool operator === (D T[[N]] x,D T[[N]] y)
 //@ context<>
 //@ {
 //@     __builtin("core.eq",x,y) :: D bool

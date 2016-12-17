@@ -1107,14 +1107,16 @@ noNormalFrees = Map.null . Map.filter (\b -> not b)
 -- no non-variadic free variable can be unbound
 noNormalFreesM :: ProverK Position m => EntryEnv -> TcM m ()
 noNormalFreesM e = do
-    frees <- liftM (Map.keysSet . Map.filter (\b -> not b) . localFrees) State.get
-    TSubsts ss <- getTSubsts (loc e)
-    let vs = Set.difference frees (Map.keysSet ss)
-    unless (Set.null vs) $ do
-        ppvs <- pp vs
-        ppe <- pp e
-        genTcError (loc e) False $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
-
+    opts <- askOpts
+    when (debugCheck opts) $ do
+        frees <- liftM (Map.keysSet . Map.filter (\b -> not b) . localFrees) State.get
+        TSubsts ss <- getTSubsts (loc e)
+        let vs = Set.difference frees (Map.keysSet ss)
+        unless (Set.null vs) $ do
+            ppvs <- pp vs
+            ppe <- pp e
+            genTcError (loc e) False $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
+        
 splitHeadFrees :: (ProverK loc m) => loc -> Set LocGCstr -> TcM m (Frees,Frees)
 splitHeadFrees l deps = do
     frees <- getFrees l

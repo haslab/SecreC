@@ -96,7 +96,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         bool prefixEqual = true;
         for (uint n = 0; n < k - 1; n=n+1)
         //@ invariant n < k;
-        //@ invariant prefixEqual == (prev.items[i,:n] == prev.items[j,:n] :: bool);
+        //@ invariant prefixEqual === (prev.items[i,:n] === prev.items[j,:n] :: bool);
         {
           if (prev.items[i, n] != prev.items[j, n]) {
             prefixEqual = false;
@@ -105,9 +105,9 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-          //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
+          //@ assert prev.items[j,:][k-1] === prev.items[j,k-1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);
-          //@ assert (last(prev.items[i,:]) == prev.items[i,k-1] :: bool);
+          //@ assert (last(prev.items[i,:]) === prev.items[i,k-1] :: bool);
           pd_shared3p uint [[1]] C_dot = prev.cache[i, :] * prev.cache[j, :];
           //@ JoinCaches(C,C_dot,prev.items[i,:],prev.items[j,:],db,k+1);
           next = AddFrequent(next,C,C_dot,db,threshold);
