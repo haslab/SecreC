@@ -315,7 +315,7 @@ template <domain D, type T, dim N { N > 0 } >
 D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint product(ns...) @*/ >
 //@ inline;
-//@ requires assertion(product(ns...) == size(arr));
+//@ requires assertion(product(ns...) === size(arr));
 {
     havoc D T[[size...(ns)]] ret;
     __syscall("core.reshape",arr,ns...,__return ret);
@@ -358,7 +358,7 @@ context<>
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -370,7 +370,7 @@ D bool[[N]] operator == (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator != (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -393,7 +393,7 @@ D bool[[N]] operator ! (D bool[[N]] x)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -405,7 +405,7 @@ D bool[[N]] operator && (D bool[[N]] x,D bool[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -417,7 +417,7 @@ D bool[[N]] operator || (D bool[[N]] x,D bool[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D T [[N]] ret (shape(x)...N);
@@ -430,7 +430,7 @@ D T[[N]] operator + (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D T[[N]] operator - (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D T [[N]] ret (shape(x)...N);
@@ -453,7 +453,7 @@ D T[[N]] operator - (D T[[N]] x)
 
 template <domain D, type T, dim N { N > 0 } >
 D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D T [[N]] ret (shape(x)...N);
@@ -465,7 +465,7 @@ D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -477,7 +477,7 @@ D bool[[N]] operator >= (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -489,7 +489,7 @@ D bool[[N]] operator <= (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -501,7 +501,7 @@ D bool[[N]] operator > (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D bool [[N]] ret (shape(x)...N);
@@ -513,7 +513,7 @@ D bool[[N]] operator < (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D T [[N]] ret (shape(x)...N);
@@ -525,7 +525,7 @@ D T[[N]] operator / (D T[[N]] x,D T[[N]] y)
 
 template <domain D, type T, dim N { N > 0 } >
 D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
-//@ requires shape(x) == shape(y);
+//@ requires shape(x) === shape(y);
 //@ inline;
 {
     D T [[N]] ret (shape(x)...N);
@@ -552,7 +552,7 @@ template <domain D, type T>
 function D T[[1]] cat (D T[[1]] x, D T[[1]] y)
 context<>
 //@ inline;
-//@ free ensures size(\result) == size(x) + size(y);
+//@ free ensures size(\result) === size(x) + size(y);
 {
     __builtin("core.cat", x,y) :: D T[[1]]
 }
@@ -562,9 +562,9 @@ D T[[N]] cat (D T[[N]] x, D T[[N]] y, const uint n)
 context<>
 //@ inline;
 //@ requires n < N;
-//@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
-//@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
-//@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
+//@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] === shape(y)[j];
+//@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] === shape(x)[j];
+//@ free ensures shape(\result)[n] === shape(x)[n] + shape(y)[n];
 {
     havoc D T[[N]] ret;
     __syscall("core.cat", x, y, n,__return ret);
@@ -583,9 +583,9 @@ template<domain D,type T>
 function D T[[1]] snoc (D T[[1]] xs, D T x)
 context<>
 //@ inline;
-//@ free ensures size(\result) == size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] == xs[i]);
-//@ free ensures assertion(\result[size(xs)] == x);
+//@ free ensures size(\result) === size(xs) + 1;
+//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] === xs[i]);
+//@ free ensures assertion(\result[size(xs)] === x);
 {
     cat (xs, {x})
 }
@@ -594,11 +594,11 @@ template<domain D,type T>
 D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 context<>
 //@ inline;
-//@ requires shape(xs)[1] == size(x);
-//@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
-//@ free ensures shape(\result)[1] == shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:]);
-//@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
+//@ requires shape(xs)[1] === size(x);
+//@ free ensures shape(\result)[0] === shape(xs)[0] + 1;
+//@ free ensures shape(\result)[1] === shape(xs)[1];
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] === xs[i,:]);
+//@ free ensures assertion<D>(\result[shape(xs)[0],:] === x);
 {
     cat (xs,reshape(x,1,size(x)));
 }
@@ -617,8 +617,8 @@ function D T[[1]] tail (D T[[1]] xs)
 context<>
 //@ inline;
 //@ requires size(xs) > 0;
-//@ free ensures size(\result) == size(xs) - 1;
-//@ free ensures forall uint i; 0 < i && i < size(xs) ==> assertion<D>(\result[i-1] == xs[i]);
+//@ free ensures size(\result) === size(xs) - 1;
+//@ free ensures forall uint i; 0 < i && i < size(xs) ==> assertion<D>(\result[i-1] === xs[i]);
 {
     xs[1:]
 }
@@ -628,8 +628,8 @@ function D T[[1]] init (D T[[1]] xs)
 context<>
 //@ inline;
 //@ requires size(xs) > 0;
-//@ free ensures size(\result) == size(xs) - 1;
-//@ free ensures forall uint i; i < size(xs)-1 ==> assertion<D>(\result[i] == xs[i]);
+//@ free ensures size(\result) === size(xs) - 1;
+//@ free ensures forall uint i; i < size(xs)-1 ==> assertion<D>(\result[i] === xs[i]);
 {
     xs[:size(xs)-1]
 }
