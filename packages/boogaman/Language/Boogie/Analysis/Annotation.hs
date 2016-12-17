@@ -12,10 +12,12 @@ import Data.Generics
 isDafnyAxiom :: String -> Bool
 isDafnyAxiom str = List.elem str $ concat $ map dafnyAxioms dafnyNames
 
-dafnyAxioms name = [dafnyFrameAxiom,dafnyConsqAxiom]
+dafnyAxioms name = dafnyFrameAxioms ++ dafnyConsqAxioms
     where
-    dafnyFrameAxiom = "// frame axiom for _0_prelude.__default."++name
-    dafnyConsqAxiom = "// consequence axiom for _0_prelude.__default."++name
+    dafnyFrameAxioms = ["// frame axiom for _0_prelude.__default."++name
+                       ,"// frame axiom for _module.__default."++name]
+    dafnyConsqAxioms = ["// consequence axiom for _0_prelude.__default."++name
+                       ,"// consequence axiom for _module.__default.PublicIn"]
 
 dafnyNames :: [String]
 dafnyNames = ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
