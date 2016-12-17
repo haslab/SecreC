@@ -105,7 +105,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         }
         if (prefixEqual && prev.items[i, k-1] < prev.items[j, k-1])
         {
-          //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
+          //x //@ assert (init(prev.items[i,:]) == prev.items[i,:k-1] :: bool);
           //x //@ assert (init (prev.items[j,:]) == prev.items[j,:k-1] :: bool);
           //@ assert prev.items[j,:][k-1] == prev.items[j,k-1];
           //x //@ assert prev.items[j,k-1] < shape(db)[1];
