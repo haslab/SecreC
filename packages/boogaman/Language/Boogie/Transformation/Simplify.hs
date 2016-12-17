@@ -72,21 +72,22 @@ instance Simplify a => Simplify (Pos a) where
 
 instance Simplify Program where
     simplify (Program decls) = do
-        decls' <- simplifyDecls decls
+        opts <- Reader.ask
+        decls' <- simplifyDecls decls (dafnyVCGen opts)
         return $ Just $ Program decls'
       where
-        simplifyDecls [] = return []
-        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) | isDafnyAxiom c = do
-            simplifyDecls xs
+        simplifyDecls [] vc = return []
+        simplifyDecls (Left c:ys@(Right (Pos _ d):xs)) vc@(Just withModules) | isDafnyAxiom withModules c = do
+            simplifyDecls xs vc
 --            ys' <- simplifyDecls ys
 --            trace ("comment " ++ show c ++ " does not match " ++ show (pretty d)) $
 --                return (Left c : ys')
-        simplifyDecls (Left c:xs) = do
-            xs' <- simplifyDecls xs
+        simplifyDecls (Left c:xs) vc = do
+            xs' <- simplifyDecls xs vc
             return $ Left c : xs'
-        simplifyDecls (Right d:xs) = do
+        simplifyDecls (Right d:xs) vc = do
             d' <- simplify d
-            xs' <- simplifyDecls xs
+            xs' <- simplifyDecls xs vc
             return $ map Right (maybeToList d') ++ xs'
 
 instance Simplify BareExpression where
@@ -306,7 +307,7 @@ instance Simplify BareDecl where
     simplify d = do
         opts <- Reader.ask
         case (bareDeclName d,vcgen opts) of
-            (Just n,Dafny) -> if List.elem n dafnyAnns
+            (Just n,isDafnyVCGen -> Just withModules) -> if List.elem n (dafnyAnns withModules)
                 then return Nothing
                 else simplify' d
             otherwise -> simplify' d

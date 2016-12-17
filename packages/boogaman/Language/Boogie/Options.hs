@@ -13,7 +13,8 @@ import Control.Monad.State
 
 data VCGen
     = NoVCGen
-    | Dafny
+    | DafnyModules
+    | DafnyNoModules
   deriving (Show, Data, Typeable,Eq)
 
 data Options
@@ -28,6 +29,14 @@ data Options
         , debug                :: Bool
         }
     deriving (Show, Data, Typeable)
+    
+dafnyVCGen :: Options -> Maybe Bool
+dafnyVCGen opts = isDafnyVCGen $ vcgen opts
+    
+isDafnyVCGen :: VCGen -> Maybe Bool
+isDafnyVCGen DafnyModules = Just True
+isDafnyVCGen DafnyNoModules = Just False
+isDafnyVCGen _ = Nothing
     
 strace :: MonadIO m => Options -> String -> m a -> m a
 strace opts str m = do

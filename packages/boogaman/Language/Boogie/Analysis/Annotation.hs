@@ -9,27 +9,28 @@ import Language.Boogie.Position
 import Data.List as List
 import Data.Generics
 
-isDafnyAxiom :: String -> Bool
-isDafnyAxiom str = List.elem str $ concat $ map dafnyAxioms dafnyNames
+isDafnyAxiom :: Bool -> String -> Bool
+isDafnyAxiom withModules str = List.elem str $ concat $ map (dafnyAxioms withModules) dafnyNames
 
-dafnyAxioms name = dafnyFrameAxioms ++ dafnyConsqAxioms
+dafnyPrelude True = "_0_prelude"
+dafnyPrelude False = "_module"
+
+dafnyAxioms withModules name = dafnyFrameAxioms ++ dafnyConsqAxioms
     where
-    dafnyFrameAxioms = ["// frame axiom for _0_prelude.__default."++name
-                       ,"// frame axiom for _module.__default."++name]
-    dafnyConsqAxioms = ["// consequence axiom for _0_prelude.__default."++name
-                       ,"// consequence axiom for _module.__default.PublicIn"]
+    dafnyFrameAxioms = ["// frame axiom for "++dafnyPrelude withModules++".__default."++name]
+    dafnyConsqAxioms = ["// consequence axiom for "++dafnyPrelude withModules++".__default."++name]
 
 dafnyNames :: [String]
 dafnyNames = ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
 
-dafnyAnns :: [String]
-dafnyAnns = concat $ map dafnyAnn dafnyNames
+dafnyAnns :: Bool -> [String]
+dafnyAnns withModules = concat $ map dafnyAnn dafnyNames
     where
-    dafnyAnn name = ["_0_prelude.__default."++name
-              ,"_0_prelude.__default."++name++"#canCall"
-              ,"_0_prelude.__default."++name++"#requires"
-              ,"CheckWellformed$$_0_prelude.__default."++name
-              ,"CheckWellformed$$_0_prelude.__default."++name]
+    dafnyAnn name = [dafnyPrelude withModules++".__default."++name
+              ,dafnyPrelude withModules++"."++name++"#canCall"
+              ,dafnyPrelude withModules++".__default."++name++"#requires"
+              ,"CheckWellformed$$"++dafnyPrelude withModules++".__default."++name
+              ,"CheckWellformed$$"++dafnyPrelude withModules++".__default."++name]
 
 boxE :: BareExpression -> Maybe BareExpression
 boxE (Application "$Box" [e]) = Just $ unPos e
@@ -49,11 +50,11 @@ dafnyAppE isPolyRet isPoly name e = Nothing
 
 isAnn :: Options -> Bool -> Bool -> Id -> BareExpression -> Maybe BareExpression
 isAnn opts@(vcgen -> NoVCGen) isPolyRet isPoly name (Application ((==name) -> True) [unPos -> e]) = Just e
-isAnn opts@(vcgen -> Dafny) isPolyRet isPoly name (dafnyAppE isPolyRet isPoly name -> Just e) = Just e
+isAnn opts@(dafnyVCGen -> Just _) isPolyRet isPoly name (dafnyAppE isPolyRet isPoly name -> Just e) = Just e
 isAnn opts _ _ _ e = Nothing
 
 gReplaceFrees :: Data a => Options -> a -> a
-gReplaceFrees opts@(vcgen -> Dafny) = everywhere (mkT (replaceFrees opts))
+gReplaceFrees opts@(dafnyVCGen -> Just _) = everywhere (mkT (replaceFrees opts))
 gReplaceFrees opts@(vcgen -> NoVCGen) = id
 
 isFreeExpr :: Options -> BareExpression -> Maybe BareExpression
@@ -69,7 +70,7 @@ replaceFreesMb opts (isFreeExpr opts -> Just e) = Just e
 replaceFreesMb opts e = Nothing
 
 gReplaceCanCall :: Data a => Options -> a -> a
-gReplaceCanCall opts@(vcgen -> Dafny) = everywhere (mkT (replaceCanCall opts))
+gReplaceCanCall opts@(dafnyVCGen -> Just _) = everywhere (mkT (replaceCanCall opts))
 gReplaceCanCall opts@(vcgen -> NoVCGen) = id
 
 replaceCanCall :: Options -> BareExpression -> BareExpression

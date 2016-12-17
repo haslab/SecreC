@@ -201,12 +201,12 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         
         -- verify functional specification
         let func =        compileDafny False (debugVerification opts) dfyfile bplfile
-              `seqStatus` axiomatizeBoogaman (debugVerification opts) axs bplfile bplfile2
+              `seqStatus` axiomatizeBoogaman (debugVerification opts) opts axs bplfile bplfile2
               `seqStatus` runBoogie False (debugVerification opts) bplfile2
         
         -- verify leakage specification
         let spec =        compileDafny True (debugVerification opts) dfylfile bpllfile
-              `seqStatus` shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
+              `seqStatus` shadowBoogaman (debugVerification opts) opts axsl bpllfile bpllfile2
               `seqStatus` runBoogie True (debugVerification opts) bpllfile2
         let mark res = case res of
                         Status (Left d) -> markVerifiedFiles vids fids lids files
@@ -275,23 +275,26 @@ verifErr isDafny (Status res) = do
         Left output -> return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error: " <+> output) Nothing
         Right err -> return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error:") (Just err)
 
-axiomatizeBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath -> m Status
-axiomatizeBoogaman isDebug axioms bpl1 bpl2 = do
+dafnyVCGen :: Options -> String
+dafnyVCGen opts = if noDafnyModules opts then "dafnynomodules" else "dafnymodules"
+
+axiomatizeBoogaman :: (MonadIO m) => Bool -> Options -> [String] -> FilePath -> FilePath -> m Status
+axiomatizeBoogaman isDebug opts axioms bpl1 bpl2 = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Axiomatizing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
     command isDebug $ show $ text "cabal exec -- boogaman" <+> text bpl1
         <+> text "--simplify"
-        <+> text "--vcgen=dafny"
+        <+> text ("--vcgen="++dafnyVCGen opts)
         <+> Pretty.sepBy space (map addaxiom axioms)
         <+> text ">" <+> text bpl2
     
-shadowBoogaman :: (MonadIO m) => Bool -> [String] -> FilePath -> FilePath -> m Status
-shadowBoogaman isDebug axioms bpl1 bpl2 = do
+shadowBoogaman :: (MonadIO m) => Bool -> Options -> [String] -> FilePath -> FilePath -> m Status
+shadowBoogaman isDebug opts axioms bpl1 bpl2 = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Shadowing boogie file" <+> text (show bpl1) <+> text "into" <+> text (show bpl2) 
     let addaxiom x = text "--axioms=" <> text (escape x)
     command isDebug $ show $ text "cabal exec -- boogaman" <+> text bpl1
         <+> text "--simplify"
-        <+> text "--vcgen=dafny"
+        <+> text ("--vcgen="++dafnyVCGen opts)
 --        <+> text "--filterleakage=true"
         <+> text "--shadow"
         <+> Pretty.sepBy space (map addaxiom $ axioms)

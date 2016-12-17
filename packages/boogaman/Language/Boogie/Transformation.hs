@@ -33,7 +33,7 @@ defaultExemptions = Set.fromList ["int","real","bool"]
 
 getExemptions :: Options -> VCGen -> Program -> IO (Set Id,Type -> Bool)
 getExemptions opts NoVCGen p = return (defaultExemptions,const False)
-getExemptions opts Dafny p = do
+getExemptions opts (isDafnyVCGen -> Just _) p = do
     --bpl <- getDataFileName "dafny.bpl"
     --Right defs <- parseFromFile program bpl
     let defs = programDefs p
