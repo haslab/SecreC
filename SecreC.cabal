@@ -25,6 +25,7 @@ Executable secrec
   Main-is:          Main.hs
   Other-Modules:
                         Paths_SecreC
+                        Language.SecreC.Parser.Lexer
   if flag(incremental)
       cpp-options: -DINCREMENTAL
       Build-Depends:  weak, weak-map, weak-hashtables
