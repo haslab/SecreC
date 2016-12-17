@@ -461,7 +461,7 @@ compareTemplateEntriesTwice def l isLattice n e1 e1' e2 e2' = do
         (False,Just EQ) -> return ord
         (True,Nothing) -> tcError (locpos l) $ Halt $ DuplicateTemplateInstances (def <+> ppid isVerify) defs
         (False,Nothing) -> return ord
-        (_,Just o') -> return $ Comparison e1 e2 o' EQ ko
+        (_,Just o') -> return $ Comparison e1 e2 o' o' ko
 
 sameTemplateDecs :: (ProverK Position m) => Position -> DecType -> DecType -> TcM m ()
 sameTemplateDecs l d1 d2 = do
