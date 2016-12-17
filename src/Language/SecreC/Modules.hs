@@ -167,21 +167,22 @@ dirtyParents i g = case contextGr g i of
     Just (_,_,n,parents) -> dirtyParents' (map snd parents) (moduleFileName n) (moduleFileModificationTime n) g
   where
     dirtyParents' :: ModK m => [Node] -> FilePath -> UnixTime -> ModuleGraph -> ModuleM m ModuleGraph
-    dirtyParents' [] n t g = return g
-    dirtyParents' (i:is) n t g = case contextGr g i of
-        Nothing -> dirtyParents' is n t g
-        Just (_,_,inode,iparents) -> if moduleFileModificationTime inode >= t
+    dirtyParents' [] pn pt g = return g
+    dirtyParents' (i:is) pn pt g = case contextGr g i of
+        Nothing -> dirtyParents' is pn pt g
+        Just (_,_,inode,iparents) -> if moduleFileModificationTime inode >= pt
             -- we can stop if the parent module has a more recent modification time
-            then dirtyParents' is n t g
+            then dirtyParents' is pn pt g
             -- dirty recursively
             else do
-                lift $ sciError $ "Parent " ++ show n ++ " changed at " ++ show t
-                lift $ sciError $ "Dependency " ++ show (moduleFileName inode) ++ " changed at " ++ show (moduleFileModificationTime inode)
-                inode' <- lift $ update inode n t
-                dirtyParents' (is++map snd iparents) n t (insNode (i,inode') g)
-    update (Left (_,args,m,mlength)) n t = return $ Left (t,args,m,mlength)
-    update (Right sci) n t = do
-        sciError $ "The dependency " ++ show n ++ " of the SecreC file " ++ show (sciFile sci) ++ " has changed"
+                --lift $ sciError $ "Child " ++ show n ++ " changed at " ++ show t
+                --lift $ sciError $ "Parent " ++ show (moduleFileName inode) ++ " changed at " ++ show (moduleFileModificationTime inode)
+                inode' <- lift $ update inode pn pt
+                dirtyParents' (is++map snd iparents) pn pt (insNode (i,inode') g)
+    update (Left (_,args,m,mlength)) pn pt = return $ Left (pt,args,m,mlength)
+    update (Right sci) pn t = do
+        let fn = sciFile sci
+        sciError $ "The dependency " ++ show pn ++ " of the SecreC file " ++ show fn ++ " has changed"
         (args,m,mlines) <- parseFileWithBuiltin (sciFile sci)
         return $ Left (t,args,m,mlines)
 

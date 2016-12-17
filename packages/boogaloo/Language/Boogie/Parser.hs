@@ -55,8 +55,8 @@ opLetter = nub (concatMap tail opNames)
 
 boogieDef :: P.LanguageDef st
 boogieDef = P.LanguageDef 
-  ""
-  ""
+  "/*"
+  "*/"
   ""
   False
   (letter <|> oneOf identifierChars)
