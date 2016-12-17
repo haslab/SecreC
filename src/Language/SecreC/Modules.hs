@@ -175,6 +175,8 @@ dirtyParents i g = case contextGr g i of
             then dirtyParents' is n t g
             -- dirty recursively
             else do
+                lift $ sciError $ "Parent " ++ show n ++ " changed at " ++ show t
+                lift $ sciError $ "Dependency " ++ show (moduleFileName inode) ++ " changed at " ++ show (moduleFileModificationTime inode)
                 inode' <- lift $ update inode n t
                 dirtyParents' (is++map snd iparents) n t (insNode (i,inode') g)
     update (Left (_,args,m,mlength)) n t = return $ Left (t,args,m,mlength)
@@ -221,7 +223,7 @@ writeModuleSCI ppargs menv m mlength = do
         e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
         case e of
             Nothing -> return ()
-            Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn
+            Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn ++ " at " ++ show (sciHeaderModTime header)
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
@@ -272,10 +274,10 @@ updateModuleSCIHeader scifn chg = do
                         let bstr = runPut $ do
                             put header'
                             putLazyByteString body
-                        e <- trySCI ("Error updating SecreC interface file header" ++ show scifn) $ BL.writeFile scifn bstr
+                        e <- trySCI ("Error updating SecreC interface file header " ++ show scifn) $ BL.writeFile scifn bstr
                         case e of
                             Nothing -> return ()
-                            Just () -> sciError $ "Updated SecreC interface file header" ++ show scifn
+                            Just () -> sciError $ "Updated SecreC interface file header " ++ show scifn
 
 trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
 trySCI msg io = do
