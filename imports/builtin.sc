@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --ignorespecdomains
+#OPTIONS_SECREC --implicitcoercions=defaultsc --ignorespecdomains --promote=nop
 
 module builtin;
 
