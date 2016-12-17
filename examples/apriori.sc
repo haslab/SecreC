@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --ignorespecdomains --nodafnymodules
+//#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori:tostring" --ignorespecdomains --nodafnymodules
 
 /*
  * This file is a part of the Sharemind framework.
