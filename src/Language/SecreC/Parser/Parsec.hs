@@ -584,6 +584,7 @@ scOp = (apA (scChar '+') (OpAdd . loc)
    <|> apA (scChar '^') (OpXor  . loc)
    <|> apA (scChar '!') (OpNot . loc)
    <|> apA (scTok EQ_OP) (OpEq . loc)
+   <|> apA (scTok SEQ_OP) (OpEq . loc)
    <|> apA (scTok GE_OP) (OpGe . loc)
    <|> apA (scTok LAND_OP) (OpLand . loc)
    <|> apA (scTok LE_OP) (OpLe . loc)
@@ -800,6 +801,7 @@ scEqualityExpression = scFoldl
     (ops >*< scRelationalExpression) <?> "equality expression"
   where
     ops = apA (scTok EQ_OP) (OpEq . loc)
+      <|> apA (scTok SEQ_OP) (OpEq . loc)
       <|> apA (scTok NE_OP) (OpNe . loc)
 
 scRelationalExpression :: (Monad m,MonadCatch m) => ScParserT m (Expression Identifier Position)
