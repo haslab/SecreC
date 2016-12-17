@@ -12,6 +12,7 @@ import Data.Typeable
 import Data.Binary
 import Data.Data
 import Data.Binary.Get
+import Data.Binary.Put
 import Data.ByteString.Lazy (ByteString(..))
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString as BS
@@ -268,7 +269,10 @@ updateModuleSCIHeader scifn chg = do
                 case mb of
                     Nothing -> return ()
                     Just header' -> do
-                        e <- trySCI ("Error updating SecreC interface file header" ++ show scifn) $ encodeFile scifn (header',body)
+                        let bstr = runPut $ do
+                            put header'
+                            putByteString body
+                        e <- trySCI ("Error updating SecreC interface file header" ++ show scifn) $ BL.writeFile scifn bstr
                         case e of
                             Nothing -> return ()
                             Just () -> sciError $ "Updated SecreC interface file header" ++ show scifn
