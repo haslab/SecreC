@@ -65,11 +65,12 @@ import Unsafe.Coerce
 import Text.PrettyPrint as PP hiding (float,int)
 import qualified Text.PrettyPrint as PP
 
-import qualified Data.HashTable.Weak.IO as WeakHash
-
 import System.IO.Unsafe
+#if INCREMENTAL
 import qualified System.Mem.Weak.Map as WeakMap
 import System.Mem.Weak.Exts as Weak
+import qualified Data.HashTable.Weak.IO as WeakHash
+#endif
 import System.Exit
 import System.IO
 import System.Posix.Types
@@ -119,26 +120,57 @@ instance Ord SolveScope where
 
 -- warn for unused local variables
 
+
+#if INCREMENTAL
+type GCstr = IOCstr
+gCstrId = ioCstrId
 data IOCstr = IOCstr
     { kCstr :: TCstr
     , kStatus :: !(IdRef ModuleTyVarId TCstrStatus)
     }
   deriving (Data,Typeable,Show)
-
 instance Hashable IOCstr where
     hashWithSalt i k = hashWithSalt i (kCstr k)
-  
 instance Eq IOCstr where
     k1 == k2 = kStatus k1 == kStatus k2
 instance Ord IOCstr where
     compare k1 k2 = compare (kStatus k1) (kStatus k2)
-
 instance (DebugM m) => PP m IOCstr where
     pp k = do
         pp1 <- pp (ioCstrId k)
         pp2 <- pp (kCstr k)
         return $ pp1 <+> char '=' <+> pp2
+        
+ioCstrId :: IOCstr -> Int
+ioCstrId = hashModuleTyVarId . uniqId . kStatus
 
+ioCstrUnique :: IOCstr -> ModuleTyVarId
+ioCstrUnique = uniqId . kStatus
+#else
+type GCstr = IdCstr
+gCstrId = hashModuleTyVarId . kId
+data IdCstr = IdCstr
+    { kCstr :: TCstr
+    , kId :: ModuleTyVarId
+    }
+  deriving (Data,Typeable,Show)
+
+instance Hashable IdCstr where
+    hashWithSalt i k = hashWithSalt i (kCstr k)
+  
+instance Eq IdCstr where
+    k1 == k2 = kId k1 == kId k2
+instance Ord IdCstr where
+    compare k1 k2 = compare (kId k1) (kId k2)
+
+instance (DebugM m) => PP m IdCstr where
+    pp k = do
+        pp1 <- pp (kId k)
+        pp2 <- pp (kCstr k)
+        return $ pp1 <+> char '=' <+> pp2
+#endif
+
+#if INCREMENTAL
 data TCstrStatus
     = Unevaluated -- has never been evaluated
     | Evaluated -- has been evaluated
@@ -149,8 +181,8 @@ data TCstrStatus
     | Erroneous -- has failed
         SecrecError -- failure error
   deriving (Data,Typeable,Show,Generic,Eq,Ord)
-
 instance Hashable TCstrStatus
+#endif
 
 data Scope = GlobalScope | LocalScope
   deriving (Show,Read,Data,Typeable,Generic)
@@ -162,6 +194,7 @@ instance Monad m => PP m Scope where
     pp GlobalScope = return $ text "global"
     pp LocalScope = return $ text "local"
 
+#if INCREMENTAL
 {-# NOINLINE globalEnv #-}
 globalEnv :: IORef GlobalEnv
 globalEnv = unsafePerformIO (newGlobalEnv >>= newIORef)
@@ -198,6 +231,7 @@ freshGlobalEnv = do
     iodeps <- WeakHash.newSized 512
     cstrs <- WeakHash.newSized 2048
     writeIORef globalEnv $ GlobalEnv { tDeps = deps, ioDeps = iodeps, gCstrs = cstrs }
+#endif
 
 orWarn :: (MonadIO m) => TcM m a -> TcM m (Maybe a)
 orWarn m = (liftM Just m) `catchError` \e -> do
@@ -269,19 +303,23 @@ gIdenBase' (TIden v) = return $ varIdBase v
 gIdenBase' (MIden v) = return $ varIdBase v
 gIdenBase' (OIden o) = ppr o
 
+#if INCREMENTAL
 data GlobalEnv = GlobalEnv
     { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on variables
     , ioDeps :: WeakHash.BasicHashTable TyVarId (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on other IOCstrs
     , gCstrs :: WeakHash.BasicHashTable TCstr IOCstr -- hashtable of generated constraints for possbile reuse
     }
+-- solved constraints whose solutions have been delayed
+type CstrCache = Map LocGCstr TCstrStatus
+#else
+type CstrSols = Map LocGCstr ShowOrdDyn
+#endif
 
-type Deps = Set LocIOCstr
+-- dependency tracking
+type Deps = Set LocGCstr
 
 getModuleCount :: (Monad m) => TcM m Int
 getModuleCount = liftM (snd . moduleCount) State.get
-
--- solved constraints whose solutions have been delayed
-type CstrCache = Map LocIOCstr TCstrStatus
 
 type ModuleCount = (Maybe ((String,TyVarId),Int),Int)
 
@@ -293,9 +331,14 @@ data TcEnv = TcEnv {
     , globalDeps :: Deps -- ^ global dependencies
     , localDeps :: Deps -- ^ local dependencies
     , tDict :: NeList TDict -- ^ A stack of dictionaries
-    , openedCstrs :: [(IOCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
+    , openedCstrs :: [(GCstr,Set VarIdentifier)] -- constraints being resolved, for dependency tracking: ordered map from constraints to bound variables
+#if INCREMENTAL
     , cstrCache :: CstrCache -- cache for constraints
     , solveToCache :: Bool -- solve constraints to the cache or global state
+#else
+    , recordSols :: Bool -- when to record constraint solutions
+    , cstrSols :: CstrSols -- constraint solutions (for hypotheses)
+#endif
     , lineage :: Lineage -- lineage of the constraint being processed
     , moduleCount :: ModuleCount
     , inTemplate :: Maybe ([TemplateTok],Bool) -- if typechecking inside a template, global constraints are delayed (templates tokens, with context flag)
@@ -421,7 +464,8 @@ withLeak b m = do
     x <- m
     State.modify $ \env -> env { isLeak = old }
     return x
-    
+
+#if INCREMENTAL
 runOnCache :: MonadIO m => TcM m a -> TcM m a
 runOnCache m = do
    (x,cache) <- onCache m
@@ -437,6 +481,13 @@ onCache m = do
     cache <- State.gets cstrCache
     State.modify $ \env -> env { solveToCache = oldsolve, cstrCache = oldcache }
     return (x,cache)
+#else
+runOnCache :: MonadIO m => TcM m a -> TcM m a
+runOnCache m = m
+
+onCache :: Monad m => TcM m a -> TcM m (a,())
+onCache m = liftM (,()) m
+#endif
 
 withKind :: Monad m => DecKind -> TcM m a -> TcM m a
 withKind k m = do
@@ -567,7 +618,7 @@ isAnnDecClass (DecClass b _ _ _) = b
 isInlineDecClass :: DecClass -> Bool
 isInlineDecClass (DecClass _ b _ _) = b
 
-withDependencies :: Monad m => Set LocIOCstr -> TcM m a -> TcM m a
+withDependencies :: Monad m => Set LocGCstr -> TcM m a -> TcM m a
 withDependencies deps m = do
     State.modify $ \env -> env { localDeps = deps `Set.union` localDeps env }
     x <- m
@@ -586,8 +637,10 @@ emptyTcEnv = TcEnv
     , localDeps = Set.empty
     , tDict = WrapNe emptyTDict
     , openedCstrs = []
+#if INCREMENTAL
     , cstrCache = Map.empty
     , solveToCache = False
+#endif
     , lineage = []
     , moduleCount = (Nothing,0)
     , inTemplate = Nothing
@@ -1368,8 +1421,8 @@ instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TCstr
         k' <- f k
         return $ HypK k' st
 
-type IOCstrGraph = Gr LocIOCstr ()
-type LocIOCstr = Loc Position IOCstr
+type GCstrGraph = Gr LocGCstr ()
+type LocGCstr = Loc Position GCstr
 
 type TCstrGraph = Gr LocTCstr ()
 type LocTCstr = Loc Position TCstr
@@ -1377,12 +1430,12 @@ type LocTCstr = Loc Position TCstr
 -- | Template constraint dictionary
 -- a dictionary with a set of inferred constraints and resolved constraints
 data TDict = TDict
-    { tCstrs :: IOCstrGraph -- a list of constraints
+    { tCstrs :: GCstrGraph -- a list of constraints
     , tChoices :: Set Int -- set of choice constraints that have already been branched
     , tSubsts :: TSubsts -- variable substitions
     , tRec :: ModuleTcEnv -- recursive environment
     -- this may be important because of nested dictionaries
-    , tSolved :: Map LocIOCstr Bool -- constraints already solved and (True=inferred constraint)
+    , tSolved :: Map LocGCstr Bool -- constraints already solved and (True=inferred constraint)
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1413,9 +1466,9 @@ fromPureTDict (PureTDict g ss rec) = do
     g' <- fromPureCstrs g
     return $ TDict g' Set.empty ss rec Map.empty
 
-fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m IOCstrGraph
+fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m GCstrGraph
 fromPureCstrs g = do
-    (g',is) <- runStateT (mapGrM newIOCstr g) Map.empty
+    (g',is) <- runStateT (mapGrM newGCstr g) Map.empty
     mapGrM (go g' is) g'
   where
     go g' is (ins,j,x,outs) = do
@@ -1428,28 +1481,32 @@ fromPureCstrs g = do
             ppg <- ppr g
             ppg' <- ppr g'
             error $ "fromPureCstrs: failed to look up " ++ show i ++ " in " ++ show is ++ "\n" ++ ppg ++ "\n" ++ ppg'
-    newIOCstr (ins,i,Loc l k,outs) = do
+    newGCstr (ins,i,Loc l k,outs) = do
         mn <- lift $ newModuleTyVarId
-        st <- lift $ liftIO $ newIdRef mn Unevaluated
-        let j = hashModuleTyVarId $ uniqId st
+        let j = hashModuleTyVarId mn
         State.modify $ \is -> Map.insert i j is
+#if INCREMENTAL
+        st <- lift $ liftIO $ newIdRef mn Unevaluated
         return (ins,j,Loc l $ IOCstr k st,outs)
+#else
+        return (ins,j,Loc l $ IdCstr k mn,outs)
+#endif
 
-toPureCstrs :: IOCstrGraph -> Map LocIOCstr Bool -> TCstrGraph
+toPureCstrs :: GCstrGraph -> Map LocGCstr Bool -> TCstrGraph
 toPureCstrs ks solved = unionGr g1 g2
     where
     g1 = nmap (fmap kCstr) ks
     inferred = Map.keys $ Map.filter id solved
-    g2 = Graph.mkGraph (map (\x -> (ioCstrId $ unLoc x,fmap kCstr x)) inferred) []
+    g2 = Graph.mkGraph (map (\x -> (gCstrId $ unLoc x,fmap kCstr x)) inferred) []
 
 toPureTDict :: TDict -> PureTDict
 toPureTDict (TDict ks _ ss rec solved) = PureTDict (toPureCstrs ks solved) ss rec
 
-flattenIOCstrGraph :: IOCstrGraph -> [LocIOCstr]
-flattenIOCstrGraph = map snd . labNodes
+flattenGCstrGraph :: GCstrGraph -> [LocGCstr]
+flattenGCstrGraph = map snd . labNodes
 
-flattenIOCstrGraphSet :: IOCstrGraph -> Set LocIOCstr
-flattenIOCstrGraphSet = Set.fromList . flattenIOCstrGraph
+flattenGCstrGraphSet :: GCstrGraph -> Set LocGCstr
+flattenGCstrGraphSet = Set.fromList . flattenGCstrGraph
 
 -- | mappings from variables to current substitution
 newtype TSubsts = TSubsts { unTSubsts :: Map VarIdentifier Type } deriving (Eq,Show,Ord,Typeable,Data,Generic)
@@ -1481,12 +1538,6 @@ emptyPureTDict = PureTDict Graph.empty emptyTSubsts mempty
 
 emptyTSubsts :: TSubsts
 emptyTSubsts = TSubsts Map.empty
-
-ioCstrId :: IOCstr -> Int
-ioCstrId = hashModuleTyVarId . uniqId . kStatus
-
-ioCstrUnique :: IOCstr -> ModuleTyVarId
-ioCstrUnique = uniqId . kStatus
 
 instance (Vars GIdentifier m loc,Vars GIdentifier m a) => Vars GIdentifier m (Loc loc a) where
     traverseVars f (Loc l a) = do
@@ -1547,33 +1598,56 @@ instance (DebugM m) => PP m PureTDict where
         return $ text "Constraints:" $+$ nest 4 pp1
               $+$ text "Substitutions:" $+$ nest 4 pp2
 
-ppConstraints :: MonadIO m => IOCstrGraph -> TcM m Doc
+ppConstraints :: MonadIO m => GCstrGraph -> TcM m Doc
 ppConstraints d = do
-    let ppK (Loc l c) = do
-        s <- readCstrStatus l c
-        pre <- pp c
-        case s of
-            Evaluated rest frees infer t -> do
-                ppf <- pp frees
-                return $ pre <+> char '=' <+> text (show t) <+> text "with frees" <+> ppf
-            Unevaluated -> return $ pre
-            Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
-    ss <- ppGrM ppK (const $ return PP.empty) d
+    ss <- ppGrM ppLocGCstr (const $ return PP.empty) d
     return ss
 
-readCstrStatus :: MonadIO m => Position -> IOCstr -> TcM m TCstrStatus
+ppLocGCstr :: MonadIO m => LocGCstr -> TcM m Doc
+#if INCREMENTAL
+ppLocGCstr (Loc l c) = do
+    s <- readCstrStatus l c
+    pre <- pp c
+    case s of
+        Evaluated rest frees infer t -> do
+            ppf <- pp frees
+            return $ pre <+> char '=' <+> text (show t) <+> text "with frees" <+> ppf
+        Unevaluated -> return $ pre
+        Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
+#else
+ppLocGCstr (Loc l c) = pp c
+#endif
+
+#if INCREMENTAL
+readCstrStatus :: MonadIO m => Position -> GCstr -> TcM m TCstrStatus
 readCstrStatus p iok = do
     solved <- State.gets cstrCache
     case Map.lookup (Loc p iok) solved of
         Just st -> return st
         Nothing -> liftIO $ readIdRef (kStatus iok)
+#endif
 
-writeCstrStatus :: MonadIO m => Position -> IOCstr -> TCstrStatus -> TcM m ()
+#if INCREMENTAL
+writeCstrStatus :: MonadIO m => Position -> GCstr -> TCstrStatus -> TcM m ()
 writeCstrStatus p iok st = do
     delaySolve <- State.gets solveToCache
     if delaySolve
         then State.modify $ \e -> e { cstrCache = Map.insert (Loc p iok) st (cstrCache e) }
-        else liftIO $ writeIdRef (kStatus iok) st
+#else
+withRecordSols :: MonadIO m => TcM m a -> TcM m a
+withRecordSols m = do
+    old <- State.gets recordSols
+    osols <- State.gets cstrSols
+    State.modify $ \e -> e { recordSols = True }
+    x <- m
+    State.modify $ \e -> e { recordSols = old, cstrSols = osols }
+    return x
+    
+writeCstrSol :: MonadIO m => Position -> GCstr -> ShowOrdDyn -> TcM m ()
+writeCstrSol p iok sol = do
+    ok <- State.gets recordSols
+    when ok $ State.modify $ \e -> e { cstrSols = Map.insert (Loc p iok) sol (cstrSols e) }
+#endif
 
 data VarIdentifier = VarIdentifier
         { varIdBase :: Identifier
@@ -3052,7 +3126,7 @@ instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdenti
     substL v = return $ Just v
 
 -- filter the constraints that depend on a set of variables
-varsCstrGraph :: (VarsGTcM m) => Set VarIdentifier -> IOCstrGraph -> TcM m IOCstrGraph
+varsCstrGraph :: (VarsGTcM m) => Set VarIdentifier -> GCstrGraph -> TcM m GCstrGraph
 varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
     where
     aux (i,x) = do

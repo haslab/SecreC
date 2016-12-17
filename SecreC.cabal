@@ -17,13 +17,19 @@ Synopsis:           SecreC Analyser
 Extra-Source-Files: README.md examples tests
 Data-files: imports/*.sc imports/stdlib/lib/*.sc imports/*.dfy
 
+Flag incremental
+  Description:   Turn on incremental typechecking.
+  Default:       False
+
 Executable secrec
   Main-is:          Main.hs
   Other-Modules:
                         Paths_SecreC
-        
+  if flag(incremental)
+      cpp-options: -DINCREMENTAL
+      Build-Depends:  weak, weak-map, weak-hashtables
   Hs-source-dirs:   src
-  Build-Depends:    terminal-progress-bar, base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty , mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, weak, weak-map, weak-hashtables, hashable, async, sbv, QuickCheck, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process, parsec-numbers, shelly
+  Build-Depends:    terminal-progress-bar, base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty , mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, hashable, async, sbv, QuickCheck, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process, parsec-numbers, shelly
 --  ghc-options: -Wall
 --  ghc-prof-options: -prof -auto -fforce-recomp -rtsopts
   Build-Tools:      alex

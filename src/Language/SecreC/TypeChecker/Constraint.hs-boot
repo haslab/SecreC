@@ -34,11 +34,11 @@ prove :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m a
 
 tcProve :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,TDict)
 
-checkCstrM_ :: (ProverK loc m) => loc -> Set (LocIOCstr) -> CheckCstr -> TcM m ()
+checkCstrM_ :: (ProverK loc m) => loc -> Set (LocGCstr) -> CheckCstr -> TcM m ()
 
-topCheckCstrM :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> CheckCstr -> TcM m (Maybe IOCstr)
+topCheckCstrM :: (ProverK loc m) => loc -> Set (Loc Position GCstr) -> CheckCstr -> TcM m (Maybe GCstr)
 
-topCheckCstrM_ :: (ProverK loc m) => loc -> Set (Loc Position IOCstr) -> CheckCstr -> TcM m ()
+topCheckCstrM_ :: (ProverK loc m) => loc -> Set (Loc Position GCstr) -> CheckCstr -> TcM m ()
 
 tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Maybe (Expression GIdentifier (Typed loc)))
 
@@ -135,7 +135,7 @@ projectArrayExpr :: ProverK loc m => loc -> Expr -> [Index GIdentifier Type] -> 
 
 tryTcError :: ProverK loc m => loc -> TcM m a -> TcM m (Either SecrecError a)
 
-tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
+tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe GCstr)
 
 tcCoerces :: ProverK loc m => loc -> Bool -> Maybe [Type] -> Expr -> Type -> TcM m Expr
 

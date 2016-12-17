@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, ImpredicativeTypes, Rank2Types, ViewPatterns, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, TupleSections, ImpredicativeTypes, Rank2Types, ViewPatterns, MultiParamTypeClasses, FlexibleInstances, FlexibleContexts, ScopedTypeVariables #-}
 
 module Language.SecreC.TypeChecker.Template where
 
@@ -196,7 +196,16 @@ compMins cmp (min:mins) acc (x:xs) = do
         (GT,GT,False) -> compMins cmp (min:mins) acc xs
   where compMin x y = liftM (\(x,y,b) -> mappend x y) (cmp x y)
 
-type EntryInst = (EntryEnv,EntryEnv,TDict,TDict,Frees,Frees,CstrCache)
+
+#if INCREMENTAL
+type NestedCstrs = CstrCache
+addNestedCstrs p solved = addCstrCache p solved
+#else
+type NestedCstrs = ()
+addNestedCstrs p solved = return ()
+#endif
+
+type EntryInst = (EntryEnv,EntryEnv,TDict,TDict,Frees,Frees,NestedCstrs)
 
 entryInstOld :: EntryInst -> EntryEnv
 entryInstOld (e,_,_,_,_,_,_) = e
@@ -235,19 +244,19 @@ resolveTemplateEntries l kid n targs pargs ret insts ko = do
             choice' <- choiceEntryInst l kid n targs pargs ret False (last insts)
             multipleSubstitutions l kid SolveAll (n,targs,pargs,ret) (Left ko) (choices'++[choice'])
 
-choiceEntryInst :: ProverK loc m => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> Bool -> EntryInst -> TcM m ((TcM m (DecType,Set LocIOCstr),Doc),((DecType,Set LocIOCstr) -> TcM m (DecType,Set LocIOCstr),Doc),((DecType,Set LocIOCstr) -> TcM m (Set LocIOCstr,DecType),Doc))
+choiceEntryInst :: ProverK loc m => loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> Bool -> EntryInst -> TcM m ((TcM m (DecType,Set LocGCstr),Doc),((DecType,Set LocGCstr) -> TcM m (DecType,Set LocGCstr),Doc),((DecType,Set LocGCstr) -> TcM m (Set LocGCstr,DecType),Doc))
 choiceEntryInst l kid n targs pargs ret refresh inst@(e,_,_,_,frees,_,_) = do
     ppkid <- pp kid
     pptyid <- pp (decTypeTyVarId $ unDecT $ entryType e)
-    let match :: ProverK loc m => Proxy m -> loc -> (TcM m (DecType,Set LocIOCstr),Doc)
+    let match :: ProverK loc m => Proxy m -> loc -> (TcM m (DecType,Set LocGCstr),Doc)
         match _ l = (resolveTemplateEntry refresh l kid n targs pargs ret inst,text "resolveTemplateEntry" <+> ppkid <+> pptyid)
-    let cont :: ProverK Position m => Proxy m -> (DecType,Set LocIOCstr) -> TcM m (DecType,Set LocIOCstr)
+    let cont :: ProverK Position m => Proxy m -> (DecType,Set LocGCstr) -> TcM m (DecType,Set LocGCstr)
         cont _ = return
-    let post :: ProverK Position m => Proxy m -> (DecType,Set LocIOCstr) -> TcM m (Set LocIOCstr,DecType)
+    let post :: ProverK Position m => Proxy m -> (DecType,Set LocGCstr) -> TcM m (Set LocGCstr,DecType)
         post _ (dec,heads) = return (heads,dec)
     return $ (match Proxy l,(cont Proxy,PP.empty),(post Proxy,PP.empty))
 
-resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m (DecType,Set LocIOCstr)
+resolveTemplateEntry :: (ProverK loc m) => Bool -> loc -> Int -> TIdentifier -> Maybe [(Type,IsVariadic)] -> Maybe [(IsConst,Either Expr Type,IsVariadic)] -> Maybe Type -> EntryInst -> TcM m (DecType,Set LocGCstr)
 resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict,frees,delfrees,solved) = do
     debugTc $ do
         ppn <- ppr n
@@ -259,7 +268,7 @@ resolveTemplateEntry solveHead p kid n targs pargs ret (olde,e,headDict,bodyDict
         ppb <- ppr bodyDict
         liftIO $ putStrLn $ "resolveTemplateEntry " ++ ppn ++ " " ++ pptargs ++ " " ++ pppargs ++ " " ++ ppolde ++ " --> " ++ ppe ++ "\nhead: " ++ pph ++ "\nbody: " ++ ppb
     -- add solved constraints
-    addCstrCache p solved
+    addNestedCstrs p solved
     -- delete promoted constraints
     --buildCstrGraph p promoted promoted
     -- remove frees
@@ -792,7 +801,7 @@ matchProcedureArgs l lhs rhs = addErrorM l (TypecheckerError (locpos l) . GenTcE
         return ()
     return ()
 
-mapErr :: (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,TDict,TDict,CstrCache),Frees,Frees) -> Either (EntryEnv,SecrecError) EntryInst
+mapErr :: (Either (EntryEnv,SecrecError) (EntryEnv,EntryEnv,TDict,TDict,NestedCstrs),Frees,Frees) -> Either (EntryEnv,SecrecError) EntryInst
 mapErr (Left x,_,_) = Left x
 mapErr (Right (x1,x2,x3,x4,x5),y,z) = Right (x1,x2,x3,x4,y,z,x5)
 
@@ -860,11 +869,11 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                 promotem p = do
                     vs <- usedVs (n,targs,pargs,ret)
                     tops <- topCstrs l
-                    let tops' = mapSet (ioCstrId . unLoc) tops
+                    let tops' = mapSet (gCstrId . unLoc) tops
                     -- only local constraints to avoid backtracking
                     let scope = case p of { LocalP -> SolveLocal; GlobalP -> SolveGlobal }
                     (relvs,rels) <- relatedCstrs l (Set.toList tops') vs (filterCstrSetScope scope)
-                    let rels' = mapSet (ioCstrId . unLoc) rels
+                    let rels' = mapSet (gCstrId . unLoc) rels
                     buildCstrGraph l rels'
                     debugTc $ do
                         ppl <- ppr l
@@ -902,7 +911,7 @@ instantiateTemplateEntry p kid n targs pargs ret olde@(EntryEnv l t@(DecT olddec
                         liftIO $ putStrLn $ "failed to instantiate " ++ pprid kid ++ " " ++ ppn ++" "++ show (decTypeTyVarId olddec) ++ "\n" ++ pperr
                     return $ Left (olde,err)
                 Right ((cache),TDict hgr _ subst recs solved) -> do
-                        --removeIOCstrGraphFrees hgr
+                        --removeGCstrGraphFrees hgr
                         -- we don't need to rename recursive declarations, since no variables have been bound
                         (e',(subst',bgr',hgr',recs')) <- localTemplateWith l e' (subst,bgr,toPureCstrs hgr solved,recs)
                         hgr'' <- substFromTSubstsNoDec "instantiate tplt" l subst' False Map.empty hgr'

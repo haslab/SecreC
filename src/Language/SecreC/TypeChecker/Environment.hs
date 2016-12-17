@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor, FunctionalDependencies #-}
+{-# LANGUAGE FlexibleContexts, MultiParamTypeClasses, GeneralizedNewtypeDeriving, ViewPatterns, StandaloneDeriving, GADTs, ScopedTypeVariables, TupleSections, FlexibleInstances, TypeFamilies, DeriveDataTypeable, DeriveFunctor, FunctionalDependencies, CPP #-}
 
 module Language.SecreC.TypeChecker.Environment where
 
@@ -62,12 +62,14 @@ import Text.PrettyPrint as PP hiding (float,int,equals)
 import qualified Text.PrettyPrint as Pretty hiding (equals)
 import Text.Read (readMaybe)
 
+#if INCREMENTAL
 import qualified Data.HashTable.Weak.IO as WeakHash
 import qualified System.Mem.Weak.Map as WeakMap
+import System.Mem.Weak.Exts as Weak
+#endif
 
 import System.IO
 import System.Exit
-import System.Mem.Weak.Exts as Weak
 import qualified System.ProgressBar as Bar
 
 decPos :: DecType -> Position
@@ -212,15 +214,15 @@ chooseWriteVar l v1 v2 = do
         otherwise -> return EQ
 
 -- replaces a constraint in the constraint graph by a constraint graph
-replaceCstrWithGraph :: (ProverK loc m) => loc -> Bool -> Int -> Set LocIOCstr -> IOCstrGraph -> Set LocIOCstr -> TcM m ()
+replaceCstrWithGraph :: (ProverK loc m) => loc -> Bool -> Int -> Set LocGCstr -> GCstrGraph -> Set LocGCstr -> TcM m ()
 replaceCstrWithGraph l filterDeps kid ins gr outs = do
-    let cs = flattenIOCstrGraph gr
+    let cs = flattenGCstrGraph gr
     --liftIO $ putStrLn $ "replaceCstrWithGraph " ++ ppr kid
-    --    ++ " from " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) $ Set.toList ins)
-    --    ++ " to " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) $ Set.toList outs)
-    --    ++ " for " ++ show (sepBy space $ map (pp . ioCstrId . unLoc) cs)
+    --    ++ " from " ++ show (sepBy space $ map (pp . gCstrId . unLoc) $ Set.toList ins)
+    --    ++ " to " ++ show (sepBy space $ map (pp . gCstrId . unLoc) $ Set.toList outs)
+    --    ++ " for " ++ show (sepBy space $ map (pp . gCstrId . unLoc) cs)
     updateHeadTDict l "replaceCstrWithGraph" $ \d -> return ((),d { tCstrs = unionGr gr $ delNode kid (tCstrs d) })
-    forM_ cs $ \c -> addIOCstrDependenciesM l filterDeps (Set.filter (\x -> ioCstrId (unLoc x) /= kid) ins) c (Set.filter (\x -> ioCstrId (unLoc x) /= kid) outs)
+    forM_ cs $ \c -> addGCstrDependenciesM l filterDeps (Set.filter (\x -> gCstrId (unLoc x) /= kid) ins) c (Set.filter (\x -> gCstrId (unLoc x) /= kid) outs)
 --    ss <- ppConstraints =<< liftM (headNe . tDict) State.get
 --    liftIO $ putStrLn $ "replaceCstrWithGraph2 [" ++ show ss ++ "\n]"
 
@@ -239,7 +241,7 @@ withDeps GlobalScope m = do
     State.modify $ \env -> env { localDeps = l, globalDeps = g }
     return x
 
-noLocalDeps :: MonadIO m => TcM m a -> TcM m (a,Set LocIOCstr)
+noLocalDeps :: MonadIO m => TcM m a -> TcM m (a,Set LocGCstr)
 noLocalDeps m = do
     env <- State.get
     let l = localDeps env
@@ -304,16 +306,24 @@ newVariable scope isConst isAnn v@(VarName (Typed l t) (VIden n)) val = do
         Nothing -> return ()
     addVar l scope (VIden n) (fmap (fmap typed) val) isConst isAnn (EntryEnv (locpos l) t)
 
-addDeps :: (MonadIO m) => String -> Scope -> Set LocIOCstr -> TcM m ()
+addDeps :: (MonadIO m) => String -> Scope -> Set LocGCstr -> TcM m ()
+#if INCREMENTAL
 addDeps msg scope xs = forM_ xs $ \x -> addDep msg scope x
+#else
+addDeps msg scope xs = return ()
+#endif
 
-addDep :: (MonadIO m) => String -> Scope -> Loc Position IOCstr -> TcM m ()
+addDep :: (MonadIO m) => String -> Scope -> Loc Position GCstr -> TcM m ()
+#if INCREMENTAL
 addDep msg GlobalScope hyp = do
     modify $ \env -> env { globalDeps = Set.insert hyp (globalDeps env) }
-    debugTc $ liftIO $ putStrLn $ "added Global dependency " ++ msg ++ " " ++ pprid (ioCstrId $ unLoc hyp)
+    debugTc $ liftIO $ putStrLn $ "added Global dependency " ++ msg ++ " " ++ pprid (gCstrId $ unLoc hyp)
 addDep msg LocalScope hyp = do
     modify $ \env -> env { localDeps = Set.insert hyp (localDeps env) }
-    debugTc $ liftIO $ putStrLn $ "added Local dependency " ++ msg ++ " " ++ pprid (ioCstrId $ unLoc hyp)
+    debugTc $ liftIO $ putStrLn $ "added Local dependency " ++ msg ++ " " ++ pprid (gCstrId $ unLoc hyp)
+#else
+addDep msg scope hyp = return ()
+#endif
 
 tcNoDeps :: (VarsGTcM m) => TcM m a -> TcM m a
 tcNoDeps m = do
@@ -331,14 +341,14 @@ tcAddDeps l msg m = do
     forM_ ks $ addDep (msg++" tcAddDeps") LocalScope
     return x
     
-tryAddHypothesis :: (ProverK loc m) => loc -> String -> Scope -> (Options -> Bool) -> Set LocIOCstr -> HypCstr -> TcM m ()
+tryAddHypothesis :: (ProverK loc m) => loc -> String -> Scope -> (Options -> Bool) -> Set LocGCstr -> HypCstr -> TcM m ()
 tryAddHypothesis l msg scope doCheck deps hyp = do
     opts <- askOpts
     when (doCheck opts) $ do
         st <- getCstrState
         iok <- updateHeadTDict l "tryAddHypothesis" $ \d -> newTDictCstr (locpos l) (HypK hyp st) d
         addDep (msg++" tryAddHypothesis") scope $ Loc (locpos l) iok
-        addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
+        addGCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
 
 -- | Adds a new kind variable to the environment
 newKindVariable :: ProverK loc m => Bool -> Scope -> KindName GIdentifier (Typed loc) -> TcM m ()
@@ -570,23 +580,6 @@ checkTemplateArg decK isAnn isLeak (TemplateArgName l n) = do
             ppn <- pp n
             tcError (locpos l) $ AmbiguousName (ppn) $ map (locpos . entryLoc) $ maybe [] (\(es) -> Map.elems es) (mb1) ++ maybeToList (mb2) ++ maybeToList (fmap (thr3 . snd) mb3)
 
---unresolvedQVars :: ProverK loc m => loc -> String -> [(Constrained Var,IsVariadic)] -> TcM m ()
-----unresolvedQVars l qs = return ()
---unresolvedQVars l msg qs = do
---    let vs = map (unConstrained . fst) qs
---    s <- getTSubsts l
---    mapM_ (unresolvedQVar l msg s . varNameId) vs
---
---unresolvedQVar :: ProverK loc m => loc -> String -> TSubsts -> GIdentifier -> TcM m ()
---unresolvedQVar l msg s v = do
---    mb <- substsFromMap (Map.mapKeys VIden $ unTSubsts s) v
---    case mb of
---        Nothing -> return ()
---        Just (x::Type) -> do
---            ppv <- pp v
---            ppx <- pp x
---            genTcError (locpos l) $ text msg <> char ':' <+> text "quantified variable" <+> ppv <+> text "=" <+> ppx <+> text "should be unbound"
-
 -- | Adds a new (possibly overloaded) template operator to the environment
 -- adds the template constraints
 addTemplateOperator :: (ProverK loc m) => Op GIdentifier (Typed loc) -> [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> Op GIdentifier (Typed loc) -> TcM m (Op GIdentifier (Typed loc))
@@ -594,16 +587,13 @@ addTemplateOperator recop vars hctx bctx hdeps op = do
     let o = funit op
     let (Typed l (DecT recdt)) = loc recop
     let Typed l (IDecT d) = loc op
---    unresolvedQVars l "0" vars
     let selector = case iDecTyKind d of
                     FKind -> Lns functions (\x v -> x { functions = v }) 
                     PKind -> Lns procedures (\x v -> x { procedures = v })
     let did = fromJustNote "newOperator" (decTypeId recdt)
     let i = snd did
     let o = funit op
---    unresolvedQVars l "1" vars
     solve l "addTemplateOperator"
---    unresolvedQVars l "2" vars
     (hctx',bctx',(vars',d')) <- splitTpltHead l hctx bctx hdeps vars d
     d'' <- writeIDecVars l d'
     let dt' = DecT $ dropDecRecs $ DecType i (DecTypeOri False) vars' hctx' bctx' [] d''
@@ -663,14 +653,14 @@ isOpCastIden n = Nothing
  -- | Checks that an operator exists.
 checkOperator :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> Op GIdentifier loc -> TcM m [EntryEnv]
 checkOperator decK isAnn isLeak k op@(OpCast l t) = do
-    addGDependencies $ OIden $ funit op
+    addGIdDependencies $ OIden $ funit op
     ps <- getEntriesByPred l (isJust . isOpCastIden) decK isAnn isLeak k
     -- select all cast declarations
     let casts = concatMap Map.elems ps
     return casts
 checkOperator decK isAnn isLeak k op = do
     let cop = funit op
-    addGDependencies $ OIden cop
+    addGIdDependencies $ OIden cop
     ps <- getEntriesByName (loc op) (OIden cop) decK isAnn isLeak k
     case ps of
         Nothing -> do
@@ -918,7 +908,7 @@ newAxiom l tvars hdeps d = do
  -- | Checks that a procedure exists.
 checkProcedureFunctionLemma :: (ProverK loc m) => (DecTypeK -> Bool) -> Bool -> Bool -> DecKind -> ProcedureName GIdentifier loc -> TcM m [EntryEnv]
 checkProcedureFunctionLemma decK isAnn isLeak k pn@(ProcedureName l n) = do
-    addGDependencies n
+    addGIdDependencies n
     ps <- getEntriesByName l n decK isAnn isLeak k
     case ps of
         Nothing -> do
@@ -1072,23 +1062,30 @@ mkDecEnv l d@(DecType i _ ts hd bd specs p@(LemmaType isLeak pl pn pargs panns b
     let e = EntryEnv (locpos l) (DecT d)
     return $ mempty { lemmas = Map.singleton (funit pn) $ Map.singleton i e }
     
-topCstrs :: ProverK loc m => loc -> TcM m (Set LocIOCstr)
+topCstrs :: ProverK loc m => loc -> TcM m (Set LocGCstr)
 topCstrs l = do
-    cs <- liftM (flattenIOCstrGraphSet . tCstrs . headNe . tDict) State.get
+    cs <- liftM (flattenGCstrGraphSet . tCstrs . headNe . tDict) State.get
     opens <- dependentCstrs l []
     return $ cs `Set.difference` opens
     
-dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocIOCstr)
+dependentCstrs :: ProverK loc m => loc -> [Int] -> TcM m (Set LocGCstr)
 dependentCstrs l kids = do
     opens <- getOpensSet
     gr <- getCstrs
     return $ Set.fromList $ map (fromJustNote "dependentCstrs" . Graph.lab gr) $ reachablesGr (kids++Set.toList opens) gr
-    
-buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> TcM m IOCstrGraph
+
+getDropFromTail :: Monad m=> TcM m Bool
+#if INCREMENTAL
+getDropFromTail = State.gets (not . solveToCache)
+#else
+getDropFromTail = return True
+#endif
+
+buildCstrGraph :: (ProverK loc m) => loc -> Set Int -> TcM m GCstrGraph
 buildCstrGraph l cstrs = do
-    dropFromTail <- State.gets (not . solveToCache)
+    dropFromTail <- getDropFromTail
     tops <- topCstrs l
-    let tops' = mapSet (ioCstrId . unLoc) tops
+    let tops' = mapSet (gCstrId . unLoc) tops
     let cstrs' = Set.union tops' cstrs
     --liftIO $ putStrLn $ "buildCstrGraph: " ++ show (sepBy space (map (pp) $ Set.toList cstrs))
     d <- concatTDict l (SubstMode NoCheckS False) =<< liftM tDict State.get
@@ -1118,7 +1115,7 @@ noNormalFreesM e = do
         ppe <- pp e
         genTcError (loc e) False $ text "variables" <+> ppvs <+> text "should not be free in" $+$ ppe
 
-splitHeadFrees :: (ProverK loc m) => loc -> Set LocIOCstr -> TcM m (Frees,Frees)
+splitHeadFrees :: (ProverK loc m) => loc -> Set LocGCstr -> TcM m (Frees,Frees)
 splitHeadFrees l deps = do
     frees <- getFrees l
     hvs <- usedVs $ Set.map (kCstr . unLoc) deps
@@ -1139,7 +1136,7 @@ tpltVars ((unConstrained -> v@(VarName t (VIden n)),_):xs) = do
     vs' <- tpltVars xs
     return $ Set.insert n (Set.union vs vs')
     
-splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> DecCtx -> DecCtx -> Set LocIOCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (DecCtx,DecCtx,([(Constrained Var,IsVariadic)],a))
+splitTpltHead :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> DecCtx -> DecCtx -> Set LocGCstr -> [(Constrained Var,IsVariadic)] -> a -> TcM m (DecCtx,DecCtx,([(Constrained Var,IsVariadic)],a))
 splitTpltHead l hctx bctx deps vars dec = do
     d <- liftM (headNe . tDict) State.get
     let cstrs = tCstrs d
@@ -1152,7 +1149,7 @@ splitTpltHead l hctx bctx deps vars dec = do
     let hfrees = Map.intersection frees (Map.fromSet (const False) hvs)
     let bfrees = Map.difference frees hfrees
     opens <- getOpensSet
-    let cs = Set.difference (mapSet (ioCstrId . unLoc) deps) opens
+    let cs = Set.difference (mapSet (gCstrId . unLoc) deps) opens
     let gr = Graph.trc cstrs
     let hgr = Graph.nfilter (\n -> any (\h -> Graph.hasEdge gr (n,h)) cs) gr
     let bgr = differenceGr gr hgr
@@ -1235,7 +1232,7 @@ addTemplateStructSpecialization rectn vars specials hctx bctx hdeps tn@(TypeName
 
 addStructToRec :: ProverK loc m => [(Constrained Var,IsVariadic)] -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))
 addStructToRec vars hdeps tn@(TypeName (Typed l (IDecT d)) n) = do
-    addGDependencies n
+    addGIdDependencies n
     -- solve head constraints
     (_,recdict) <- tcProve l "newStruct head" $ addHeadTFlatCstrs l "newStruct head" hdeps
     addHeadTDict l "newStruct" recdict
@@ -1463,22 +1460,8 @@ mkVariadicTyArray True isTok t = do
 
 addValueM :: ProverK loc m => loc -> SubstMode -> Var -> Expr -> TcM m ()
 addValueM l mode v e = addSubstM l mode v (IdxT e)
-    
---addValue :: (MonadIO m,Location loc) => loc -> VarIdentifier -> Expr -> TcM m ()
---addValue l v e = do
-----    liftIO $ putStrLn $ "addValue " ++ ppr v ++ " " ++ ppr e
---    updateHeadTDict $ \d -> return ((),d { tSubsts = TSubsts $ Map.insert v (IdxT e) (unTSubsts $ tSubsts d) })
---    removeFree v
---
---addValueM :: (ProverK loc m) => Bool -> loc -> Var -> Expr -> TcM m ()
---addValueM checkTy l (VarName t n) (RVariablePExpr _ (VarName _ ((==n) -> True))) = return ()
---addValueM checkTy l v@(VarName t n) e = addErrorM l (TypecheckerError (locpos l) . MismatchingVariableType (pp v)) $ do
---    when checkTy $ tcCstrM_ l $ Unifies t (loc e)
---    addValue l n e
---    addGDependencies $ Left n
---    dirtyGDependencies $ Left n
 
-openCstr :: (MonadIO m,Location loc) => loc -> IOCstr -> TcM m ()
+openCstr :: (MonadIO m,Location loc) => loc -> GCstr -> TcM m ()
 openCstr l o = do
     opts <- TcM $ lift ask
     size <- liftM (length . openedCstrs) State.get
@@ -1489,123 +1472,149 @@ openCstr l o = do
 closeCstr :: (MonadIO m) => TcM m ()
 closeCstr = do
     State.modify $ \e -> e { openedCstrs = tail (openedCstrs e) }
-    
+
+#if INCREMENTAL 
 addCstrCache :: (ProverK loc m) => loc -> CstrCache -> TcM m ()
 addCstrCache l delays = do
     solve <- State.gets solveToCache
     if solve
         then State.modify $ \e -> e { cstrCache = Map.union (cstrCache e) delays }
         else liftIO $ forM_ (Map.toList delays) $ \(Loc l iok,st) -> writeIdRef (kStatus iok) st
+#endif
 
 
-getSolved :: ProverK Position m => TcM m (Map LocIOCstr Bool)
+getSolved :: ProverK Position m => TcM m (Map LocGCstr Bool)
 getSolved = State.gets (mconcat . Foldable.toList . fmap tSolved . tDict)
 
-resolveIOCstr_ :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
-resolveIOCstr_ l iok resolve = do
+resolveGCstr_ :: ProverK loc m => loc -> GCstr -> (TCstr -> GCstrGraph -> Maybe (Context LocGCstr ()) -> TcM m ShowOrdDyn) -> TcM m ()
+resolveGCstr_ l iok resolve = do
     solved <- getSolved
     if (isJust $ Map.lookup (Loc (locpos l) iok) solved)
         then removeCstr l iok
-        else resolveIOCstr l iok resolve >> return ()
+        else resolveGCstr l iok resolve >> return ()
   where
-    resolveIOCstr :: ProverK loc m => loc -> IOCstr -> (TCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
-    resolveIOCstr l iok resolve = do
+    resolveGCstr :: ProverK loc m => loc -> GCstr -> (TCstr -> GCstrGraph -> Maybe (Context LocGCstr ()) -> TcM m ShowOrdDyn) -> TcM m ShowOrdDyn
+    resolveGCstr l iok resolve = do
+#if INCREMENTAL
         st <- readCstrStatus (locpos l) iok
         case st of
             Evaluated rest (frees,delfrees) infer x -> do
                 removeCstr l iok
                 solvedCstr l iok infer
                 addHeadTDict l "resolveIOCstr" rest
-                addFrees ("resolveIOCstr "++show (ioCstrId iok)) frees
-                delFrees ("resolveIOCstr "++show (ioCstrId iok)) delfrees
+                addFrees ("resolveIOCstr "++show (gCstrId iok)) frees
+                delFrees ("resolveIOCstr "++show (gCstrId iok)) delfrees
                 debugTc $ do
-                    ppiok <- ppr (ioCstrId iok)
+                    ppiok <- ppr (gCstrId iok)
                     pprest <- ppr rest
                     liftIO $ putStrLn $ "restored constraint " ++ ppiok ++ "\n" ++ pprest
                 return x
             Erroneous err -> throwError err
             Unevaluated -> trySolve
+#else
+        trySolve
+#endif
       where
         trySolve = do
             openCstr l iok
             gr <- liftM (tCstrs . headNe . tDict) State.get
-            let ctx = contextGr gr (ioCstrId iok)
+            let ctx = contextGr gr (gCstrId iok)
             ((x,rest),frees,delfrees) <- withFrees l $ tcWith (locpos l) "resolveIOCstr" $ resolve (kCstr iok) gr ctx
             removeCstr l iok
             solvedCstr l iok False
             closeCstr
+#if INCREMENTAL
             writeCstrStatus (locpos l) iok $ Evaluated rest (frees,delfrees) False x
+#else
+            writeCstrSol (locpos l) iok x
+#endif
             addHeadTDict l "writeTCstrStatus" rest
-            addFrees ("resolveIOCstr "++show (ioCstrId iok)) frees
-            delFrees ("resolveIOCstr "++show (ioCstrId iok)) delfrees
-            liftIO $ registerIOCstrDependencies iok gr ctx
-            --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (ioCstrId iok)
+            addFrees ("resolveIOCstr "++show (gCstrId iok)) frees
+            delFrees ("resolveIOCstr "++show (gCstrId iok)) delfrees
+            liftIO $ registerGCstrDependencies iok gr ctx
+            --liftIO $ putStrLn $ "resolveIOCstr close " ++ ppr (gCstrId iok)
             return x
 
-solvedCstr :: ProverK loc m => loc -> IOCstr -> Bool -> TcM m ()
+solvedCstr :: ProverK loc m => loc -> GCstr -> Bool -> TcM m ()
 solvedCstr l iok infer = updateHeadTDict l "solved" $ \env -> return ((),env { tSolved = Map.insertWith (max) (Loc (locpos l) iok) infer (tSolved env) })
 
-removeCstr :: ProverK loc m => loc -> IOCstr -> TcM m ()
+removeCstr :: ProverK loc m => loc -> GCstr -> TcM m ()
 removeCstr l iok = do
-    updateHeadTDict l "remove resolveIOCstr" $ \d -> return ((),d { tCstrs = delNode (ioCstrId iok) (tCstrs d) })
+    updateHeadTDict l "remove resolveIOCstr" $ \d -> return ((),d { tCstrs = delNode (gCstrId iok) (tCstrs d) })
 
 -- register constraints dependencies from the dictionary into the global state
-registerIOCstrDependencies :: IOCstr -> IOCstrGraph -> Maybe (Context LocIOCstr ()) -> IO ()
-registerIOCstrDependencies iok gr ctx = do
+registerGCstrDependencies :: GCstr -> GCstrGraph -> Maybe (Context LocGCstr ()) -> IO ()
+#if INCREMENTAL
+registerGCstrDependencies iok gr ctx = do
     case ctx of
         Nothing -> return ()
         Just (deps,_,_,_) -> forM_ deps $ \(_,d) -> case lab gr d of
             Nothing -> return ()
-            Just x -> addIODependency (unLoc x) (Set.singleton iok)
+            Just x -> addGDependency (unLoc x) (Set.singleton iok)
+#else
+registerGCstrDependencies iok gr ctx = return ()
+#endif
 
 -- | adds a dependency on the given variable for all the opened constraints
-addGDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
-addGDependencies v = do
+addGIdDependencies :: (MonadIO m) => GIdentifier -> TcM m ()
+#if INCREMENTAL
+addGIdDependencies v = do
     cstrs <- getOpens
-    --liftIO $ putStrLn $ "addGDependencies: " ++ ppr v ++ " " ++ show (sepBy space (map (pp . ioCstrId) cstrs))
-    addGDependency v cstrs
+    --liftIO $ putStrLn $ "addGDependencies: " ++ ppr v ++ " " ++ show (sepBy space (map (pp . gCstrId) cstrs))
+    addGIdDependency v cstrs
+#else
+addGIdDependencies v = return ()
+#endif
     
-addGDependency :: (MonadIO m) => GIdentifier -> [IOCstr] -> TcM m ()
-addGDependency v cstrs = do
+addGIdDependency :: (MonadIO m) => GIdentifier -> [GCstr] -> TcM m ()
+#if INCREMENTAL
+addGIdDependency v cstrs = do
     deps <- liftM tDeps $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup deps v
     m <- case mb of
         Nothing -> liftIO $ WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps v m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
     liftIO $ forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
+#else
+addGIdDependency v cstrs = return ()
+#endif
 
-addIODependency :: IOCstr -> Set IOCstr -> IO ()
-addIODependency v cstrs = do
+addGDependency :: GCstr -> Set GCstr -> IO ()
+#if INCREMENTAL
+addGDependency v cstrs = do
     deps <- liftM ioDeps $ readIORef globalEnv
     mb <- WeakHash.lookup deps (modTyId $ uniqId $ kStatus v)
     m <- case mb of
         Nothing -> WeakMap.new >>= \m -> WeakHash.insertWithMkWeak deps (modTyId $ uniqId $ kStatus v) m (MkWeak $ mkWeakKey m) >> return m
         Just m -> return m
     forM_ cstrs $ \k -> WeakMap.insertWithMkWeak m (modTyId $ uniqId $ kStatus k) k (MkWeak $ mkWeakKey $ kStatus k)
+#else
+addGDependency v cstrs = return ()
+#endif
 
 -- adds a dependency to the constraint graph
-addIOCstrDependencies :: TDict -> Set LocIOCstr -> LocIOCstr -> Set LocIOCstr -> TDict
-addIOCstrDependencies dict from iok to = dict { tCstrs = add $ tCstrs dict }
+addGCstrDependencies :: TDict -> Set LocGCstr -> LocGCstr -> Set LocGCstr -> TDict
+addGCstrDependencies dict from iok to = dict { tCstrs = add $ tCstrs dict }
     where
     add gr = insLabEdges froms $ insLabEdges tos $ tryInsNode (gid iok,iok) gr 
     tos = map (\k -> ((gid iok,iok),(gid k,k),())) $ Set.toList to
     froms = map (\k -> ((gid k,k),(gid iok,iok),())) $ Set.toList from
-    gid = ioCstrId . unLoc
+    gid = gCstrId . unLoc
 
-addIOCstrDependenciesM :: (ProverK loc m) => loc -> Bool -> Deps -> LocIOCstr -> Deps -> TcM m ()
-addIOCstrDependenciesM l filterDeps froms iok tos = do
+addGCstrDependenciesM :: (ProverK loc m) => loc -> Bool -> Deps -> LocGCstr -> Deps -> TcM m ()
+addGCstrDependenciesM l filterDeps froms iok tos = do
     ns <- getCstrNodes
---    liftIO $ putStrLn $ "addIOCstrDependenciesM " ++ ppr (mapSet (ioCstrId . unLoc) froms) ++ " --> " ++ ppr (ioCstrId $ unLoc iok) ++ " --> " ++ ppr (mapSet (ioCstrId . unLoc) tos)
-    let froms' = if filterDeps then Set.filter (flip Set.member ns . ioCstrId . unLoc) froms else froms
-    let tos' = if filterDeps then Set.filter (flip Set.member ns . ioCstrId . unLoc) tos else tos
-    updateHeadTDict l "addIOCstrDependenciesM" $ \d -> return ((),addIOCstrDependencies d froms' iok tos')
+--    liftIO $ putStrLn $ "addIOCstrDependenciesM " ++ ppr (mapSet (gCstrId . unLoc) froms) ++ " --> " ++ ppr (gCstrId $ unLoc iok) ++ " --> " ++ ppr (mapSet (gCstrId . unLoc) tos)
+    let froms' = if filterDeps then Set.filter (flip Set.member ns . gCstrId . unLoc) froms else froms
+    let tos' = if filterDeps then Set.filter (flip Set.member ns . gCstrId . unLoc) tos else tos
+    updateHeadTDict l "addIOCstrDependenciesM" $ \d -> return ((),addGCstrDependencies d froms' iok tos')
     
 getCstrNodes :: Monad m => TcM m (Set Int)
 getCstrNodes = do
     dicts <- liftM tDict State.get
     return $ foldr (\d xs -> Set.fromList (nodes $ tCstrs d) `Set.union` xs) Set.empty dicts
 
-getCstrs :: Monad m => TcM m IOCstrGraph
+getCstrs :: Monad m => TcM m GCstrGraph
 getCstrs = State.gets (foldr unionGr Graph.empty . map tCstrs . Foldable.toList . tDict)
 
 addHeadTDict :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
@@ -1614,12 +1623,12 @@ addHeadTDict l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM 
 addHeadTDictDirty :: (ProverK loc m) => loc -> String -> TDict -> TcM m ()
 addHeadTDictDirty l msg d = updateHeadTDict l (msg ++ " addHeadTDict") $ \x -> liftM ((),) $ appendTDict l (SubstMode NoFailS True) x d
 
-addHeadTCstrs :: (ProverK loc m) => loc -> String -> IOCstrGraph -> TcM m ()
+addHeadTCstrs :: (ProverK loc m) => loc -> String -> GCstrGraph -> TcM m ()
 addHeadTCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict ks Set.empty emptyTSubsts mempty Map.empty
 
-addHeadTFlatCstrs :: (ProverK loc m) => loc -> String -> Set LocIOCstr -> TcM m ()
+addHeadTFlatCstrs :: (ProverK loc m) => loc -> String -> Set LocGCstr -> TcM m ()
 addHeadTFlatCstrs l msg ks = addHeadTDict l (msg++" addHeadTFlatCstrs") $ TDict (Graph.mkGraph nodes []) Set.empty (TSubsts Map.empty) mempty Map.empty
-    where nodes = map (\n -> (ioCstrId $ unLoc n,n)) $ Set.toList ks
+    where nodes = map (\n -> (gCstrId $ unLoc n,n)) $ Set.toList ks
 
 getHyps :: (MonadIO m) => TcM m Deps
 getHyps = do
@@ -1631,22 +1640,22 @@ getDeps = do
     env <- State.get
     return $ globalDeps env `Set.union` localDeps env
 
-tcWithCstrs :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,Set LocIOCstr)
+tcWithCstrs :: (ProverK loc m) => loc -> String -> TcM m a -> TcM m (a,Set LocGCstr)
 tcWithCstrs l msg m = do
     (x,d) <- tcWith (locpos l) msg m
     addHeadTDict l (msg++" tcWithCstrs") d
-    return (x,flattenIOCstrGraphSet $ tCstrs d)
+    return (x,flattenGCstrGraphSet $ tCstrs d)
 
-cstrSetToGraph :: Location loc => loc -> Set IOCstr -> IOCstrGraph
-cstrSetToGraph l xs = foldr (\x gr -> insNode (ioCstrId x,Loc (locpos l) x) gr) Graph.empty (Set.toList xs)
+cstrSetToGraph :: Location loc => loc -> Set GCstr -> GCstrGraph
+cstrSetToGraph l xs = foldr (\x gr -> insNode (gCstrId x,Loc (locpos l) x) gr) Graph.empty (Set.toList xs)
 
-newTDictCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TDict -> TcM m (IOCstr,TDict)
+newTDictCstr :: (MonadIO m,Location loc) => loc -> TCstr -> TDict -> TcM m (GCstr,TDict)
 newTDictCstr l c dict = do
-    iok <- newIOCstr c
-    return (iok,dict { tCstrs = insNode (ioCstrId iok,Loc (locpos l) iok) (tCstrs dict) })
+    iok <- newGCstr c
+    return (iok,dict { tCstrs = insNode (gCstrId iok,Loc (locpos l) iok) (tCstrs dict) })
 
 ---- | Adds a new template constraint to the environment
-newTemplateConstraint :: (ProverK loc m) => loc -> TCstr -> TcM m IOCstr
+newTemplateConstraint :: (ProverK loc m) => loc -> TCstr -> TcM m GCstr
 newTemplateConstraint l c = do
     updateHeadTDict l "newTemplateConstraint" (newTDictCstr (locpos l) c)
 
@@ -1654,7 +1663,7 @@ newTemplateConstraint l c = do
 --erroneousTemplateConstraint l c err = do
 --    updateHeadTDict (insertTDictCstr (locpos l) c $ Erroneous err)
 
-updateHeadTCstrs :: (ProverK loc m) => loc -> String -> (IOCstrGraph -> TcM m (a,IOCstrGraph)) -> TcM m a
+updateHeadTCstrs :: (ProverK loc m) => loc -> String -> (GCstrGraph -> TcM m (a,GCstrGraph)) -> TcM m a
 updateHeadTCstrs l msg upd = updateHeadTDict l (msg ++ ":updateHeadTCstrs") $ \d -> do
     (x,gr') <- upd (tCstrs d)
     return (x,d { tCstrs = gr' })
@@ -1669,6 +1678,7 @@ updateHeadTDict l msg upd = do
 
 -- | forget the result for a constraint when the value of a variable it depends on changes
 dirtyGDependencies :: (MonadIO m) => Position -> GIdentifier -> TcM m ()
+#if INCREMENTAL
 dirtyGDependencies p v = do
     debugTc $ do
         ppv <- ppr v
@@ -1683,11 +1693,15 @@ dirtyGDependencies p v = do
                 -- dirty other constraint dependencies
                 dirtyIOCstrDependencies p opens x
     debugTc $ liftIO $ putStrLn "\n"
+#else
+dirtyGDependencies p v = return ()
+#endif
 
-dirtyIOCstrDependencies :: MonadIO m => Position -> [IOCstr] -> IOCstr -> TcM m ()
-dirtyIOCstrDependencies p opens iok = do
+dirtyGCstrDependencies :: MonadIO m => Position -> [GCstr] -> GCstr -> TcM m ()
+#if INCREMENTAL
+dirtyGCstrDependencies p opens iok = do
     unless (elem iok opens) $ do
-        debugTc $ liftIO $ putStr $ " " ++ pprid (ioCstrId iok)
+        debugTc $ liftIO $ putStr $ " " ++ pprid (gCstrId iok)
         writeCstrStatus p iok Unevaluated
         --writeIdRef (kStatus io) Unevaluated
     deps <- liftIO $ liftM ioDeps $ readIORef globalEnv
@@ -1695,6 +1709,9 @@ dirtyIOCstrDependencies p opens iok = do
     case mb of
         Nothing -> return ()
         Just m -> WeakMap.forGenericM_ m $ \(u,x) -> dirtyIOCstrDependencies p opens x
+#else
+dirtyGCstrDependencies p opens iok = return ()
+#endif
 
 -- we need global const variables to distinguish them during typechecking
 addConst :: MonadIO m => Scope -> (Bool,Bool) -> IsVariadic -> Identifier -> TcM m GIdentifier
@@ -1909,14 +1926,14 @@ appendPureTDict l noFail (PureTDict u1 ss1 rec1) (PureTDict u2 ss2 rec2) = do
     u12' <- liftIO $ foldM (\gr k -> insNewNodeIO (Loc (locpos l) k) gr) u12 ks
     return $ PureTDict u12' ss12 (mappend rec1 rec2)
 
-insertNewCstr :: (MonadIO m,Location loc) => loc -> TCstr -> IOCstrGraph -> TcM m IOCstrGraph
+insertNewCstr :: (MonadIO m,Location loc) => loc -> TCstr -> GCstrGraph -> TcM m GCstrGraph
 insertNewCstr l c gr = do
-    iok <- newIOCstr c
-    return $ insNode (ioCstrId iok,Loc (locpos l) iok) gr
+    iok <- newGCstr c
+    return $ insNode (gCstrId iok,Loc (locpos l) iok) gr
 
-newIOCstr :: MonadIO m => TCstr -> TcM m IOCstr
---newIOCstr c = liftM (IOCstr c) $ newUniqRef Unevaluated
-newIOCstr c = do
+newGCstr :: MonadIO m => TCstr -> TcM m GCstr
+#if INCREMENTAL
+newGCstr c = do
     cstrs <- liftM gCstrs $ liftIO $ readIORef globalEnv
     mb <- liftIO $ WeakHash.lookup cstrs c
     case mb of
@@ -1924,6 +1941,11 @@ newIOCstr c = do
             mn <- newModuleTyVarId
             liftM (IOCstr c) $ liftIO $ newIdRef mn Unevaluated
         Just (IOCstr _ st) -> return $ IOCstr c st
+#else
+newGCstr c = do
+    mn <- newModuleTyVarId
+    return $ IdCstr c mn
+#endif
     
 specializeM :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> a -> TcM m a
 specializeM l a = do
@@ -1973,7 +1995,8 @@ throwTcError l err = do
     (i,SecrecErrArr f) <- Reader.ask
     let err2 = f err
     ios <- liftM openedCstrs State.get
-    debugTc $ liftIO $ putStrLn $ "throwTcError " ++ show (map (pprid . ioCstrId . fst) ios)
+    debugTc $ liftIO $ putStrLn $ "throwTcError " ++ show (map (pprid . gCstrId . fst) ios)
+#if INCREMENTAL
     let add (io,vs) = do
         -- write error to the constraint's result
         writeCstrStatus (locpos l) io (Erroneous err2)
@@ -1981,6 +2004,7 @@ throwTcError l err = do
         -- dirty variables assigned by this constraint
         forM_ vs (dirtyGDependencies (locpos l) . VIden)
     mapM_ add ios
+#endif
     throwError err2     
 
 -- a new dictionary
@@ -2057,12 +2081,12 @@ checkLeak l True m = do
                 ppk <- pp k
                 genTcError (locpos l) False $ text "leakage annotation not supported in" <+> ppk
 
-getOpens :: MonadIO m => TcM m [IOCstr]
+getOpens :: MonadIO m => TcM m [GCstr]
 getOpens = State.gets (map fst . openedCstrs)
 
 getOpensSet :: MonadIO m => TcM m (Set Int)
 getOpensSet = do
-    opens <- State.gets (map (ioCstrId . fst) . openedCstrs)
+    opens <- State.gets (map (gCstrId . fst) . openedCstrs)
     return (Set.fromList opens)
 
 withCstrState :: (Location loc,MonadIO m) => loc -> CstrState -> TcM m a -> TcM m a
@@ -2667,32 +2691,32 @@ tcDie True m = catchError m $ \e -> do
 --tcBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> TcM m a -> TcM m a
 --tcBlock l m = tcGenBlock l "block" False Nothing m
 
--- | TypeChecks a code block
-tcGenBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> Bool -> Maybe ModuleCount -> TcM m a -> TcM m a
-tcGenBlock l msg doReset count m = tcDie doReset $ tcProgress (Just $ locpos l) (Just msg) $ do
-    olde <- State.get
-    oldge <- liftIO $ if doReset then liftM Just backupGlobalEnv else return Nothing
-    oldti <- liftIO $ if doReset then liftM Just backupTyVarId else return Nothing
-    when doReset $ State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = maybe (moduleCount e) id count }
-    debugTc $ do
-        opts <- askOpts
-        liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l) ++ " " ++ show (implicitCoercions opts)
-    x <- m
-    when doReset $ do
-        solveTop l "tcGlobal"
-        dict <- top . tDict =<< State.get
-        x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
-        tcProgress Nothing (Just "cleanup") $ do
-            liftIO $ resetGlobalEnv False
-            liftIO resetTyVarId
-    State.modify $ \e -> e { cstrCache = cstrCache olde, openedCstrs = openedCstrs olde, decClass = decClass olde, localConsts = localConsts olde, localVars = localVars olde, localFrees = localFrees olde, localDeps = localDeps olde, tDict = tDict olde, moduleCount = moduleCount olde }
-    liftIO $ mapM_ restoreGlobalEnv oldge
-    liftIO $ mapM_ restoreTyVarId oldti
-    return x
-  where
-    top (WrapNe x) = return x
-    top xs = do
-        ppxs <- mapM pp $ Foldable.toList xs
-        error $ "tcGlobal: " ++ show (vcat ppxs)    
+---- | TypeChecks a code block
+--tcGenBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> Bool -> Maybe ModuleCount -> TcM m a -> TcM m a
+--tcGenBlock l msg doReset count m = tcDie doReset $ tcProgress (Just $ locpos l) (Just msg) $ do
+--    olde <- State.get
+--    oldge <- liftIO $ if doReset then liftM Just backupGlobalEnv else return Nothing
+--    oldti <- liftIO $ if doReset then liftM Just backupTyVarId else return Nothing
+--    when doReset $ State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = maybe (moduleCount e) id count }
+--    debugTc $ do
+--        opts <- askOpts
+--        liftIO $ putStrLn $ "solving tcGlobal " ++ pprid (locpos l) ++ " " ++ show (implicitCoercions opts)
+--    x <- m
+--    when doReset $ do
+--        solveTop l "tcGlobal"
+--        dict <- top . tDict =<< State.get
+--        x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
+--        tcProgress Nothing (Just "cleanup") $ do
+--            liftIO $ resetGlobalEnv False
+--            liftIO resetTyVarId
+--    State.modify $ \e -> e { cstrCache = cstrCache olde, openedCstrs = openedCstrs olde, decClass = decClass olde, localConsts = localConsts olde, localVars = localVars olde, localFrees = localFrees olde, localDeps = localDeps olde, tDict = tDict olde, moduleCount = moduleCount olde }
+--    liftIO $ mapM_ restoreGlobalEnv oldge
+--    liftIO $ mapM_ restoreTyVarId oldti
+--    return x
+--  where
+--    top (WrapNe x) = return x
+--    top xs = do
+--        ppxs <- mapM pp $ Foldable.toList xs
+--        error $ "tcGlobal: " ++ show (vcat ppxs)    
 
 

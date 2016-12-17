@@ -177,7 +177,7 @@ expr2ProverMb e = lift $ do
     genTcError (locpos $ unTyped $ loc e) True $ text "failed to convert expression" <+> ppe <+> text "to prover expression"
     
 proverProcError str (DecT (DVar v)) e = do
-    lift $ addGDependencies $ VIden v
+    lift $ addGIdDependencies $ VIden v
     lift $ do
         ppe <- ppExprTy (fmap typed e)
         tcError (locpos $ unTyped $ loc e) $ Halt $ GenTcError (text "failed to convert" <+> text str <+> text "expression" <+> ppe <+> text "to prover expression") Nothing

@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, ScopedTypeVariables, FlexibleInstances, ConstraintKinds, StandaloneDeriving, DeriveDataTypeable, MultiParamTypeClasses, TupleSections, GADTs, FlexibleContexts, ViewPatterns #-}
+{-# LANGUAGE CPP, DeriveGeneric, ScopedTypeVariables, FlexibleInstances, ConstraintKinds, StandaloneDeriving, DeriveDataTypeable, MultiParamTypeClasses, TupleSections, GADTs, FlexibleContexts, ViewPatterns #-}
 
 module Language.SecreC.TypeChecker.Constraint where
 
@@ -59,18 +59,18 @@ import Safe
 
 -- solves all hypotheses in the environment
 solveHypotheses :: (ProverK loc m) => loc -> TcM m [IExpr]
-solveHypotheses l = do
+solveHypotheses l = withRecordSols $ do
     hyps <- liftM Set.toList getHyps
     (_,dhyps) <- tcWith (locpos l) "solveHypotheses" $ do
-        addHeadTCstrs l "solveHypotheses" $ Graph.insNodes (map (\x -> (ioCstrId $ unLoc x,x)) hyps) Graph.empty
+        addHeadTCstrs l "solveHypotheses" $ Graph.insNodes (map (\x -> (gCstrId $ unLoc x,x)) hyps) Graph.empty
         solveTop l "solveHypotheses"
     addHeadTDict l "solveHypotheses" $ dhyps { tCstrs = Graph.empty }
     -- collect the result for the hypotheses
     liftM concat $ forM hyps $ \(Loc _ iok) -> do
-        liftM (maybeToList . join) $ ioCstrResult l iok proxy
+        liftM (maybeToList . join) $ gCstrResult l iok proxy
   where proxy = Proxy :: Proxy (Maybe IExpr)
 
-solveSelectionWith :: ProverK loc m => loc -> String -> SolveMode -> Set LocIOCstr -> TcM m ()
+solveSelectionWith :: ProverK loc m => loc -> String -> SolveMode -> Set LocGCstr -> TcM m ()
 solveSelectionWith l msg mode cs = tcNoDeps $ do
     newDict l $ "solveSelection " ++ msg
     mb <- solveMb l ("solveSelection " ++ msg ++ " " ++ show mode) mode cs
@@ -138,13 +138,13 @@ solveWith l msg mode = do
         Nothing -> return ()
         Just err -> throwError err
 
-solveMb :: (ProverK loc m) => loc -> String -> SolveMode -> Set LocIOCstr -> TcM m (Maybe SecrecError)
+solveMb :: (ProverK loc m) => loc -> String -> SolveMode -> Set LocGCstr -> TcM m (Maybe SecrecError)
 solveMb l msg mode cs = do
     --liftIO $ putStrLn $ "solving " ++ msg ++ " " ++ show doAll ++ " " ++ show doSolve ++ " " ++ ppr l ++ ppr cs
     if Set.null cs
         then return Nothing
         else newErrorM $ tcNoDeps $ do
-            gr' <- buildCstrGraph l (mapSet (ioCstrId . unLoc) cs)
+            gr' <- buildCstrGraph l (mapSet (gCstrId . unLoc) cs)
             debugTc $ do
                 ppl <- ppr l
                 ss <- ppConstraints gr'
@@ -158,7 +158,7 @@ solveMb l msg mode cs = do
                 liftIO $ putStrLn $ "solvedMb " ++ msg ++ " " ++ ppl ++ ppmb
             return mb
 
-priorityRoots :: ProverK Position m => (x,LocIOCstr) -> (x,LocIOCstr) -> TcM m Ordering
+priorityRoots :: ProverK Position m => (x,LocGCstr) -> (x,LocGCstr) -> TcM m Ordering
 priorityRoots x y = priorityTCstr (kCstr $ unLoc $ snd x) (kCstr $ unLoc $ snd y)
 
 solveCstrs :: (ProverK loc m) => loc -> String -> SolveMode -> TcM m (Maybe SecrecError)
@@ -190,7 +190,7 @@ solveCstrs l msg mode = do
                 ppedges <- mapM pp $ Graph.edges gr
                 error $ "solveCstrs: no root constraints to proceed " ++ ppl ++ " " ++ ppgr ++ "\n\n" ++ show (sepBy comma ppedges)
             debugTc $ do
-                pproots <- mapM (pp . ioCstrId . unLoc . snd) roots
+                pproots <- mapM (pp . gCstrId . unLoc . snd) roots
                 liftIO $ putStrLn $ "solveCstrsG " ++ msg ++ show mode ++ " [" ++ show (sepBy space pproots) ++ "\n]"
             go <- trySolveSomeCstrs mode $ map snd roots
             case go of
@@ -210,7 +210,7 @@ solveCstrs l msg mode = do
 -- Left True = one constraint solved
 -- Left False = no remaining unsolved constraints
 -- Right err = failed
-type SolveRes = Either Bool [(LocIOCstr,SecrecError)]
+type SolveRes = Either Bool [(LocGCstr,SecrecError)]
 
 mergeSolveRes :: SolveRes -> SolveRes -> SolveRes
 mergeSolveRes (Left True) b = Left True
@@ -225,7 +225,7 @@ isErrorSolveRes False (Right es) = any (not . isHaltError . snd) es
 isErrorSolveRes True (Right es) = not $ null es
 
 -- | tries to solve one or more constraints
-trySolveSomeCstrs :: (ProverK Position m) => SolveMode -> [LocIOCstr] -> TcM m SolveRes
+trySolveSomeCstrs :: (ProverK Position m) => SolveMode -> [LocGCstr] -> TcM m SolveRes
 trySolveSomeCstrs mode = foldlM solveBound (Left False)
     where
     solveBound b x = case solveFail mode of
@@ -241,12 +241,12 @@ trySolveSomeCstrs mode = foldlM solveBound (Left False)
                 return (mergeSolveRes b ok)
             else do
                 debugTc $ do
-                    ppx <- ppr (ioCstrId $ unLoc x)
+                    ppx <- ppr (gCstrId $ unLoc x)
                     liftIO $ putStrLn $ "didn't find queued constraint " ++ ppx
                 return b
 
 -- since templates are only resolved at instantiation time, we prevent solving of overloadable constraints
-trySolveCstr :: (ProverK Position m) => SolveMode -> LocIOCstr -> TcM m SolveRes
+trySolveCstr :: (ProverK Position m) => SolveMode -> LocGCstr -> TcM m SolveRes
 trySolveCstr mode (Loc l iok) = do
     isMul <- isMultipleSubstsCstr (kCstr iok)
     if solveScope mode < SolveAll && isMul
@@ -258,49 +258,49 @@ trySolveCstr mode (Loc l iok) = do
                 else catchError
                     (do
                         opens <- getOpensSet
-                        if Set.member (ioCstrId iok) opens
+                        if Set.member (gCstrId iok) opens
                             then do
                                 debugTc $ do
-                                    ppx <- ppr (ioCstrId iok)
+                                    ppx <- ppr (gCstrId iok)
                                     liftIO $ putStrLn $ "found opened or promoted constraint " ++ ppx
                                 return (Left False)
-                            else solveIOCstr_ l "trySolveCstr" mode iok >> return (Left True)
+                            else solveGCstr_ l "trySolveCstr" mode iok >> return (Left True)
                     )
                     (\e -> return $ Right [(Loc l iok,e)])
 
-findCstr :: Monad m => LocIOCstr -> TcM m Bool
+findCstr :: Monad m => LocGCstr -> TcM m Bool
 findCstr x = do
-    ks <- State.gets (flattenIOCstrGraphSet . tCstrs . headNe . tDict)
+    ks <- State.gets (flattenGCstrGraphSet . tCstrs . headNe . tDict)
 --    ks <- State.gets (mconcat . map (flattenIOCstrGraphSet . tCstrs) . tDict)
     return $ Set.member x ks
 
-getErrors :: [(LocIOCstr,SecrecError)] -> [SecrecError]
+getErrors :: [(LocGCstr,SecrecError)] -> [SecrecError]
 getErrors = map snd . flattenErrors
     
-flattenErrors :: [(LocIOCstr,SecrecError)] -> [(LocIOCstr,SecrecError)]
+flattenErrors :: [(LocGCstr,SecrecError)] -> [(LocGCstr,SecrecError)]
 flattenErrors [] = []
 flattenErrors ((y,MultipleErrors errs):xs) = flattenErrors (map (\e -> (y,e)) errs ++ xs)
 flattenErrors (err:xs) = err : flattenErrors xs
 
 -- we let multiple substitution constraints go through if we are not solving the last dictionary, since these constraints can always be resolved at a later time
-filterScopeErrors :: ProverK Position m => SolveScope -> [(LocIOCstr,SecrecError)] -> TcM m [(LocIOCstr,SecrecError)]
+filterScopeErrors :: ProverK Position m => SolveScope -> [(LocGCstr,SecrecError)] -> TcM m [(LocGCstr,SecrecError)]
 filterScopeErrors scope xs = flip filterM xs $ \x -> do
     s <- cstrScope (kCstr $ unLoc $ fst x)
     return (s <= scope)
 
-filterFailErrors :: SolveFail -> [(LocIOCstr,SecrecError)] -> [(LocIOCstr,SecrecError)]
+filterFailErrors :: SolveFail -> [(LocGCstr,SecrecError)] -> [(LocGCstr,SecrecError)]
 filterFailErrors (FirstFail haltFail) xs = if haltFail then xs else filter (not . isHaltError . snd) xs
 filterFailErrors (AllFail haltFail) xs = if haltFail then xs else filter (not . isHaltError . snd) xs
 filterFailErrors NoFail xs = []
 
-filterErrors :: (ProverK loc m) => loc -> SolveMode -> [(LocIOCstr,SecrecError)] -> TcM m ([(LocIOCstr,SecrecError)])
+filterErrors :: (ProverK loc m) => loc -> SolveMode -> [(LocGCstr,SecrecError)] -> TcM m ([(LocGCstr,SecrecError)])
 filterErrors l mode errs = do
     errs2 <- filterWarnings l errs
     errs3 <- filterScopeErrors (solveScope mode) errs2
     let errs4 = filterFailErrors (solveFail mode) errs3
     return errs4
 
-filterWarnings :: (ProverK loc m) => loc -> [(LocIOCstr,SecrecError)] -> TcM m [(LocIOCstr,SecrecError)]
+filterWarnings :: (ProverK loc m) => loc -> [(LocGCstr,SecrecError)] -> TcM m [(LocGCstr,SecrecError)]
 filterWarnings l = filterM $ \(k,err) -> if isOrWarnError err
     then do
         errWarn err
@@ -308,12 +308,12 @@ filterWarnings l = filterM $ \(k,err) -> if isOrWarnError err
         return False
     else return True
 
-filterCstrSetScope :: VarsGTcM m => SolveScope -> Set LocIOCstr -> TcM m (Set LocIOCstr)
+filterCstrSetScope :: VarsGTcM m => SolveScope -> Set LocGCstr -> TcM m (Set LocGCstr)
 filterCstrSetScope scope = filterSetM $ \x -> do
     s <- cstrScope (kCstr $ unLoc x)
     return (s <= scope)
 
-solveErrors :: (ProverK loc m) => loc -> SolveMode -> [(LocIOCstr,SecrecError)] -> TcM m (Maybe SecrecError)
+solveErrors :: (ProverK loc m) => loc -> SolveMode -> [(LocGCstr,SecrecError)] -> TcM m (Maybe SecrecError)
 solveErrors l mode errs = do
     errs' <- filterErrors l mode (flattenErrors errs)
     if null errs'
@@ -327,14 +327,14 @@ solveErrors l mode errs = do
                         -- solve the multiple substitutions constraint (it always succeeds and solves the remaining dictionary)
                         Just (Loc l iok,ks) -> do
                             --liftIO $ putStrLn $ "guessCstr " ++ ppr doAll ++ " " ++ ppr iok ++ " " ++ show (sepBy space (map pp ks))
-                            catchError (solveIOCstr_ l "solveErrors" mode iok >> return Nothing) (return . Just)
+                            catchError (solveGCstr_ l "solveErrors" mode iok >> return Nothing) (return . Just)
                         Nothing -> return $ Just (MultipleErrors $ getErrors errs')
                 else return $ Just (MultipleErrors $ getErrors errs')
 
-guessCstr :: ProverK Position m => [(LocIOCstr,SecrecError)] -> TcM m (Maybe (LocIOCstr,[LocIOCstr]))
+guessCstr :: ProverK Position m => [(LocGCstr,SecrecError)] -> TcM m (Maybe (LocGCstr,[LocGCstr]))
 guessCstr errs = do
     opens <- getOpensSet
-    search $ filter (\(Loc l iok,err) -> not $ Set.member (ioCstrId iok) opens) errs
+    search $ filter (\(Loc l iok,err) -> not $ Set.member (gCstrId iok) opens) errs
   where
     search [] = return Nothing
     search (x:xs) = do
@@ -346,39 +346,39 @@ guessCstr errs = do
             else search xs
     isSubst (Loc l iok,err) = isMultipleSubstsCstr (kCstr iok)
 
-solveIOCstr_ :: (ProverK loc m) => loc -> String -> SolveMode -> IOCstr -> TcM m ()
-solveIOCstr_ l msg mode iok = do
+solveGCstr_ :: (ProverK loc m) => loc -> String -> SolveMode -> GCstr -> TcM m ()
+solveGCstr_ l msg mode iok = do
     catchError solve (\err -> do
         debugTc $ do
-            ppiok <- ppr (ioCstrId iok)
+            ppiok <- ppr (gCstrId iok)
             pperr <- ppr err
             liftIO $ putStrLn $ "nonsolvedIOCstr " ++ ppiok ++ " " ++ pperr
         throwError err)
   where
-    solve = newErrorM $ resolveIOCstr_ l iok $ \k gr ctx -> do
-        --olds <- State.gets (mconcat . map (mapSet (ioCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
+    solve = newErrorM $ resolveGCstr_ l iok $ \k gr ctx -> do
+        --olds <- State.gets (mconcat . map (mapSet (gCstrId . unLoc) . flattenIOCstrGraphSet . tCstrs) . tDict)
         ppiok <- ppr iok
         let (ins,_,_,outs) = fromJustNote ("solveCstrNodeCtx " ++ ppiok) ctx
         --let ins'  = map (fromJustNote "ins" . Graph.lab gr . snd) ins
         --let outs' = map (fromJustNote "outs" . Graph.lab gr . snd) outs
         debugTc $ do
-            opens::[Int] <- State.gets (map (ioCstrId . fst) . openedCstrs)
+            opens::[Int] <- State.gets (map (gCstrId . fst) . openedCstrs)
             ppopens <- liftM (PP.sepBy PP.comma) $ mapM pp opens
-            ppiok <- ppr (ioCstrId iok)
+            ppiok <- ppr (gCstrId iok)
             ppouts <- mapM (pp . snd) outs
             recs <- State.gets (mconcat . map tRec . Foldable.toList . tDict)
             doc <- liftM (vcat) $ concatMapM (mapM pp . Map.keys) $ Map.elems $ structs recs
             liftIO $ putStrLn $ "solveIOCstr " ++ show ppopens ++" --> "++ ppiok ++" --> "++ show (sepBy space ppouts) ++ " " ++ show doc
-        ppiok <- ppr (ioCstrId iok)
-        (res,rest) <- tcWith (locpos l) (msg ++ " solveIOCstr " ++ ppiok) $ resolveTCstr l mode (ioCstrId iok) k
+        ppiok <- ppr (gCstrId iok)
+        (res,rest) <- tcWith (locpos l) (msg ++ " solveIOCstr " ++ ppiok) $ resolveTCstr l mode (gCstrId iok) k
         addHeadTDict l (msg++ " solveIOCstr_ " ++ ppiok) $ rest { tCstrs = Graph.empty }
         debugTc $ do
             --doc <- ppConstraints $ tCstrs rest
             doc <- liftM (vcat) $ concatMapM (mapM pp . Map.keys) $ Map.elems $ structs $ tRec rest
-            ion <- ppr (ioCstrId iok)
+            ion <- ppr (gCstrId iok)
             liftIO $ putStrLn $ "solvedIOCstr " ++ ion ++ " -->" ++ show doc
         unless (Graph.isEmpty $ tCstrs rest) $ do
-            top <- buildCstrGraph l (Set.insert (ioCstrId iok) (Set.fromList $ map snd $ ins ++ outs))
+            top <- buildCstrGraph l (Set.insert (gCstrId iok) (Set.fromList $ map snd $ ins ++ outs))
             let ins' = map (fromJustNote "ins" . Graph.lab top . snd) ins
             let outs' = map (fromJustNote "outs" . Graph.lab top . snd) outs
             let rest' = tCstrs rest
@@ -387,40 +387,40 @@ solveIOCstr_ l msg mode iok = do
                 doc <- ppConstraints rest'
                 doc1 <- ppTSubsts (tSubsts rest)
                 liftIO $ putStrLn $ "solvedIOCstr rest" ++ show doc1 ++ "\n" ++ show doc
-            replaceCstrWithGraph l False (ioCstrId iok) (Set.fromList ins') rest' (Set.fromList outs')
+            replaceCstrWithGraph l False (gCstrId iok) (Set.fromList ins') rest' (Set.fromList outs')
         dicts <- State.gets tDict
         debugTc $ forM_ dicts $ \d -> do
             ssd <- ppConstraints (tCstrs d)
             liftIO $ putStrLn $ "\n[" ++ show ssd ++ "\n]"
         return res
 
-solveNewCstr_ :: ProverK loc m => loc -> SolveMode -> IOCstr -> TcM m ()
-solveNewCstr_ l mode iok = newErrorM $ resolveIOCstr_ l iok (\k gr ctx -> resolveTCstr l mode (ioCstrId iok) k)
+solveNewCstr_ :: ProverK loc m => loc -> SolveMode -> GCstr -> TcM m ()
+solveNewCstr_ l mode iok = newErrorM $ resolveGCstr_ l iok (\k gr ctx -> resolveTCstr l mode (gCstrId iok) k)
 
 -- * Throwing Constraints
 
 tCstrM_ :: ProverK loc m => loc -> TCstr -> TcM m ()
 tCstrM_ l k = tCstrM l k >> return ()
 
-tCstrM :: ProverK loc m => loc -> TCstr -> TcM m (Maybe IOCstr)
+tCstrM :: ProverK loc m => loc -> TCstr -> TcM m (Maybe GCstr)
 tCstrM l (TcK c st) = withCstrState l st $ tcCstrM l c
 tCstrM l (CheckK c st) = withCstrState l st $ checkCstrM l Set.empty c
 tCstrM l (HypK c st) = withCstrState l st $ hypCstrM l c
 
-checkCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
+checkCstrM_ :: (ProverK loc m) => loc -> Set LocGCstr -> CheckCstr -> TcM m ()
 checkCstrM_ l deps k = checkCstrM l deps k >> return ()
 
-checkCstrM :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m (Maybe IOCstr)
+checkCstrM :: (ProverK loc m) => loc -> Set LocGCstr -> CheckCstr -> TcM m (Maybe GCstr)
 checkCstrM l deps k | isTrivialCheckCstr k = return Nothing
 checkCstrM l deps k = withDeps LocalScope $ do
     addDeps "checkCstrM" LocalScope deps
     st <- getCstrState
     newTCstr l $ CheckK k st
 
-topCheckCstrM_ :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m ()
+topCheckCstrM_ :: (ProverK loc m) => loc -> Set LocGCstr -> CheckCstr -> TcM m ()
 topCheckCstrM_ l deps k = topCheckCstrM l deps k >> return ()
 
-topCheckCstrM :: (ProverK loc m) => loc -> Set LocIOCstr -> CheckCstr -> TcM m (Maybe IOCstr)
+topCheckCstrM :: (ProverK loc m) => loc -> Set LocGCstr -> CheckCstr -> TcM m (Maybe GCstr)
 topCheckCstrM l deps k = do
     scope <- cstrScope $ CheckK k noCstrSt
     tcMatching l scope $ newErrorM $ checkCstrM l deps k
@@ -428,7 +428,7 @@ topCheckCstrM l deps k = do
 hypCstrM_ :: (ProverK loc m) => loc -> HypCstr -> TcM m ()
 hypCstrM_ l k = hypCstrM l k >> return ()
 
-hypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IOCstr)
+hypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe GCstr)
 hypCstrM l k | isTrivialHypCstr k = return Nothing
 hypCstrM l k = do
     st <- getCstrState
@@ -437,7 +437,7 @@ hypCstrM l k = do
 topHypCstrM_ :: (ProverK loc m) => loc -> HypCstr -> TcM m ()
 topHypCstrM_ l k = topHypCstrM l k >> return ()
 
-topHypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe IOCstr)
+topHypCstrM :: (ProverK loc m) => loc -> HypCstr -> TcM m (Maybe GCstr)
 topHypCstrM l k = do
     scope <- cstrScope $ HypK k noCstrSt
     tcMatching l scope $ newErrorM $ hypCstrM l k
@@ -453,7 +453,7 @@ tcMatching l scope m = do
 tcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 tcCstrM_ l k = tcCstrM l k >> return ()
 
-tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
+tcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe GCstr)
 tcCstrM l k | isTrivialTcCstr k = return Nothing
 tcCstrM l k = do
     debugTc $ do
@@ -464,23 +464,23 @@ tcCstrM l k = do
     k <- newTCstr l $ TcK k st
     --gr <- liftM (tCstrs . headNe . tDict) State.get
     --doc <- ppConstraints gr
-    --debugTc $ liftIO $ putStrLn $ "tcCstrMexit " ++ pprid (maybe (-1) ioCstrId k)
+    --debugTc $ liftIO $ putStrLn $ "tcCstrMexit " ++ pprid (maybe (-1) gCstrId k)
     return k
 
 topTcCstrM_ :: (ProverK loc m) => loc -> TcCstr -> TcM m ()
 topTcCstrM_ l k = topTcCstrM l k >> return ()
 
-topTcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe IOCstr)
+topTcCstrM :: (ProverK loc m) => loc -> TcCstr -> TcM m (Maybe GCstr)
 topTcCstrM l k = do
     scope <- cstrScope $ TcK k noCstrSt
     tcMatching l scope $ newErrorM $ tcCstrM l k
     
-newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe IOCstr)
+newTCstr :: (ProverK loc m) => loc -> TCstr -> TcM m (Maybe GCstr)
 newTCstr l k = do
     deps <- getDeps
     iok <- newTemplateConstraint l k
-    debugTc $ liftIO $ putStrLn $ "newTCstr: " ++ pprid (ioCstrId iok)
-    addIOCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
+    debugTc $ liftIO $ putStrLn $ "newTCstr: " ++ pprid (gCstrId iok)
+    addGCstrDependenciesM l True deps (Loc (locpos l) iok) Set.empty
     
     isGlobal <- isGlobalCstr k
     if isGlobal
@@ -488,16 +488,16 @@ newTCstr l k = do
         else catchError
             (defaultSolveMode >>= \mode -> do
                 solveNewCstr_ l mode iok
-                debugTc $ liftIO $ putStrLn $ "success newTCstr: " ++ pprid (ioCstrId iok)
+                debugTc $ liftIO $ putStrLn $ "success newTCstr: " ++ pprid (gCstrId iok)
                 return Nothing
             )
             (\e -> if (isHaltError e)
                 then do
-                    debugTc $ liftIO $ putStrLn $ "halted newTCstr: " ++ pprid (ioCstrId iok)
+                    debugTc $ liftIO $ putStrLn $ "halted newTCstr: " ++ pprid (gCstrId iok)
                     --writeCstrStatus (locpos l) iok Unevaluated
                     return (Just iok)
                 else do
-                    debugTc $ liftIO $ putStrLn $ "failed newTCstr: " ++ pprid (ioCstrId iok)
+                    debugTc $ liftIO $ putStrLn $ "failed newTCstr: " ++ pprid (gCstrId iok)
                     throwError e
             )
                 
@@ -695,14 +695,22 @@ resolveCheckCstr l mode k = do
   where
     resolveCheckCstr' (CheckAssertion c) = checkAssertion l c
 
-ioCstrResult :: (Hashable a,IsScVar (TcM m) a,MonadIO m,Location loc) => loc -> IOCstr -> Proxy a -> TcM m (Maybe a)
-ioCstrResult l iok proxy = do
+gCstrResult :: (Hashable a,IsScVar (TcM m) a,MonadIO m,Location loc) => loc -> GCstr -> Proxy a -> TcM m (Maybe a)
+#if INCREMENTAL
+gCstrResult l iok proxy = do
     st <- readCstrStatus (locpos l) iok
     case st of
         Evaluated rest (frees,delfrees) infer t -> liftM Just $ cstrResult l (kCstr iok) proxy t
         Erroneous err -> return Nothing
         Unevaluated -> return Nothing
-    where
+#else
+gCstrResult l iok proxy = do
+    sols <- State.gets cstrSols
+    case Map.lookup (Loc (locpos l) iok) sols of
+        Nothing -> return Nothing
+        Just (sol::ShowOrdDyn) -> liftM Just $ cstrResult l (kCstr iok) proxy sol
+#endif
+  where
     cstrResult :: (Hashable a,IsScVar (TcM m) a,MonadIO m,Location loc) => loc -> TCstr -> Proxy a -> ShowOrdDyn -> TcM m a
     cstrResult l k (Proxy::Proxy t) dyn = case fromShowOrdDyn dyn of
         Nothing -> do
@@ -757,7 +765,7 @@ prove l msg m = do
 -- * Solving constraints
 
 -- labels = variables, edges = maybe constraints
-type VarGr = Graph.Gr VarIdentifier (Maybe LocIOCstr)
+type VarGr = Graph.Gr VarIdentifier (Maybe LocGCstr)
 
 buildVarGr :: ProverK loc m => loc -> State.StateT (Int,Map VarIdentifier Int) (TcM m) VarGr
 buildVarGr l = do
@@ -766,7 +774,7 @@ buildVarGr l = do
         addSubst g (key,val) = do
             vals <- lift $ usedVs val
             addDirEdges g key (Set.toList vals)
-        addCstrs g ks = foldM addCstr g $ Set.toList $ flattenIOCstrGraphSet ks
+        addCstrs g ks = foldM addCstr g $ Set.toList $ flattenGCstrGraphSet ks
         addCstr g iok@(Loc l k) = do
             vals <- lift $ usedVs $ kCstr k
             addEdges g (Just iok) (Set.toList vals)
@@ -799,13 +807,13 @@ buildVarGr l = do
             addSubsts g' (tSubsts d)
     foldM mk Graph.empty ds
 
-reachableVarGr :: Map VarIdentifier Int -> VarGr -> (Set VarIdentifier,Set LocIOCstr)
+reachableVarGr :: Map VarIdentifier Int -> VarGr -> (Set VarIdentifier,Set LocGCstr)
 reachableVarGr cs g = mconcatpair $ Graph.preorderF (Graph.dffWith getCstrs (Map.elems cs) g)
     where
     mconcatpair xys = let (x,y) = unzip xys in (mconcat x `mappend` Map.keysSet cs,mconcat y)
     getCstrs (froms,n,v,tos) = (Set.singleton v,Set.fromList $ (catMaybes $ map fst froms) ++ (catMaybes $ map fst tos))
 
-relatedCstrs :: ProverK loc m => loc -> [Int] -> Set VarIdentifier -> (Set LocIOCstr -> TcM m (Set LocIOCstr)) -> TcM m (Set VarIdentifier,Set LocIOCstr)
+relatedCstrs :: ProverK loc m => loc -> [Int] -> Set VarIdentifier -> (Set LocGCstr -> TcM m (Set LocGCstr)) -> TcM m (Set VarIdentifier,Set LocGCstr)
 relatedCstrs l kids vs filter = do
     (vgr,(_,st)) <- State.runStateT (buildVarGr l) (0,Map.empty)
 --    debugTc $ do
@@ -824,7 +832,7 @@ relatedCstrs l kids vs filter = do
 --        liftIO $ putStrLn $ "relatedCstrs " ++ show ppvs
     return (relvs,Set.difference filteredcs dependents)
 
-multipleSubstitutions :: (ProverK loc m,Vars GIdentifier (TcM m) a) => loc -> Int -> SolveScope -> a -> Either Bool (TypeClass -> Bool) -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc))] -> TcM m d
+multipleSubstitutions :: (ProverK loc m,Vars GIdentifier (TcM m) a) => loc -> Int -> SolveScope -> a -> Either Bool (TypeClass -> Bool) -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc))] -> TcM m d
 multipleSubstitutions l kid scope bv testKO ss = do
     opts <- askOpts
     bvs <- usedVs' bv -- variables bound by the multiple substitutions
@@ -841,7 +849,7 @@ multipleSubstitutions l kid scope bv testKO ss = do
         tcError (locpos l) $ Halt $ GenTcError (text "did not try to solve multiple substitutions in the presence of ambiguous tokens" <+> pptokvs) Nothing
     debugTc $ do
         pptokvs <- liftM (sepBy space) $ mapM pp $ Set.toList tokvs
-        ppcs <- liftM (sepBy space) $ mapM (pp . ioCstrId . unLoc) $ Set.toList cs
+        ppcs <- liftM (sepBy space) $ mapM (pp . gCstrId . unLoc) $ Set.toList cs
         liftIO $ putStrLn $ "multipleSubstitutions " ++ show kid ++ " constraints: " ++ show (backtrack opts) ++ " " ++ show ppcs ++ " with tokens " ++ show pptokvs
     --liftIO $ putStrLn $ ppr l ++ " multiple substitutions "++show kid ++" "++ ppr (sepBy comma $ map (pp . fst3) ss)
     --let removes = do
@@ -860,7 +868,7 @@ multipleSubstitutions l kid scope bv testKO ss = do
                 Right errs -> tcError (locpos l) $ MultipleTypeSubstitutions errs
         NoneB -> tcError (locpos l) $ Halt $ GenTcError (text "did not try to solve multiple substitutions" <+> ppid kid) Nothing
     
-matchAll :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc))] -> (((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc)) -> TcM m x) -> [(Doc,SecrecError)] -> TcM m (Either x [(Doc,SecrecError)])
+matchAll :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocGCstr -> [((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc))] -> (((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc)) -> TcM m x) -> [(Doc,SecrecError)] -> TcM m (Either x [(Doc,SecrecError)])
 matchAll l kid scope cs [] match errs = return $ Right errs
 matchAll l kid scope cs (x:xs) match errs = catchError
     -- match and solve all remaining constraints
@@ -874,12 +882,12 @@ matchAll l kid scope cs (x:xs) match errs = catchError
         --throwError e
     )
 
-matchOne :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc)) -> TcM m d
+matchOne :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocGCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc)) -> TcM m d
 matchOne l kid scope cs (match,deps,post) = do
     res <- matchHead l kid False scope cs (match,deps,post)
     matchBody l kid scope cs res
 
-matchHead :: (ProverK loc m) => loc -> Int -> Bool -> SolveScope -> Set LocIOCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc)) -> TcM m ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc))
+matchHead :: (ProverK loc m) => loc -> Int -> Bool -> SolveScope -> Set LocGCstr -> ((TcM m b,Doc),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc)) -> TcM m ((b,Set LocGCstr),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc))
 matchHead l kid noHalt scope cs (match,deps,post) = do
 --    forSetM_ cs $ \(Loc _ iok) -> liftIO $ readIdRef (kStatus iok) >>= \st -> case st of
 --            Erroneous _ -> writeIdRef (kStatus iok) Unevaluated
@@ -892,7 +900,7 @@ matchHead l kid noHalt scope cs (match,deps,post) = do
     (b,ks) <- proveWithMode l ("matchOneHead"++show kid) (mode { solveScope = scope, solveFail = fail' }) $ tcWithCstrs l ("matchOneHead"++show kid) (fst match)
     return ((b,ks),deps,post)
 
-matchBody :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocIOCstr -> ((b,Set LocIOCstr),(b -> TcM m c,Doc),(c -> TcM m (Set LocIOCstr,d),Doc)) -> TcM m d
+matchBody :: (ProverK loc m) => loc -> Int -> SolveScope -> Set LocGCstr -> ((b,Set LocGCstr),(b -> TcM m c,Doc),(c -> TcM m (Set LocGCstr,d),Doc)) -> TcM m d
 matchBody l kid scope cs ((b,ks),deps,post) = do
     debugTc $ do
         ppl <- ppr l
@@ -1200,7 +1208,7 @@ tcTop_ l isTop = if isTop then topTcCstrM_ l else tcCstrM_ l
 
 resolveMultipleSubstitutions :: ProverK loc m => loc -> Maybe Bool -> [Type] -> [(TcM m (),TcM m ())] -> TcM m ()
 resolveMultipleSubstitutions l ko v s = do
-    kid <- State.gets (ioCstrId . fst . head . openedCstrs)
+    kid <- State.gets (gCstrId . fst . head . openedCstrs)
     let mkSubst (x,y) = do
         let match = x
         let post () = do
@@ -2671,7 +2679,7 @@ tryResolveTVar :: (ProverK loc m) => loc -> VarIdentifier -> TcM m (Maybe Type)
 tryResolveTVar l v | not (varIdRead v) = return Nothing
 tryResolveTVar l v = do
 --    liftIO $ putStrLn $ "resolvingTVar " ++ ppr v
-    addGDependencies $ VIden v
+    addGIdDependencies $ VIden v
     -- lookup in the substitution environment
     s <- getTSubsts l
     mb <- substsFromMap (Map.mapKeys VIden $ unTSubsts s) (VIden v::GIdentifier)
@@ -2685,7 +2693,7 @@ tryResolveEVar :: (ProverK loc m) => loc -> VarIdentifier -> Type -> TcM m (Mayb
 tryResolveEVar l v t | not (varIdRead v) = return Nothing
 tryResolveEVar l v t = do
 --    liftIO $ putStrLn $ "resolvingEVar " ++ ppr v
-    addGDependencies $ VIden v
+    addGIdDependencies $ VIden v
     ss <- getTSubsts l
     mb <- case Map.lookup v (unTSubsts ss) of
         Just (IdxT e) -> do
@@ -3150,7 +3158,7 @@ snapCstrsM :: ProverK loc m => loc -> TcM m a -> TcM m (a,([TCstr],Set VarIdenti
 snapCstrsM l m = do
     ((x,d),fs,_) <- withFrees l $ tcWith (locpos l) "snap" $ tcAddDeps (locpos l) "snap" m
     addHeadTDict l "snap" $ d { tCstrs = Graph.empty }
-    let ks = map (kCstr . unLoc) $ Set.toList $ flattenIOCstrGraphSet $ tCstrs d
+    let ks = map (kCstr . unLoc) $ Set.toList $ flattenGCstrGraphSet $ tCstrs d
     return (x,(ks,Map.keysSet fs))
     
 

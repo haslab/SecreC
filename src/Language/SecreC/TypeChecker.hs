@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, TupleSections, FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
+{-# LANGUAGE CPP, ScopedTypeVariables, TupleSections, FlexibleContexts, ViewPatterns, DeriveDataTypeable #-}
 
 -- We delay resolution of all possible constraints inside the  body of templates, even those that do not depend on template variables, to better match C++ templates that are only typechecked on full instantiation.
 
@@ -581,9 +581,11 @@ tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
     solveTop l "tcGlobal"
     dict <- top . tDict =<< State.get
     x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
-    State.modify $ \e -> e { cstrCache = Map.empty, openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
+    State.modify $ \e -> e { openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
     tcProgress Nothing (Just "cleanup") $ do
+#if INCREMENTAL
         liftIO $ resetGlobalEnv True
+#endif
         liftIO resetTyVarId
     return x'
   where
@@ -591,6 +593,15 @@ tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
     top xs = do
         ppxs <- mapM pp $ Foldable.toList xs
         error $ "tcGlobal: " ++ show (vcat ppxs)
+
+resetNestedCstrs :: Monad m => TcM m ()
+resetNestedCstrs = do
+#if INCREMENTAL
+    State.modify $ \e -> e { cstrCache = Map.empty }
+#else
+    return ()
+#endif
+    
 
 incModuleBlock :: (Maybe ((Identifier,TyVarId),Int),Int) -> (Maybe ((Identifier,TyVarId),Int),Int)
 incModuleBlock = mapFst (fmap (mapFst $ mapSnd inc))

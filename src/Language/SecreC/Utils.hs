@@ -43,7 +43,9 @@ import Control.Monad.Identity
 
 import Unsafe.Coerce
 
+#if INCREMENTAL
 import System.Mem.Weak.Exts as Weak
+#endif
 import System.Directory
 import System.IO.Error
 import System.IO
@@ -157,8 +159,10 @@ instance (Data a,Data b) => Data (Gr a b) where
 mapFoldlM :: Monad m => (a -> k -> v -> m a) -> a -> Map k v -> m a
 mapFoldlM f z m = foldlM (\x (y,z) -> f x y z) z $ Map.toList m
 
+#if INCREMENTAL
 instance WeakKey (IdRef id a) where
     mkWeakKey r = mkWeakKey (idRef r)
+#endif
 
 mconcatNe :: Monoid a => NeList a -> a
 mconcatNe = mconcat . toList
