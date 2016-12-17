@@ -175,8 +175,8 @@ dirtyParents i g = case contextGr g i of
             then dirtyParents' is pn pt g
             -- dirty recursively
             else do
-                --lift $ sciError $ "Child " ++ show n ++ " changed at " ++ show t
-                --lift $ sciError $ "Parent " ++ show (moduleFileName inode) ++ " changed at " ++ show (moduleFileModificationTime inode)
+                lift $ sciError $ "Child " ++ show n ++ " changed at " ++ show t
+                lift $ sciError $ "Parent " ++ show (moduleFileName inode) ++ " changed at " ++ show (moduleFileModificationTime inode)
                 inode' <- lift $ update inode pn pt
                 dirtyParents' (is++map snd iparents) pn pt (insNode (i,inode') g)
     update (Left (_,args,m,mlength)) pn pt = return $ Left (pt,args,m,mlength)
