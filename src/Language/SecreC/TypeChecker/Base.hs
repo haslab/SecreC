@@ -640,6 +640,8 @@ emptyTcEnv = TcEnv
 #if INCREMENTAL
     , cstrCache = Map.empty
     , solveToCache = False
+#else
+    , cstrSols = Map.empty
 #endif
     , lineage = []
     , moduleCount = (Nothing,0)
