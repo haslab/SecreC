@@ -208,9 +208,9 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         let spec =        compileDafny True (debugVerification opts) dfylfile bpllfile
               `seqStatus` shadowBoogaman (debugVerification opts) axsl bpllfile bpllfile2
               `seqStatus` runBoogie True (debugVerification opts) bpllfile2
-        let markVerified res = case res of
-            Status (Left d) -> markVerifiedFiles vids fids lids files
-            Status (Right err) -> return ()
+        let mark res = case res of
+                        Status (Left d) -> markVerifiedFiles vids fids lids files
+                        Status (Right err) -> return ()
 
         if parallel opts
             then do
@@ -220,14 +220,14 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
                     BothV -> do
                         (fres,sres) <- concurrently func spec
                         return $ mappend fres sres
-                markVerified res
+                mark res
                 printStatus res
             else do
-                fres <- func
+                fres <- lift func
                 printStatus fres
-                lres <- spec
+                lres <- lift spec
                 printStatus lres
-                markVerified (mappend fres lres)
+                mark (mappend fres lres)
                 
 
 compileDafny :: (MonadIO m) => Bool -> Bool -> FilePath -> FilePath -> m Status
