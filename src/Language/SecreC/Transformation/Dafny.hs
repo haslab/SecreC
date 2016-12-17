@@ -1013,6 +1013,10 @@ statementToDafny (SyscallStatement l n params) = do
     (anns1,pss) <- statementsToDafny ss
     (anns2,psys) <- syscallToDafny (unTyped l) n params'
     addAnnsC StmtKC (anns1++anns2) (pss $+$ psys)
+statementToDafny (PrintStatement l es) = do
+    (anne,pes) <- procCallArgsToDafny False StmtK es
+    let prints = vcat $ map (\pe -> text "print" <> parens pe <> semicolon) pes
+    addAnnsC StmtKC anne prints
 statementToDafny s = do
     pps <- lift $ pp s
     genError (unTyped $ loc s) $ text "statementToDafny:" <+> pps
