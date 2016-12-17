@@ -564,7 +564,7 @@ context<>
 //@ requires n < N;
 //@ requires forall uint j ; 0 <= j && j < N && j != n ==> shape(x)[j] == shape(y)[j];
 //@ free ensures forall uint j ; 0 <= j && j < N && j != n ==> shape(\result)[j] == shape(x)[j];
-//@ free ensures shape(\result)[n] == shape(x)[n] + shape(y)[n];
+//@ free ensures shape(\result)[n] == (shape(x)[n] + shape(y)[n]) :: uint;
 {
     havoc D T[[N]] ret;
     __syscall("core.cat", x, y, n,__return ret);
