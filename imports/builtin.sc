@@ -595,7 +595,7 @@ D T[[2]] snoc (D T[[2]] xs, D T[[1]] x)
 context<>
 //@ inline;
 //@ requires shape(xs)[1] == size(x);
-//@ free ensures shape(\result)[0] == shape(xs)[0] + 1;
+//@ free ensures shape(\result)[0] == ((shape(xs)[0] + 1) :: uint);
 //@ free ensures shape(\result)[1] == shape(xs)[1];
 //@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] == xs[i,:]);
 //@ free ensures assertion<D>(\result[shape(xs)[0],:] == x);
