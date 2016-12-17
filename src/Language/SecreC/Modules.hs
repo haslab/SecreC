@@ -139,7 +139,9 @@ parseModuleFile :: ModK m => String -> SecrecM m ModuleFile
 parseModuleFile fn = do
     opts <- ask
     if forceRecomp opts
-        then parse
+        then do
+            sciError $ "Forcing load of SecreC file " ++ show fn
+            parse
         else do
             mb <- readModuleSCI fn
             case mb of

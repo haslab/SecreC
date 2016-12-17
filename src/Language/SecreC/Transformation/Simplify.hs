@@ -78,6 +78,7 @@ withCondExpr c m = do
     addAnnStmtCond (EmbedAnn l isLeak s) = do
         s' <- addStmtCond s
         return $ EmbedAnn l isLeak s'
+    addAnnStmtCond x = return x
 
 simplifyModuleFile :: SimplifyK Position m => Options -> TypedModuleFile -> SimplifyM m TypedModuleFile
 simplifyModuleFile opts (Left (t,args,m,ml)) = do
