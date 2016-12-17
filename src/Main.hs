@@ -174,6 +174,14 @@ markVerifiedFiles vids fids lids xs = mapM_ markVerifiedFile xs
             then return Nothing
             else return $ Just scih { sciHeaderVerified = scids }
 
+isFuncV BothV = True
+isFuncV FuncV = True
+isFuncV _ = False
+
+isLeakV BothV = True
+isLeakV LeakV = True
+isLeakV _ = False
+
 verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
 verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
     opts <- askOpts
@@ -187,12 +195,12 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         
         vids <- ignoreVerifiedFiles files
         -- generate dafny files
-        when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
+        when (debugVerification opts && isFuncV (verify opts)) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output file" <+> text (show dfyfile)
         prelude <- liftIO dafnyPrelude
         es <- getEntryPoints files
         (dfy,axs,fids) <- toDafny prelude False es vids
         liftIO $ writeFile dfyfile (show dfy)
-        when (debugVerification opts) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output leakage file" <+> text (show dfylfile)
+        when (debugVerification opts && isLeakV (verify opts)) $ liftIO $ hPutStrLn stderr $ show $ text "Generating Dafny output leakage file" <+> text (show dfylfile)
         (dfyl,axsl,lids) <- toDafny prelude True es vids
         liftIO $ writeFile dfylfile (show dfyl)
         
