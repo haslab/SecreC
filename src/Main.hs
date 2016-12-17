@@ -233,7 +233,7 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
 compileDafny :: (MonadIO m) => Bool -> Bool -> FilePath -> FilePath -> m Status
 compileDafny isLeak isDebug dfy bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Compiling Dafny file" <+> text (show dfy)
-    res <- shellyOutput isDebug "dafny" ["/compile:0",dfy,"/print:"++bpl,"/noVerify"]
+    res <- shellyOutput isDebug True "dafny" ["/compile:0",dfy,"/print:"++bpl,"/noVerify"]
     verifOutput isLeak True res
 
 verifOutput :: (MonadIO m) => Bool -> Bool -> Status -> m Status
@@ -301,7 +301,7 @@ runBoogie :: (MonadIO m) => Bool -> Bool -> FilePath -> m Status
 runBoogie isLeak isDebug bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Verifying Boogie file" <+> text (show bpl)
     let dotrace = if isDebug then ["/trace"] else []
-    res <- shellyOutput isDebug "boogie" $ dotrace ++ ["/doModSetAnalysis",bpl]
+    res <- shellyOutput isDebug False "boogie" $ dotrace ++ ["/doModSetAnalysis",bpl]
     verifOutput isLeak False res
 
 getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]

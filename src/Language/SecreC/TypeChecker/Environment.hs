@@ -2656,7 +2656,7 @@ tcProgress l msg m = do
     when (progress opts) $ do
         State.modify $ \env -> env { progressBar = (newmsg,newp) }
     
-        sz <- liftM consolesize $ shellyOutput False "tput" ["cols"]
+        sz <- liftM consolesize $ shellyOutput False True "tput" ["cols"]
         let msgsz::Integer = round (realToFrac sz * 0.3 :: Float)
         let barsz::Integer = round (realToFrac sz * 0.7 :: Float)
         

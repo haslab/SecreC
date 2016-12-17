@@ -30,6 +30,7 @@ import Language.SecreC.Location
 import Text.PrettyPrint hiding (mode,Mode(..))
 import qualified Text.PrettyPrint as PP
 import Text.Read
+import qualified Data.Text.IO as Text
 
 import qualified Shelly as Shelly
 
@@ -74,11 +75,12 @@ commandOutput doDebug str = do
         ExitSuccess -> return $ Status $ Left $ text result
         ExitFailure code -> return $ Status $ Right $ GenericError noloc (text "Error running command:" <+> int code $+$ text result) Nothing
 
-shellyOutput :: (MonadIO m) => Bool -> String -> [String] -> m Status
-shellyOutput doDebug name args = do
+shellyOutput :: (MonadIO m) => Bool -> Bool -> String -> [String] -> m Status
+shellyOutput doDebug doSilent name args = do
+    let silence = if doSilent then Shelly.silently else id
     when doDebug $ liftIO $ hPutStrLn stderr $ "Running command " ++ show (name ++ " " ++ unwords args)
     liftIO $ Shelly.shelly $ do
-        result <- Shelly.errExit False $ Shelly.silently $ Shelly.run (Shelly.fromText $ Text.pack name) (map Text.pack args)
+        result <- Shelly.errExit False $ silence $ Shelly.run (Shelly.fromText $ Text.pack name) (map Text.pack args)
         let uresult = Text.unpack result
         exit <- Shelly.lastExitCode
         case exit of
