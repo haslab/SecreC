@@ -271,7 +271,7 @@ updateModuleSCIHeader scifn chg = do
                     Just header' -> do
                         let bstr = runPut $ do
                             put header'
-                            putByteString body
+                            putLazyByteString body
                         e <- trySCI ("Error updating SecreC interface file header" ++ show scifn) $ BL.writeFile scifn bstr
                         case e of
                             Nothing -> return ()
