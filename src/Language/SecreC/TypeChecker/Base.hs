@@ -642,6 +642,7 @@ emptyTcEnv = TcEnv
     , solveToCache = False
 #else
     , cstrSols = Map.empty
+    , recordSols = False
 #endif
     , lineage = []
     , moduleCount = (Nothing,0)
