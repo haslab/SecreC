@@ -248,16 +248,13 @@ readModuleSCI fn = do
 readModuleSCIHeader :: MonadIO m => FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
 readModuleSCIHeader fn = do
     let scifn = replaceExtension fn "sci"
-    e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BS.readFile scifn
+    e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ liftM BL.fromStrict $ BS.readFile scifn
     case e of
-        Just input -> go (runGetIncremental get) (BL.fromStrict input) fn scifn
+        Just input -> case runGetOrFail get input of
+            Left err -> sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
+            Right (leftover,consumed,header) -> do
+                return $ Just (header,BL.append (BL.drop consumed input) leftover)
         Nothing -> return Nothing
-  where
-    go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
-    go (Done leftover consumed header) input fn scifn = do
-        return $ Just (header,BL.chunk leftover input)
-    go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
-    go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
 
 updateModuleSCIHeader :: MonadIO m => FilePath -> (SCIHeader -> SecrecM m (Maybe SCIHeader)) -> SecrecM m ()
 updateModuleSCIHeader scifn chg = do
