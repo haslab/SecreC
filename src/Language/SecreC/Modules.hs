@@ -14,6 +14,7 @@ import Data.Data
 import Data.Binary.Get
 import Data.ByteString.Lazy (ByteString(..))
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Internal as BL
 import Data.Graph.Inductive
 import Data.Graph.Inductive.Basic
@@ -247,9 +248,9 @@ readModuleSCI fn = do
 readModuleSCIHeader :: MonadIO m => FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
 readModuleSCIHeader fn = do
     let scifn = replaceExtension fn "sci"
-    e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BL.readFile scifn
+    e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BS.readFile scifn
     case e of
-        Just input -> go (runGetIncremental get) input fn scifn
+        Just input -> go (runGetIncremental get) (BL.fromStrict input) fn scifn
         Nothing -> return Nothing
   where
     go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
