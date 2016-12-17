@@ -175,8 +175,8 @@ dirtyParents i g = case contextGr g i of
             then dirtyParents' is pn pt g
             -- dirty recursively
             else do
-                lift $ sciError $ "Child " ++ show pn ++ " changed at " ++ show pt
-                lift $ sciError $ "Parent " ++ show (moduleFileName inode) ++ " changed at " ++ show (moduleFileModificationTime inode)
+                lift $ sciError $ "Child " ++ show pn ++ " changed at timestamp " ++ show pt
+                lift $ sciError $ "Parent " ++ show (moduleFileName inode) ++ " changed at timestamp " ++ show (moduleFileModificationTime inode)
                 inode' <- lift $ update inode pn pt
                 dirtyParents' (is++map snd iparents) pn pt (insNode (i,inode') g)
     update (Left (_,args,m,mlength)) pn pt = return $ Left (pt,args,m,mlength)
@@ -224,7 +224,7 @@ writeModuleSCI ppargs menv m mlength = do
         e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
         case e of
             Nothing -> return ()
-            Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn ++ " at " ++ show (sciHeaderModTime header)
+            Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn ++ " with timestamp " ++ show (sciHeaderModTime header)
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
 readModuleSCI fn = do
