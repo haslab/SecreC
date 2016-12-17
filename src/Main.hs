@@ -223,11 +223,22 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
                 mark res
                 printStatus res
             else do
-                fres <- lift func
-                printStatus fres
-                lres <- lift spec
-                printStatus lres
-                mark (mappend fres lres)
+                res <- case verify opts of
+                    FuncV -> do
+                        fres <- lift func
+                        printStatus fres
+                        return fres
+                    LeakV -> do
+                        lres <- lift spec
+                        printStatus lres
+                        return lres
+                    BothV -> do
+                        fres <- lift func
+                        printStatus fres
+                        lres <- lift spec
+                        printStatus lres
+                        return $ mappend fres lres
+                mark res
                 
 
 compileDafny :: (MonadIO m) => Bool -> Bool -> FilePath -> FilePath -> m Status
