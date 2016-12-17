@@ -307,23 +307,15 @@ newVariable scope isConst isAnn v@(VarName (Typed l t) (VIden n)) val = do
     addVar l scope (VIden n) (fmap (fmap typed) val) isConst isAnn (EntryEnv (locpos l) t)
 
 addDeps :: (MonadIO m) => String -> Scope -> Set LocGCstr -> TcM m ()
-#if INCREMENTAL
 addDeps msg scope xs = forM_ xs $ \x -> addDep msg scope x
-#else
-addDeps msg scope xs = return ()
-#endif
 
 addDep :: (MonadIO m) => String -> Scope -> Loc Position GCstr -> TcM m ()
-#if INCREMENTAL
 addDep msg GlobalScope hyp = do
     modify $ \env -> env { globalDeps = Set.insert hyp (globalDeps env) }
     debugTc $ liftIO $ putStrLn $ "added Global dependency " ++ msg ++ " " ++ pprid (gCstrId $ unLoc hyp)
 addDep msg LocalScope hyp = do
     modify $ \env -> env { localDeps = Set.insert hyp (localDeps env) }
     debugTc $ liftIO $ putStrLn $ "added Local dependency " ++ msg ++ " " ++ pprid (gCstrId $ unLoc hyp)
-#else
-addDep msg scope hyp = return ()
-#endif
 
 tcNoDeps :: (VarsGTcM m) => TcM m a -> TcM m a
 tcNoDeps m = do
