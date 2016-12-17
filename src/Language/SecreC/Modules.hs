@@ -120,7 +120,7 @@ openModule parent g f n pos load = do
             let g' = insParent parent c $ insNode (c,mfile) g
             -- open imports
             foldlM (openImport c) g' (moduleFileImports mfile)
-    g'' <- dirtyParents c g'
+    g'' <- dirtyParents n c g'
     closeModule n
     return g''
   where
@@ -161,8 +161,8 @@ parseFileWithBuiltin fn = flushWarnings $ do
     return (args,m',mlength)
 
 -- recursively update the modification time of parent modules
-dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph
-dirtyParents i g = case contextGr g i of
+dirtyParents :: ModK m => Identifier -> Node -> ModuleGraph -> ModuleM m ModuleGraph
+dirtyParents n i g = case contextGr g i of
     Nothing -> return g
     Just (_,_,n,parents) -> dirtyParents' (map snd parents) (moduleFileModificationTime n) g
   where
@@ -179,7 +179,7 @@ dirtyParents i g = case contextGr g i of
                 dirtyParents' (is++map snd iparents) t (insNode (i,inode') g)
     update (Left (_,args,m,mlength)) t = return $ Left (t,args,m,mlength)
     update (Right sci) t = do
-        sciError $ "A dependency of the SecreC file " ++ show (sciFile sci) ++ " has changed"
+        sciError $ "The dependency " ++ show n ++ " of the SecreC file " ++ show (sciFile sci) ++ " has changed"
         (args,m,mlines) <- parseFileWithBuiltin (sciFile sci)
         return $ Left (t,args,m,mlines)
 
