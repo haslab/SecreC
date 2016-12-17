@@ -1102,6 +1102,7 @@ data Op iden loc
     | OpSub      loc
     | OpXor      loc
     | OpEq       loc
+    | OpSEq      loc
     | OpGe       loc
     | OpLand     loc
     | OpLe       loc
@@ -1136,6 +1137,7 @@ isBoolOp _ = False
 
 isCmpOp :: Op iden loc -> Bool
 isCmpOp (OpEq _) = True
+isCmpOp (OpSEq _) = True
 isCmpOp (OpNe _) = True
 isCmpOp (OpLt _) = True
 isCmpOp (OpLe _) = True
@@ -1159,6 +1161,7 @@ instance (DebugM m,PP m iden) => PP m (Op iden loc) where
     pp (OpSub  l) =     return $ text "-" 
     pp (OpXor  l) =     return $ text "^" 
     pp (OpEq   l) =     return $ text "==" 
+    pp (OpSEq  l) =     return $ text "==="
     pp (OpGe   l) =     return $ text ">=" 
     pp (OpLand l) =     return $ text "&&" 
     pp (OpLe   l) =     return $ text "<=" 
@@ -1186,6 +1189,7 @@ instance Location loc => Located (Op iden loc) where
     loc (OpSub  l) = l
     loc (OpXor  l) = l
     loc (OpEq   l) = l 
+    loc (OpSEq  l) = l
     loc (OpGe   l) = l 
     loc (OpLand l) = l 
     loc (OpLe   l) = l 
@@ -1208,6 +1212,7 @@ instance Location loc => Located (Op iden loc) where
     updLoc (OpMod  _) l = OpMod  l
     updLoc (OpMul  _) l = OpMul  l
     updLoc (OpSub  _) l = OpSub  l
+    updLoc (OpSEq  _) l = OpSEq  l
     updLoc (OpXor  _) l = OpXor  l
     updLoc (OpEq   _) l = OpEq   l
     updLoc (OpGe   _) l = OpGe   l

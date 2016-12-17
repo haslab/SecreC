@@ -598,6 +598,11 @@ eqExprs l isTop e1 e2 = do
     (dec,[(_,Left x1,_),(_,Left x2,_)]) <- pDecCstrM l Nothing isTop False True (OIden $ OpEq $ NoType "eqExprs") Nothing [(False,Left e1,False),(False,Left e2,False)] (BaseT bool)
     return (BinaryExpr (BaseT bool) x1 (OpEq $ DecT dec) x2)
     
+seqExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
+seqExprs l isTop e1 e2 = do
+    (dec,[(_,Left x1,_),(_,Left x2,_)]) <- pDecCstrM l Nothing isTop False True (OIden $ OpSEq $ NoType "eqExprs") Nothing [(False,Left e1,False),(False,Left e2,False)] (BaseT bool)
+    return (BinaryExpr (BaseT bool) x1 (OpSEq $ DecT dec) x2)
+    
 geExprs :: (ProverK loc m) => loc -> Bool -> Expr -> Expr -> TcM m Expr
 geExprs l isTop e1 e2 = do
     (dec,[(_,Left x1,_),(_,Left x2,_)]) <- pDecCstrM l Nothing isTop False True (OIden $ OpGe $ NoType "geExprs") Nothing [(False,Left e1,False),(False,Left e2,False)] (BaseT bool)
