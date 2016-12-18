@@ -22,7 +22,7 @@ import Control.Monad
 
 -- Program and variable declarations:                                          
 
-data Module iden loc = Module loc (Maybe (ModuleName iden loc)) (Program iden loc)
+data Module iden loc = Module !loc !(Maybe (ModuleName iden loc)) !(Program iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Module iden loc)  
@@ -56,7 +56,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Module iden loc) wh
         return $ text "module" <+> pp1 <+> text "where" $$ pp2
     pp (Module _ Nothing prog) = pp prog
 
-data AttributeName iden loc = AttributeName loc iden
+data AttributeName iden loc = AttributeName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (AttributeName iden loc)  
@@ -76,7 +76,7 @@ instance Location loc => Located (AttributeName iden loc) where
 instance PP m iden => PP m (AttributeName iden loc) where
     pp (AttributeName _ iden) = pp iden
 
-data ModuleName iden loc = ModuleName loc iden
+data ModuleName iden loc = ModuleName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ModuleName iden loc)  
@@ -90,7 +90,7 @@ instance Location loc => Located (ModuleName iden loc) where
 instance PP m iden => PP m (ModuleName iden loc) where
     pp (ModuleName _ iden) = pp iden
 
-data TemplateArgName iden loc = TemplateArgName loc iden
+data TemplateArgName iden loc = TemplateArgName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TemplateArgName iden loc)  
@@ -104,7 +104,7 @@ instance Location loc => Located (TemplateArgName iden loc) where
 instance PP m iden => PP m (TemplateArgName iden loc) where
     pp (TemplateArgName _ iden) = pp iden
 
-data Program iden loc = Program loc [ImportDeclaration iden loc] [GlobalDeclaration iden loc]
+data Program iden loc = Program !loc ![ImportDeclaration iden loc] ![GlobalDeclaration iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Program iden loc)  
@@ -133,7 +133,7 @@ instance PP m iden => PP m [ImportDeclaration iden loc] where
 instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [GlobalDeclaration iden loc] where
     pp gs = liftM vcat $ mapM pp gs
 
-data ImportDeclaration iden loc = Import loc (ModuleName iden loc)
+data ImportDeclaration iden loc = Import !loc !(ModuleName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ImportDeclaration iden loc)  
@@ -148,14 +148,14 @@ instance PP m iden => PP m (ImportDeclaration iden loc) where
     pp (Import _ modulename) = liftM (text "import" <+>) (pp modulename)
 
 data GlobalDeclaration iden loc
-    = GlobalVariable loc (VariableDeclaration iden loc)
-    | GlobalDomain loc (DomainDeclaration iden loc)
-    | GlobalKind loc (KindDeclaration iden loc)
-    | GlobalProcedure loc (ProcedureDeclaration iden loc)
-    | GlobalStructure loc (StructureDeclaration iden loc)
-    | GlobalFunction loc (FunctionDeclaration iden loc)
-    | GlobalTemplate loc (TemplateDeclaration iden loc)
-    | GlobalAnnotations loc [GlobalAnnotation iden loc]
+    = GlobalVariable !loc !(VariableDeclaration iden loc)
+    | GlobalDomain !loc !(DomainDeclaration iden loc)
+    | GlobalKind !loc !(KindDeclaration iden loc)
+    | GlobalProcedure !loc !(ProcedureDeclaration iden loc)
+    | GlobalStructure !loc !(StructureDeclaration iden loc)
+    | GlobalFunction !loc !(FunctionDeclaration iden loc)
+    | GlobalTemplate !loc !(TemplateDeclaration iden loc)
+    | GlobalAnnotations !loc ![GlobalAnnotation iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (GlobalDeclaration iden loc)  
@@ -190,7 +190,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (GlobalDeclaration i
     pp (GlobalTemplate _ td) = pp td
     pp (GlobalAnnotations _ ann) = pp ann
 
-data KindDeclaration iden loc = Kind loc (KindName iden loc)
+data KindDeclaration iden loc = Kind !loc !(KindName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (KindDeclaration iden loc)  
@@ -206,7 +206,7 @@ instance PP m iden => PP m (KindDeclaration iden loc) where
         ppk <- pp kname
         return $ text "kind" <+> ppk
   
-data KindName iden loc = KindName loc iden
+data KindName iden loc = KindName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (KindName iden loc)  
@@ -223,7 +223,7 @@ instance Location loc => Located (KindName iden loc) where
 instance PP m iden => PP m (KindName iden loc) where
     pp (KindName _ iden) = pp iden
 
-data DomainDeclaration iden loc = Domain loc (DomainName iden loc) (KindName iden loc)
+data DomainDeclaration iden loc = Domain !loc !(DomainName iden loc) !(KindName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (DomainDeclaration iden loc)  
@@ -240,7 +240,7 @@ instance PP m iden => PP m (DomainDeclaration iden loc) where
         ppk <- pp kind
         return $ text "domain" <+> ppd <+> ppk
  
-data DomainName iden loc = DomainName loc iden
+data DomainName iden loc = DomainName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (DomainName iden loc)  
@@ -254,7 +254,7 @@ instance Location loc => Located (DomainName iden loc) where
 instance PP m iden => PP m (DomainName iden loc) where
     pp (DomainName _ iden) = pp iden
 
-data ProcedureName iden loc = ProcedureName loc iden
+data ProcedureName iden loc = ProcedureName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (ProcedureName iden loc)  
@@ -268,7 +268,7 @@ instance Location loc => Located (ProcedureName iden loc) where
 instance PP m iden => PP m (ProcedureName iden loc) where
     pp (ProcedureName _ iden) = pp iden
 
-data VarName iden loc = VarName loc iden
+data VarName iden loc = VarName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic,Traversable,Foldable)
 
 instance (Binary iden,Binary loc) => Binary (VarName iden loc)  
@@ -296,7 +296,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (VarName iden loc) w
         --        return $ pid <+> text "::" <+> pl
         --    else return pid
 
-data TypeName iden loc = TypeName loc iden
+data TypeName iden loc = TypeName !loc !iden
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TypeName iden loc)
@@ -318,7 +318,7 @@ type Identifier = String
 instance Monad m => PP m String where
     pp s = return $ text s
 
-data VariableInitialization iden loc = VariableInitialization loc (VarName iden loc) (Maybe (Sizes iden loc)) (Maybe (Expression iden loc))
+data VariableInitialization iden loc = VariableInitialization !loc !(VarName iden loc) !(Maybe (Sizes iden loc)) !(Maybe (Expression iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (VariableInitialization iden loc)  
@@ -366,7 +366,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Sizes iden loc) whe
 type IsConst = Bool
 type IsHavoc = Bool
 
-data VariableDeclaration iden loc = VariableDeclaration loc IsConst IsHavoc (TypeSpecifier iden loc) (NeList (VariableInitialization iden loc))
+data VariableDeclaration iden loc = VariableDeclaration !loc !IsConst !IsHavoc !(TypeSpecifier iden loc) !(NeList (VariableInitialization iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (VariableDeclaration iden loc)  
@@ -386,7 +386,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (VariableDeclaration
 type IsVariadic = Bool
 
 data ProcedureParameter iden loc
-    = ProcedureParameter loc IsConst (TypeSpecifier iden loc) IsVariadic (VarName iden loc)
+    = ProcedureParameter !loc !IsConst !(TypeSpecifier iden loc) !IsVariadic !(VarName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (ProcedureParameter iden loc)  
@@ -410,7 +410,7 @@ ppHavoc False doc = doc
 
 -- Types:                                                                      
 
-data TypeSpecifier iden loc = TypeSpecifier loc (Maybe (SecTypeSpecifier iden loc)) (DatatypeSpecifier iden loc) (Maybe (DimtypeSpecifier iden loc))
+data TypeSpecifier iden loc = TypeSpecifier !loc !(Maybe (SecTypeSpecifier iden loc)) !(DatatypeSpecifier iden loc) !(Maybe (DimtypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (TypeSpecifier iden loc)  
@@ -432,8 +432,8 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (TypeSpecifier iden 
         return $ pps <+> ppt <+> ppd
 
 data SecTypeSpecifier iden loc
-    = PublicSpecifier loc
-    | PrivateSpecifier loc (DomainName iden loc)
+    = PublicSpecifier !loc
+    | PrivateSpecifier !loc !(DomainName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (SecTypeSpecifier iden loc)  
@@ -451,11 +451,11 @@ instance PP m iden => PP m (SecTypeSpecifier iden loc) where
     pp (PrivateSpecifier _ n) = pp n
 
 data DatatypeSpecifier iden loc
-    = PrimitiveSpecifier loc (PrimitiveDatatype loc)
-    | TemplateSpecifier loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
-    | MultisetSpecifier loc (TypeSpecifier iden loc)
-    | SetSpecifier loc (TypeSpecifier iden loc)
-    | VariableSpecifier loc (TypeName iden loc)
+    = PrimitiveSpecifier !loc !(PrimitiveDatatype loc)
+    | TemplateSpecifier !loc !(TypeName iden loc) ![(TemplateTypeArgument iden loc,IsVariadic)]
+    | MultisetSpecifier !loc !(TypeSpecifier iden loc)
+    | SetSpecifier !loc !(TypeSpecifier iden loc)
+    | VariableSpecifier !loc !(TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (DatatypeSpecifier iden loc)  
@@ -489,22 +489,22 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (DatatypeSpecifier i
         return $ text "set" <> abrackets pp1
 
 data PrimitiveDatatype loc
-    = DatatypeBool       loc
-    | DatatypeInt8       loc
-    | DatatypeUint8      loc
-    | DatatypeInt16      loc
-    | DatatypeUint16     loc
-    | DatatypeInt32      loc
-    | DatatypeUint32     loc
-    | DatatypeInt64      loc
-    | DatatypeUint64     loc
-    | DatatypeString     loc
-    | DatatypeXorUint8   loc
-    | DatatypeXorUint16  loc
-    | DatatypeXorUint32  loc
-    | DatatypeXorUint64  loc
-    | DatatypeFloat32    loc
-    | DatatypeFloat64    loc
+    = DatatypeBool       !loc
+    | DatatypeInt8       !loc
+    | DatatypeUint8      !loc
+    | DatatypeInt16      !loc
+    | DatatypeUint16     !loc
+    | DatatypeInt32      !loc
+    | DatatypeUint32     !loc
+    | DatatypeInt64      !loc
+    | DatatypeUint64     !loc
+    | DatatypeString     !loc
+    | DatatypeXorUint8   !loc
+    | DatatypeXorUint16  !loc
+    | DatatypeXorUint32  !loc
+    | DatatypeXorUint64  !loc
+    | DatatypeFloat32    !loc
+    | DatatypeFloat64    !loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance Binary loc => Binary (PrimitiveDatatype loc)
@@ -590,11 +590,11 @@ instance Monad m => PP m (PrimitiveDatatype loc) where
     pp (DatatypeFloat64    _) = return $ text "float64"
   
 data TemplateTypeArgument iden loc
-    = GenericTemplateTypeArgument loc (TemplateArgName iden loc)
-    | TemplateTemplateTypeArgument loc (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
-    | PrimitiveTemplateTypeArgument loc (PrimitiveDatatype loc)
-    | ExprTemplateTypeArgument loc (Expression iden loc)
-    | PublicTemplateTypeArgument loc
+    = GenericTemplateTypeArgument !loc !(TemplateArgName iden loc)
+    | TemplateTemplateTypeArgument !loc !(TypeName iden loc) ![(TemplateTypeArgument iden loc,IsVariadic)]
+    | PrimitiveTemplateTypeArgument !loc !(PrimitiveDatatype loc)
+    | ExprTemplateTypeArgument !loc !(Expression iden loc)
+    | PublicTemplateTypeArgument !loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TemplateTypeArgument iden loc)  
@@ -624,7 +624,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (TemplateTypeArgumen
     pp (PublicTemplateTypeArgument _) = return $ text "public"
   
 data DimtypeSpecifier iden loc
-    = DimSpecifier loc (Expression iden loc)
+    = DimSpecifier !loc !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (DimtypeSpecifier iden loc)  
@@ -642,7 +642,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (DimtypeSpecifier id
   
 -- Templates:                                                                  
 
-data TemplateContext iden loc = TemplateContext loc (Maybe [ContextConstraint iden loc])
+data TemplateContext iden loc = TemplateContext !loc !(Maybe [ContextConstraint iden loc])
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (TemplateContext iden loc)  
@@ -691,9 +691,9 @@ type IsLeak = Bool
 type IsAnn = Bool
 
 data ContextConstraint iden loc
-    = ContextPDec loc ExprClass IsLeak IsAnn CstrKind (ReturnTypeSpecifier iden loc) (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
-    | ContextODec loc ExprClass IsLeak IsAnn CstrKind (ReturnTypeSpecifier iden loc) (Op iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [CtxPArg iden loc]
-    | ContextTDec loc ExprClass (TypeName iden loc) [(TemplateTypeArgument iden loc,IsVariadic)]
+    = ContextPDec !loc !ExprClass !IsLeak !IsAnn !CstrKind !(ReturnTypeSpecifier iden loc) !(ProcedureName iden loc) !(Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) ![CtxPArg iden loc]
+    | ContextODec !loc !ExprClass !IsLeak !IsAnn !CstrKind !(ReturnTypeSpecifier iden loc) !(Op iden loc) !(Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) ![CtxPArg iden loc]
+    | ContextTDec !loc !ExprClass !(TypeName iden loc) ![(TemplateTypeArgument iden loc,IsVariadic)]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ContextConstraint iden loc)  
@@ -733,9 +733,9 @@ ppIsAnn True doc = text "annotation" <+> doc
 ppIsAnn False doc = doc
 
 data CtxPArg iden loc
-    = CtxExprPArg loc IsConst (Expression iden loc) IsVariadic
-    | CtxTypePArg loc IsConst (TypeSpecifier iden loc) IsVariadic
-    | CtxVarPArg loc IsConst (TemplateArgName iden loc) IsVariadic -- for ambiguous cases when a variable can be either an expression or a type
+    = CtxExprPArg !loc !IsConst !(Expression iden loc) !IsVariadic
+    | CtxTypePArg !loc !IsConst !(TypeSpecifier iden loc) !IsVariadic
+    | CtxVarPArg !loc !IsConst !(TemplateArgName iden loc) !IsVariadic -- for ambiguous cases when a variable can be either an expression or a type
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (CtxPArg iden loc)  
@@ -756,10 +756,10 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (CtxPArg iden loc) w
     pp (CtxVarPArg _ isConst t isVariadic) = liftM (ppConst isConst) $ ppVariadicM t isVariadic
 
 data TemplateDeclaration iden loc
-    = TemplateStructureDeclaration loc [TemplateQuantifier iden loc] (StructureDeclaration iden loc)
-    | TemplateStructureSpecialization loc [TemplateQuantifier iden loc] [(TemplateTypeArgument iden loc,IsVariadic)] (StructureDeclaration iden loc)
-    | TemplateProcedureDeclaration loc [TemplateQuantifier iden loc] (ProcedureDeclaration iden loc)
-    | TemplateFunctionDeclaration loc [TemplateQuantifier iden loc] (FunctionDeclaration iden loc)
+    = TemplateStructureDeclaration !loc ![TemplateQuantifier iden loc] !(StructureDeclaration iden loc)
+    | TemplateStructureSpecialization !loc ![TemplateQuantifier iden loc] ![(TemplateTypeArgument iden loc,IsVariadic)] !(StructureDeclaration iden loc)
+    | TemplateProcedureDeclaration !loc ![TemplateQuantifier iden loc] !(ProcedureDeclaration iden loc)
+    | TemplateFunctionDeclaration !loc ![TemplateQuantifier iden loc] !(FunctionDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 templateDeclarationName :: TemplateDeclaration Identifier loc -> Identifier
@@ -801,10 +801,10 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (TemplateDeclaration
         return $ text "template" <+> abrackets (sepBy comma pp1) <+> pp2
   
 data TemplateQuantifier iden loc
-    = DomainQuantifier loc IsVariadic (DomainName iden loc) (Maybe (KindName iden loc))
-    | KindQuantifier loc (Maybe KindClass) IsVariadic (KindName iden loc)
-    | DimensionQuantifier loc IsVariadic (VarName iden loc) (Maybe (Expression iden loc))
-    | DataQuantifier loc (Maybe DataClass) IsVariadic (TypeName iden loc)
+    = DomainQuantifier !loc !IsVariadic !(DomainName iden loc) !(Maybe (KindName iden loc))
+    | KindQuantifier !loc !(Maybe KindClass) !IsVariadic !(KindName iden loc)
+    | DimensionQuantifier !loc !IsVariadic !(VarName iden loc) !(Maybe (Expression iden loc))
+    | DataQuantifier !loc !(Maybe DataClass) !IsVariadic !(TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 data KindClass = NonPublicClass
@@ -858,7 +858,7 @@ ppDataClass PrimitiveClass = text "primitive"
   
  -- Structures:                                                                
 
-data StructureDeclaration iden loc = StructureDeclaration loc (TypeName iden loc) (TemplateContext iden loc) [Attribute iden loc]
+data StructureDeclaration iden loc = StructureDeclaration !loc !(TypeName iden loc) !(TemplateContext iden loc) ![Attribute iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (StructureDeclaration iden loc)  
@@ -888,7 +888,7 @@ ppStruct (Just specials) (StructureDeclaration _ t ctx as) = do
     ppas <- mapM pp as
     return $ text "struct" <+> ppt <+> abrackets (sepBy comma pp2) <+> ppc <+> braces (vcat ppas)
   
-data Attribute iden loc = Attribute loc (TypeSpecifier iden loc) (AttributeName iden loc) (Maybe (Sizes iden loc))
+data Attribute iden loc = Attribute !loc !(TypeSpecifier iden loc) !(AttributeName iden loc) !(Maybe (Sizes iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 attributeName :: Attribute iden loc -> AttributeName iden loc
@@ -914,7 +914,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Attribute iden loc)
 
 -- Procedures:
 
-data ReturnTypeSpecifier iden loc = ReturnType loc (Maybe (TypeSpecifier iden loc))
+data ReturnTypeSpecifier iden loc = ReturnType !loc !(Maybe (TypeSpecifier iden loc))
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ReturnTypeSpecifier iden loc)  
@@ -930,20 +930,20 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (ReturnTypeSpecifier
     pp (ReturnType loc (Just t)) = pp t
   
 data ProcedureDeclaration iden loc
-    = OperatorDeclaration loc
-        (ReturnTypeSpecifier iden loc)
-        (Op iden loc)
-        [ProcedureParameter iden loc]
-        (TemplateContext iden loc)
-        [ProcedureAnnotation iden loc]
-        [Statement iden loc]
-    | ProcedureDeclaration loc
-        (ReturnTypeSpecifier iden loc)
-        (ProcedureName iden loc)
-        [ProcedureParameter iden loc]
-        (TemplateContext iden loc)
-        [ProcedureAnnotation iden loc]
-        [Statement iden loc]
+    = OperatorDeclaration !loc
+        !(ReturnTypeSpecifier iden loc)
+        !(Op iden loc)
+        ![ProcedureParameter iden loc]
+        !(TemplateContext iden loc)
+        ![ProcedureAnnotation iden loc]
+        ![Statement iden loc]
+    | ProcedureDeclaration !loc
+        !(ReturnTypeSpecifier iden loc)
+        !(ProcedureName iden loc)
+        ![ProcedureParameter iden loc]
+        !(TemplateContext iden loc)
+        ![ProcedureAnnotation iden loc]
+        ![Statement iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 procedureDeclarationName :: ProcedureDeclaration Identifier loc -> Identifier
@@ -983,11 +983,11 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (ProcedureDeclaratio
         return $ pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ ppc $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace
     
 data AxiomDeclaration iden loc
-    = AxiomDeclaration loc
-        Bool -- is leakage
-        [TemplateQuantifier iden loc] -- template arguments
-        [ProcedureParameter iden loc]
-        [ProcedureAnnotation iden loc]
+    = AxiomDeclaration !loc
+        !Bool -- is leakage
+        ![TemplateQuantifier iden loc] -- template arguments
+        ![ProcedureParameter iden loc]
+        ![ProcedureAnnotation iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (AxiomDeclaration iden loc)  
@@ -1006,13 +1006,13 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (AxiomDeclaration id
         return $ ppLeak isLeak (text "axiom" <+> abrackets (sepBy comma pp1) <+> parens (sepBy comma pp2) $+$ pp3 )
 
 data LemmaDeclaration iden loc
-    = LemmaDeclaration loc
-        Bool -- is leakage
-        (ProcedureName iden loc)
-        [TemplateQuantifier iden loc]
-        [ProcedureParameter iden loc]
-        [ProcedureAnnotation iden loc]
-        (Maybe [Statement iden loc])
+    = LemmaDeclaration !loc
+        !Bool -- is leakage
+        !(ProcedureName iden loc)
+        ![TemplateQuantifier iden loc]
+        ![ProcedureParameter iden loc]
+        ![ProcedureAnnotation iden loc]
+        !(Maybe [Statement iden loc])
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 lemmaDeclarationName :: LemmaDeclaration iden loc -> iden
@@ -1036,22 +1036,22 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (LemmaDeclaration id
         return $ ppLeak isLeak (text "lemma" <+> pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ pp5)
 
 data FunctionDeclaration iden loc
-    = OperatorFunDeclaration loc
-        Bool -- is leakage
-        (TypeSpecifier iden loc)
-        (Op iden loc)
-        [ProcedureParameter iden loc]
-        (TemplateContext iden loc)
-        [ProcedureAnnotation iden loc]
-        (Expression iden loc)
-    | FunDeclaration loc
-        Bool -- is leakage
-        (TypeSpecifier iden loc)
-        (ProcedureName iden loc)
-        [ProcedureParameter iden loc]
-        (TemplateContext iden loc)
-        [ProcedureAnnotation iden loc]
-        (Expression iden loc)
+    = OperatorFunDeclaration !loc
+        !Bool -- is leakage
+        !(TypeSpecifier iden loc)
+        !(Op iden loc)
+        ![ProcedureParameter iden loc]
+        !(TemplateContext iden loc)
+        ![ProcedureAnnotation iden loc]
+        !(Expression iden loc)
+    | FunDeclaration !loc
+        !Bool -- is leakage
+        !(TypeSpecifier iden loc)
+        !(ProcedureName iden loc)
+        ![ProcedureParameter iden loc]
+        !(TemplateContext iden loc)
+        ![ProcedureAnnotation iden loc]
+        !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 functionDeclarationName :: FunctionDeclaration Identifier loc -> Identifier
@@ -1091,31 +1091,31 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (FunctionDeclaration
         return $ ppLeak isLeak (text "function" <+> ppr <+> ppp <+> parens (sepBy comma pas) $+$ ppc $+$ p1 $+$ lbrace $+$ nest 4 p2 $+$ rbrace)
   
 data Op iden loc
-    = OpAdd      loc
-    | OpBand     loc
-    | OpBor      loc
-    | OpDiv      loc
-    | OpGt       loc
-    | OpLt       loc
-    | OpMod      loc
-    | OpMul      loc
-    | OpSub      loc
-    | OpXor      loc
-    | OpEq       loc
-    | OpSEq      loc
-    | OpGe       loc
-    | OpLand     loc
-    | OpLe       loc
-    | OpLor      loc
-    | OpNe       loc
-    | OpShl      loc
-    | OpShr      loc
-    | OpNot      loc
-    | OpCast     loc (CastType iden loc)
-    | OpInv      loc
-    | OpImplies  loc
-    | OpEquiv    loc
-    | OpCoerce    loc
+    = OpAdd      !loc
+    | OpBand     !loc
+    | OpBor      !loc
+    | OpDiv      !loc
+    | OpGt       !loc
+    | OpLt       !loc
+    | OpMod      !loc
+    | OpMul      !loc
+    | OpSub      !loc
+    | OpXor      !loc
+    | OpEq       !loc
+    | OpSEq      !loc
+    | OpGe       !loc
+    | OpLand     !loc
+    | OpLe       !loc
+    | OpLor      !loc
+    | OpNe       !loc
+    | OpShl      !loc
+    | OpShr      !loc
+    | OpNot      !loc
+    | OpCast     !loc !(CastType iden loc)
+    | OpInv      !loc
+    | OpImplies  !loc
+    | OpEquiv    !loc
+    | OpCoerce   !loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Op iden loc)
@@ -1232,8 +1232,8 @@ instance Location loc => Located (Op iden loc) where
 -- Statements: 
 
 data ForInitializer iden loc
-    = InitializerExpression (Maybe (Expression iden loc))
-    | InitializerVariable (VariableDeclaration iden loc)
+    = InitializerExpression !(Maybe (Expression iden loc))
+    | InitializerVariable !(VariableDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ForInitializer iden loc)  
@@ -1244,21 +1244,21 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (ForInitializer iden
     pp (InitializerVariable v) = pp v
 
 data Statement iden loc
-    = CompoundStatement loc [Statement iden loc]
-    | QuantifiedStatement loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] [ProcedureAnnotation iden loc] [Statement iden loc]
-    | IfStatement loc (Expression iden loc) (Statement iden loc) (Maybe (Statement iden loc))
-    | ForStatement loc (ForInitializer iden loc) (Maybe (Expression iden loc)) (Maybe (Expression iden loc)) [LoopAnnotation iden loc] (Statement iden loc)
-    | WhileStatement loc (Expression iden loc) [LoopAnnotation iden loc] (Statement iden loc)
-    | PrintStatement loc [(Expression iden loc,IsVariadic)]
-    | DowhileStatement loc [LoopAnnotation iden loc] (Statement iden loc) (Expression iden loc)
-    | AssertStatement loc (Expression iden loc)
-    | SyscallStatement loc String [SyscallParameter iden loc]
-    | VarStatement loc (VariableDeclaration iden loc)
-    | ReturnStatement loc (Maybe (Expression iden loc))
-    | ContinueStatement loc
-    | BreakStatement loc
-    | ExpressionStatement loc (Expression iden loc)
-    | AnnStatement loc [StatementAnnotation iden loc]
+    = CompoundStatement !loc ![Statement iden loc]
+    | QuantifiedStatement !loc !(Quantifier loc) ![(TypeSpecifier iden loc,VarName iden loc)] ![ProcedureAnnotation iden loc] ![Statement iden loc]
+    | IfStatement !loc !(Expression iden loc) !(Statement iden loc) !(Maybe (Statement iden loc))
+    | ForStatement !loc !(ForInitializer iden loc) !(Maybe (Expression iden loc)) !(Maybe (Expression iden loc)) ![LoopAnnotation iden loc] !(Statement iden loc)
+    | WhileStatement !loc !(Expression iden loc) ![LoopAnnotation iden loc] !(Statement iden loc)
+    | PrintStatement !loc ![(Expression iden loc,IsVariadic)]
+    | DowhileStatement !loc ![LoopAnnotation iden loc] (Statement iden loc) !(Expression iden loc)
+    | AssertStatement !loc !(Expression iden loc)
+    | SyscallStatement !loc !String ![SyscallParameter iden loc]
+    | VarStatement !loc !(VariableDeclaration iden loc)
+    | ReturnStatement !loc !(Maybe (Expression iden loc))
+    | ContinueStatement !loc
+    | BreakStatement !loc
+    | ExpressionStatement !loc !(Expression iden loc)
+    | AnnStatement !loc ![StatementAnnotation iden loc]
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Statement iden loc)  
@@ -1366,10 +1366,10 @@ ppSyscallParameters ps = do
     return $ sepBy comma pp1
  
 data SyscallParameter iden loc
-    = SyscallPush loc (Expression iden loc,IsVariadic)
-    | SyscallReturn loc (VarName iden loc)
-    | SyscallPushRef loc (VarName iden loc)
-    | SyscallPushCRef loc (Expression iden loc)
+    = SyscallPush !loc !(Expression iden loc,IsVariadic)
+    | SyscallReturn !loc !(VarName iden loc)
+    | SyscallPushRef !loc !(VarName iden loc)
+    | SyscallPushCRef !loc !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (SyscallParameter iden loc)  
@@ -1402,8 +1402,8 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Subscript iden loc)
         return $ brackets (sepBy comma ps)
 
 data Index iden loc
-    = IndexSlice loc (Maybe (Expression iden loc)) (Maybe (Expression iden loc))
-    | IndexInt loc (Expression iden loc)
+    = IndexSlice !loc !(Maybe (Expression iden loc)) !(Maybe (Expression iden loc))
+    | IndexInt !loc !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Index iden loc)  
@@ -1426,8 +1426,8 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (Index iden loc) whe
 -- Expressions:  
 
 data Quantifier loc
-    = ForallQ loc
-    | ExistsQ loc
+    = ForallQ !loc
+    | ExistsQ !loc
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary loc) => Binary (Quantifier loc)  
@@ -1444,33 +1444,33 @@ instance Location loc => Located (Quantifier loc) where
     updLoc (ExistsQ _) l = ExistsQ l
 
 data Expression iden loc
-    = BinaryAssign loc (Expression iden loc) (BinaryAssignOp loc) (Expression iden loc)
-    | QualExpr loc (Expression iden loc) (TypeSpecifier iden loc)
-    | CondExpr loc (Expression iden loc) (Expression iden loc) (Expression iden loc)
-    | BinaryExpr loc (Expression iden loc) (Op iden loc) (Expression iden loc)
-    | UnaryExpr loc (Op iden loc) (Expression iden loc)
-    | PreOp loc (Op iden loc) (Expression iden loc)
-    | PostOp loc (Op iden loc) (Expression iden loc)
-    | DomainIdExpr loc (SecTypeSpecifier iden loc)
-    | LeakExpr loc (Expression iden loc)
-    | BytesFromStringExpr loc (Expression iden loc)
-    | StringFromBytesExpr loc (Expression iden loc)
-    | VArraySizeExpr loc (Expression iden loc)
-    | ProcCallExpr loc (ProcedureName iden loc) (Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) [(Expression iden loc,IsVariadic)]
-    | PostIndexExpr loc (Expression iden loc) (Subscript iden loc)
-    | SelectionExpr loc (Expression iden loc) (AttributeName iden loc)
-    | RVariablePExpr loc (VarName iden loc)
-    | LitPExpr loc (Literal loc)
-    | ArrayConstructorPExpr loc [Expression iden loc]
-    | MultisetConstructorPExpr loc [Expression iden loc]
-    | SetConstructorPExpr loc [Expression iden loc]
-    | ResultExpr loc
-    | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
-    | BuiltinExpr loc String [(Expression iden loc,IsVariadic)]
-    | ToMultisetExpr loc (Expression iden loc)
-    | ToSetExpr loc (Expression iden loc)
-    | SetComprehensionExpr loc (TypeSpecifier iden loc) (VarName iden loc) (Expression iden loc) (Maybe (Expression iden loc))
-    | ToVArrayExpr loc (Expression iden loc) (Expression iden loc)
+    = BinaryAssign !loc !(Expression iden loc) !(BinaryAssignOp loc) !(Expression iden loc)
+    | QualExpr !loc !(Expression iden loc) !(TypeSpecifier iden loc)
+    | CondExpr !loc !(Expression iden loc) !(Expression iden loc) !(Expression iden loc)
+    | BinaryExpr !loc !(Expression iden loc) !(Op iden loc) !(Expression iden loc)
+    | UnaryExpr !loc !(Op iden loc) !(Expression iden loc)
+    | PreOp !loc !(Op iden loc) !(Expression iden loc)
+    | PostOp !loc !(Op iden loc) !(Expression iden loc)
+    | DomainIdExpr !loc !(SecTypeSpecifier iden loc)
+    | LeakExpr !loc !(Expression iden loc)
+    | BytesFromStringExpr !loc !(Expression iden loc)
+    | StringFromBytesExpr !loc !(Expression iden loc)
+    | VArraySizeExpr !loc !(Expression iden loc)
+    | ProcCallExpr !loc !(ProcedureName iden loc) !(Maybe [(TemplateTypeArgument iden loc,IsVariadic)]) ![(Expression iden loc,IsVariadic)]
+    | PostIndexExpr !loc !(Expression iden loc) !(Subscript iden loc)
+    | SelectionExpr !loc !(Expression iden loc) !(AttributeName iden loc)
+    | RVariablePExpr !loc !(VarName iden loc)
+    | LitPExpr !loc !(Literal loc)
+    | ArrayConstructorPExpr !loc ![Expression iden loc]
+    | MultisetConstructorPExpr !loc ![Expression iden loc]
+    | SetConstructorPExpr !loc ![Expression iden loc]
+    | ResultExpr !loc
+    | QuantifiedExpr !loc !(Quantifier loc) ![(TypeSpecifier iden loc,VarName iden loc)] !(Expression iden loc)
+    | BuiltinExpr !loc !String ![(Expression iden loc,IsVariadic)]
+    | ToMultisetExpr !loc !(Expression iden loc)
+    | ToSetExpr !loc !(Expression iden loc)
+    | SetComprehensionExpr !loc !(TypeSpecifier iden loc) !(VarName iden loc) !(Expression iden loc) !(Maybe (Expression iden loc))
+    | ToVArrayExpr !loc !(Expression iden loc) !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (Expression iden loc)  
@@ -1662,8 +1662,8 @@ ppExpr (QuantifiedExpr l q vs e) = do
     return $ text "forall" <+> sepBy comma pp1 <+> char ';' <+> pp2
   
 data CastType iden loc
-    = CastPrim (PrimitiveDatatype loc)
-    | CastTy (TypeName iden loc)
+    = CastPrim !(PrimitiveDatatype loc)
+    | CastTy !(TypeName iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (CastType iden loc)
@@ -1681,15 +1681,15 @@ instance PP m iden => PP m (CastType iden loc) where
     pp (CastTy v) = pp v
   
 data BinaryAssignOp loc
-    = BinaryAssignEqual loc
-    | BinaryAssignMul   loc
-    | BinaryAssignDiv   loc
-    | BinaryAssignMod   loc
-    | BinaryAssignAdd   loc
-    | BinaryAssignSub   loc
-    | BinaryAssignAnd   loc
-    | BinaryAssignOr    loc
-    | BinaryAssignXor   loc
+    = BinaryAssignEqual !loc
+    | BinaryAssignMul   !loc
+    | BinaryAssignDiv   !loc
+    | BinaryAssignMod   !loc
+    | BinaryAssignAdd   !loc
+    | BinaryAssignSub   !loc
+    | BinaryAssignAnd   !loc
+    | BinaryAssignOr    !loc
+    | BinaryAssignXor   !loc
   deriving (Read,Show,Data,Typeable,Eq,Ord,Functor,Generic)
   
 instance (Binary loc) => Binary (BinaryAssignOp loc)  
@@ -1728,10 +1728,10 @@ instance Monad m => PP m (BinaryAssignOp loc) where
     pp (BinaryAssignXor   _) = return $ text "^="
   
 data Literal loc
-    = IntLit loc Integer
-    | StringLit loc String
-    | BoolLit loc Bool
-    | FloatLit loc Double
+    = IntLit !loc !Integer
+    | StringLit !loc !String
+    | BoolLit !loc !Bool
+    | FloatLit !loc !Double
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary loc) => Binary (Literal loc)  
@@ -1776,12 +1776,12 @@ varExpr v = RVariablePExpr (loc v) v
 -- ** Annotations
 
 data GlobalAnnotation iden loc
-    = GlobalFunctionAnn loc (FunctionDeclaration iden loc)
-    | GlobalStructureAnn loc (StructureDeclaration iden loc)
-    | GlobalProcedureAnn loc (ProcedureDeclaration iden loc)
-    | GlobalTemplateAnn loc (TemplateDeclaration iden loc)
-    | GlobalAxiomAnn loc (AxiomDeclaration iden loc)
-    | GlobalLemmaAnn loc (LemmaDeclaration iden loc)
+    = GlobalFunctionAnn !loc !(FunctionDeclaration iden loc)
+    | GlobalStructureAnn !loc !(StructureDeclaration iden loc)
+    | GlobalProcedureAnn !loc !(ProcedureDeclaration iden loc)
+    | GlobalTemplateAnn !loc !(TemplateDeclaration iden loc)
+    | GlobalAxiomAnn !loc !(AxiomDeclaration iden loc)
+    | GlobalLemmaAnn !loc !(LemmaDeclaration iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 globalAnnName :: GlobalAnnotation Identifier loc -> Maybe Identifier
@@ -1822,10 +1822,10 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [GlobalAnnotation id
     pp xs = liftM vcat $ mapM pp xs
 
 data ProcedureAnnotation iden loc
-    = RequiresAnn loc Bool Bool (Expression iden loc)
-    | EnsuresAnn loc Bool Bool (Expression iden loc)
-    | InlineAnn loc Bool
-    | PDecreasesAnn loc (Expression iden loc)
+    = RequiresAnn !loc !Bool !Bool !(Expression iden loc)
+    | EnsuresAnn !loc !Bool !Bool !(Expression iden loc)
+    | InlineAnn !loc !Bool
+    | PDecreasesAnn !loc !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (ProcedureAnnotation iden loc)  
@@ -1862,8 +1862,8 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [ProcedureAnnotation
     pp xs = liftM vcat $ mapM pp xs
 
 data LoopAnnotation iden loc
-    = DecreasesAnn loc Bool (Expression iden loc)
-    | InvariantAnn loc Bool Bool (Expression iden loc)
+    = DecreasesAnn !loc !Bool !(Expression iden loc)
+    | InvariantAnn !loc !Bool !Bool !(Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (LoopAnnotation iden loc)  
@@ -1888,9 +1888,9 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [LoopAnnotation iden
     pp xs = liftM vcat $ mapM pp xs
 
 data StatementAnnotation iden loc
-    = AssumeAnn loc Bool (Expression iden loc)
-    | AssertAnn loc Bool (Expression iden loc)
-    | EmbedAnn loc Bool (Statement iden loc)
+    = AssumeAnn !loc !Bool !(Expression iden loc)
+    | AssertAnn !loc !Bool !(Expression iden loc)
+    | EmbedAnn  !loc !Bool !(Statement iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (StatementAnnotation iden loc)  

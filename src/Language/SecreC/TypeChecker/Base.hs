@@ -79,14 +79,14 @@ import System.FilePath.Posix
 import System.IO.Error
 
 data SolveMode = SolveMode
-    { solveFail :: SolveFail -- when to fail solving constraints
-    , solveScope :: SolveScope -- which constraints to solve
+    { solveFail :: !SolveFail -- when to fail solving constraints
+    , solveScope :: !SolveScope -- which constraints to solve
     }
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 data SolveFail
-    = FirstFail Bool -- fail on first non-halt error (receives halt failure as parameter)
-    | AllFail Bool -- compile all errors (receives halt failure as parameter)
+    = FirstFail !Bool -- fail on first non-halt error (receives halt failure as parameter)
+    | AllFail !Bool -- compile all errors (receives halt failure as parameter)
     | NoFail -- do not fail on error
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
@@ -126,7 +126,7 @@ type GCstr = IOCstr
 {-# INLINE gCstrId #-}
 gCstrId = ioCstrId
 data IOCstr = IOCstr
-    { kCstr :: TCstr
+    { kCstr :: !TCstr
     , kStatus :: !(IdRef ModuleTyVarId TCstrStatus)
     }
   deriving (Data,Typeable,Show)
@@ -158,8 +158,8 @@ type GCstr = IdCstr
 {-# INLINE gCstrId #-}
 gCstrId = hashModuleTyVarId . kId
 data IdCstr = IdCstr
-    { kCstr :: TCstr
-    , kId :: ModuleTyVarId
+    { kCstr :: !TCstr
+    , kId :: !ModuleTyVarId
     }
   deriving (Data,Typeable,Show)
 
@@ -186,12 +186,12 @@ instance (DebugM m) => PP m IdCstr where
 data TCstrStatus
     = Unevaluated -- has never been evaluated
     | Evaluated -- has been evaluated
-        TDict -- resolved dictionary (variables bindings and recursive constraints)
-        (Frees,Frees) -- (new frees,old frees)
-        Bool -- is inferred
-        ShowOrdDyn -- result value
+        !TDict -- resolved dictionary (variables bindings and recursive constraints)
+        !(Frees,Frees) -- (new frees,old frees)
+        !Bool -- is inferred
+        !ShowOrdDyn -- result value
     | Erroneous -- has failed
-        SecrecError -- failure error
+        !SecrecError -- failure error
   deriving (Data,Typeable,Show,Generic,Eq,Ord)
 instance Hashable TCstrStatus
 #endif
@@ -260,11 +260,11 @@ type POId = GIdentifier --Either VarIdentifier (Op GIdentifier ())
 type GIdentifier = GIdentifier' ()
 
 data GIdentifier' t
-    = VIden VarIdentifier -- variable
-    | PIden VarIdentifier -- function or procedure or lemma
-    | OIden (Op GIdentifier t) -- operator function or procedure
-    | TIden VarIdentifier -- type
-    | MIden VarIdentifier -- module
+    = VIden !VarIdentifier -- variable
+    | PIden !VarIdentifier -- function or procedure or lemma
+    | OIden !(Op GIdentifier t) -- operator function or procedure
+    | TIden !VarIdentifier -- type
+    | MIden !VarIdentifier -- module
   deriving (Eq,Ord,Show,Data,Typeable,Generic,Functor)
 instance Hashable t => Hashable (GIdentifier' t)
 instance Binary t => Binary (GIdentifier' t)
@@ -317,9 +317,9 @@ gIdenBase' (OIden o) = ppr o
 
 #if INCREMENTAL
 data GlobalEnv = GlobalEnv
-    { tDeps :: WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on variables
-    , ioDeps :: WeakHash.BasicHashTable TyVarId (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on other IOCstrs
-    , gCstrs :: WeakHash.BasicHashTable TCstr IOCstr -- hashtable of generated constraints for possbile reuse
+    { tDeps :: !WeakHash.BasicHashTable GIdentifier (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on variables
+    , ioDeps :: !WeakHash.BasicHashTable TyVarId (WeakMap.WeakMap TyVarId IOCstr) -- IOCstr dependencies on other IOCstrs
+    , gCstrs :: !WeakHash.BasicHashTable TCstr IOCstr -- hashtable of generated constraints for possbile reuse
     }
 -- solved constraints whose solutions have been delayed
 type CstrCache = Map LocGCstr TCstrStatus
@@ -670,8 +670,8 @@ emptyTcEnv = TcEnv
     }
 
 data EntryEnv = EntryEnv {
-      entryLoc :: Position -- ^ Location where the entry is defined
-    , entryType :: Type -- ^ Type of the entry
+      entryLoc :: !Position -- ^ Location where the entry is defined
+    , entryType :: !Type -- ^ Type of the entry
     }
   deriving (Generic,Data,Typeable,Eq,Ord,Show)
 
@@ -893,61 +893,79 @@ type PIdentifier = GIdentifier' Type --Either VarIdentifier (Op GIdentifier Type
 -- | A template constraint with a result type
 data TcCstr
     = TDec -- ^ type template declaration
-        Bool -- check only context
-        (Maybe [EntryEnv]) -- optional ambiguous entries
-        SIdentifier -- template name
-        [(Type,IsVariadic)] -- template arguments
-        DecType -- resulting type
+        !Bool -- check only context
+        !(Maybe [EntryEnv]) -- optional ambiguous entries
+        !SIdentifier -- template name
+        ![(Type,IsVariadic)] -- template arguments
+        !DecType -- resulting type
     | PDec -- ^ procedure declaration
-        Bool -- check only context
-        (Maybe [EntryEnv]) -- optional ambiguous entries
-        PIdentifier -- procedure name
-        (Maybe [(Type,IsVariadic)]) -- template arguments
-        [(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
-        Type -- returnS type
-        DecType -- result
+        !Bool -- check only context
+        !(Maybe [EntryEnv]) -- optional ambiguous entries
+        !PIdentifier -- procedure name
+        !(Maybe [(Type,IsVariadic)]) -- template arguments
+        ![(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
+        !Type -- returnS type
+        !DecType -- result
     | Equals
-        Type Type -- ^ types equal
+        !Type Type -- ^ types equal
     | Coerces -- ^ types coercible
-        (Maybe [Type]) -- optional bound variables, to delay the coercions' evaluation until these are unbound
-        Expr
-        Var
+        !(Maybe [Type]) -- optional bound variables, to delay the coercions' evaluation until these are unbound
+        !Expr
+        !Var
 --    | CoercesN -- ^ multidirectional coercion
 --        [(Expr,Var)]
     | CoercesLit -- coerce a literal expression into a specific type
-        Expr -- literal expression with the base type given at the top-level
+        !Expr -- literal expression with the base type given at the top-level
     | Unifies -- unification
-        Type Type -- ^ type unification
+        !Type
+        !Type -- ^ type unification
     | Assigns -- assignment
-        Type Type
+        !Type
+        Type
     | SupportedPrint
-        [(IsConst,Either Expr Type,IsVariadic)] -- ^ can call tostring on the argument type
-        [Var] -- resulting coerced procedure arguments
+        ![(IsConst,Either Expr Type,IsVariadic)] -- ^ can call tostring on the argument type
+        ![Var] -- resulting coerced procedure arguments
     | ProjectStruct -- ^ struct type projection
-        BaseType (AttributeName GIdentifier ()) 
-        Type -- result
+        !BaseType (AttributeName GIdentifier ()) 
+        !Type -- result
     | ProjectMatrix -- ^ matrix type projection
-        Type [ArrayProj]
-        Type -- result
-    | IsReturnStmt (Set StmtClass) -- ^ is returnS statement
+        !Type
+        ![ArrayProj]
+        !Type -- result
+    | IsReturnStmt
+        !(Set StmtClass) -- ^ is returnS statement
 --    | MultipleSubstitutions
 --        (Maybe Bool) -- optional testKO
 --        [Type] -- bound variable
 --        [([TCstr],[TCstr],Set VarIdentifier)] -- mapping from multiple matching conditions to their dependencies and free variables
     | MatchTypeDimension
-        Expr -- type dimension
-        [(Expr,IsVariadic)] -- sequence of sizes
+        !Expr -- type dimension
+        ![(Expr,IsVariadic)] -- sequence of sizes
     | IsValid -- check if an index condition is valid (this is mandatory: raises an error)
-        Cond -- condition
+        !Cond -- condition
     | NotEqual -- expressions not equal
-        Expr Expr
-    | TypeBase Type Type
-    | IsPublic Bool Type
-    | IsPrivate Bool Type
-    | ToMultiset Type BaseType
-    | ToSet (Either Type Type) BaseType -- left=base type, right=collection type
-    | Resolve Type
-    | Default (Maybe [(Expr,IsVariadic)]) Expr
+        !Expr
+        !Expr
+    | TypeBase
+        !Type
+        !Type
+    | IsPublic
+        !Bool
+        !Type
+    | IsPrivate
+        !Bool
+        !Type
+    | ToMultiset
+        !Type
+        !BaseType
+    | ToSet
+        !(Either Type Type)
+        !BaseType -- left=base type, right=collection type
+    | Resolve
+        !Type
+    | Default
+        !(Maybe [(Expr,IsVariadic)])
+        !Expr
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Binary TcCstr
@@ -964,7 +982,7 @@ isTrivialTcCstr _ = False
 -- | checks (raise warnings)
 data CheckCstr
     = CheckAssertion
-        Cond -- condition
+        !Cond -- condition
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Binary CheckCstr
@@ -976,12 +994,12 @@ isTrivialCheckCstr (CheckAssertion c) = c == trueExpr
 -- hypothesis (raises warnings)
 data HypCstr
     = HypCondition -- c == True
-        Expr
+        !Expr
     | HypNotCondition -- c == False
-        Expr
+        !Expr
     | HypEqual -- e1 == e2
-        Expr
-        Expr
+        !Expr
+        !Expr
   deriving (Data,Typeable,Show,Eq,Ord,Generic)
 
 instance Binary HypCstr
@@ -1023,13 +1041,13 @@ updCstrState f (CheckK c st) = CheckK c (f st)
 updCstrState f (HypK c st) = HypK c (f st)
 
 data CstrState = CstrState
-    { cstrIsAnn :: Bool
-    , cstrIsDef :: Bool
-    , cstrExprC :: ExprClass
-    , cstrIsLeak :: Bool
-    , cstrDecK :: DecKind
-    , cstrLineage :: Lineage
-    , cstrErr :: (Int,SecrecErrArr)
+    { cstrIsAnn :: !Bool
+    , cstrIsDef :: !Bool
+    , cstrExprC :: !ExprClass
+    , cstrIsLeak :: !Bool
+    , cstrDecK :: !DecKind
+    , cstrLineage :: !Lineage
+    , cstrErr :: !(Int,SecrecErrArr)
     }
   deriving (Data,Typeable,Show,Generic)
 instance Binary CstrState
@@ -1041,14 +1059,14 @@ noCstrSt = CstrState False False ReadOnlyExpr False PKind [] (0,SecrecErrArr id)
 
 data TCstr
     = TcK
-        TcCstr -- constraint
-        CstrState
+        !TcCstr -- constraint
+        !CstrState
     | CheckK
-        CheckCstr
-        CstrState
+        !CheckCstr
+        !CstrState
     | HypK
-        HypCstr
-        CstrState
+        !HypCstr
+        !CstrState
   deriving (Data,Typeable,Show,Generic)
 
 instance Binary TCstr
@@ -1209,8 +1227,8 @@ instance (DebugM m) => PP m TCstr where
     pp (HypK h _) = pp h
 
 data ArrayProj
-    = ArraySlice ArrayIndex ArrayIndex
-    | ArrayIdx ArrayIndex
+    = ArraySlice !ArrayIndex !ArrayIndex
+    | ArrayIdx !ArrayIndex
   deriving (Data,Typeable,Show,Generic)
 
 instance Binary ArrayProj
@@ -1265,7 +1283,7 @@ instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [(Con
     
 data ArrayIndex
     = NoArrayIndex
-    | DynArrayIndex Expr
+    | DynArrayIndex !Expr
   deriving (Data,Typeable,Show,Generic)
   
 instance Binary ArrayIndex
@@ -1449,12 +1467,12 @@ type LocTCstr = Loc Position TCstr
 -- | Template constraint dictionary
 -- a dictionary with a set of inferred constraints and resolved constraints
 data TDict = TDict
-    { tCstrs :: GCstrGraph -- a list of constraints
-    , tChoices :: Set Int -- set of choice constraints that have already been branched
-    , tSubsts :: TSubsts -- variable substitions
-    , tRec :: ModuleTcEnv -- recursive environment
+    { tCstrs :: !GCstrGraph -- a list of constraints
+    , tChoices :: !(Set Int) -- set of choice constraints that have already been branched
+    , tSubsts :: !TSubsts -- variable substitions
+    , tRec :: !ModuleTcEnv -- recursive environment
     -- this may be important because of nested dictionaries
-    , tSolved :: Map LocGCstr Bool -- constraints already solved and (True=inferred constraint)
+    , tSolved :: !(Map LocGCstr Bool) -- constraints already solved and (True=inferred constraint)
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable TDict
@@ -1462,9 +1480,9 @@ instance Hashable TDict
 
 -- A dictionary with pure (unevaluated) constraints
 data PureTDict = PureTDict
-    { pureCstrs :: TCstrGraph
-    , pureSubsts :: TSubsts
-    , pureRec :: ModuleTcEnv
+    { pureCstrs :: !TCstrGraph
+    , pureSubsts :: !TSubsts
+    , pureRec :: !ModuleTcEnv
     }
   deriving (Typeable,Eq,Data,Ord,Show,Generic)
 instance Hashable PureTDict
@@ -1669,12 +1687,12 @@ writeCstrSol p iok sol = do
 #endif
 
 data VarIdentifier = VarIdentifier
-        { varIdBase :: Identifier
-        , varIdModule :: Maybe (Identifier,TyVarId)
-        , varIdUniq :: Maybe TyVarId
-        , varIdWrite :: Bool -- if the variable can be written
-        , varIdRead :: Bool -- if the variable can be read
-        , varIdPretty :: Maybe Doc -- for free variables introduced by typechecking
+        { varIdBase :: !Identifier
+        , varIdModule :: !(Maybe (Identifier,TyVarId))
+        , varIdUniq :: !(Maybe TyVarId)
+        , varIdWrite :: !Bool -- if the variable can be written
+        , varIdRead :: !Bool -- if the variable can be read
+        , varIdPretty :: !(Maybe Doc) -- for free variables introduced by typechecking
         }
     deriving (Typeable,Data,Show,Generic)
 
@@ -1777,9 +1795,9 @@ secTypeKind (SVar _ k) = k
 data SecType
     = Public -- ^ public domain
     | Private -- ^ private domain
-        GIdentifier -- ^ domain
-        GIdentifier -- ^ kind
-    | SVar VarIdentifier KindType
+        !GIdentifier -- ^ domain
+        !GIdentifier -- ^ kind
+    | SVar !VarIdentifier !KindType
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary SecType
@@ -1787,8 +1805,8 @@ instance Hashable SecType
 
 data KindType
     = PublicK
-    | PrivateK GIdentifier -- a known kind
-    | KVar VarIdentifier (Maybe KindClass) -- a kind variable (bool = is only private)
+    | PrivateK !GIdentifier -- a known kind
+    | KVar !VarIdentifier !(Maybe KindClass) -- a kind variable (bool = is only private)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary KindType
@@ -1856,7 +1874,10 @@ iDecTyKind (AxiomType {}) = AKind
 iDecTyKind (StructType {}) = TKind
 iDecTyKind (LemmaType {}) = LKind
 
-data DecCtx = DecCtx { dCtxExplicit :: Maybe (Map ModuleTyVarId VarIdentifier), dCtxDict :: PureTDict, dCtxFrees :: Frees }
+data DecCtx = DecCtx
+    { dCtxExplicit :: !(Maybe (Map ModuleTyVarId VarIdentifier))
+    , dCtxDict :: !PureTDict
+    , dCtxFrees :: !Frees }
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 instance Binary DecCtx
 instance Hashable DecCtx
@@ -1883,9 +1904,9 @@ instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecCt
         returnS $ DecCtx has' dict' frees'
 
 data DecTypeK
-    = DecTypeInst ModuleTyVarId IsRec  -- instance declaration (for template instantiations)
+    = DecTypeInst !ModuleTyVarId !IsRec  -- instance declaration (for template instantiations)
     | DecTypeCtx                -- context declaration
-    | DecTypeOri IsRec            -- original declarations
+    | DecTypeOri !IsRec            -- original declarations
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 instance Binary DecTypeK
 instance Hashable DecTypeK
@@ -1907,54 +1928,54 @@ decTypeKind (DVar v) = error $! "decTypeKind: " ++ show v
 
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
-        ModuleTyVarId -- ^ unique template declaration id
-        DecTypeK
-        [(Constrained Var,IsVariadic)] -- ^ template variables
-        DecCtx -- ^ header
-        DecCtx -- ^ body
-        [(Type,IsVariadic)] -- ^ template specializations
-        InnerDecType -- ^ template's type
+        !ModuleTyVarId -- ^ unique template declaration id
+        !DecTypeK
+        ![(Constrained Var,IsVariadic)] -- ^ template variables
+        !DecCtx -- ^ header
+        !DecCtx -- ^ body
+        ![(Type,IsVariadic)] -- ^ template specializations
+        !InnerDecType -- ^ template's type
     | DVar -- declaration variable
-        VarIdentifier
+        !VarIdentifier
   deriving (Typeable,Show,Data,Generic)
 
 data InnerDecType
     = ProcType -- ^ procedure type
-        Position
-        PIdentifier
-        [(Bool,Var,IsVariadic)] -- typed procedure arguments
-        Type -- returnS type
-        [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the procedure's annotations
-        (Maybe [Statement GIdentifier (Typed Position)]) -- ^ the procedure's body
-        DecClass -- the type of procedure
+        !Position
+        !PIdentifier
+        ![(Bool,Var,IsVariadic)] -- typed procedure arguments
+        !Type -- returnS type
+        ![ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the procedure's annotations
+        !(Maybe [Statement GIdentifier (Typed Position)]) -- ^ the procedure's body
+        !DecClass -- the type of procedure
     | FunType -- ^ procedure type
-        Bool -- is leakage function
-        Position
-        PIdentifier
-        [(Bool,Var,IsVariadic)] -- typed function arguments
-        Type -- returnS type
-        [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the function's annotations
-        (Maybe (Expression GIdentifier (Typed Position))) -- ^ the function's body
-        DecClass -- the type of function
+        !Bool -- is leakage function
+        !Position
+        !PIdentifier
+        ![(Bool,Var,IsVariadic)] -- typed function arguments
+        !Type -- returnS type
+        ![ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the function's annotations
+        !(Maybe (Expression GIdentifier (Typed Position))) -- ^ the function's body
+        !DecClass -- the type of function
     | StructType -- ^ Struct type
-        Position -- ^ location of the procedure declaration
-        SIdentifier
-        (Maybe [Attr]) -- ^ typed arguments
-        DecClass -- the type of struct
+        !Position -- ^ location of the procedure declaration
+        !SIdentifier
+        !(Maybe [Attr]) -- ^ typed arguments
+        !DecClass -- the type of struct
     | AxiomType
-        Bool -- is leakage axiom
-        Position
-        [(Bool,Var,IsVariadic)] -- typed function arguments
-        [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the procedure's annotations
-        DecClass
+        !Bool -- is leakage axiom
+        !Position
+        ![(Bool,Var,IsVariadic)] -- typed function arguments
+        ![ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the procedure's annotations
+        !DecClass
     | LemmaType -- ^ lemma type
-        Bool -- is leakage
-        Position
-        PIdentifier -- lemma's name
-        [(Bool,Var,IsVariadic)] -- typed lemma arguments
-        [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the lemma's annotations
-        (Maybe (Maybe [Statement GIdentifier (Typed Position)])) -- ^ the lemma's body
-        DecClass -- the type of lemma        
+        !Bool -- is leakage
+        !Position
+        !PIdentifier -- lemma's name
+        ![(Bool,Var,IsVariadic)] -- typed lemma arguments
+        ![ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the lemma's annotations
+        !(Maybe (Maybe [Statement GIdentifier (Typed Position)])) -- ^ the lemma's body
+        !DecClass -- the type of lemma        
   deriving (Typeable,Show,Data,Generic,Eq,Ord)
 
 isLeakIDecType :: InnerDecType -> Bool
@@ -2007,7 +2028,7 @@ instance Ord DecType where
     compare (DVar v1) (DVar v2) = compare v1 v2
     compare x y = compare (decTypeTyVarId x) (decTypeTyVarId y)
 
-data Constrained a = Constrained a (Maybe Cond)
+data Constrained a = Constrained !a !(Maybe Cond)
   deriving (Typeable,Show,Data,Eq,Ord,Functor,Generic)
 
 hasConstrained :: Constrained a -> Bool
@@ -2037,11 +2058,11 @@ instance (DebugM m,GenVar VarIdentifier m,MonadIO m,Vars GIdentifier m a) => Var
         returnS $ Constrained t' e'
 
 data BaseType
-    = TyPrim Prim
-    | TApp SIdentifier [(Type,IsVariadic)] DecType -- template type application
-    | MSet ComplexType -- multiset type
-    | Set ComplexType -- set type
-    | BVar VarIdentifier (Maybe DataClass)
+    = TyPrim !Prim
+    | TApp !SIdentifier ![(Type,IsVariadic)] !DecType -- template type application
+    | MSet !ComplexType -- multiset type
+    | Set !ComplexType -- set type
+    | BVar !VarIdentifier !(Maybe DataClass)
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary BaseType
@@ -2059,10 +2080,10 @@ type Cond = CondExpression GIdentifier Type
 
 data ComplexType
     = CType -- ^ Compound SecreC type
-        SecType -- ^ security type
-        BaseType -- ^ data type
-        Expr -- ^ dimension (default = 0, i.e., scalars)
-    | CVar VarIdentifier Bool -- (isNotVoid flag)
+        !SecType -- ^ security type
+        !BaseType -- ^ data type
+        !Expr -- ^ dimension (default = 0, i.e., scalars)
+    | CVar !VarIdentifier !Bool -- (isNotVoid flag)
     | Void -- ^ Empty type
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
@@ -2070,35 +2091,35 @@ instance Binary ComplexType
 instance Hashable ComplexType
 
 data SysType
-    = SysPush Type
-    | SysRet Type
-    | SysRef Type
-    | SysCRef Type
+    = SysPush !Type
+    | SysRet !Type
+    | SysRef !Type
+    | SysCRef !Type
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary SysType
 instance Hashable SysType
 
 data Type
-    = NoType String -- ^ For locations with no associated type information
-    | TType Bool -- ^ Type of complex types (isNotVoid)
+    = NoType !String -- ^ For locations with no associated type information
+    | TType !Bool -- ^ Type of complex types (isNotVoid)
     | DType -- ^ Type of declarations
-    | BType (Maybe DataClass) -- ^ Type of base types
-    | KType (Maybe KindClass) -- ^ Type of kinds
-    | VAType Type Expr -- ^ Type of array types
-    | StmtType (Set StmtClass) -- ^ Type of a @Statement@
-    | ComplexT ComplexType
-    | BaseT BaseType
-    | SecT SecType
-    | KindT KindType
-    | DecT DecType
-    | IDecT InnerDecType -- internal only
-    | DecCtxT DecCtx -- internal only
-    | TCstrT TCstr -- internal only
-    | SysT SysType
-    | VArrayT VArrayType -- for variadic array types
-    | IdxT Expr -- for index expressions
-    | WhileT DecClassVars DecClassVars -- read/write variables for while loops
+    | BType !(Maybe DataClass) -- ^ Type of base types
+    | KType !(Maybe KindClass) -- ^ Type of kinds
+    | VAType !Type !Expr -- ^ Type of array types
+    | StmtType !(Set StmtClass) -- ^ Type of a @Statement@
+    | ComplexT !ComplexType
+    | BaseT !BaseType
+    | SecT !SecType
+    | KindT !KindType
+    | DecT !DecType
+    | IDecT !InnerDecType -- internal only
+    | DecCtxT !DecCtx -- internal only
+    | TCstrT !TCstr -- internal only
+    | SysT !SysType
+    | VArrayT !VArrayType -- for variadic array types
+    | IdxT !Expr -- for index expressions
+    | WhileT !DecClassVars !DecClassVars -- read/write variables for while loops
 --    | CondType Type Cond -- a type with an invariant
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
   
@@ -2108,9 +2129,9 @@ instance Hashable Type
 -- | Type arrays
 data VArrayType
     = VAVal -- a type array value
-        [Type] -- array elements
-        Type -- type of array elements
-    | VAVar VarIdentifier Type Expr -- a type array variable
+        ![Type] -- array elements
+        !Type -- type of array elements
+    | VAVar !VarIdentifier !Type !Expr -- a type array variable
   deriving (Typeable,Show,Data,Eq,Ord,Generic)
 
 instance Binary VArrayType
@@ -2388,15 +2409,15 @@ isVATy _ = False
 
 data TypeClass
     = KindStarC -- type of kinds
-    | VArrayStarC TypeClass -- type of arrays types
+    | VArrayStarC !TypeClass -- type of arrays types
     | KindC -- kinds
     | DomainC -- for typed domains
     | TypeStarC -- type of types
-    | ExprC TypeClass -- type of regular expressions (also for index expressions)
+    | ExprC !TypeClass -- type of regular expressions (also for index expressions)
     | TypeC -- regular type
     | SysC -- system call parameters
     | DecC -- type of declarations
-    | VArrayC TypeClass -- array type
+    | VArrayC !TypeClass -- array type
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
 instance (Monad m) => PP m TypeClass where
@@ -2825,10 +2846,10 @@ instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m Type 
 data DecClass
     -- A procedure
     = DecClass
-        Bool -- is an annotation
-        Bool -- perform inlining
-        DecClassVars -- read variables (isglobal)
-        DecClassVars -- written variables (isglobal)
+        !Bool -- is an annotation
+        !Bool -- perform inlining
+        !DecClassVars -- read variables (isglobal)
+        !DecClassVars -- written variables (isglobal)
   deriving (Show,Data,Typeable,Eq,Ord,Generic)
 instance Binary DecClass
 instance Hashable DecClass
@@ -2856,7 +2877,7 @@ data StmtClass
     -- | The execution of the statement may end because of reaching a continue statement
     | StmtContinue
     -- | The execution of the statement may end without reaching a returnS, break or continue statement
-    | StmtFallthru Type
+    | StmtFallthru !Type
   deriving (Show,Data,Typeable,Eq,Ord,Generic) 
 instance Binary StmtClass
 instance Hashable StmtClass
@@ -2881,7 +2902,7 @@ isStmtFallthru :: StmtClass -> Bool
 isStmtFallthru (StmtFallthru _) = True
 isStmtFallthru c = False
 
-data Typed a = Typed a Type
+data Typed a = Typed !a !Type
   deriving (Show,Data,Typeable,Functor,Eq,Ord,Generic)
 instance Binary a => Binary (Typed a)
 instance Hashable a => Hashable (Typed a)
@@ -2937,8 +2958,8 @@ isPublicSecType Public = True
 isPublicSecType _ = False
 
 data ModuleTyVarId = ModuleTyVarId
-    { modTyName :: Maybe (Identifier,TyVarId)
-    , modTyId :: TyVarId
+    { modTyName :: !(Maybe (Identifier,TyVarId))
+    , modTyId :: !TyVarId
     }
   deriving (Eq,Ord,Data,Generic,Show)
 instance Monad m => PP m ModuleTyVarId where

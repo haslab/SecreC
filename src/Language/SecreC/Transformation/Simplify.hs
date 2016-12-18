@@ -964,9 +964,9 @@ simplifyMaybe m (Just x) = do
     returnS (ss,Just x')
 
 simplifySizes :: Bool -> SimplifyCont loc m (Maybe (Sizes GIdentifier (Typed loc)))
-simplifySizes isExpr = simplifyMaybe $! \(Sizes xs) -> do
+simplifySizes isExpr = simplifyMaybe $ \(Sizes xs) -> do
     (ss,xs') <- simplifyVariadicExpressions isExpr (Foldable.toList xs)
-    returnS (ss,Sizes $! fromListNe xs')
+    returnS (ss,Sizes $ fromListNe xs')
 
 -- * Simplify statement blocks
 
