@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --entrypoints="tostring" --ignorespecdomains --nodafnymodules
+//#OPTIONS_SECREC --paths="examples" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --ignorespecdomains --nodafnymodules
 
 /*
  * This file is a part of the Sharemind framework.
@@ -51,7 +51,6 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
 {
     pd_shared3p uint frequence = sum (C_dot);
-    //print(declassify(frequence)); // to demonstrate an illegal declassify
     if (declassify (frequence >= threshold)) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
