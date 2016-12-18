@@ -46,7 +46,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ requires IsDB(db);
 //@ requires FrequentsCache(f,db,threshold,size(C));
 //@ requires CandidateCache(C,C_dot,db,size(C));
-//@ leakage requires LeakFrequents(db,threshold);
+//@ leakage requires LeakFrequents(db,threshold,size(C));
 //@ ensures FrequentsCache(\result,db,threshold,size(C));
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
 {
@@ -61,7 +61,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 
 frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
-//@ leakage requires LeakFrequents(db,threshold);
+//@ leakage requires LeakFrequents(db,threshold,1);
 //@ ensures FrequentsCache(\result,db,threshold,1);
 {
     frequent f = newfrequent(1 :: uint,db);
@@ -80,7 +80,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
 //@ requires IsDB(db);
 //@ requires k >= 1;
 //@ requires FrequentsCache(prev,db,threshold,k);
-//@ leakage requires LeakFrequents(db,threshold);
+//@ leakage requires LeakFrequents(db,threshold,k+1);
 //@ ensures FrequentsCache(\result,db,threshold,k+1);
 {
     frequent next = newfrequent(k+1,db);
@@ -124,14 +124,16 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
 uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
-//@ leakage requires LeakFrequents(db,threshold);
+//@ leakage requires LeakFrequents(db,threshold,setSize);
 {
+  //@ leakage LeakFrequentsSmaller(db,threshold,1,setSize);
   frequent freq = apriori_1(db,threshold);
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
   //@ invariant FrequentsCache(freq,db,threshold,k);
   {
+      //@ leakage LeakFrequentsSmaller(db,threshold,k+1,setSize);
       freq = apriori_k(db,threshold,freq,k);
   }
 
