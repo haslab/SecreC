@@ -251,9 +251,11 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ leakage requires LeakFrequents(db,threshold,k2);
 //@ leakage ensures LeakFrequents(db,threshold,k1);
 //@ {
-//@     forall (uint[[1]] is) {
-//@         if (IsItemSetOf(is,db) && size(is) <= k2) {
-//@             assert size(is) <= k1;
-//@         }
+//@     forall (uint[[1]] is)
+//@         ensures size(is) <= k1 ==> size(is) <= k2;
+//@     {
+//x //@         if (IsItemSetOf(is,db) && size(is) <= k1) {
+//x //@             assert size(is) <= k1;
+//x //@         }
 //@     }
 //@ }
