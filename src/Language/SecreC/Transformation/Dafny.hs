@@ -1024,23 +1024,23 @@ statementToDafny s = do
 loopAnnsToDafny :: DafnyK m => [LoopAnnotation GIdentifier (Typed Position)] -> DafnyM m AnnsDoc
 loopAnnsToDafny xs = withInAnn True $ liftM concat $ mapM loopAnnToDafny xs
 
---supersedesAssumption :: AnnDoc -> AnnDoc -> Bool
---supersedesAssumption (annK1,isFree1,vs1,e1,isLeak1) (annK2,isFree2,vs2,e2,isLeak2) =
---    e1 == e2 && supersedesAnnKind annK1 annK2
---supersedesAnnKind :: AnnKind -> AnnKind -> Bool
---supersedesAnnKind _ InvariantK = False
---supersedesAnnKind _ EnsureK = False
---supersedesAnnKind x y = x == y
+supersedesAssumption :: AnnDoc -> AnnDoc -> Bool
+supersedesAssumption (annK1,isFree1,vs1,e1,isLeak1) (annK2,isFree2,vs2,e2,isLeak2) =
+    e1 == e2 && supersedesAnnKind annK1 annK2
+supersedesAnnKind :: AnnKind -> AnnKind -> Bool
+supersedesAnnKind _ InvariantK = False
+supersedesAnnKind _ EnsureK = False
+supersedesAnnKind x y = x == y
 
 addAssumptions :: DafnyK m => DafnyM m AnnsDoc -> DafnyM m AnnsDoc
 addAssumptions m = do
---    ass <- getAssumptions
+    ass <- getAssumptions
     anns <- m
     -- if there is any assumption bigger than @x@, drop x
-    --let (rest,anns') = List.partition (\x -> any (flip supersedesAssumption x) ass) anns
-    --lift $ debugTc $ liftIO $ putStrLn $ show $ text "dropped assumptions" <+> annLinesProcC rest $+$ text "because of" <> annLinesProcC anns
-    State.modify $ \env -> env { assumptions = assumptions env ++ anns }
-    return anns
+    let (rest,anns') = List.partition (\x -> any (supersedesAssumption x) ass) anns
+    lift $ debugTc $ liftIO $ putStrLn $ show $ text "dropped assumptions" <+> annLinesProcC rest $+$ text "because of" <> annLinesProcC anns
+    State.modify $ \env -> env { assumptions = assumptions env ++ anns' }
+    return anns'
 
 genFree :: Bool -> Bool -> FreeMode
 genFree isLeak leakMode = case (leakMode,isLeak) of

@@ -189,7 +189,7 @@ isLeakFunName opts str = isSuffixOf "ShadowFun" str || isSuffixOf "ShadowLemma" 
 --isNoLeakFunName opts = isSubsequenceOf "Original"
 isLeakVarName opts = isSubsequenceOf "Private"
 
-hasLeakName opts x = hasLeakVarName opts x || hasLeakFunName opts x
+hasLeakName opts x = hasLeakVarFunName opts x
 
 hasLeakVarName :: Data a => Options -> a -> Bool
 hasLeakVarName opts = everything (||) (mkQ False aux)
@@ -203,6 +203,15 @@ hasLeakFunName opts = everything (||) (mkQ False aux)
     aux :: BareExpression -> Bool
     aux (Application n _) = isLeakFunName opts n
     aux e = False
+    
+hasLeakVarFunName :: Data a => Options -> a -> Bool
+hasLeakVarFunName opts = everything (||) (mkQ False aux1 `extQ` aux2)
+    where
+    aux1 :: Id -> Bool
+    aux1 n = isLeakVarName opts n
+    aux2 :: BareExpression -> Bool
+    aux2 (Application n _) = isLeakFunName opts n
+    aux2 e = False
 
 -- identifies a public annotation
 hasPublic :: Data a => Options -> a -> Maybe (Map BareExpression PublicType)
