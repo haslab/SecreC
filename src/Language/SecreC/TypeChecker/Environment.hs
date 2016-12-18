@@ -46,10 +46,10 @@ import Data.Graph.Inductive.PatriciaTree as Graph
 import Data.Graph.Inductive.Query.DFS    as Graph
 
 import Control.Applicative
-import Control.Monad.State as State hiding (mapAndUnzipM)
+import Control.Monad.State.Strict as State hiding (mapAndUnzipM)
 import Control.Monad.Reader as Reader hiding (mapAndUnzipM)
-import Control.Monad.Writer as Writer hiding ((<>),mapAndUnzipM)
-import Control.Monad.Trans.RWS (RWS(..),RWST(..))
+import Control.Monad.Writer.Strict as Writer hiding ((<>),mapAndUnzipM)
+import Control.Monad.Trans.RWS.Strict (RWS(..),RWST(..))
 import qualified Control.Monad.Trans.RWS as RWS
 import Control.Monad.Except hiding (mapAndUnzipM)
 

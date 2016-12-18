@@ -18,7 +18,7 @@ import Data.Binary
 import GHC.Generics (Generic)
 
 import Control.Monad.Except
-import Control.Monad.Writer (tell,MonadWriter(..))
+import Control.Monad.Writer.Strict (tell,MonadWriter(..))
 
 import Text.Parsec (ParseError(..))
 import Text.PrettyPrint as PP
