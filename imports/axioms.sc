@@ -13,9 +13,9 @@ module axioms;
 //@ requires reclassify(xs) === {};
 //@ ensures multiset(xs) === multiset{};
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
-//@ ensures multiset(xs[:size(xs)]) === multiset(xs);
-
+//x //@ axiom <domain D,type T> (D T[[1]] xs)
+//x //@ ensures multiset(xs[:size(xs)]) === multiset(xs);
+//x 
 //x //@ axiom <domain D,type T> (D T[[1]] xs, uint i)
 //x //@ requires 0 <= i && i < size(xs);
 //x //@ ensures multiset(xs[:i+1]) === union(multiset(xs[:i]),multiset{xs[i]});
