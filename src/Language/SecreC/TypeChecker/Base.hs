@@ -57,6 +57,7 @@ import qualified Control.Monad.Trans.RWS.Strict as RWS
 import Control.Monad.Except
 import Control.Monad.Trans.Control
 import Control.Monad.Identity
+import Control.DeepSeq as DeepSeq
 
 import Safe
 
@@ -771,7 +772,7 @@ flushTcWarnings = mapTcM flush
     flush m = do
         e <- m
         case e of
-            Left err -> err `seq` returnS $ Left $ err
+            Left err -> returnS $ Left $ DeepSeq.force $ err
             Right ((x,env,()),warns) -> do
                 liftIO $ printWarns $ warns
                 liftIO $ hFlush stdout

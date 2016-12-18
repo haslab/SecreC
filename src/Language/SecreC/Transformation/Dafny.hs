@@ -937,6 +937,11 @@ addAnnsC c anns doc = do
     let (anns1,anns2) = annLinesC c anns
     return (anns1,anns2 $+$ doc)
 
+dropAnns :: Set VarIdentifier -> AnnsDoc -> AnnsDoc
+dropAnns vs as = filter keepAnn as
+    where
+    keepAnn (_,_,avs,_,_) = Set.null $ Set.intersection vs vs
+
 statementToDafny :: DafnyK m => Statement GIdentifier (Typed Position) -> DafnyM m (AnnsDoc,Doc)
 statementToDafny qs@(QuantifiedStatement l q args ann s) = withAssumptions $ do
     let pq = quantifierToDafny q
@@ -947,7 +952,7 @@ statementToDafny qs@(QuantifiedStatement l q args ann s) = withAssumptions $ do
     let (topanns,passerts) = annLinesC StmtKC (preqs++anns)
     lift $ debugTc $ do
         liftIO $ putStrLn $ "quantifierStmtToDafny " ++ show vs ++ "\n" ++ show ps
-    return (topanns,pq <+> parens pargs $+$ annLinesProcC pens $+$ vbraces (passerts $+$ ps))
+    return (dropAnns vs topanns,pq <+> parens pargs $+$ annLinesProcC pens $+$ vbraces (passerts $+$ ps))
 statementToDafny (CompoundStatement _ ss) = do
     (anns,pss) <- statementsToDafny ss
     return (anns,vbraces pss)
@@ -1277,8 +1282,10 @@ hasLeakExpr = everything (||) (mkQ False aux)
     aux (LeakExpr {}) = True
     aux _ = False
 
-isNotDafnyAnnExpr :: Expression GIdentifier (Typed Position) -> Bool
-isNotDafnyAnnExpr e = hasLeakExpr e || isLeakDecExpr e || not (isAnnDecExpr e)
+noAssumptions :: DafnyK m => Expression GIdentifier (Typed Position) -> DafnyM m Bool
+noAssumptions e = do
+    dec <- State.gets inDecl
+    return $ hasLeakExpr e || isLeakDecExpr e || not (isAnnDecExpr e)
 
 isLeakDecExpr :: Expression GIdentifier (Typed Position) -> Bool
 isLeakDecExpr e = everything (||) (mkQ False isLeakIDecType) e
@@ -1302,13 +1309,15 @@ projectionToDafny isLVal isQExpr annK se@(PostIndexExpr l e (Foldable.toList -> 
             (anne,pe) <- expressionToDafny isLVal Nothing annK e
             (anni,pi) <- indexToDafny isLVal annK Nothing 0 i
             let pse = pe <> brackets pi
-            annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr se) annK vs pse (typed l)
+            doGen <- noAssumptions se
+            annp <- genDafnyAssumptions (unTyped l) doGen annK vs pse (typed l)
             qExprToDafny isQExpr (anne++anni++annp) pse
         (Right n,is) -> do
             (anne,pe) <- expressionToDafny isLVal Nothing annK e
             (concat -> annis,pis) <- Utils.mapAndUnzipM (\(idx,i) -> indexToDafny isLVal annK (Just pe) i idx) (zip is [0..])
             let pse = pe <> text ".project" <> ppIndexIds is <> parens (sepBy comma pis)
-            annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr se) annK vs pse (typed l)
+            doGen <- noAssumptions se
+            annp <- genDafnyAssumptions (unTyped l) doGen annK vs pse (typed l)
             qExprToDafny isQExpr (anne++annis++annp) pse
         otherwise -> do
             ppannK <- lift $ pp annK
@@ -1333,13 +1342,15 @@ expressionToDafny isLVal isQExpr annK se@(SelectionExpr l e att) = do
     psn <- ppDafnyIdM did
     patt <- structAttToDafny (unTyped l) False psn $ fmap typed att
     let pse = pe <> char '.' <> patt
-    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr se) annK vs pse (typed l)
+    doGen <- noAssumptions se
+    annp <- genDafnyAssumptions (unTyped l) doGen annK vs pse (typed l)
     -- always assert equality of projection, if it is a base type, since we don't do so when declaring the struct variable
     qExprToDafny isQExpr (anne++annp) pse
 expressionToDafny isLVal isQExpr annK e@(RVariablePExpr l v) = do
     vs <- lift $ usedVs' e
     pv <- varToDafny v
-    annp <- genDafnyAssumptions (unTyped $ loc v) (isNotDafnyAnnExpr e) annK vs pv (typed $ loc v)
+    doGen <- noAssumptions e
+    annp <- genDafnyAssumptions (unTyped $ loc v) doGen annK vs pv (typed $ loc v)
     qExprToDafny isQExpr annp pv
 expressionToDafny isLVal isQExpr annK le@(LitPExpr l lit) = do
     (anns,pe) <- literalToDafny annK lit
@@ -1384,7 +1395,8 @@ expressionToDafny isLVal isQExpr annK me@(ToMultisetExpr l e) = do
     vs <- lift $ usedVs' me
     (anne,pe) <- expressionToDafny False Nothing annK e
     let pme = text "multiset" <> parens pe
-    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr me) annK vs pme (typed l)
+    doGen <- noAssumptions me
+    annp <- genDafnyAssumptions (unTyped l) doGen annK vs pme (typed l)
     qExprToDafny isQExpr (anne++annp) pme
 expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
     let ll = unTyped l
@@ -1401,7 +1413,8 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
                     x <- lift $ genVar (VIden $ mkVarId "xset" :: GIdentifier)
                     px <- varToDafny $ VarName (Typed ll bt) x
                     let pme = parens (text "set" <+> px <> char ':' <> pbt <+> char '|' <+> px <+> text "in" <+> pe)
-                    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr me) annK vs pme (typed l)
+                    doGen <- noAssumptions me
+                    annp <- genDafnyAssumptions (unTyped l) doGen annK vs pme (typed l)
                     qExprToDafny isQExpr (annbt++anne++annp) pme
                 Right n -> do
                     x <- lift $ genVar (VIden $ mkVarId "iset" :: GIdentifier)
@@ -1411,7 +1424,8 @@ expressionToDafny isLVal isQExpr annK me@(ToSetExpr l e) = do
                     let idxs = fromListNe [IndexInt l (varExpr vx),IndexSlice l Nothing Nothing]
                     (annproj,proje) <- projectionToDafny isLVal isQExpr annK $ PostIndexExpr l e idxs
                     let pme = parens (text "set" <+> px <> char ':' <> text "uint64" <+> char '|' <+> px <+> text "<" <+> parens (dafnyShape n pe <> brackets (int 0)) <+> text "::" <+> proje)
-                    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr me) annK vs pme (typed l)
+                    doGen <- noAssumptions me
+                    annp <- genDafnyAssumptions (unTyped l) doGen annK vs pme (typed l)
                     qExprToDafny isQExpr (annproj++anne++annp) pme
                 otherwise -> do
                     ppme <- lift $ pp me
@@ -1433,7 +1447,8 @@ expressionToDafny isLVal isQExpr annK e@(ProcCallExpr l (ProcedureName (Typed _ 
             (annargs,pargs) <- procCallArgsToDafny isLVal annK args
             pn <- ppDafnyIdM did
             let pe = pn <> parens (sepBy comma pargs)
-            annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr e) annK vs pe (typed l)
+            doGen <- noAssumptions e
+            annp <- genDafnyAssumptions (unTyped l) doGen annK vs pe (typed l)
             qExprToDafny isQExpr (annargs++annp) pe
         --Just (mbdec,ss) -> do
         --    -- load the lemma separately (to check its body)
@@ -1447,7 +1462,8 @@ expressionToDafny isLVal isQExpr annK e@(BinaryExpr l e1 op@(loc -> (Typed _ (De
     (annargs,pargs) <- procCallArgsToDafny isLVal annK [(e1,False),(e2,False)]
     pn <- ppDafnyIdM did
     let pe = pn <> parens (sepBy comma pargs)
-    annp <- genDafnyAssumptions (unTyped l) (isNotDafnyAnnExpr e) annK vs pe (typed l)
+    doGen <- noAssumptions e
+    annp <- genDafnyAssumptions (unTyped l) doGen annK vs pe (typed l)
     qExprToDafny isQExpr (annargs++annp) pe
 expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = withAssumptions $ do
     let pq = quantifierToDafny q
@@ -1457,7 +1473,7 @@ expressionToDafny isLVal isQExpr annK qe@(QuantifiedExpr l q args e) = withAssum
     (anns,pe') <- annotateExpr (annpargs++anne) vs pe
     lift $ debugTc $ do
         liftIO $ putStrLn $ "quantifierExprToDafny " ++ show vs ++ "\n" ++ show pe ++ "\n --> \n" ++ show pe'
-    return (anns,parens (pq <+> pargs <+> text "::" <+> pe'))
+    return (dropAnns vs anns,parens (pq <+> pargs <+> text "::" <+> pe'))
 expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = withAssumptions $ do
     (annarg,parg) <- quantifierArgToDafny annK (t,x)
     vs <- lift $ usedVs' (t,x)
@@ -1466,7 +1482,7 @@ expressionToDafny isLVal isQExpr annK me@(SetComprehensionExpr l t x px fx) = wi
     ppfx <- ppOpt pfx (liftM (text "::" <+>) . pp)
     (anns,pppx') <- annotateExpr (annarg++annpe++annfe) vs pppx
     let pme = parens (text "set" <+> parg <+> char '|' <+> pppx' <+> ppfx)
-    return (anns,pme)
+    return (dropAnns vs anns,pme)
 expressionToDafny isLVal isQExpr annK ce@(CondExpr l econd ethen eelse) = do
     (anncond,ppcond) <- expressionToDafny isLVal isQExpr annK econd
     (annthen,ppthen) <- expressionToDafny isLVal isQExpr annK ethen
@@ -1655,6 +1671,7 @@ builtinToDafny isLVal isQExpr annK (Typed l ret) "core.in" [x,y] = do
     let Typed _ t = loc y
     mbd <- lift $ tryTcError l $ typeDim l t >>= fullyEvaluateIndexExpr l
     case mbd of
+        Right 0 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
         Right 1 -> qExprToDafny isQExpr (annx++anny) (parens $ px <+> text "in" <+> py)
         Right n@((>1) -> True) -> do
             let pin = py <> text ".contains" <> parens px

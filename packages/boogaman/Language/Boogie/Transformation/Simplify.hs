@@ -339,6 +339,8 @@ instance Simplify SpecClause where
       where
         simplify' opts (SpecClause t isAssume (Pos p (isFreeExpr opts -> Just e))) = do
             simplify' opts (SpecClause t True (Pos p e))
+        simplify' opts (SpecClause t isAssume (Pos p e@(isDafnyReqReads opts -> Just num))) | shadow opts = do
+          return $ Just $ SpecClause t True $ Pos p e
         simplify' opts (SpecClause t isAssume e) = liftM (fmap (SpecClause t isAssume)) $ simplifyAs posTT e
 
 instance Simplify BareStatement where

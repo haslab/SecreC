@@ -229,7 +229,7 @@ tcExpr ret le@(LeakExpr l e) = do
         let t = BaseT bool
         unifiesRet l ret t
         e' <- limitExprC ReadOnlyExpr $ tcExpr Nothing e
-        topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
+        --topTcCstrM_ l $ IsPrivate True $ typed $ loc e'
         return $ LeakExpr (Typed l t) e'
 tcExpr ret call@(ProcCallExpr l n@(ProcedureName pl pn) specs es) = do
     let vn = bimap (mkVarId) id n

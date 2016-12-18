@@ -6,8 +6,20 @@ import Language.Boogie.AST
 import Language.Boogie.Options
 import Language.Boogie.Position
 
+import Text.Regex
+import Text.Read
+
 import Data.List as List
 import Data.Generics
+
+firstRE :: String -> String -> Maybe String
+firstRE re str = case matchRegexAll (mkRegex re) str of
+    Just (_,match,_,_) -> Just match
+    otherwise -> Nothing
+
+isDafnyReqReads :: Options -> BareExpression -> Maybe Int
+isDafnyReqReads (dafnyVCGen -> Just _) (Var (firstRE "b[$]reqreads[#][0-9]*" -> Just str)) = readMaybe (drop 11 str)
+isDafnyReqReads opts _ = Nothing
 
 isDafnyAxiom :: Bool -> String -> Bool
 isDafnyAxiom withModules str = List.elem str $ concat $ map (dafnyAxioms withModules) dafnyNames

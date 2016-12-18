@@ -24,7 +24,6 @@ import Control.Monad
 import Control.Monad.State
 
 import Text.ParserCombinators.Parsec (parse, parseFromFile)
-import Text.Regex
 import Text.PrettyPrint.ANSI.Leijen
 
 import System.IO
@@ -66,11 +65,6 @@ dafnyIdModule (firstRE "[$.#][0-9a-zA-Z_]*\\." -> Just m) = Just $ init $ tail m
 dafnyIdModule (firstRE "^_[0-9]+_[0-9a-zA-Z_]*\\." -> Just m) = Just $ init $ tail m
 dafnyIdModule (firstRE "^[0-9a-zA-Z_]*\\." -> Just m) = Just $ init m
 dafnyIdModule _ = Nothing
-
-firstRE :: String -> String -> Maybe String
-firstRE re str = case matchRegexAll (mkRegex re) str of
-    Just (_,match,_,_) -> Just match
-    otherwise -> Nothing
 
 transform :: Options -> Program -> IO Program
 transform opts = simplifyP opts >=> leakageP opts >=> axiomatizeP opts >=> shadowP opts
