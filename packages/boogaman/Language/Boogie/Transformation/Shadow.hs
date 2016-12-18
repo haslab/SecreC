@@ -162,7 +162,7 @@ shadowDecl opts (Pos p d) = do
 
 boolToDual :: Bool -> Maybe Bool
 boolToDual False = Nothing
-boolToDual True = Just False
+boolToDual True = Just True
 
 shadowBareDecl :: MonadIO m => Options -> BareDecl -> ShadowM m [BareDecl]
 shadowBareDecl opts d@(TypeDecl {}) = return [d]
