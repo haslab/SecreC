@@ -46,7 +46,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ requires IsDB(db);
 //@ requires FrequentsCache(f,db,threshold,size(C));
 //@ requires CandidateCache(C,C_dot,db,size(C));
-//@ leakage requires LeakFrequents(db,threshold,k);
+//@ leakage requires LeakFrequents(db,threshold,size(C));
 //@ ensures FrequentsCache(\result,db,threshold,size(C));
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
 {
