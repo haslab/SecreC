@@ -24,7 +24,9 @@ private int[[1]] cut (private int[[1]] aS, private bool [[1]] mS)
     //@ invariant multiset(x) <= multiset(aS[:i]);
     {
         if (declassify(mS[i])) { x = cat(x,{aS[i]}); }
+        //@ MultisetSliceOne(aS,i);
         i = i + 1;
     }
+    //@ MultisetSlice(aS);
     return x;
 }

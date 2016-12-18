@@ -13,15 +13,15 @@ module axioms;
 //@ requires reclassify(xs) === {};
 //@ ensures multiset(xs) === multiset{};
 
-//x //@ axiom <domain D,type T> (D T[[1]] xs)
-//x //@ ensures multiset(xs[:size(xs)]) === multiset(xs);
-//x 
-//x //@ axiom <domain D,type T> (D T[[1]] xs, uint i)
-//x //@ requires 0 <= i && i < size(xs);
-//x //@ ensures multiset(xs[:i+1]) === union(multiset(xs[:i]),multiset{xs[i]});
-//x 
-//x //@ axiom <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
-//x //@ ensures set(cat(xs,ys)) === union(set(xs),set(ys));
+//@ lemma MultisetSlice <domain D,type T> (D T[[1]] xs)
+//@ ensures multiset(xs[:size(xs)]) === multiset(xs);
+ 
+//@ lemma MultisetSliceOne <domain D,type T> (D T[[1]] xs, uint i)
+//@ requires 0 <= i && i < size(xs);
+//@ ensures multiset(xs[:i+1]) === union(multiset(xs[:i]),multiset{xs[i]});
+
+//@ lemma SetCat <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
+//@ ensures set(cat(xs,ys)) === union(set(xs),set(ys));
 
 //@ axiom <domain D,type T> (D T x)
 //@ ensures set({x}) === set{x};
