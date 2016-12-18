@@ -2646,8 +2646,8 @@ isOriginalDecTypeKind :: DecTypeK -> Bool
 isOriginalDecTypeKind (DecTypeOri _) = True
 isOriginalDecTypeKind _ = False
 
-returnSSess :: ProverK Position m => Maybe Position -> Maybe String -> TcM m a -> TcM m a
-returnSSess l msg m = do
+tcProgress :: ProverK Position m => Maybe Position -> Maybe String -> TcM m a -> TcM m a
+tcProgress l msg m = do
     opts <- askOpts
     (oldmsg,oldp) <- State.gets progressBar
     let newmsg = maybe oldmsg id msg

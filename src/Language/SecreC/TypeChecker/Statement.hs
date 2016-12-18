@@ -45,7 +45,7 @@ extendStmtClasses :: Set StmtClass -> Set StmtClass -> Set StmtClass
 extendStmtClasses s1 s2 = (Set.filter (not . isStmtFallthru) s1) `Set.union` s2
 
 tcStmtBlock :: ProverK loc m => loc -> String -> TcM m a -> TcM m a
-tcStmtBlock l msg m = returnSess (Just $ locpos l) (Just msg) $ do
+tcStmtBlock l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
     doResolve <- getDoResolve
     debugTc $ liftIO $ putStrLn $ "tcStmtBlock " ++ pprid (locpos l) ++ " " ++ show doResolve
     if doResolve
