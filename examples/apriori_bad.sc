@@ -52,7 +52,7 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 {
     pd_shared3p uint frequence = sum (C_dot);
     // to demonstrate an illegal declassify
-    if (declassify frequence >= threshold) {
+    if (declassify (frequence) >= threshold) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
     }
