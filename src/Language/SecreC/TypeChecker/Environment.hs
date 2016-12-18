@@ -52,6 +52,7 @@ import Control.Monad.Writer.Strict as Writer hiding ((<>),mapAndUnzipM)
 import Control.Monad.Trans.RWS.Strict (RWS(..),RWST(..))
 import qualified Control.Monad.Trans.RWS.Strict as RWS
 import Control.Monad.Except hiding (mapAndUnzipM)
+import Control.DeepSeq as DeepSeq
 
 import System.IO.Unsafe
 import Unsafe.Coerce
@@ -1738,12 +1739,12 @@ envVariables isAnn env = Map.filter (\(x,(y,z,e)) -> z <= isAnn) $! Map.unions [
 tcWarn :: (Monad m) => Position -> TypecheckerWarn -> TcM m ()
 tcWarn pos msg = do
     i <- getModuleCount
-    TcM $! lift $! tell $! ScWarns $! Map.singleton i $! Map.singleton pos $! Set.singleton $! TypecheckerWarning pos msg
+    TcM $! lift $! tell $! ScWarns $! Map.singleton i $! Map.singleton pos $! Set.singleton $ DeepSeq.force $ TypecheckerWarning pos msg
 
 errWarn :: (Monad m) => SecrecError -> TcM m ()
 errWarn msg = do
     i <- getModuleCount
-    TcM $! lift $! tell $! ScWarns $! Map.singleton i $! Map.singleton (loc msg) $! Set.singleton $! ErrWarn msg
+    TcM $! lift $! tell $! ScWarns $! Map.singleton i $! Map.singleton (loc msg) $! Set.singleton $! DeepSeq.force $ ErrWarn msg
 
 isChoice :: (ProverK loc m) => loc -> Unique -> TcM m Bool
 isChoice l x = do
@@ -1999,7 +2000,7 @@ throwTcError l err = do
         forM_ vs (dirtyGDependencies (locpos l) . VIden)
     mapM_ add ios
 #endif
-    throwError err2     
+    throwError $ DeepSeq.force err2     
 
 -- a new dictionary
 newDict l msg = do

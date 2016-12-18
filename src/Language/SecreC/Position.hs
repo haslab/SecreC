@@ -21,6 +21,9 @@ import Text.PrettyPrint
 
 import Language.SecreC.Pretty
 
+import Control.DeepSeq as DeepSeq
+import Control.DeepSeq.Generics hiding (force)
+
 -- | Source position
 --
 data Position
@@ -35,6 +38,8 @@ data Position
 
 instance Binary Position
 instance Hashable Position
+instance NFData Position where
+    rnf = genericRnf
 
 instance Monad m => PP m Position where
     pp (Pos file line col off) = return $ text file <> char ':' <> int line <> char ':' <> int col

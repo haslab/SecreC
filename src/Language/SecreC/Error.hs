@@ -19,6 +19,8 @@ import GHC.Generics (Generic)
 
 import Control.Monad.Except
 import Control.Monad.Writer.Strict (tell,MonadWriter(..))
+import Control.DeepSeq as DeepSeq
+import Control.DeepSeq.Generics hiding (force)
 
 import Text.Parsec (ParseError(..))
 import Text.PrettyPrint as PP
@@ -32,6 +34,8 @@ data ParserException
 
 instance Binary ParserException
 instance Hashable ParserException
+instance NFData ParserException where
+    rnf = genericRnf
 
 instance Monad m => PP m ParserException where
     pp (LexicalException s) = return $ text "Lexical error:" <+> text s
@@ -58,6 +62,8 @@ data SecrecError = TypecheckerError Position TypecheckerErr
   
 instance Binary SecrecError
 instance Hashable SecrecError
+instance NFData SecrecError where
+    rnf = genericRnf
 
 instance Located SecrecError where
      type LocOf SecrecError = Position
@@ -255,6 +261,8 @@ data TypecheckerErr
 
 instance Binary TypecheckerErr
 instance Hashable TypecheckerErr
+instance NFData TypecheckerErr where
+    rnf = genericRnf
 
 instance Monad m => PP m TypecheckerErr where
     pp (GenTcError doc Nothing) = return doc
@@ -461,6 +469,8 @@ data ModuleErr
 
 instance Binary ModuleErr
 instance Hashable ModuleErr
+instance NFData ModuleErr where
+    rnf = genericRnf
 
 instance Monad m => PP m ModuleErr where
     pp (DuplicateModuleName i f1 f2) = return $ text "Duplicate module" <+> quotes (text i) <> char ':' $+$ nest 4 (text f1 $+$ text f2)
@@ -492,6 +502,8 @@ data SecrecWarning
 
 instance Binary SecrecWarning
 instance Hashable SecrecWarning
+instance NFData SecrecWarning where
+    rnf = genericRnf
 
 instance Located SecrecWarning where
     type LocOf SecrecWarning = Position
@@ -541,6 +553,8 @@ data TypecheckerWarn
 
 instance Binary TypecheckerWarn 
 instance Hashable TypecheckerWarn
+instance NFData TypecheckerWarn where
+    rnf = genericRnf
 
 instance Monad m => PP m TypecheckerWarn where
     pp w@(UnusedVariable v) = return $ text "Unused variable" <+> quotes v

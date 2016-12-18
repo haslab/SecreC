@@ -30,7 +30,7 @@ Executable secrec
       cpp-options: -DINCREMENTAL
       Build-Depends:  weak, weak-map, weak-hashtables
   Hs-source-dirs:   src
-  Build-Depends:    terminal-progress-bar, base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty , mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, hashable, async, sbv, QuickCheck, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process, parsec-numbers, shelly
+  Build-Depends:    deepseq, deepseq-generics, terminal-progress-bar, base, text, transformers, cmdargs, bytestring, binary, split, containers, syb, pretty , mtl, parsec, safe, digits, exceptions, filepath, filemanip, fgl >= 5.5.2.0, array, directory, linguistic-ordinals >= 0.1.0.1, bifunctors, hashable, async, sbv, QuickCheck, lifted-base, transformers-base, monad-control, unix-time, unix, posix-escape, process, parsec-numbers, shelly
 --  ghc-options: -Wall
   ghc-prof-options: -prof -auto -fprof-auto -rtsopts
   Build-Tools:      alex
