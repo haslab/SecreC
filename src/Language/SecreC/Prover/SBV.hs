@@ -10,9 +10,9 @@ import Data.IORef
 import Data.Map.Strict (Map(..))
 import qualified Data.Map.Strict as Map
 
-import Control.Monad.State as State
+import Control.Monad.State.Strict as State
 import Control.Monad.Reader as Reader
-import Control.Monad.Writer as Writer
+import Control.Monad.Writer.Strict as Writer
 import Control.Monad.Trans.Control
 import Control.Monad.Except
 import Control.Monad.Base

@@ -30,8 +30,8 @@ import Text.PrettyPrint
 import System.Timeout.Lifted
 
 import Control.Monad
-import Control.Monad.State as State
-import Control.Monad.Writer as Writer
+import Control.Monad.State.Strict as State
+import Control.Monad.Writer.Strict as Writer
 import Control.Monad.Reader as Reader
 import Control.Monad.Except
 import Control.Monad.Trans.Control

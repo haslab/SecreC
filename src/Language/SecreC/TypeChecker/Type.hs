@@ -35,8 +35,8 @@ import qualified Data.Foldable as Foldable
 import Control.Monad hiding (mapM)
 import Control.Monad.IO.Class
 import Control.Monad.Trans
-import Control.Monad.State (State(..),StateT(..))
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (State(..),StateT(..))
+import qualified Control.Monad.State.Strict as State
 import Control.Monad.Reader (Reader(..),ReaderT(..))
 import qualified Control.Monad.Reader as Reader
 import Control.Monad.Except

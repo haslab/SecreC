@@ -39,8 +39,8 @@ import GHC.Generics
 import Control.Monad
 import Control.Monad.Trans
 import Control.Monad.Except
-import Control.Monad.State (StateT(..))
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (StateT(..))
+import qualified Control.Monad.State.Strict as State
 
 import Safe
 

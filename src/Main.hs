@@ -66,7 +66,7 @@ main = do
 -- * front-end options
 
 printHelp :: IO ()
-printHelp = withArgs ["--help"] $ cmdArgsRun mode >> return ()
+printHelp = withArgs ["--help"] $ cmdArgsRun mode >> returnS ()
 
 mode  :: Mode (CmdArgs Options)
 mode  = cmdArgsMode $
@@ -80,14 +80,14 @@ getOpts :: IO Options
 getOpts = getArgs >>= doGetOpts
     where 
     doGetOpts as
-        | null as   = withArgs ["--help"] $ cmdArgsRun mode >>= addImportPaths >>= return . processOpts
-        | otherwise = cmdArgsRun mode >>= addImportPaths >>= return . processOpts
+        | null as   = withArgs ["--help"] $ cmdArgsRun mode >>= addImportPaths >>= returnS . processOpts
+        | otherwise = cmdArgsRun mode >>= addImportPaths >>= returnS . processOpts
 
 addImportPaths :: Options -> IO Options
 addImportPaths opts = do
     p1 <- getDataFileName "imports"
     p2 <- getDataFileName ("imports" </> "stdlib" </> "lib")
-    return $ opts { paths = p1 : p2 : paths opts }
+    returnS $ opts { paths = p1 : p2 : paths opts }
 
 parsePaths :: [FilePath] -> [FilePath]
 parsePaths = concatMap (splitOn ":")
@@ -111,19 +111,19 @@ resolveOutput inputs outputs modules = do
     inputs' <- mapM canonicalPath inputs
     let db = zipLeft inputs' outputs
     let res (Left (time,ppargs,m,ml)) = case List.lookup (moduleFile m) db of
-            Just (Just o) -> return (Left (time,ppargs,m,ml),OutputFile o) -- input with matching output
-            Just Nothing -> return (Left (time,ppargs,m,ml),OutputStdout) -- intput without matching output
+            Just (Just o) -> returnS (Left (time,ppargs,m,ml),OutputFile o) -- input with matching output
+            Just Nothing -> returnS (Left (time,ppargs,m,ml),OutputStdout) -- intput without matching output
             Nothing -> do
-                return (Left (time,ppargs,m,ml),NoOutput) -- non-input loaded module
+                returnS (Left (time,ppargs,m,ml),NoOutput) -- non-input loaded module
         res (Right sci) = do
-            return (Right sci,NoOutput)
+            returnS (Right sci,NoOutput)
     mapM res modules
 
 passes :: [FilePath] -> [FilePath] -> [ModuleFile] -> SecrecM IO ()
 passes secrecIns secrecOuts modules = runTcM $ failTcM (noloc::Position) $ localOptsTcM (\opts -> opts { failTypechecker = False }) $ do
     tc <- typecheck modules
     case tc of
-        Nothing -> return ()
+        Nothing -> returnS ()
         Just typedModules -> do
             opts <- askOpts
             outputModules <- liftIO $ output opts secrecIns secrecOuts typedModules
@@ -137,16 +137,16 @@ typecheck modules = flushTcWarnings $ do
         then do
             modules' <- if defaults opts
                 then mapM defaultModuleFile modules
-                else return modules
+                else returnS modules
             debugTc $ do
                 x <- mapM (\(Left (x,y,z,w)) -> pp z) $ filter (either (const True) (const False)) modules'
                 liftIO $ putStrLn $ show $ text "defaults" <+> vcat x
             typedModules <- mapM (tcModuleFile) modules'
             printMsg "are well-typed"
-            return $ Just typedModules
+            returnS $ Just typedModules
         else do
             printMsg "parsed OK" 
-            return Nothing
+            returnS Nothing
 
 verifyOpts :: [(TypedModuleFile,OutputType)] -> Options
 verifyOpts = mconcat . map (ppOptions . either snd4 sciPPArgs . fst)
@@ -155,8 +155,8 @@ ignoreVerifiedFiles :: [(TypedModuleFile,OutputType)] -> TcM IO VDafnyIds
 ignoreVerifiedFiles xs = liftM (Map.unionsWith appendVerifyOpt) $ mapM ignoreVerifiedFile xs
     where
     ignoreVerifiedFile :: (TypedModuleFile,OutputType) -> TcM IO VDafnyIds
-    ignoreVerifiedFile x@(Left {},_) = return Map.empty
-    ignoreVerifiedFile x@(Right sci,out) = return $ sciVerified sci
+    ignoreVerifiedFile x@(Left {},_) = returnS Map.empty
+    ignoreVerifiedFile x@(Right sci,out) = returnS $ sciVerified sci
 
 markVerifiedFiles :: VDafnyIds -> Set DafnyId -> Set DafnyId -> [(TypedModuleFile,OutputType)] -> TcM IO ()
 markVerifiedFiles vids fids lids xs = mapM_ markVerifiedFile xs
@@ -171,8 +171,8 @@ markVerifiedFiles vids fids lids xs = mapM_ markVerifiedFile xs
         let sameId did = dafnyIdModule did == sciHeaderId scih
         let scids = Map.filterWithKey (\k v -> sameId k) vids'
         if Map.null (Map.difference scids vids)
-            then return Nothing
-            else return $ Just scih { sciHeaderVerified = scids }
+            then returnS Nothing
+            else returnS $ Just scih { sciHeaderVerified = scids }
 
 isFuncV BothV = True
 isFuncV FuncV = True
@@ -218,7 +218,7 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
               `seqStatus` runBoogie True (debugVerification opts) bpllfile2
         let mark res = case res of
                         Status (Left d) -> markVerifiedFiles vids fids lids files
-                        Status (Right err) -> return ()
+                        Status (Right err) -> returnS ()
 
         if parallel opts
             then do
@@ -227,7 +227,7 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
                     LeakV -> spec
                     BothV -> do
                         (fres,sres) <- concurrently func spec
-                        return $ mappend fres sres
+                        returnS $ mappend fres sres
                 mark res
                 printStatus res
             else do
@@ -235,17 +235,17 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
                     FuncV -> do
                         fres <- lift func
                         printStatus fres
-                        return fres
+                        returnS fres
                     LeakV -> do
                         lres <- lift spec
                         printStatus lres
-                        return lres
+                        returnS lres
                     BothV -> do
                         fres <- lift func
                         printStatus fres
                         lres <- lift spec
                         printStatus lres
-                        return $ mappend fres lres
+                        returnS $ mappend fres lres
                 mark res
                 
 
@@ -274,7 +274,7 @@ verifOutput isLeak isDafny st@(Status (Left output)) = do
         errors <- Parsec.int
         Parsec.space
         Parsec.string "errors"
-        return (verified,errors)
+        returnS (verified,errors)
     let e = Parsec.parse parser "output" w
     if (List.null errs)
         then case e of
@@ -283,7 +283,7 @@ verifOutput isLeak isDafny st@(Status (Left output)) = do
                 let c = if isLeak then "leakage" else "functional"
                 let res = if isDafny then PP.empty else text "Verified" <+> int oks <+> text c <+> text "properties with" <+> int kos <+> text "errors."
                 case kos of
-                    0 -> return $ Status $ Left res
+                    0 -> returnS $ Status $ Left res
                     otherwise -> error $ show res
         else verifErr isDafny st
 
@@ -291,8 +291,8 @@ verifErr :: MonadIO m => Bool -> Status -> m Status
 verifErr isDafny (Status res) = do
     let exec = if isDafny then "Dafny" else "Boogie"
     case res of
-        Left output -> return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error: " <+> output) Nothing
-        Right err -> return $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error:") (Just err)
+        Left output -> returnS $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error: " <+> output) Nothing
+        Right err -> returnS $ Status $ Right $ GenericError noloc (text "Unexpected" <+> text exec <+> text "verification error:") (Just err)
 
 dafnyVCGen :: Options -> String
 dafnyVCGen opts = if noDafnyModules opts then "dafnynomodules" else "dafnymodules"
@@ -334,7 +334,7 @@ getEntryPoints files = do
             let files' = map fst $ filter ((/=NoOutput) . snd) files
             liftM concat $ mapM entryPointsTypedModuleFile files'
         es -> liftM catMaybes $ mapM resolveEntryPoint es
-    return ps
+    returnS ps
 
 output :: Options -> [FilePath] -> [FilePath] -> [TypedModuleFile] -> IO [(TypedModuleFile,OutputType)] 
 output opts secrecIns secrecOuts modules = do
@@ -343,25 +343,25 @@ output opts secrecIns secrecOuts modules = do
         Left (time,ppargs,m,ml) -> case o of
             NoOutput -> do
                 when (printOutput opts) $ hPutStrLn stderr $ "No output for module " ++ show (moduleFile m)
-                return ()
+                returnS ()
             OutputFile f -> writeFile f $ show $ ppid ppargs $+$ ppid m
             OutputStdout -> when (printOutput opts) $ do
                 putStrLn $ show (moduleFile m) ++ ":"
                 putStrLn $ show $ ppid ppargs $+$ ppid m
         Right sci -> do
             when (printOutput opts) $ hPutStrLn stderr $ "No output for unchanged module " ++ show (sciFile sci)
-            return ()
-    return moduleso
+            returnS ()
+    returnS moduleso
 
 type EntryPoints = (Bool,Set String)
 type EntryPointsM m = StateT EntryPoints (SecrecM m)
 
 pruneModuleFiles :: MonadIO m => [ModuleFile] -> EntryPointsM m [ModuleFile]
-pruneModuleFiles [] = return []
+pruneModuleFiles [] = returnS []
 pruneModuleFiles (m:ms) = do
     m' <- pruneModuleFile m
     ms' <- pruneModuleFiles ms
-    return (m':ms')
+    returnS (m':ms')
 
 addEntryPoints :: Set String -> EntryPoints -> EntryPoints
 addEntryPoints es (b,xs) = (b && Set.null es,Set.union xs es)
@@ -370,26 +370,26 @@ addGEntryPoints :: Data (a Identifier Position) => a Identifier Position -> Entr
 addGEntryPoints x (b,xs) = (b,Set.union xs (gEntryPoints x))
 
 pruneModuleFile :: MonadIO m => ModuleFile -> EntryPointsM m ModuleFile
-pruneModuleFile (Right sci) = return $ Right sci
+pruneModuleFile (Right sci) = returnS $ Right sci
 pruneModuleFile (Left (t,pargs,m,i)) = do
     State.modify $ addEntryPoints $ Set.fromList $ entryPoints $ ppOptions pargs
     m' <- pruneModule m
-    return $ Left (t,pargs,m',i)
+    returnS $ Left (t,pargs,m',i)
   where
     pruneModule :: MonadIO m => Module Identifier Position -> EntryPointsM m (Module Identifier Position)
     pruneModule (Module l mn p) = do
         p' <- pruneProgram p
-        return $ Module l mn p'
+        returnS $ Module l mn p'
     pruneProgram :: MonadIO m => Program Identifier Position -> EntryPointsM m (Program Identifier Position)
     pruneProgram (Program l is gs) = do
         gs' <- pruneGlobalDecls $ reverse gs
-        return $ Program l is $ reverse gs'
+        returnS $ Program l is $ reverse gs'
     pruneGlobalDecls :: MonadIO m => [GlobalDeclaration Identifier Position] -> EntryPointsM m [GlobalDeclaration Identifier Position]
-    pruneGlobalDecls [] = return []
+    pruneGlobalDecls [] = returnS []
     pruneGlobalDecls (g:gs) = do
         g' <- pruneGlobalDecl g
         gs' <- pruneGlobalDecls gs
-        return $ maybeToList g' ++ gs'
+        returnS $ maybeToList g' ++ gs'
     pruneGlobalDecl :: MonadIO m => GlobalDeclaration Identifier Position -> EntryPointsM m (Maybe (GlobalDeclaration Identifier Position))
     pruneGlobalDecl d@(GlobalProcedure l p) = pruneName (procedureDeclarationName p) d
     pruneGlobalDecl d@(GlobalStructure l p) = pruneName (structureDeclarationName p) d
@@ -397,21 +397,21 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
     pruneGlobalDecl d@(GlobalTemplate l p) = pruneName (templateDeclarationName p) d
     pruneGlobalDecl (GlobalAnnotations l as) = do
         as' <- pruneGlobalAnns $ reverse as
-        return $ Just $ GlobalAnnotations l $ reverse as'
+        returnS $ Just $ GlobalAnnotations l $ reverse as'
     pruneGlobalDecl d = do
         State.modify $ addGEntryPoints d
-        return $ Just d
+        returnS $ Just d
     pruneGlobalAnns :: MonadIO m => [GlobalAnnotation Identifier Position] -> EntryPointsM m [GlobalAnnotation Identifier Position]
-    pruneGlobalAnns [] = return []
+    pruneGlobalAnns [] = returnS []
     pruneGlobalAnns (a:as) = do
         a' <- pruneGlobalAnn a
         as' <- pruneGlobalAnns as
-        return $ maybeToList a' ++ as'
+        returnS $ maybeToList a' ++ as'
     pruneGlobalAnn :: MonadIO m => GlobalAnnotation Identifier Position -> EntryPointsM m (Maybe (GlobalAnnotation Identifier Position))
     pruneGlobalAnn a = case globalAnnName a of
         Nothing -> do
             State.modify $ addGEntryPoints a
-            return $ Just a
+            returnS $ Just a
         Just n -> pruneName n a
     pruneName :: (LocOf (a Identifier Position) ~ Position,MonadIO m,Located (a Identifier Position),Data (a Identifier Position)) => Identifier -> a Identifier Position -> EntryPointsM m (Maybe (a Identifier Position))
     pruneName n d = do
@@ -421,16 +421,16 @@ pruneModuleFile (Left (t,pargs,m,i)) = do
             True -> do
                 --when (debug opts) $ liftIO $ putStrLn $ "entrypoints " ++ show n ++ " : " ++ show (gEntryPoints d)
                 State.modify $ addGEntryPoints d
-                return $ Just d
+                returnS $ Just d
             False -> if List.elem n es
                 then do
                     --when (debug opts) $ liftIO $ putStrLn $ "entrypoints " ++ show n ++ " : " ++ show (gEntryPoints d)
                     State.modify $ addGEntryPoints d
-                    return (Just d)
+                    returnS (Just d)
                 else do
                     lift $ sciError $ "Ignored declaration for " ++ pprid n ++ " at " ++ pprid (loc d)
                     when (debug opts) $ liftIO $ putStrLn $ "pruned " ++ show n ++ " in " ++ show es
-                    return Nothing
+                    returnS Nothing
 
 gEntryPoints :: Data (a Identifier Position) => a Identifier Position -> Set String
 gEntryPoints x = everything (Set.union) (mkQ Set.empty auxP `extQ` auxO `extQ` auxS) x

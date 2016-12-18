@@ -1822,7 +1822,7 @@ substFromTSubstsDec msg l x doBounds ssBounds (DecType i isRec ts hctx bctx spec
 substFromTSubsts :: (VarsG (TcM m) a,ProverK loc m) => String -> StopProxy (TcM m) -> loc -> TSubsts -> Bool -> Map GIdentifier GIdentifier -> a -> TcM m a
 substFromTSubsts msg stop l tys doBounds ssBounds x = if tys == emptyTSubsts
     then return x
-    else {-tcProgress Nothing (Just msg) $ -} substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
+    else {-returnSess Nothing (Just msg) $ -} substProxy msg stop (substsProxyFromTSubsts l tys) doBounds ssBounds x
     
 substsProxyFromTSubsts :: ProverK loc m => loc -> TSubsts -> SubstsProxy GIdentifier (TcM m)
 substsProxyFromTSubsts (l::loc) (TSubsts tys) = SubstsProxy $ \proxy x -> do
@@ -2646,8 +2646,8 @@ isOriginalDecTypeKind :: DecTypeK -> Bool
 isOriginalDecTypeKind (DecTypeOri _) = True
 isOriginalDecTypeKind _ = False
 
-tcProgress :: ProverK Position m => Maybe Position -> Maybe String -> TcM m a -> TcM m a
-tcProgress l msg m = do
+returnSess :: ProverK Position m => Maybe Position -> Maybe String -> TcM m a -> TcM m a
+returnSess l msg m = do
     opts <- askOpts
     (oldmsg,oldp) <- State.gets progressBar
     let newmsg = maybe oldmsg id msg
@@ -2687,7 +2687,7 @@ tcDie True m = catchError m $ \e -> do
 
 ---- | TypeChecks a code block
 --tcGenBlock :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> Bool -> Maybe ModuleCount -> TcM m a -> TcM m a
---tcGenBlock l msg doReset count m = tcDie doReset $ tcProgress (Just $ locpos l) (Just msg) $ do
+--tcGenBlock l msg doReset count m = tcDie doReset $ returnSess (Just $ locpos l) (Just msg) $ do
 --    olde <- State.get
 --    oldge <- liftIO $ if doReset then liftM Just backupGlobalEnv else return Nothing
 --    oldti <- liftIO $ if doReset then liftM Just backupTyVarId else return Nothing
@@ -2700,7 +2700,7 @@ tcDie True m = catchError m $ \e -> do
 --        solveTop l "tcGlobal"
 --        dict <- top . tDict =<< State.get
 --        x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
---        tcProgress Nothing (Just "cleanup") $ do
+--        returnSess Nothing (Just "cleanup") $ do
 --            liftIO $ resetGlobalEnv False
 --            liftIO resetTyVarId
 --    State.modify $ \e -> e { cstrCache = cstrCache olde, openedCstrs = openedCstrs olde, decClass = decClass olde, localConsts = localConsts olde, localVars = localVars olde, localFrees = localFrees olde, localDeps = localDeps olde, tDict = tDict olde, moduleCount = moduleCount olde }

@@ -8,8 +8,8 @@ import Language.SecreC.Modules
 import Language.SecreC.Position
 
 import Control.Monad
-import Control.Monad.State (StateT(..),evalStateT)
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (StateT(..),evalStateT)
+import qualified Control.Monad.State.Strict as State
 
 import Data.Set (Set(..))
 import qualified Data.Set as Set

@@ -46,14 +46,14 @@ import GHC.Base hiding (mapM)
 import GHC.Num
 
 import Control.Applicative
-import Control.Monad.State (State(..),StateT(..),MonadState(..))
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (State(..),StateT(..),MonadState(..))
+import qualified Control.Monad.State.Strict as State
 import Control.Monad.Reader (Reader(..),ReaderT(..),MonadReader(..))
 import qualified Control.Monad.Reader as Reader
-import Control.Monad.Writer (Writer(..),WriterT(..),MonadWriter(..))
-import qualified Control.Monad.Writer as Writer hiding ((<>))
-import Control.Monad.Trans.RWS (RWS(..),RWST(..))
-import qualified Control.Monad.Trans.RWS as RWS
+import Control.Monad.Writer.Strict (Writer(..),WriterT(..),MonadWriter(..))
+import qualified Control.Monad.Writer.Strict as Writer hiding ((<>))
+import Control.Monad.Trans.RWS.Strict (RWS(..),RWST(..))
+import qualified Control.Monad.Trans.RWS.Strict as RWS
 import Control.Monad.Except
 import Control.Monad.Trans.Control
 import Control.Monad.Identity
@@ -123,6 +123,7 @@ instance Ord SolveScope where
 
 #if INCREMENTAL
 type GCstr = IOCstr
+{-# INLINE gCstrId #-}
 gCstrId = ioCstrId
 data IOCstr = IOCstr
     { kCstr :: TCstr
@@ -130,24 +131,31 @@ data IOCstr = IOCstr
     }
   deriving (Data,Typeable,Show)
 instance Hashable IOCstr where
+    {-# INLINE hashWithSalt #-}
     hashWithSalt i k = hashWithSalt i (kCstr k)
 instance Eq IOCstr where
+    {-# INLINE (==) #-}
     k1 == k2 = kStatus k1 == kStatus k2
 instance Ord IOCstr where
+    {-# INLINE compare #-}
     compare k1 k2 = compare (kStatus k1) (kStatus k2)
 instance (DebugM m) => PP m IOCstr where
+    {-# INLINE pp #-}
     pp k = do
         pp1 <- pp (ioCstrId k)
         pp2 <- pp (kCstr k)
-        return $ pp1 <+> char '=' <+> pp2
+        returnS $ pp1 <+> char '=' <+> pp2
         
 ioCstrId :: IOCstr -> Int
+{-# INLINE ioCstrId #-}
 ioCstrId = hashModuleTyVarId . uniqId . kStatus
 
 ioCstrUnique :: IOCstr -> ModuleTyVarId
+{-# INLINE ioCstrUnique #-}
 ioCstrUnique = uniqId . kStatus
 #else
 type GCstr = IdCstr
+{-# INLINE gCstrId #-}
 gCstrId = hashModuleTyVarId . kId
 data IdCstr = IdCstr
     { kCstr :: TCstr
@@ -156,18 +164,22 @@ data IdCstr = IdCstr
   deriving (Data,Typeable,Show)
 
 instance Hashable IdCstr where
+    {-# INLINE hashWithSalt #-}
     hashWithSalt i k = hashWithSalt i (kCstr k)
   
 instance Eq IdCstr where
+    {-# INLINE (==) #-}
     k1 == k2 = kId k1 == kId k2
 instance Ord IdCstr where
+    {-# INLINE compare #-}
     compare k1 k2 = compare (kId k1) (kId k2)
 
 instance (DebugM m) => PP m IdCstr where
+    {-# INLINE pp #-}
     pp k = do
         pp1 <- pp (kId k)
         pp2 <- pp (kCstr k)
-        return $ pp1 <+> char '=' <+> pp2
+        returnS $ pp1 <+> char '=' <+> pp2
 #endif
 
 #if INCREMENTAL
@@ -191,8 +203,8 @@ instance Binary Scope
 instance Hashable Scope
 
 instance Monad m => PP m Scope where
-    pp GlobalScope = return $ text "global"
-    pp LocalScope = return $ text "local"
+    pp GlobalScope = returnS $ text "global"
+    pp LocalScope = returnS $ text "local"
 
 #if INCREMENTAL
 {-# NOINLINE globalEnv #-}
@@ -204,13 +216,13 @@ newGlobalEnv = do
     m <- WeakHash.newSized (1024*4)
     iom <- WeakHash.newSized (1024*4)
     cstrs <- WeakHash.newSized 2048
-    return $ GlobalEnv m iom cstrs
+    returnS $ GlobalEnv m iom cstrs
 
 backupGlobalEnv :: IO GlobalEnv
 backupGlobalEnv = do
     g <- readIORef globalEnv
     freshGlobalEnv
-    return g
+    returnS g
     
 restoreGlobalEnv :: GlobalEnv -> IO ()
 restoreGlobalEnv g = do
@@ -220,28 +232,28 @@ restoreGlobalEnv g = do
 resetGlobalEnv :: Bool -> IO ()
 resetGlobalEnv doFresh = do
     g <- readIORef globalEnv
-    WeakHash.finalize $ tDeps g
-    WeakHash.finalize $ ioDeps g
-    WeakHash.finalize $ gCstrs g
-    when doFresh $ freshGlobalEnv
+    WeakHash.finalize $! tDeps g
+    WeakHash.finalize $! ioDeps g
+    WeakHash.finalize $! gCstrs g
+    when doFresh $! freshGlobalEnv
 
 freshGlobalEnv :: IO ()
 freshGlobalEnv = do
     deps <- WeakHash.newSized 1024
     iodeps <- WeakHash.newSized 512
     cstrs <- WeakHash.newSized 2048
-    writeIORef globalEnv $ GlobalEnv { tDeps = deps, ioDeps = iodeps, gCstrs = cstrs }
+    writeIORef globalEnv $! GlobalEnv { tDeps = deps, ioDeps = iodeps, gCstrs = cstrs }
 #endif
 
 orWarn :: (MonadIO m) => TcM m a -> TcM m (Maybe a)
 orWarn m = (liftM Just m) `catchError` \e -> do
     i <- getModuleCount
-    TcM $ lift $ tell $ ScWarns $ Map.singleton i $ Map.singleton (loc e) $ Set.singleton $ ErrWarn e
---    liftIO $ putStrLn $ "warning... " ++ ppr e
-    return Nothing
+    TcM $! lift $! tell $! ScWarns $! Map.singleton i $! Map.singleton (loc e) $! Set.singleton $! ErrWarn e
+--    liftIO $! putStrLn $! "warning... " ++ ppr e
+    returnS Nothing
 
 orWarn_ :: (MonadIO m) => TcM m a -> TcM m ()
-orWarn_ m = orWarn m >> return ()
+orWarn_ m = orWarn m >> returnS ()
 
 type POId = GIdentifier --Either VarIdentifier (Op GIdentifier ())
 
@@ -297,10 +309,10 @@ gIdenBase :: (DebugM m) => GIdentifier -> m String
 gIdenBase = gIdenBase'
 
 gIdenBase' :: (DebugM m) => GIdentifier' t -> m String
-gIdenBase' (VIden v) = return $ varIdBase v
-gIdenBase' (PIden v) = return $ varIdBase v
-gIdenBase' (TIden v) = return $ varIdBase v
-gIdenBase' (MIden v) = return $ varIdBase v
+gIdenBase' (VIden v) = returnS $ varIdBase v
+gIdenBase' (PIden v) = returnS $ varIdBase v
+gIdenBase' (TIden v) = returnS $ varIdBase v
+gIdenBase' (MIden v) = returnS $ varIdBase v
 gIdenBase' (OIden o) = ppr o
 
 #if INCREMENTAL
@@ -364,7 +376,7 @@ instance Hashable DecKind
 instance Binary DecKind
 
 instance Monad m => PP m DecKind where
-    pp = return . text . show
+    pp = returnS . text . show
 
 --type LazyEntryEnv = Either EntryEnv (ModuleCount,GlobalDeclaration Identifier Position)
 
@@ -387,7 +399,7 @@ data ModuleTcEnv = ModuleTcEnv {
 instance Hashable ModuleTcEnv
 
 instance Monad m => PP m ModuleTcEnv where
-    pp = return . text . show
+    pp = returnS . text . show
 
 instance Binary (ModuleTcEnv)
 
@@ -423,7 +435,7 @@ instance Monoid (ModuleTcEnv) where
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ModuleTcEnv where
     traverseVars f (ModuleTcEnv x1 x2 x3 x4 x5 x6 x7 x8 x9) = do
         x1' <- f x1
-        x2' <- traverseMap return f x2
+        x2' <- traverseMap returnS f x2
         x3' <- f x3
         x4' <- f x4
         x5' <- f x5
@@ -431,13 +443,13 @@ instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m Modul
         x7' <- f x7
         x8' <- f x8
         x9' <- f x9
-        return $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7' x8' x9'
+        returnS $ ModuleTcEnv x1' x2' x3' x4' x5' x6' x7' x8' x9'
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m EntryEnv where
     traverseVars f (EntryEnv x1 x2) = do
         x1' <- f x1
         x2' <- f x2
-        return $ EntryEnv x1' x2'
+        returnS $ EntryEnv x1' x2'
 
 --mergeStructs (x,y) (z,w) = (unionMb x z,Map.union y w)
 unionMb Nothing y = y
@@ -447,10 +459,10 @@ unionMb (Just x) (Just y) = error "unionMb: cannot join two justs"
 withExprC :: Monad m => ExprClass -> TcM m a -> TcM m a
 withExprC b m = do
     old <- liftM exprC State.get
-    State.modify $ \env -> env { exprC = b }
+    State.modify $! \env -> env { exprC = b }
     x <- m
-    State.modify $ \env -> env { exprC = old }
-    return x
+    State.modify $! \env -> env { exprC = old }
+    returnS x
 
 limitExprC :: Monad m => ExprClass -> TcM m a -> TcM m a
 limitExprC c' m = do
@@ -460,27 +472,27 @@ limitExprC c' m = do
 withLeak :: Monad m => Bool -> TcM m a -> TcM m a
 withLeak b m = do
     old <- liftM isLeak State.get
-    State.modify $ \env -> env { isLeak = b }
+    State.modify $! \env -> env { isLeak = b }
     x <- m
-    State.modify $ \env -> env { isLeak = old }
-    return x
+    State.modify $! \env -> env { isLeak = old }
+    returnS x
 
 #if INCREMENTAL
 runOnCache :: MonadIO m => TcM m a -> TcM m a
 runOnCache m = do
    (x,cache) <- onCache m
-   forM_ (Map.toList cache) $ \(Loc p iok,st) ->  writeCstrStatus p iok st
-   return x
+   forM_ (Map.toList cache) $! \(Loc p iok,st) ->  writeCstrStatus p iok st
+   returnS x
     
 onCache :: Monad m => TcM m a -> TcM m (a,CstrCache)
 onCache m = do
     oldcache <- State.gets cstrCache
     oldsolve <- State.gets solveToCache
-    State.modify $ \env -> env { cstrCache = Map.empty, solveToCache = True }
+    State.modify $! \env -> env { cstrCache = Map.empty, solveToCache = True }
     x <- m
     cache <- State.gets cstrCache
-    State.modify $ \env -> env { solveToCache = oldsolve, cstrCache = oldcache }
-    return (x,cache)
+    State.modify $! \env -> env { solveToCache = oldsolve, cstrCache = oldcache }
+    returnS (x,cache)
 #else
 runOnCache :: MonadIO m => TcM m a -> TcM m a
 runOnCache m = m
@@ -492,10 +504,10 @@ onCache m = liftM (,()) m
 withKind :: Monad m => DecKind -> TcM m a -> TcM m a
 withKind k m = do
     old <- liftM decKind State.get
-    State.modify $ \env -> env { decKind = k }
+    State.modify $! \env -> env { decKind = k }
     x <- m
-    State.modify $ \env -> env { decKind = old }
-    return x
+    State.modify $! \env -> env { decKind = old }
+    returnS x
 
 getExprC :: Monad m => TcM m ExprClass
 getExprC = liftM exprC State.get
@@ -524,19 +536,19 @@ getCstrState = do
     isLeak <- getLeak
     kind <- getKind
     err <- Reader.ask
-    return $ CstrState isAnn isDef exprC isLeak kind lineage err
+    returnS $ CstrState isAnn isDef exprC isLeak kind lineage err
     
 getAnn :: Monad m => TcM m Bool
 getAnn = liftM (isAnnDecClass . decClass) State.get
 
 modifyModuleEnv :: Monad m => (ModuleTcEnv -> ModuleTcEnv) -> TcM m ()
-modifyModuleEnv f = State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
+modifyModuleEnv f = State.modify $! \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,f y) }
 
 modifyModuleEnvM :: Monad m => (ModuleTcEnv -> TcM m ModuleTcEnv) -> TcM m ()
 modifyModuleEnvM f = do
     y <- State.gets (snd . moduleEnv)
     y' <- f y
-    State.modify $ \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
+    State.modify $! \env -> env { moduleEnv = let (x,y) = moduleEnv env in (x,y') }
 
 remDecDict :: DecType -> DecType
 remDecDict d@(DecType i isRec ts hctx bctx specs b) =
@@ -585,7 +597,7 @@ filterAnns1 isAnn isLeak decK = Map.filter p
     p e@(entryType -> t@(DecT d)) =
         (isAnn >= isAnnDecClass (tyDecClass t))
         && (isLeak >= isLeakDec d)
-        && (decK $ decTypeKind d)
+        && (decK $! decTypeKind d)
 
 insideAnnotation :: Monad m => TcM m a -> TcM m a
 insideAnnotation = withAnn True
@@ -593,18 +605,18 @@ insideAnnotation = withAnn True
 withAnn :: Monad m => Bool -> TcM m a -> TcM m a
 withAnn b m = do
     isAnn <- liftM (isAnnDecClass . decClass) State.get
-    State.modify $ \env -> env { decClass = chgAnnDecClass b (decClass env) }
+    State.modify $! \env -> env { decClass = chgAnnDecClass b (decClass env) }
     x <- m
-    State.modify $ \env -> env { decClass = chgAnnDecClass isAnn (decClass env) }
-    return x
+    State.modify $! \env -> env { decClass = chgAnnDecClass isAnn (decClass env) }
+    returnS x
 
 withDef :: Monad m => Bool -> TcM m a -> TcM m a
 withDef b m = do
     o <- liftM isDef State.get
-    State.modify $ \env -> env { isDef = b }
+    State.modify $! \env -> env { isDef = b }
     x <- m
-    State.modify $ \env -> env { isDef = o }
-    return x
+    State.modify $! \env -> env { isDef = o }
+    returnS x
 
 chgAnnDecClass :: Bool -> DecClass -> DecClass
 chgAnnDecClass b (DecClass _ i r w) = DecClass b i r w
@@ -620,10 +632,10 @@ isInlineDecClass (DecClass _ b _ _) = b
 
 withDependencies :: Monad m => Set LocGCstr -> TcM m a -> TcM m a
 withDependencies deps m = do
-    State.modify $ \env -> env { localDeps = deps `Set.union` localDeps env }
+    State.modify $! \env -> env { localDeps = deps `Set.union` localDeps env }
     x <- m
-    State.modify $ \env -> env { localDeps = localDeps env }
-    return x
+    State.modify $! \env -> env { localDeps = localDeps env }
+    returnS x
 
 type VarsG m a = Vars GIdentifier m a
 type VarsGTcM m = (Typeable m,MonadIO m,MonadBaseControl IO m,VarsG (TcM m) Position,VarsG (TcM Symbolic) Position)
@@ -674,25 +686,25 @@ instance (DebugM m) => PP m EntryEnv where
     pp = pp . entryType
    
 varNameToType :: Var -> Type
-varNameToType (VarName (KType b) (VIden k)) = KindT $ KVar k b
-varNameToType (VarName (KindT k) (VIden n)) = SecT $ SVar n k
-varNameToType (VarName (TType b) (VIden n)) = ComplexT $ CVar n b
-varNameToType (VarName (BType c) (VIden n)) = BaseT $ BVar n c
-varNameToType (VarName DType (VIden n)) = DecT $ DVar n
-varNameToType (VarName (VAType b sz) (VIden n)) = VArrayT $ VAVar n b sz
-varNameToType (VarName t n) | typeClass "varNameToType" t == TypeC = IdxT (RVariablePExpr t $ VarName t n)
-varNameToType v = error $ "varNameToType " ++ show v
+varNameToType (VarName (KType b) (VIden k)) = KindT $! KVar k b
+varNameToType (VarName (KindT k) (VIden n)) = SecT $! SVar n k
+varNameToType (VarName (TType b) (VIden n)) = ComplexT $! CVar n b
+varNameToType (VarName (BType c) (VIden n)) = BaseT $! BVar n c
+varNameToType (VarName DType (VIden n)) = DecT $! DVar n
+varNameToType (VarName (VAType b sz) (VIden n)) = VArrayT $! VAVar n b sz
+varNameToType (VarName t n) | typeClass "varNameToType" t == TypeC = IdxT (RVariablePExpr t $! VarName t n)
+varNameToType v = error $! "varNameToType " ++ show v
 
 --condVarNameToType :: Constrained Var -> Type
 --condVarNameToType (Constrained v c) = constrainedType (varNameToType v) c
 
 typeToVarName :: Type -> Maybe Var
-typeToVarName (KindT (KVar n b)) = Just $ VarName (KType b) $ VIden n
-typeToVarName (SecT (SVar n k)) = Just (VarName (KindT k) $ VIden n)
-typeToVarName (ComplexT (CVar n b)) = Just (VarName (TType b) $ VIden n)
-typeToVarName (BaseT (BVar n c)) = Just (VarName (BType c) $ VIden n)
-typeToVarName (DecT (DVar n)) = Just (VarName DType $ VIden n)
-typeToVarName (VArrayT (VAVar n b sz)) = Just (VarName (VAType b sz) $ VIden n)
+typeToVarName (KindT (KVar n b)) = Just $! VarName (KType b) $! VIden n
+typeToVarName (SecT (SVar n k)) = Just (VarName (KindT k) $! VIden n)
+typeToVarName (ComplexT (CVar n b)) = Just (VarName (TType b) $! VIden n)
+typeToVarName (BaseT (BVar n c)) = Just (VarName (BType c) $! VIden n)
+typeToVarName (DecT (DVar n)) = Just (VarName DType $! VIden n)
+typeToVarName (VArrayT (VAVar n b sz)) = Just (VarName (VAType b sz) $! VIden n)
 typeToVarName (IdxT (RVariablePExpr _ (VarName t n))) | typeClass "typeToVarName" t == TypeC = Just (VarName t n)
 typeToVarName _ = Nothing
 
@@ -701,17 +713,17 @@ tyToVar = fromJustNote "tyToVar" . typeToVarName
 
 typeToTypeName :: Type -> Maybe (TypeName GIdentifier Type)
 typeToTypeName t = case typeToVarName t of
-    Just (VarName _ n) -> Just $ TypeName t n
+    Just (VarName _ n) -> Just $! TypeName t n
     otherwise -> Nothing
     
 typeToDomainName :: Type -> Maybe (DomainName GIdentifier Type)
 typeToDomainName t = case typeToVarName t of
-    Just (VarName _ n) -> Just $ DomainName t n
+    Just (VarName _ n) -> Just $! DomainName t n
     otherwise -> Nothing
 
 typeToKindName :: Type -> Maybe (KindName GIdentifier Type)
 typeToKindName t = case typeToVarName t of
-    Just (VarName _ n) -> Just $ KindName t n
+    Just (VarName _ n) -> Just $! KindName t n
     otherwise -> Nothing
 
 newtype SecrecErrArr = SecrecErrArr { unSecrecErrArr :: SecrecError -> SecrecError }
@@ -724,30 +736,34 @@ instance Binary SecrecErrArr where
         let aux :: SecrecError -> SecrecError -> SecrecError
             aux x ErrToken = x
             aux x e = e
-        return $ SecrecErrArr $ \x -> everywhere (mkT $ aux x) err
+        returnS $ SecrecErrArr $! \x -> everywhere (mkT $! aux x) err
 instance Hashable SecrecErrArr where
     hashWithSalt salt err = salt
 
 liftTcM :: Monad m => SecrecM m a -> TcM m a
-liftTcM m = TcM $ lift m
+liftTcM m = TcM $! lift m
 
 newtype TcM m a = TcM { unTcM :: RWST (Int,SecrecErrArr) () (TcEnv) (SecrecM m) a }
     deriving (Functor,Applicative,Typeable,Monad,MonadIO,MonadState (TcEnv),MonadReader (Int,SecrecErrArr),MonadWriter (),Alternative)
     
 instance MonadIO m => MonadPlus (TcM m) where
+    {-# INLINE mzero #-}
     mzero = TcM mzero
+    {-# INLINE mplus #-}
     mplus x y = catchError x (const y)
     
 instance MonadIO m => MonadError SecrecError (TcM m) where
-    throwError e = TcM $ throwError e
-    catchError m f = TcM $ catchError (unTcM $ runOnCache m) (unTcM . f)
+    {-# INLINE throwError #-}
+    throwError e = TcM $! throwError e
+    {-# INLINE catchError #-}
+    catchError m f = TcM $! catchError (unTcM $! runOnCache m) (unTcM . f)
 
 localOptsTcM :: Monad m => (Options -> Options) -> TcM m a -> TcM m a
-localOptsTcM f (TcM m) = TcM $ RWS.mapRWST (Reader.local f) m
+localOptsTcM f (TcM m) = TcM $! RWS.mapRWST (Reader.local f) m
 
 mapTcM :: (m (Either SecrecError ((a,TcEnv,()),SecrecWarnings)) -> n (Either SecrecError ((b,TcEnv,()),SecrecWarnings)))
     -> TcM m a -> TcM n b
-mapTcM f (TcM m) = TcM $ RWS.mapRWST (mapSecrecM f) m
+mapTcM f (TcM m) = TcM $! RWS.mapRWST (mapSecrecM f) m
 
 flushTcWarnings :: MonadIO m => TcM m a -> TcM m a
 flushTcWarnings = mapTcM flush
@@ -755,59 +771,59 @@ flushTcWarnings = mapTcM flush
     flush m = do
         e <- m
         case e of
-            Left err -> return $ Left err
+            Left err -> returnS $ Left err
             Right ((x,env,()),warns) -> do
-                liftIO $ printWarns warns
-                return $ Right ((x,env,()),mempty)
+                liftIO $! printWarns $! warns
+                returnS $ Right ((x,env,()),mempty)
 
 instance MonadTrans (TcM) where
-    lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,mempty)) m
+    lift m = TcM $! lift $! SecrecM $! lift $! liftM (\x -> Right (x,mempty)) m
 
 askErrorM :: Monad m => TcM m (SecrecError -> SecrecError)
-askErrorM = liftM (unSecrecErrArr . snd) $ Reader.ask
+askErrorM = liftM (unSecrecErrArr . snd) $! Reader.ask
 
 askErrorM' :: Monad m => TcM m (Int,SecrecError -> SecrecError)
 askErrorM' = do
     (i,SecrecErrArr f) <- Reader.ask
-    return (i,f)
+    returnS (i,f)
     
 askErrorM'' :: Monad m => TcM m (Int,SecrecErrArr)
 askErrorM'' = Reader.ask
 
 newErrorM :: TcM m a -> TcM m a
-newErrorM (TcM m) = TcM $ RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
+newErrorM (TcM m) = TcM $! RWS.withRWST (\f s -> ((0,SecrecErrArr id),s)) m
 
 -- | Typechecks a code block, with local declarations only within its scope
 tcBlock :: (Monad m,Location loc) => loc -> TcM m a -> TcM m a
 tcBlock l m = do
     r <- Reader.ask
     s <- State.get
-    (x,s',w') <- TcM $ lift $ runRWST (unTcM m) r s
+    (x,s',w') <- TcM $! lift $! runRWST (unTcM m) r s
     Writer.tell w'
-    return x
+    returnS x
     
 tcDictBlock :: Monad m => TcM m a -> TcM m a
 tcDictBlock m = do
     dicts <- State.gets tDict
     x <- m
-    State.modify $ \env -> env { tDict = dicts }
-    return x
+    State.modify $! \env -> env { tDict = dicts }
+    returnS x
 
 execTcM :: (MonadIO m) => TcM m a -> (Int,SecrecErrArr) -> TcEnv -> SecrecM m (a,TcEnv)
 execTcM m arr env = do
     (x,env',()) <- RWS.runRWST (unTcM m) arr env
-    return (x,env')
+    returnS (x,env')
 
 runTcM :: (MonadIO m) => TcM m a -> SecrecM m a
-runTcM m = liftM fst $ RWS.evalRWST (unTcM m') (0,SecrecErrArr id) emptyTcEnv
+runTcM m = liftM fst $! RWS.evalRWST (unTcM m') (0,SecrecErrArr id) emptyTcEnv
     where
     m' = do
         -- add default coercion declaration
         dec <- coercesDec
         let Just (g,tid) = decTypeId dec
-        modifyModuleEnv $ \env -> env { functions = Map.insert g (Map.singleton tid $ EntryEnv noloc $ DecT dec) $ functions env }
+        modifyModuleEnv $! \env -> env { functions = Map.insert g (Map.singleton tid $! EntryEnv noloc $! DecT dec) $! functions env }
         -- run computation
-        State.modify $ \env -> env { moduleCount = mapSnd succ (moduleCount env) }
+        State.modify $! \env -> env { moduleCount = mapSnd succ (moduleCount env) }
         m
 
 coercesDec :: MonadIO m => TcM m DecType
@@ -819,53 +835,53 @@ coercesDec = do
     let d2 = SVar ((mkVarId "D2") { varIdRead = True, varIdWrite = True }) k2
     let t1 = BVar ((mkVarId "T1") { varIdRead = True, varIdWrite = True }) Nothing
     let t2 = BVar ((mkVarId "T1") { varIdRead = True, varIdWrite = True }) Nothing
-    let n1 = varExpr $ VarName (BaseT index) $ VIden $ (mkVarId "N1") { varIdRead = True, varIdWrite = True }
-    let n2 = varExpr $ VarName (BaseT index) $ VIden $ (mkVarId "N2") { varIdRead = True, varIdWrite = True }
-    let ts = [(Constrained (tyToVar $ KindT k1) Nothing,False),(Constrained (tyToVar $ KindT k2) Nothing,False),(Constrained (tyToVar $ SecT d1) Nothing,False),(Constrained (tyToVar $ SecT d2) Nothing,False),(Constrained (tyToVar $ BaseT t1) Nothing,False),(Constrained (tyToVar $ BaseT t2) Nothing,False),(Constrained (tyToVar $ IdxT n1) Nothing,False),(Constrained (tyToVar $ IdxT n2) Nothing,False)]
-    let e = VarName (ComplexT $ CType d1 t1 n1) $ VIden $ (mkVarId "e") { varIdWrite = False }
-    let ret = ComplexT $ CType d2 t2 n2
-    let x = VarName ret $ VIden $ mkVarId "cx"
+    let n1 = varExpr $! VarName (BaseT index) $! VIden $! (mkVarId "N1") { varIdRead = True, varIdWrite = True }
+    let n2 = varExpr $! VarName (BaseT index) $! VIden $! (mkVarId "N2") { varIdRead = True, varIdWrite = True }
+    let ts = [(Constrained (tyToVar $! KindT k1) Nothing,False),(Constrained (tyToVar $! KindT k2) Nothing,False),(Constrained (tyToVar $! SecT d1) Nothing,False),(Constrained (tyToVar $! SecT d2) Nothing,False),(Constrained (tyToVar $! BaseT t1) Nothing,False),(Constrained (tyToVar $! BaseT t2) Nothing,False),(Constrained (tyToVar $! IdxT n1) Nothing,False),(Constrained (tyToVar $! IdxT n2) Nothing,False)]
+    let e = VarName (ComplexT $! CType d1 t1 n1) $! VIden $! (mkVarId "e") { varIdWrite = False }
+    let ret = ComplexT $! CType d2 t2 n2
+    let x = VarName ret $! VIden $! mkVarId "cx"
     st <- getCstrState
     let kst = CstrState False False PureExpr False FKind (cstrLineage st) (cstrErr st)
     let k = TcK (Coerces Nothing (varExpr e) x) kst
     let g = Graph.mkGraph [(0,Loc noloc k)] []
     let ctx = DecCtx Nothing (PureTDict g emptyTSubsts mempty) (Map.singleton (mkVarId "cx") False)
-    let dec = DecType i (DecTypeOri False) ts implicitDecCtx ctx [] $ FunType False noloc (OIden $ OpCoerce noloc) [(False,e,False)] ret [] (Just $ fmap (Typed noloc) $ varExpr x) (DecClass False True emptyDecClassVars emptyDecClassVars)
-    debugTc $ do
+    let dec = DecType i (DecTypeOri False) ts implicitDecCtx ctx [] $! FunType False noloc (OIden $! OpCoerce noloc) [(False,e,False)] ret [] (Just $! fmap (Typed noloc) $! varExpr x) (DecClass False True emptyDecClassVars emptyDecClassVars)
+    debugTc $! do
         ppd <- ppr dec
-        liftIO $ putStrLn $ "added base coercion dec " ++ ppd
-    return dec
+        liftIO $! putStrLn $! "added base coercion dec " ++ ppd
+    returnS dec
 
 checkNoSecM :: Monad m => TcM m Bool
 checkNoSecM = do
     cl <- State.gets decClass
     opts <- askOpts
     if ignoreSpecDomains opts && isAnnDecClass cl
-        then return True
-        else return False
+        then returnS True
+        else returnS False
 
 checkCoercionM :: Monad m => TcM m Bool
 checkCoercionM = do
     opts <- askOpts
     st <- getCstrState
     noSec <- checkNoSecM
-    return $ checkCoercion noSec (implicitCoercions opts) st
+    returnS $ checkCoercion noSec (implicitCoercions opts) st
   where
     checkCoercion :: Bool -> CoercionOpt -> CstrState -> Bool
     checkCoercion True ((< ExtendedC) -> True) st = False
     checkCoercion noSec c st@(cstrDecK -> AKind) = False
     checkCoercion noSec OffC st = False
     checkCoercion noSec DefaultsC st = cstrIsDef st
-    checkCoercion noSec OnC st = not $ cstrIsAnn st
+    checkCoercion noSec OnC st = not $! cstrIsAnn st
     checkCoercion noSec ExtendedC st = True
 
 -- flips errors whenever typechecking is expected to fail
 failTcM :: (MonadIO m,Location loc) => loc -> TcM m a -> TcM m a
 failTcM l m = do
-    opts <- TcM $ lift Reader.ask
+    opts <- TcM $! lift Reader.ask
     if failTypechecker opts
         then catchError
-            (m >> liftIO (die $ pprid $ GenericError (locpos l) (text "Typechecking should have failed") Nothing))
+            (m >> liftIO (die $! pprid $! GenericError (locpos l) (text "Typechecking should have failed") Nothing))
             (\e -> do
                 ppe <- ppr e
                 liftIO (hPutStrLn stderr ppe >> exitSuccess)
@@ -888,7 +904,7 @@ data TcCstr
         PIdentifier -- procedure name
         (Maybe [(Type,IsVariadic)]) -- template arguments
         [(IsConst,Either Expr Type,IsVariadic)] -- procedure arguments
-        Type -- return type
+        Type -- returnS type
         DecType -- result
     | Equals
         Type Type -- ^ types equal
@@ -913,7 +929,7 @@ data TcCstr
     | ProjectMatrix -- ^ matrix type projection
         Type [ArrayProj]
         Type -- result
-    | IsReturnStmt (Set StmtClass) -- ^ is return statement
+    | IsReturnStmt (Set StmtClass) -- ^ is returnS statement
 --    | MultipleSubstitutions
 --        (Maybe Bool) -- optional testKO
 --        [Type] -- bound variable
@@ -1062,7 +1078,7 @@ isValidTcCstr _ = False
 ppExprTy e = do
     ppe <- pp e
     ppl <- pp (loc e)
-    return $ ppe <+> text "::" <+> ppl
+    returnS $ ppe <+> text "::" <+> ppl
 ppVarTy v = ppExprTy (varExpr v)
 
 instance (DebugM m) => PP m [(IsConst,Either Expr Type,IsVariadic)] where
@@ -1070,7 +1086,7 @@ instance (DebugM m) => PP m [(IsConst,Either Expr Type,IsVariadic)] where
       where
         aux (x,y,z) = do
             y' <- eitherM ppExprTy pp y
-            return $ ppConst x $ ppVariadic y' z
+            returnS $ ppConst x $! ppVariadic y' z
 
 instance (DebugM m) => PP m TcCstr where
     pp (TDec k es n ts x) = do
@@ -1079,54 +1095,54 @@ instance (DebugM m) => PP m TcCstr where
         ppn <- pp n
         ppts <- (mapM pp ts) 
         ppx <- pp x
-        return $ text "tdec" <+> ppk <+> ppes <+> ppn <+> sepBy space ppts <+> char '=' <+> ppx
+        returnS $ text "tdec" <+> ppk <+> ppes <+> ppn <+> sepBy space ppts <+> char '=' <+> ppx
     pp (PDec k es n specs ts r x) = do
         ppk <- pp k
         ppes <- pp (isJust es)
         ppr <- pp r
         ppn <- pp n
-        ppspecs <- mapM pp $ maybe [] id specs
+        ppspecs <- mapM pp $! maybe [] id specs
         ppts <- pp ts
         ppx <- pp x
-        return $ ppk <+> ppes <+> ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
+        returnS $ ppk <+> ppes <+> ppr <+> ppn <+> abrackets (sepBy comma ppspecs) <+> ppts <+> char '=' <+> ppx
     pp (Equals t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
-        return $ text "equals" <+> pp1 <+> pp2
+        returnS $ text "equals" <+> pp1 <+> pp2
     pp (Coerces bvs e1 v2) = do
         ppbvs <- pp bvs
         pp1 <- ppExprTy e1
         pp2 <- ppVarTy v2
-        return $ text "coerces" <+> ppbvs <+> pp1 <+> pp2
+        returnS $ text "coerces" <+> ppbvs <+> pp1 <+> pp2
     pp (CoercesLit e) = do
         ppe <- ppExprTy e
-        return $ text "coerceslit" <+> ppe
+        returnS $ text "coerceslit" <+> ppe
 --    pp (CoercesN exs) = do
 --        pp1 <- (mapM (ppExprTy . fst) exs)
 --        pp2 <- (mapM (ppVarTy . snd) exs)
---        return $ text "coercesn" <+> sepBy comma pp1 <+> char '=' <+> sepBy comma pp2
+--        returnS $ text "coercesn" <+> sepBy comma pp1 <+> char '=' <+> sepBy comma pp2
     pp (Unifies t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
-        return $ text "unifies" <+> pp1 <+> pp2
+        returnS $ text "unifies" <+> pp1 <+> pp2
     pp (Assigns t1 t2) = do
         pp1 <- pp t1
         pp2 <- pp t2
-        return $ text "assigns" <+> pp1 <+> pp2
+        returnS $ text "assigns" <+> pp1 <+> pp2
     pp (SupportedPrint ts xs) = do
         ppts <- mapM pp ts
         ppxs <- mapM pp xs
-        return $ text "print" <+> sepBy space ppts <+> sepBy space ppxs
+        returnS $ text "print" <+> sepBy space ppts <+> sepBy space ppxs
     pp (ProjectStruct t a x) = do
         ppt <- pp t
         ppa <- pp a
         ppx <- pp x
-        return $ ppt <> char '.' <> ppa <+> char '=' <+> ppx
+        returnS $ ppt <> char '.' <> ppa <+> char '=' <+> ppx
     pp (ProjectMatrix t as x) = do
         pp1 <- pp t
         pp2 <- mapM pp as
         pp3 <- pp x
-        return $ pp1 <> brackets (sepBy comma pp2) <+> char '=' <+> pp3
+        returnS $ pp1 <> brackets (sepBy comma pp2) <+> char '=' <+> pp3
 --    pp (MultipleSubstitutions ko v s) = do
 --        ppko <- pp ko
 --        pp1 <- pp v
@@ -1134,43 +1150,43 @@ instance (DebugM m) => PP m TcCstr where
 --            ppx <- pp x
 --            ppy <- pp y
 --            ppz <- pp z
---            return $ ppx $+$ nest 4 (text "=>" $+$ ppy <+> text ":" <+> ppz)
+--            returnS $ ppx $+$ nest 4 (text "=>" $+$ ppy <+> text ":" <+> ppz)
 --        pp2 <- (mapM f2 s)
---        return $ text "multiplesubstitutions" <+> ppko <+> pp1 <+> vcat pp2
+--        returnS $ text "multiplesubstitutions" <+> ppko <+> pp1 <+> vcat pp2
     pp (MatchTypeDimension d sz) = do
         pp1 <- pp d
         pp2 <- pp sz
-        return $ text "matchtypedimension" <+> pp1 <+> pp2
+        returnS $ text "matchtypedimension" <+> pp1 <+> pp2
     pp (IsValid c) = liftM (text "isvalid" <+>) (pp c)
     pp (NotEqual e1 e2) = do
         pp1 <- pp e1
         pp2 <- pp e2
-        return $ text "not equal" <+> pp1 <+> pp2
+        returnS $ text "not equal" <+> pp1 <+> pp2
     pp (TypeBase t b) = do
         ppt <- pp t
         ppb <- pp b
-        return $ text "typebase" <+> ppt <+> ppb
+        returnS $ text "typebase" <+> ppt <+> ppb
     pp (IsPublic b e) = do
         ppb <- pp b
         ppe <- pp e
-        return $ text "ispublic" <+> ppb <+> ppe
+        returnS $ text "ispublic" <+> ppb <+> ppe
     pp (IsPrivate b e) = do
         ppb <- pp b
         ppe <- pp e
-        return $ text "isprivate" <+> ppb <+> ppe
+        returnS $ text "isprivate" <+> ppb <+> ppe
     pp (Resolve e) = liftM (text "resolve" <+>) (pp e)
     pp (Default szs e) = do
         pp1 <- pp szs
         pp2 <- ppExprTy e
-        return $ text "default" <+> pp1 <+> pp2
+        returnS $ text "default" <+> pp1 <+> pp2
     pp (ToMultiset t r) = do
         ppt <- pp t
         ppr <- pp r
-        return $ text "tomultiset" <+> ppt <+> ppr
+        returnS $ text "tomultiset" <+> ppt <+> ppr
     pp (ToSet t r) = do
         ppt <- pp t
         ppr <- pp r
-        return $ text "toset" <+> ppt <+> ppr
+        returnS $ text "toset" <+> ppt <+> ppr
 
 instance (DebugM m) => PP m CheckCstr where
     pp (CheckAssertion c) = liftM (text "checkAssertion" <+>) (pp c)
@@ -1178,14 +1194,14 @@ instance (DebugM m) => PP m CheckCstr where
 instance (DebugM m) => PP m HypCstr where
     pp (HypCondition c) = do
         pp1 <- pp c
-        return $ text "hypothesis" <+> pp1
+        returnS $ text "hypothesis" <+> pp1
     pp (HypNotCondition c) = do
         pp1 <- pp c
-        return $ text "hypothesis" <+> char '!' <> pp1
+        returnS $ text "hypothesis" <+> char '!' <> pp1
     pp (HypEqual e1 e2) = do
         pp1 <- pp e1
         pp2 <- pp e2
-        return $ text "hypothesis" <+> pp1 <+> text "==" <+> pp2
+        returnS $ text "hypothesis" <+> pp1 <+> text "==" <+> pp2
 
 instance (DebugM m) => PP m TCstr where
     pp (TcK k _) = pp k
@@ -1213,31 +1229,31 @@ instance (DebugM m) => PP m ArrayProj where
     pp (ArraySlice i1 i2) = do
         pp1 <- pp i1
         pp2 <- pp i2
-        return $ pp1 <> char ':' <> pp2
+        returnS $ pp1 <> char ':' <> pp2
     pp (ArrayIdx w) = pp w
     
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ArrayProj where
     traverseVars f (ArraySlice i1 i2) = do
         i1' <- f i1
         i2' <- f i2
-        return $ ArraySlice i1' i2'
+        returnS $ ArraySlice i1' i2'
     traverseVars f (ArrayIdx w) = do
         w' <- f w
-        return $ ArrayIdx w'
+        returnS $ ArrayIdx w'
     
 instance (DebugM m) => PP m [Type] where
     pp xs = do
         pxs <- mapM pp xs
-        return $ brackets $ sepBy comma pxs
+        returnS $ brackets $! sepBy comma pxs
     
 instance (DebugM m) => PP m [(Type,IsVariadic)] where
     pp xs = do
         pp1 <- mapM (ppVariadicArg pp) xs
-        return $ parens $ sepBy comma pp1
+        returnS $ parens $! sepBy comma pp1
 instance (DebugM m) => PP m [(Constrained Var,IsVariadic)] where
     pp xs = do
         pp1 <- mapM (ppVariadicArg pp) xs
-        return $ parens $ sepBy comma pp1
+        returnS $ parens $! sepBy comma pp1
     
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [Type] where
     traverseVars f xs = mapM f xs
@@ -1265,38 +1281,38 @@ instance Ord ArrayIndex where
     compare x y = constrIndex (toConstr x) `compare` constrIndex (toConstr y)
   
 instance (DebugM m) => PP m ArrayIndex where
-    pp NoArrayIndex = return PP.empty
+    pp NoArrayIndex = returnS PP.empty
     pp (DynArrayIndex e) = pp e
     
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m ArrayIndex where
-    traverseVars f NoArrayIndex = return NoArrayIndex
+    traverseVars f NoArrayIndex = returnS NoArrayIndex
     traverseVars f (DynArrayIndex e) = do
         e' <- f e
-        return $ DynArrayIndex e'
+        returnS $ DynArrayIndex e'
 
 arrayIndexExpr :: ArrayIndex -> Expr
 arrayIndexExpr (DynArrayIndex e) = e
 
 indexExpr :: Word64 -> Expression iden Type
-indexExpr i = LitPExpr (BaseT index) $ IntLit (BaseT index) $ toInteger i
+indexExpr i = LitPExpr (BaseT index) $! IntLit (BaseT index) $! toInteger i
 
 intExpr :: Type -> Integer -> Expression iden Type
-intExpr t i = LitPExpr t $ IntLit t i
+intExpr t i = LitPExpr t $! IntLit t i
 
 floatExpr :: Type -> Double -> Expression iden Type
-floatExpr t i = LitPExpr t $ FloatLit t i
+floatExpr t i = LitPExpr t $! FloatLit t i
 
 stringExpr :: String -> Expression iden Type
-stringExpr s = LitPExpr (BaseT string) $ StringLit (BaseT string) s
+stringExpr s = LitPExpr (BaseT string) $! StringLit (BaseT string) s
 
 trueExpr :: CondExpression iden Type
-trueExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) True)
+trueExpr = (LitPExpr (BaseT bool) $! BoolLit (BaseT bool) True)
 
 falseExpr :: CondExpression iden Type
-falseExpr = (LitPExpr (BaseT bool) $ BoolLit (BaseT bool) False)
+falseExpr = (LitPExpr (BaseT bool) $! BoolLit (BaseT bool) False)
 
 indexExprLoc :: Location loc => loc -> Word64 -> Expression iden (Typed loc)
-indexExprLoc l i = (fmap (Typed l) $ indexExpr i)
+indexExprLoc l i = (fmap (Typed l) $! indexExpr i)
 
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCstr where
     traverseVars f (TDec k e n args x) = do
@@ -1305,7 +1321,7 @@ instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCst
         n' <- f n
         args' <- mapM f args
         x' <- f x
-        return $ TDec k' e' n' args' x'
+        returnS $ TDec k' e' n' args' x'
     traverseVars f (PDec k e n ts args ret x) = do
         k' <- f k
         e' <- mapM (mapM f) e
@@ -1314,115 +1330,115 @@ instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TcCst
         ts' <- mapM (mapM f) ts
         args' <- mapM f args
         ret' <- f ret
-        return $ PDec k' e' n' ts' args' ret' x'
+        returnS $ PDec k' e' n' ts' args' ret' x'
     traverseVars f (Equals t1 t2) = do
         t1' <- f t1
         t2' <- f t2
-        return $ Equals t1' t2'
+        returnS $ Equals t1' t2'
     traverseVars f (Coerces bvs e1 v2) = do
         bvs' <- f bvs
         e1' <- f e1
-        v2' <- {-inLHS False $ -}f v2
-        return $ Coerces bvs' e1' v2'
+        v2' <- {-inLHS False $! -}f v2
+        returnS $ Coerces bvs' e1' v2'
 --    traverseVars f (CoercesN exs) = do
---        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- {-inLHS False $ -}f y; return (x',y') }) exs
---        return $ CoercesN exs'
+--        exs' <- mapM (\(x,y) -> do { x' <- f x; y' <- {-inLHS False $! -}f y; returnS (x',y') }) exs
+--        returnS $ CoercesN exs'
     traverseVars f (CoercesLit e) = do
         e' <- f e
-        return $ CoercesLit e'
+        returnS $ CoercesLit e'
     traverseVars f (Unifies t1 t2) = do
         t1' <- f t1
         t2' <- f t2
-        return $ Unifies t1' t2'
+        returnS $ Unifies t1' t2'
     traverseVars f (Assigns t1 t2) = do
-        t1' <- inLHS False $ f t1
+        t1' <- inLHS False $! f t1
         t2' <- f t2
-        return $ Assigns t1' t2'
+        returnS $ Assigns t1' t2'
     traverseVars f (SupportedPrint ts xs) = do
         ts' <- mapM f ts
-        xs' <- inLHS False $ mapM f xs
-        return $ SupportedPrint ts' xs'
+        xs' <- inLHS False $! mapM f xs
+        returnS $ SupportedPrint ts' xs'
     traverseVars f (ProjectStruct t a x) = do
         t' <- f t
         a' <- f a
         x' <- f x
-        return $ ProjectStruct t' a' x'
+        returnS $ ProjectStruct t' a' x'
     traverseVars f (ProjectMatrix t is x) = do
         t' <- f t
         is' <- mapM f is
         x' <- f x
-        return $ ProjectMatrix t' is' x'
+        returnS $ ProjectMatrix t' is' x'
 --    traverseVars f (MultipleSubstitutions ko v ss) = do
 --        ko' <- f ko
 --        v' <- f v
 --        ss' <- mapM (liftM (\(x,y,z) -> (x,y,mapSet unVIden z)) . f . (\(x,y,z) -> (x,y,mapSet VIden z))) ss
---        return $ MultipleSubstitutions ko' v' ss'
+--        returnS $ MultipleSubstitutions ko' v' ss'
     traverseVars f (MatchTypeDimension t d) = do
         t' <- f t
         d' <- f d
-        return $ MatchTypeDimension t' d'
+        returnS $ MatchTypeDimension t' d'
     traverseVars f (IsValid c) = do
         c' <- f c
-        return $ IsValid c'
+        returnS $ IsValid c'
     traverseVars f (NotEqual e1 e2) = do
         e1' <- f e1
         e2' <- f e2
-        return $ NotEqual e1' e2'
+        returnS $ NotEqual e1' e2'
     traverseVars f (IsPublic b c) = do
         b' <- f b
         c' <- f c
-        return $ IsPublic b' c'
+        returnS $ IsPublic b' c'
     traverseVars f (IsPrivate b c) = do
         b' <- f b
         c' <- f c
-        return $ IsPrivate b' c'
+        returnS $ IsPrivate b' c'
     traverseVars f (Resolve t) = do
         t' <- f t
-        return $ Resolve t'
+        returnS $ Resolve t'
     traverseVars f (Default szs t) = do
         szs' <- mapM f szs
         t' <- f t
-        return $ Default szs' t'
+        returnS $ Default szs' t'
     traverseVars f (ToMultiset t r) = do
         t' <- f t
         r' <- f r
-        return $ ToMultiset t' r'
+        returnS $ ToMultiset t' r'
     traverseVars f (ToSet t r) = do
         t' <- f t
         r' <- f r
-        return $ ToSet t' r'
+        returnS $ ToSet t' r'
     traverseVars f (TypeBase t b) = do
         t' <- f t
         b' <- f b
-        return $ TypeBase t' b'
+        returnS $ TypeBase t' b'
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m CheckCstr where
     traverseVars f (CheckAssertion c) = do
         c' <- f c
-        return $ CheckAssertion c'
+        returnS $ CheckAssertion c'
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m HypCstr where
     traverseVars f (HypCondition c) = do
         c' <- f c
-        return $ HypCondition c'
+        returnS $ HypCondition c'
     traverseVars f (HypNotCondition c) = do
         c' <- f c
-        return $ HypNotCondition c'
+        returnS $ HypNotCondition c'
     traverseVars f (HypEqual e1 e2) = do
         e1' <- f e1
         e2' <- f e2
-        return $ HypEqual e1' e2'
+        returnS $ HypEqual e1' e2'
 
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TCstr where
     traverseVars f (TcK k st) = do
         k' <- f k
-        return $ TcK k' st
+        returnS $ TcK k' st
     traverseVars f (CheckK k st) = do
         k' <- f k
-        return $ CheckK k' st
+        returnS $ CheckK k' st
     traverseVars f (HypK k st) = do
         k' <- f k
-        return $ HypK k' st
+        returnS $ HypK k' st
 
 type GCstrGraph = Gr LocGCstr ()
 type LocGCstr = Loc Position GCstr
@@ -1462,12 +1478,12 @@ instance (DebugM m, GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m Pure
         ks' <- f ks
         ss' <- f ss
         rec' <- f rec
-        return $ PureTDict ks' ss' rec'
+        returnS $ PureTDict ks' ss' rec'
 
 fromPureTDict :: MonadIO m => PureTDict -> TcM m TDict
 fromPureTDict (PureTDict g ss rec) = do
     g' <- fromPureCstrs g
-    return $ TDict g' Set.empty ss rec Map.empty
+    returnS $ TDict g' Set.empty ss rec Map.empty
 
 fromPureCstrs :: MonadIO m => TCstrGraph -> TcM m GCstrGraph
 fromPureCstrs g = do
@@ -1477,30 +1493,30 @@ fromPureCstrs g = do
     go g' is (ins,j,x,outs) = do
         ins' <- fmapSndM (look g' is) ins
         outs' <- fmapSndM (look g' is) outs
-        return $ (ins',j,x,outs')
+        returnS $ (ins',j,x,outs')
     look g' is i = case Map.lookup i is of
-        Just x -> return x
+        Just x -> returnS x
         Nothing -> do
             ppg <- ppr g
             ppg' <- ppr g'
-            error $ "fromPureCstrs: failed to look up " ++ show i ++ " in " ++ show is ++ "\n" ++ ppg ++ "\n" ++ ppg'
+            error $! "fromPureCstrs: failed to look up " ++ show i ++ " in " ++ show is ++ "\n" ++ ppg ++ "\n" ++ ppg'
     newGCstr (ins,i,Loc l k,outs) = do
-        mn <- lift $ newModuleTyVarId
+        mn <- lift $! newModuleTyVarId
         let j = hashModuleTyVarId mn
-        State.modify $ \is -> Map.insert i j is
+        State.modify $! \is -> Map.insert i j is
 #if INCREMENTAL
-        st <- lift $ liftIO $ newIdRef mn Unevaluated
-        return (ins,j,Loc l $ IOCstr k st,outs)
+        st <- lift $! liftIO $! newIdRef mn Unevaluated
+        returnS (ins,j,Loc l $! IOCstr k st,outs)
 #else
-        return (ins,j,Loc l $ IdCstr k mn,outs)
+        returnS (ins,j,Loc l $! IdCstr k mn,outs)
 #endif
 
 toPureCstrs :: GCstrGraph -> Map LocGCstr Bool -> TCstrGraph
 toPureCstrs ks solved = unionGr g1 g2
     where
     g1 = nmap (fmap kCstr) ks
-    inferred = Map.keys $ Map.filter id solved
-    g2 = Graph.mkGraph (map (\x -> (gCstrId $ unLoc x,fmap kCstr x)) inferred) []
+    inferred = Map.keys $! Map.filter id solved
+    g2 = Graph.mkGraph (map (\x -> (gCstrId $! unLoc x,fmap kCstr x)) inferred) []
 
 toPureTDict :: TDict -> PureTDict
 toPureTDict (TDict ks _ ss rec solved) = PureTDict (toPureCstrs ks solved) ss rec
@@ -1524,14 +1540,14 @@ instance (DebugM m) => PP m TSubsts where
     pp = ppTSubsts
 
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m TSubsts where
-    traverseVars f (TSubsts xs) = varsBlock $ liftM (TSubsts . Map.fromList) $ aux $ Map.toList xs
+    traverseVars f (TSubsts xs) = varsBlock $! liftM (TSubsts . Map.fromList) $! aux $! Map.toList xs
         where
-        aux [] = return []
+        aux [] = returnS []
         aux ((k,v):xs) = do
-            VIden k' <- inLHS False $ f (VIden k::GIdentifier)
+            VIden k' <- inLHS False $! f (VIden k::GIdentifier)
             v' <- f v
             xs' <- aux xs
-            return ((k',v'):xs')
+            returnS ((k',v'):xs')
 
 emptyTDict :: TDict
 emptyTDict = TDict Graph.empty Set.empty emptyTSubsts mempty Map.empty
@@ -1546,65 +1562,65 @@ instance (Vars GIdentifier m loc,Vars GIdentifier m a) => Vars GIdentifier m (Lo
     traverseVars f (Loc l a) = do
         l' <- f l
         a' <- f a
-        return $ Loc l' a'
+        returnS $ Loc l' a'
 
 newModuleTyVarId :: MonadIO m => TcM m ModuleTyVarId
 newModuleTyVarId = do
     i <- liftIO newTyVarId
     m <- State.gets (fmap fst . fst . moduleCount)
-    return $ ModuleTyVarId m i
+    returnS $ ModuleTyVarId m i
 
 freshVarId :: MonadIO m => Identifier -> Maybe Doc -> TcM m VarIdentifier
 freshVarId n doc = do
     i <- liftIO newTyVarId
     mn <- State.gets (fmap fst . fst . moduleCount)
     let v' = VarIdentifier n mn (Just i) True True doc
-    return v'
+    returnS v'
 
 freeVarId :: MonadIO m => String -> Identifier -> Bool -> Maybe Doc -> TcM m VarIdentifier
 freeVarId msg n isVariadic doc = do
     v <- freshVarId n doc
     addFree (msg++" freeVarId") v isVariadic
-    return v
+    returnS v
 
 type Frees = Map VarIdentifier IsVariadic
 
 addFree :: MonadIO m => String -> VarIdentifier -> Bool -> TcM m ()
 addFree msg n isVariadic = do
-    debugTc $ do
+    debugTc $! do
         ppn <- ppr n
 --        olds <- State.gets localFrees
 --        ppolds <- ppr olds
-        liftIO $ putStrLn $ "addFree " ++ msg ++ " " ++ ppn ++ " " ++ pprid isVariadic -- ++ " to " ++ ppolds
-    State.modify $ \env -> env { localFrees = Map.insert n isVariadic (localFrees env) }
+        liftIO $! putStrLn $! "addFree " ++ msg ++ " " ++ ppn ++ " " ++ pprid isVariadic -- ++ " to " ++ ppolds
+    State.modify $! \env -> env { localFrees = Map.insert n isVariadic (localFrees env) }
 
 removeFree :: MonadIO m => String -> VarIdentifier -> TcM m ()
 removeFree msg n = do
-    debugTc $ do
+    debugTc $! do
         ppn <- ppr n
 --        olds <- State.gets localFrees
 --        ppolds <- ppr olds
-        liftIO $ putStrLn $ "removeFree " ++ msg ++ " " ++ ppn -- ++ " from " ++ ppolds
-    State.modify $ \env -> env { localFrees = Map.delete n (localFrees env) }
+        liftIO $! putStrLn $! "removeFree " ++ msg ++ " " ++ ppn -- ++ " from " ++ ppolds
+    State.modify $! \env -> env { localFrees = Map.delete n (localFrees env) }
 
 instance (DebugM m) => PP m TDict where
     pp dict = do
-        pp1 <- ppGrM pp (const $ return PP.empty) $ tCstrs dict
+        pp1 <- ppGrM pp (const $! returnS PP.empty) $! tCstrs dict
         pp2 <- ppTSubsts (tSubsts dict)
-        return $ text "Constraints:" $+$ nest 4 pp1
+        returnS $ text "Constraints:" $+$ nest 4 pp1
               $+$ text "Substitutions:" $+$ nest 4 pp2
 
 instance (DebugM m) => PP m PureTDict where
     pp dict = do
-        pp1 <- ppGrM pp (const $ return PP.empty) $ pureCstrs dict
+        pp1 <- ppGrM pp (const $! returnS PP.empty) $! pureCstrs dict
         pp2 <- ppTSubsts (pureSubsts dict)
-        return $ text "Constraints:" $+$ nest 4 pp1
+        returnS $ text "Constraints:" $+$ nest 4 pp1
               $+$ text "Substitutions:" $+$ nest 4 pp2
 
 ppConstraints :: MonadIO m => GCstrGraph -> TcM m Doc
 ppConstraints d = do
-    ss <- ppGrM ppLocGCstr (const $ return PP.empty) d
-    return ss
+    ss <- ppGrM ppLocGCstr (const $! returnS PP.empty) d
+    returnS ss
 
 ppLocGCstr :: MonadIO m => LocGCstr -> TcM m Doc
 #if INCREMENTAL
@@ -1614,9 +1630,9 @@ ppLocGCstr (Loc l c) = do
     case s of
         Evaluated rest frees infer t -> do
             ppf <- pp frees
-            return $ pre <+> char '=' <+> text (show t) <+> text "with frees" <+> ppf
-        Unevaluated -> return $ pre
-        Erroneous err -> return $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
+            returnS $ pre <+> char '=' <+> text (show t) <+> text "with frees" <+> ppf
+        Unevaluated -> returnS $ pre
+        Erroneous err -> returnS $ pre <+> char '=' <+> if isHaltError err then text "HALT" else text "ERROR"
 #else
 ppLocGCstr (Loc l c) = pp c
 #endif
@@ -1626,8 +1642,8 @@ readCstrStatus :: MonadIO m => Position -> GCstr -> TcM m TCstrStatus
 readCstrStatus p iok = do
     solved <- State.gets cstrCache
     case Map.lookup (Loc p iok) solved of
-        Just st -> return st
-        Nothing -> liftIO $ readIdRef (kStatus iok)
+        Just st -> returnS st
+        Nothing -> liftIO $! readIdRef (kStatus iok)
 #endif
 
 #if INCREMENTAL
@@ -1635,21 +1651,21 @@ writeCstrStatus :: MonadIO m => Position -> GCstr -> TCstrStatus -> TcM m ()
 writeCstrStatus p iok st = do
     delaySolve <- State.gets solveToCache
     if delaySolve
-        then State.modify $ \e -> e { cstrCache = Map.insert (Loc p iok) st (cstrCache e) }
+        then State.modify $! \e -> e { cstrCache = Map.insert (Loc p iok) st (cstrCache e) }
 #else
 withRecordSols :: MonadIO m => TcM m a -> TcM m a
 withRecordSols m = do
     old <- State.gets recordSols
     osols <- State.gets cstrSols
-    State.modify $ \e -> e { recordSols = True }
+    State.modify $! \e -> e { recordSols = True }
     x <- m
-    State.modify $ \e -> e { recordSols = old, cstrSols = osols }
-    return x
+    State.modify $! \e -> e { recordSols = old, cstrSols = osols }
+    returnS x
     
 writeCstrSol :: MonadIO m => Position -> GCstr -> ShowOrdDyn -> TcM m ()
 writeCstrSol p iok sol = do
     ok <- State.gets recordSols
-    when ok $ State.modify $ \e -> e { cstrSols = Map.insert (Loc p iok) sol (cstrSols e) }
+    when ok $! State.modify $! \e -> e { cstrSols = Map.insert (Loc p iok) sol (cstrSols e) }
 #endif
 
 data VarIdentifier = VarIdentifier
@@ -1696,14 +1712,14 @@ ppVarId doDebug v = liftM (ppPretty . ppRWs) (ppVarId' v)
     pwrite = if varIdWrite v then "Write" else "NoWrite"
     f (x,blk) = do
         pp1 <- pp blk
-        return $ text x <> char '.' <> pp1 <> char '.'
+        returnS $ text x <> char '.' <> pp1 <> char '.'
     ppVarId' (VarIdentifier n m Nothing _ _ _) = do
         ppo <- ppOpt m f
-        return $ ppo <> text n
+        returnS $ ppo <> text n
     ppVarId' (VarIdentifier n m (Just i) _ _ _) = do
         ppo <- ppOpt m f
         ppi <- pp i
-        return $ ppo <> text n <> char '_' <> ppi
+        returnS $ ppo <> text n <> char '_' <> ppi
     ppRWs x = if doDebug
         then x <> char '#' <> text pread <> text pwrite
         else x
@@ -1723,7 +1739,7 @@ instance Hashable TyVarId where
     hashWithSalt i (TyVarId x) = hashWithSalt i x
 
 instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m TyVarId where
-    traverseVars f x = return x
+    traverseVars f x = returnS x
 
 uniqTyVarId :: IORef Integer
 uniqTyVarId = unsafePerformIO (newIORef 0)
@@ -1733,22 +1749,22 @@ backupTyVarId :: IO TyVarId
 backupTyVarId = do
     ti <- readIORef uniqTyVarId
     resetTyVarId
-    return $ TyVarId ti
+    returnS $ TyVarId ti
 
 restoreTyVarId :: TyVarId -> IO ()
 restoreTyVarId (TyVarId ti) = do
-    atomicModifyIORef' uniqTyVarId $ \x -> (ti,ti)
-    return ()
+    atomicModifyIORef' uniqTyVarId $! \x -> (ti,ti)
+    returnS ()
 
 resetTyVarId :: IO ()
 resetTyVarId = do
-    atomicModifyIORef' uniqTyVarId $ \x -> (0,0)
-    return ()
+    atomicModifyIORef' uniqTyVarId $! \x -> (0,0)
+    returnS ()
 
 newTyVarId :: IO TyVarId
 newTyVarId = do
-  r <- atomicModifyIORef' uniqTyVarId $ \x -> let z = x+1 in (z,z)
-  return (TyVarId r)
+  r <- atomicModifyIORef' uniqTyVarId $! \x -> let z = x+1 in (z,z)
+  returnS (TyVarId r)
 
 hashTyVarId :: TyVarId -> Int
 hashTyVarId (TyVarId i) = I# (hashInteger i)
@@ -1794,7 +1810,7 @@ tyDecClass (DecT (DecType _ _ _ _ _ _ (FunType _ _ _ _ _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ (StructType _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ (AxiomType _ _ _ _ cl))) = cl
 tyDecClass (DecT (DecType _ _ _ _ _ _ (LemmaType _ _ _ _ _ _ cl))) = cl
-tyDecClass t = error $ "tyDecClass: " ++ show t
+tyDecClass t = error $! "tyDecClass: " ++ show t
 
 tyIsAnn t = let (DecClass b _ _ _) = tyDecClass t in b
 tyIsInline t = let (DecClass _ b _ _) = tyDecClass t in b
@@ -1810,10 +1826,10 @@ decTypeId d = case (decTypeDecId d,decTypeTyVarId d) of
 decTypeDecId :: DecType -> Maybe GIdentifier
 decTypeDecId (DecType _ _ _ _ _ _ d) = decTypeDecId' d
     where
-    decTypeDecId' (ProcType _ o _ _ _ _ _) = Just $ funit o
-    decTypeDecId' (LemmaType _ _ p _ _ _ _) = Just $ funit p
-    decTypeDecId' (FunType _ _ o _ _ _ _ _) = Just $ funit o
-    decTypeDecId' (StructType _ s _ _) = Just $ funit s
+    decTypeDecId' (ProcType _ o _ _ _ _ _) = Just $! funit o
+    decTypeDecId' (LemmaType _ _ p _ _ _ _) = Just $! funit p
+    decTypeDecId' (FunType _ _ o _ _ _ _ _) = Just $! funit o
+    decTypeDecId' (StructType _ s _ _) = Just $! funit s
     decTypeDecId' (AxiomType _ _ _ _ _) = Nothing
 decTypeDecId d = Nothing
 
@@ -1857,14 +1873,14 @@ instance (DebugM m) => PP m DecCtx where
     pp (DecCtx has dict frees) = do
         ppfrees <- pp frees
         ppd <- pp dict
-        return $ ppContext has $+$ text "Frees:" <+> ppfrees $+$ ppd
+        returnS $ ppContext has $+$ text "Frees:" <+> ppfrees $+$ ppd
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecCtx where
     traverseVars f (DecCtx has dict frees) = do
         has' <- mapM (liftM (Map.fromList . map (mapSnd unVIden)) . mapM (f . mapSnd VIden) . Map.toList) has
-        frees' <- liftM Map.fromList $ mapM (liftM (mapFst unVIden) . f . mapFst VIden) $ Map.toList frees
+        frees' <- liftM Map.fromList $! mapM (liftM (mapFst unVIden) . f . mapFst VIden) $! Map.toList frees
         dict' <- f dict
-        return $ DecCtx has' dict' frees'
+        returnS $ DecCtx has' dict' frees'
 
 data DecTypeK
     = DecTypeInst ModuleTyVarId IsRec  -- instance declaration (for template instantiations)
@@ -1881,13 +1897,13 @@ ppIsRec False = PP.empty
 ppIsRec True = text "rec"
 
 instance Monad m => PP m DecTypeK where
-    pp (DecTypeCtx) = return $ text "context"
-    pp (DecTypeOri isRec) = return $ text "original" <+> ppIsRec isRec
-    pp (DecTypeInst i isRec) = return $ text "instance" <+> ppid i <+> ppIsRec isRec
+    pp (DecTypeCtx) = returnS $ text "context"
+    pp (DecTypeOri isRec) = returnS $ text "original" <+> ppIsRec isRec
+    pp (DecTypeInst i isRec) = returnS $ text "instance" <+> ppid i <+> ppIsRec isRec
 
 decTypeKind :: DecType -> DecTypeK
 decTypeKind (DecType _ k _ _ _ _ _) = k
-decTypeKind (DVar v) = error $ "decTypeKind: " ++ show v
+decTypeKind (DVar v) = error $! "decTypeKind: " ++ show v
 
 data DecType
     = DecType -- ^ top-level declaration (used for template declaration and also for non-templates to store substitutions)
@@ -1907,7 +1923,7 @@ data InnerDecType
         Position
         PIdentifier
         [(Bool,Var,IsVariadic)] -- typed procedure arguments
-        Type -- return type
+        Type -- returnS type
         [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the procedure's annotations
         (Maybe [Statement GIdentifier (Typed Position)]) -- ^ the procedure's body
         DecClass -- the type of procedure
@@ -1916,7 +1932,7 @@ data InnerDecType
         Position
         PIdentifier
         [(Bool,Var,IsVariadic)] -- typed function arguments
-        Type -- return type
+        Type -- returnS type
         [ProcedureAnnotation GIdentifier (Typed Position)] -- ^ the function's annotations
         (Maybe (Expression GIdentifier (Typed Position))) -- ^ the function's body
         DecClass -- the type of function
@@ -1972,7 +1988,7 @@ isFunInnerDecType (FunType {}) = True
 isFunInnerDecType _ = False
 
 --isNonRecursiveDecType :: DecType -> Bool
---isNonRecursiveDecType (DecType i _ _ _ _ _ d) = not $ everything (||) (mkQ False aux) d
+--isNonRecursiveDecType (DecType i _ _ _ _ _ d) = not $! everything (||) (mkQ False aux) d
 --    where
 --    aux :: DecType -> Bool
 --    aux (DecType _ (Just (j)) _ _ _ _ _) = i == j
@@ -2012,13 +2028,13 @@ ppConstrained f (Constrained t Nothing) = f t
 ppConstrained f (Constrained t (Just c)) = do
     ft <- f t
     ppc <- pp c
-    return $ ft <+> braces ppc
+    returnS $ ft <+> braces ppc
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Constrained a) where
     traverseVars f (Constrained t e) = do
         t' <- f t
-        e' <- inRHS $ f e
-        return $ Constrained t' e'
+        e' <- inRHS $! f e
+        returnS $ Constrained t' e'
 
 data BaseType
     = TyPrim Prim
@@ -2101,7 +2117,7 @@ instance Binary VArrayType
 instance Hashable VArrayType
 
 vArraySize :: VArrayType -> Expr
-vArraySize (VAVal xs _) = indexExpr $ toEnum $ length xs
+vArraySize (VAVal xs _) = indexExpr $! toEnum $! length xs
 vArraySize (VAVar _ _ sz) = sz
 
 vArrayBase :: VArrayType -> Type
@@ -2113,12 +2129,12 @@ tyOf (IdxT e) = loc e
 tyOf (SecT s) = KindT (secTypeKind s)
 tyOf (KindT k) = KType (kindClass k)
 tyOf (ComplexT t) = TType (isNotVoid t)
-tyOf (BaseT b) = BType $ baseDataClass b
+tyOf (BaseT b) = BType $! baseDataClass b
 tyOf (DecT _) = DType
-tyOf (VArrayT (VAVal ts b)) = VAType b (indexExpr $ toEnum $ length ts)
+tyOf (VArrayT (VAVal ts b)) = VAType b (indexExpr $! toEnum $! length ts)
 tyOf (VArrayT (VAVar v b sz)) = VAType b sz
 --tyOf (CondType t _) = tyOf t
-tyOf t = error $ "unknown type for " ++ show t
+tyOf t = error $! "unknown type for " ++ show t
 
 --constrainedType :: Type -> Maybe Cond -> Type
 --constrainedType t Nothing = t
@@ -2128,35 +2144,35 @@ ppOf a b = a <+> text "::" <+> b
 ppTyped (a,b) = do
     ppa <- pp a
     ppb <- pp b
-    return $ ppa `ppOf` ppb
+    returnS $ ppa `ppOf` ppb
 ppFrees xs = do
-    ppxs <- mapM pp $ Set.toList xs
-    return $ text "Free variables:" <+> sepBy comma ppxs
+    ppxs <- mapM pp $! Set.toList xs
+    returnS $ text "Free variables:" <+> sepBy comma ppxs
 
 instance (DebugM m) => PP m VArrayType where
     pp (VAVal ts b) = do
         ppts <- mapM pp ts
         ppb <- pp b
-        return $ brackets $ sepBy comma ppts <+> text "::" <+> ppb <> text "..." <> PP.int (length ts)
+        returnS $ brackets $! sepBy comma ppts <+> text "::" <+> ppb <> text "..." <> PP.int (length ts)
     pp (VAVar v b sz) = do
         ppv <- pp v
         ppb <- pp b
         ppsz <- pp sz
-        return $ parens (ppv <+> text "::" <+> ppb <> text "..." <> parens ppsz)
+        returnS $ parens (ppv <+> text "::" <+> ppb <> text "..." <> parens ppsz)
 
 instance (DebugM m) => PP m SecType where
-    pp Public = return $ text "public"
+    pp Public = returnS $ text "public"
     pp (Private d k) = pp d
     pp (SVar v k) = do
         ppv <- pp v
         ppk <- pp k
-        return $ parens (ppv <+> text "::" <+> ppk)
+        returnS $ parens (ppv <+> text "::" <+> ppk)
         
 ppAtt (Attribute t _ n szs) = do
     ppt <- pp t
     ppn <- pp n
     ppz <- pp szs
-    return $ ppt <+> ppn <> ppz        
+    returnS $ ppt <+> ppn <> ppz        
 
 instance (DebugM m) => PP m DecType where
     pp (DecType did isrec vars hctx bctx specs body@(StructType _ n atts cl)) = do
@@ -2169,7 +2185,7 @@ instance (DebugM m) => PP m DecType where
         pp7 <- mapM pp specs
         pp8 <- ppOpt atts (liftM (braces . vcat) . mapM ppAtt)
         pp9 <- pp cl
-        return $ pp1 <+> pp2
+        returnS $ pp1 <+> pp2
             $+$ pp3 $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
             $+$ text "struct" <+> pp6 <> abrackets (sepBy comma pp7) <+> pp8 $+$ pp9
@@ -2186,7 +2202,7 @@ instance (DebugM m) => PP m DecType where
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
         ppcl <- pp cl
-        return $ pp1 <+> pp2
+        returnS $ pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
@@ -2207,7 +2223,7 @@ instance (DebugM m) => PP m DecType where
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
         ppcl  <- pp cl
-        return $ ppLeak isLeak (pp1 <+> pp2
+        returnS $ ppLeak isLeak (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
@@ -2225,11 +2241,11 @@ instance (DebugM m) => PP m DecType where
         pp6 <- mapM ppConstArg args
         pp7 <- pp ann
         ppcl <- pp cl
-        return $ ppLeak isLeak (pp1 <+> pp2
+        returnS $ ppLeak isLeak (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "axiom" <> abrackets (sepBy comma pp5) <> abrackets (sepBy comma pp50)
-            <+> parens (sepBy comma $ pp6) $+$ pp7 $+$ ppcl)
+            <+> parens (sepBy comma $! pp6) $+$ pp7 $+$ ppcl)
     pp (DecType did isrec vars hctx bctx specs body@(LemmaType isLeak _ n args ann stmts cl)) = do
         pp1 <- pp did
         pp2 <- pp isrec
@@ -2242,7 +2258,7 @@ instance (DebugM m) => PP m DecType where
         pp8 <- pp ann
         pp9 <- ppOpt stmts (liftM braces . pp)
         ppcl <- pp cl
-        return $ ppLeak isLeak (pp1 <+> pp2
+        returnS $ ppLeak isLeak (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "lemma" <+> pp5 <+> abrackets (sepBy comma pp6) <> abrackets (sepBy comma pp60)
@@ -2250,12 +2266,12 @@ instance (DebugM m) => PP m DecType where
             $+$ pp8
             $+$ pp9 $+$ ppcl)
     pp (DVar v) = pp v
-    pp d = error $ "pp: " ++ show d
+    pp d = error $! "pp: " ++ show d
 
 ppConstArg (isConst,(VarName t n),isVariadic) = do
     ppt <- pp t
     ppn <- pp n
-    return $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
+    returnS $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
 
 prefixOp True = (text "operator" <+>)
 prefixOp False = id
@@ -2264,47 +2280,47 @@ instance (DebugM m,Monad m) => PP m InnerDecType where
     pp (StructType _ n atts cl) = do
         ppn <- pp n
         ppo <- ppOpt atts (liftM (braces . vcat) . mapM ppAtt)
-        return $ text "struct" <+> ppn <+> ppo
+        returnS $ text "struct" <+> ppn <+> ppo
     pp (ProcType _ n args ret ann stmts _) = do
         ppret <- pp ret
         ppn <- pp n
         let f1 (isConst,(VarName t n),isVariadic) = do
             ppt <- pp t
             ppn <- pp n
-            return $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
+            returnS $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
         pp1 <- mapM f1 args
         ppann <- pp ann
         ppo <- ppOpt stmts (liftM braces . pp)
-        return $ ppret <+> prefixOp (isOIden' n) ppn <> parens (sepBy comma pp1) $+$ ppann $+$ ppo
+        returnS $ ppret <+> prefixOp (isOIden' n) ppn <> parens (sepBy comma pp1) $+$ ppann $+$ ppo
     pp (FunType isLeak _ n args ret ann stmts _) = do
         ppret <- pp ret
         ppn <- pp n
         let f1 (isConst,(VarName t n),isVariadic) = do
             ppt <- pp t
             ppn <- pp n
-            return $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
+            returnS $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
         pp1 <- mapM f1 args
         ppann <- pp ann
         ppo <- ppOpt stmts (liftM braces . pp)
-        return $ ppLeak isLeak (ppret <+> prefixOp (isOIden' n) ppn <> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
+        returnS $ ppLeak isLeak (ppret <+> prefixOp (isOIden' n) ppn <> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
     pp (AxiomType isLeak _ args ann _) = do
         let f1 (isConst,(VarName t n),isVariadic) = do
             ppt <- pp t
             ppn <- pp n
-            return $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
+            returnS $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
         pp1 <- mapM f1 args
         ppann <- pp ann
-        return $ ppLeak isLeak (text "axiom" <+> parens (sepBy comma pp1) $+$ ppann)
+        returnS $ ppLeak isLeak (text "axiom" <+> parens (sepBy comma pp1) $+$ ppann)
     pp (LemmaType isLeak _ n args ann stmts _) = do
         ppn <- pp n
         let f1 (isConst,(VarName t n),isVariadic) = do
             ppt <- pp t
             ppn <- pp n
-            return $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
+            returnS $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
         pp1 <- mapM f1 args
         ppann <- pp ann
         ppo <- ppOpt stmts (liftM braces . pp)
-        return $ ppLeak isLeak (text "lemma" <+> ppn <+> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
+        returnS $ ppLeak isLeak (text "lemma" <+> ppn <+> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
         
 instance (DebugM m,Monad m) => PP m BaseType where
     pp (TyPrim p) = pp p
@@ -2312,43 +2328,43 @@ instance (DebugM m,Monad m) => PP m BaseType where
         ppn <- pp n
         ppts <- mapM (ppVariadicArg pp) ts
         ppd <- pp d
-        return $ parens (ppn <> abrackets (sepBy comma $ ppts) <+> ppd)
+        returnS $ parens (ppn <> abrackets (sepBy comma $! ppts) <+> ppd)
     pp (MSet t) = do
         ppt <- pp t
-        return $ text "multiset" <> braces ppt
+        returnS $ text "multiset" <> braces ppt
     pp (Set t) = do
         ppt <- pp t
-        return $ text "set" <> braces ppt
+        returnS $ text "set" <> braces ppt
     pp (BVar v c) = do
         ppv <- pp v
         ppc <- pp c
-        return $ ppv <+> ppc
+        returnS $ ppv <+> ppc
 instance (DebugM m,Monad m) => PP m ComplexType where
-    pp Void = return $ text "void"
+    pp Void = returnS $ text "void"
     pp (CType s t d) = do
         pps <- pp s
         ppt <- pp t
         ppd <- pp d
-        return $ pps <+> ppt <> brackets (brackets ppd)
+        returnS $ pps <+> ppt <> brackets (brackets ppd)
     pp (CVar v b) = pp v
 instance (Monad m) => PP m SysType where
-    pp t@(SysPush {}) = return $ text (show t)
-    pp t@(SysRet {}) =  return $ text (show t)
-    pp t@(SysRef {}) =  return $ text (show t)
-    pp t@(SysCRef {}) = return $ text (show t)
+    pp t@(SysPush {}) = returnS $ text (show t)
+    pp t@(SysRet {}) =  returnS $ text (show t)
+    pp t@(SysRef {}) =  returnS $ text (show t)
+    pp t@(SysCRef {}) = returnS $ text (show t)
 
 instance (DebugM m,Monad m) => PP m Type where
-    pp t@(NoType msg) = return $ text "no type" <+> text msg
+    pp t@(NoType msg) = returnS $ text "no type" <+> text msg
     pp (VAType t sz) = do
         ppt <- pp t
         ppsz <- pp sz
-        return $ parens $ ppt <> text "..." <> nonemptyParens ppsz
-    pp t@(TType b) = return $ text "complex type" <+> ppid b
-    pp t@(BType c) = return $ text "base type" <+> ppid c
-    pp t@DType = return $ text "declaration type"
+        returnS $ parens $! ppt <> text "..." <> nonemptyParens ppsz
+    pp t@(TType b) = returnS $ text "complex type" <+> ppid b
+    pp t@(BType c) = returnS $ text "base type" <+> ppid c
+    pp t@DType = returnS $ text "declaration type"
     pp t@(KindT k) = pp k
-    pp t@(KType b) = return $ text "kind type" <+> ppid b
-    pp t@(StmtType {}) = return $ text (show t)
+    pp t@(KType b) = returnS $ text "kind type" <+> ppid b
+    pp t@(StmtType {}) = returnS $ text (show t)
     pp (BaseT b) = pp b
     pp (ComplexT c) = pp c
     pp (SecT s) = pp s
@@ -2362,8 +2378,8 @@ instance (DebugM m,Monad m) => PP m Type where
     pp (WhileT rs ws) = do
         prs <- pp rs
         pws <- pp ws
-        return $ prs <+> pws
---    pp (CondType t c) = ppConstrained pp (Constrained t $ Just c)
+        returnS $ prs <+> pws
+--    pp (CondType t c) = ppConstrained pp (Constrained t $! Just c)
 
 isVATy :: Type -> Bool
 isVATy (VAType {}) = True
@@ -2384,15 +2400,15 @@ data TypeClass
   deriving (Read,Show,Data,Typeable,Eq,Ord)
 
 instance (Monad m) => PP m TypeClass where
-    pp KindStarC = return $ text "kind star"
+    pp KindStarC = returnS $ text "kind star"
     pp (VArrayStarC t) = liftM (text "array star of" <+>) (pp t)
-    pp KindC = return $ text "kind"
-    pp DomainC = return $ text "domain"
-    pp TypeStarC = return $ text "type star"
+    pp KindC = returnS $ text "kind"
+    pp DomainC = returnS $ text "domain"
+    pp TypeStarC = returnS $ text "type star"
     pp (ExprC c) = liftM (text "index expression" <+>) (pp c)
-    pp TypeC = return $ text "complex type"
-    pp SysC = return $ text "system call parameter"
-    pp DecC = return $ text "declaration"
+    pp TypeC = returnS $ text "complex type"
+    pp SysC = returnS $ text "system call parameter"
+    pp DecC = returnS $ text "declaration"
     pp (VArrayC t) = liftM (text "array" <+>) (pp t)
 
 typeClass :: String -> Type -> TypeClass
@@ -2406,12 +2422,12 @@ typeClass msg (SecT _) = DomainC
 --typeClass msg (KindT _) = KindC
 typeClass msg (DecT _) = DecC
 typeClass msg (SysT _) = SysC
-typeClass msg (IdxT e) = ExprC $ typeClass msg $ loc e
+typeClass msg (IdxT e) = ExprC $! typeClass msg $! loc e
 typeClass msg (VArrayT (VAVal ts b)) = VArrayC (typeClass msg b)
 typeClass msg (VArrayT (VAVar v b sz)) = VArrayC (typeClass msg b)
 typeClass msg (ComplexT _) = TypeC
 typeClass msg (BaseT _) = TypeC
-typeClass msg t = error $ msg ++ ": no typeclass for " ++ show t
+typeClass msg t = error $! msg ++ ": no typeclass for " ++ show t
 
 isStruct :: DecType -> Bool
 isStruct (DecType _ _ _ _ _ _ (StructType {})) = True
@@ -2441,13 +2457,13 @@ isCType (CType {}) = True
 isCType _ = False
 
 baseCType (CType s b _) = b
-baseCType x = error $ "baseCType: " ++ show x
+baseCType x = error $! "baseCType: " ++ show x
 
 secCType (CType s b _) = s
-secCType x = error $ "secCType: " ++ show x
+secCType x = error $! "secCType: " ++ show x
 
 dimCType (CType s b d) = d
-dimCType x = error $ "baseCType: " ++ show x
+dimCType x = error $! "baseCType: " ++ show x
 
 unComplexT (ComplexT ct) = ct
 
@@ -2517,20 +2533,20 @@ isPrimBaseType (TyPrim {}) = True
 isPrimBaseType _ = False
 
 instance (Monad m) => PP m StmtClass where
-    pp = return . text . show
+    pp = returnS . text . show
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m StmtClass where
-    traverseVars f c = return c
+    traverseVars f c = returnS c
   
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SecType where
-    traverseVars f Public = return Public
-    traverseVars f (Private d k) = return $ Private d k
+    traverseVars f Public = returnS Public
+    traverseVars f (Private d k) = returnS $ Private d k
     traverseVars f (SVar v k) = do
         VIden v' <- f (VIden v::GIdentifier)
-        k' <- inRHS $ f k
-        return $ SVar v' k'
-    substL (SVar v _) = return $ Just $ VIden v
-    substL e = return $ Nothing
+        k' <- inRHS $! f k
+        returnS $ SVar v' k'
+    substL (SVar v _) = returnS $ Just $! VIden v
+    substL e = returnS $ Nothing
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m [TCstr] where
     traverseVars f xs = mapM f xs
@@ -2541,12 +2557,12 @@ instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m [TcCs
 instance (DebugM m) => PP m [TCstr] where
     pp xs = do
         pxs <- mapM pp xs
-        return $ brackets (sepBy comma pxs)
+        returnS $ brackets (sepBy comma pxs)
     
 instance (DebugM m) => PP m [TcCstr] where
     pp xs = do
         pxs <- mapM pp xs
-        return $ brackets (sepBy comma pxs)
+        returnS $ brackets (sepBy comma pxs)
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecClass where
     traverseVars f (DecClass x i y z) = do
@@ -2554,17 +2570,17 @@ instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m DecCl
         i' <- f i
         y' <- traverseDecClassVars f y
         z' <- traverseDecClassVars f z
-        return (DecClass x' i' y' z')
+        returnS (DecClass x' i' y' z')
 
 instance (DebugM m,Monad m) => PP m DecClass where
     pp (DecClass False inline r w) = do
         ppr <- pp r
         ppw <- pp w
-        return $ ppInline inline <+> ppr <+> ppw
+        returnS $ ppInline inline <+> ppr <+> ppw
     pp (DecClass True inline r w) = do
         ppr <- pp r
         ppw <- pp w
-        return $ text "annotation" <+> ppInline inline <+> ppr <+> ppw
+        returnS $ text "annotation" <+> ppInline inline <+> ppr <+> ppw
 
 type DecClassVars = (Map VarIdentifier (Type,Bool),Bool)
 
@@ -2572,13 +2588,13 @@ emptyDecClassVars :: DecClassVars
 emptyDecClassVars = (Map.empty,False)
 
 isGlobalDecClassVars :: DecClassVars -> Bool
-isGlobalDecClassVars (xs,b) = b || not (Map.null $ Map.filter snd xs)
+isGlobalDecClassVars (xs,b) = b || not (Map.null $! Map.filter snd xs)
 
 traverseDecClassVars :: (DebugM m,GenVar VarIdentifier m,MonadIO m) => (forall b . Vars GIdentifier m b => b -> VarsM GIdentifier m b) -> DecClassVars -> VarsM GIdentifier m DecClassVars
 traverseDecClassVars f (y,b) = do
-    y' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $ f $ Map.fromList . map (mapFst VIden) $ Map.toList y
+    y' <- liftM (Map.fromList . map (mapFst unVIden) . Map.toList) $! f $! Map.fromList . map (mapFst VIden) $! Map.toList y
     b' <- f b
-    return (y',b')
+    returnS (y',b')
 
 ppInline True = text "inline"
 ppInline False = text "noinline"
@@ -2599,212 +2615,212 @@ instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecTy
     traverseVars f (DecTypeInst i isRec) = do
         i' <- f i
         isRec' <- f isRec
-        return $ DecTypeInst i' isRec'
+        returnS $ DecTypeInst i' isRec'
     traverseVars f (DecTypeOri isRec) = do
         isRec' <- f isRec
-        return $ DecTypeOri isRec'
+        returnS $ DecTypeOri isRec'
     traverseVars f (DecTypeCtx) = do
-        return $ DecTypeCtx
+        returnS $ DecTypeCtx
 
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m DecType where
     traverseVars f (DecType tid isRec vs hctx bctx spes t) = do
         isRec' <- f isRec
-        varsBlock $ do
-            vs' <- inLHS False $ mapM f vs
+        varsBlock $! do
+            vs' <- inLHS False $! mapM f vs
             hctx' <- f hctx
             bctx' <- f bctx
             spes' <- mapM f spes
             t' <- f t
-            return $ DecType tid isRec' vs' hctx' bctx' spes' t'
+            returnS $ DecType tid isRec' vs' hctx' bctx' spes' t'
     traverseVars f (DVar v) = do
         VIden v' <- f (VIden v::GIdentifier)
-        return $ DVar v'
-    substL (DVar v) = return $ Just $ VIden v
-    substL _ = return Nothing
+        returnS $ DVar v'
+    substL (DVar v) = returnS $ Just $! VIden v
+    substL _ = returnS Nothing
 
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m InnerDecType where
-    traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $ do
+    traverseVars f (ProcType p n vs t ann stmts c) = varsBlock $! do
         n' <- f n
-        vs' <- inLHS False $ mapM f vs
+        vs' <- inLHS False $! mapM f vs
         t' <- f t
         ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
-        return $ ProcType p n' vs' t' ann' stmts' c'
-    traverseVars f (LemmaType isLeak p n vs ann stmts c) = varsBlock $ do
+        returnS $ ProcType p n' vs' t' ann' stmts' c'
+    traverseVars f (LemmaType isLeak p n vs ann stmts c) = varsBlock $! do
         n' <- f n
-        vs' <- inLHS False $ mapM f vs
+        vs' <- inLHS False $! mapM f vs
         ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
-        return $ LemmaType isLeak p n' vs' ann' stmts' c'
-    traverseVars f (FunType isLeak p n vs t ann stmts c) = varsBlock $ do
+        returnS $ LemmaType isLeak p n' vs' ann' stmts' c'
+    traverseVars f (FunType isLeak p n vs t ann stmts c) = varsBlock $! do
         n' <- f n
-        vs' <- inLHS False $ mapM f vs
+        vs' <- inLHS False $! mapM f vs
         t' <- f t
         ann' <- mapM f ann
         stmts' <- f stmts
         c' <- f c
-        return $ FunType isLeak p n' vs' t' ann' stmts' c'
-    traverseVars f (AxiomType isLeak p ps ann c) = varsBlock $ do
-        ps' <- inLHS False $ mapM f ps
+        returnS $ FunType isLeak p n' vs' t' ann' stmts' c'
+    traverseVars f (AxiomType isLeak p ps ann c) = varsBlock $! do
+        ps' <- inLHS False $! mapM f ps
         ann' <- mapM f ann
         c' <- f c
-        return $ AxiomType isLeak p ps' ann' c'
-    traverseVars f (StructType p n as cl) = varsBlock $ do
+        returnS $ AxiomType isLeak p ps' ann' c'
+    traverseVars f (StructType p n as cl) = varsBlock $! do
         n' <- f n
-        as' <- inLHS True $ mapM f as
+        as' <- inLHS True $! mapM f as
         cl' <- f cl
-        return $ StructType p n' as' cl'
+        returnS $ StructType p n' as' cl'
     
 instance (DebugM m,MonadIO m,GenVar VarIdentifier m) => Vars GIdentifier m BaseType where
     traverseVars f (TyPrim p) = do
         p' <- f p
-        return $ TyPrim p'
+        returnS $ TyPrim p'
     traverseVars f (MSet t) = do
         t' <- f t
-        return $ MSet t'
+        returnS $ MSet t'
     traverseVars f (Set t) = do
         t' <- f t
-        return $ Set t'
+        returnS $ Set t'
     traverseVars f (TApp n ts d) = do
         n' <- f n
         ts' <- mapM f ts
         d' <- f d
-        return $ TApp n' ts' d'
+        returnS $ TApp n' ts' d'
     traverseVars f (BVar v c) = do
         VIden v' <- f (VIden v::GIdentifier)
-        c' <- inRHS $ f c
-        return $ BVar v' c'
-    substL (BVar v _) = return $ Just $ VIden v
-    substL e = return Nothing
+        c' <- inRHS $! f c
+        returnS $ BVar v' c'
+    substL (BVar v _) = returnS $ Just $! VIden v
+    substL e = returnS Nothing
  
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m VArrayType where
     traverseVars f (VAVal ts b) = do
         ts' <- f ts
         b' <- f b
-        return $ VAVal ts' b'
+        returnS $ VAVal ts' b'
     traverseVars f (VAVar v b sz) = do
         VIden v' <- f (VIden v::GIdentifier)
-        b' <- inRHS $ f b
-        sz' <- inRHS $ f sz
-        return $ VAVar v' b' sz'
-    substL (VAVar v _ _) = return $ Just $ VIden v
-    substL e = return Nothing
+        b' <- inRHS $! f b
+        sz' <- inRHS $! f sz
+        returnS $ VAVar v' b' sz'
+    substL (VAVar v _ _) = returnS $ Just $! VIden v
+    substL e = returnS Nothing
  
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m ComplexType where
     traverseVars f (CType s t d) = do
         s' <- f s
         t' <- f t
         d' <- f d
-        return $ CType s' t' d' 
+        returnS $ CType s' t' d' 
     traverseVars f (CVar v b) = do
         VIden v' <- f (VIden v::GIdentifier)
-        b' <- inRHS $ f b
-        return $ CVar v' b'
-    traverseVars f Void = return Void
-    substL (CVar v b) = return $ Just $ VIden v
-    substL e = return Nothing
+        b' <- inRHS $! f b
+        returnS $ CVar v' b'
+    traverseVars f Void = returnS Void
+    substL (CVar v b) = returnS $ Just $! VIden v
+    substL e = returnS Nothing
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m SysType where
     traverseVars f (SysPush t) = do
         t' <- f t
-        return $ SysPush t'
+        returnS $ SysPush t'
     traverseVars f (SysRet t) = do
         t' <- f t
-        return $ SysRet t'
+        returnS $ SysRet t'
     traverseVars f (SysRef t) = do
         t' <- f t
-        return $ SysRef t'
+        returnS $ SysRef t'
     traverseVars f (SysCRef t) = do
         t' <- f t
-        return $ SysCRef t'
+        returnS $ SysCRef t'
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m KindType where
-    traverseVars f PublicK = return PublicK
-    traverseVars f (PrivateK k) = return $ PrivateK k
+    traverseVars f PublicK = returnS PublicK
+    traverseVars f (PrivateK k) = returnS $ PrivateK k
     traverseVars f (KVar k b) = do
         VIden k' <- f (VIden k::GIdentifier)
         b' <- f b
-        return $ KVar k' b'
-    substL (KVar v _) = return $ Just $ VIden v
-    substL e = return Nothing
+        returnS $ KVar k' b'
+    substL (KVar v _) = returnS $ Just $! VIden v
+    substL e = returnS Nothing
 
 instance (DebugM m) => PP m KindType where
-    pp PublicK = return $ text "public"
+    pp PublicK = returnS $ text "public"
     pp (PrivateK k) = pp k
     pp (KVar k c) = do
         ppk <- pp k
         ppc <- pp c
-        return $ ppk <+> ppc
+        returnS $ ppk <+> ppc
 
 type Attr = Attribute GIdentifier Type
 
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m) => Vars GIdentifier m Type where
-    traverseVars f (NoType x) = return (NoType x)
-    traverseVars f (TType b) = return (TType b)
+    traverseVars f (NoType x) = returnS (NoType x)
+    traverseVars f (TType b) = returnS (TType b)
     traverseVars f (VAType t sz) = do
         t' <- f t
         sz' <- f sz
-        return $ VAType t' sz'
-    traverseVars f DType = return DType
+        returnS $ VAType t' sz'
+    traverseVars f DType = returnS DType
     traverseVars f (BType c) = do
         c' <- f c
-        return $ BType c'
+        returnS $ BType c'
     traverseVars f (KType b) = do
         b' <- f b
-        return $ KType b'
+        returnS $ KType b'
     traverseVars f (KindT s) = do
         s' <- f s
-        return $ KindT s'
+        returnS $ KindT s'
     traverseVars f (IDecT s) = do
         s' <- f s
-        return $ IDecT s'
+        returnS $ IDecT s'
     traverseVars f (DecCtxT s) = do
         s' <- f s
-        return $ DecCtxT s'
+        returnS $ DecCtxT s'
     traverseVars f (TCstrT s) = do
         s' <- f s
-        return $ TCstrT s'
+        returnS $ TCstrT s'
     traverseVars f (StmtType s) = do
         s' <- mapSetM f s
-        return (StmtType s')
+        returnS (StmtType s')
     traverseVars f (ComplexT c) = do
         c' <- f c
-        return $ ComplexT c'
+        returnS $ ComplexT c'
     traverseVars f (BaseT c) = do
         c' <- f c
-        return $ BaseT c'
+        returnS $ BaseT c'
     traverseVars f (SecT c) = do
         c' <- f c
-        return $ SecT c'
+        returnS $ SecT c'
     traverseVars f (DecT c) = do
         c' <- f c
-        return $ DecT c'
+        returnS $ DecT c'
     traverseVars f (SysT c) = do
         c' <- f c
-        return $ SysT c'
+        returnS $ SysT c'
     traverseVars f (IdxT c) = do
         c' <- f c
-        return $ IdxT c'
+        returnS $ IdxT c'
     traverseVars f (VArrayT a) = do
         a' <- f a
-        return $ VArrayT a'
+        returnS $ VArrayT a'
     traverseVars f (WhileT x y) = do
         x' <- traverseDecClassVars f x
         y' <- traverseDecClassVars f y
-        return $ WhileT x' y'
+        returnS $ WhileT x' y'
 --    traverseVars f (CondType t c) = do
 --        t' <- f t
 --        c' <- f c
---        return $ CondType t' c'
-    --substL (BaseT (BVar v)) = return $ Just v
-    --substL (SecT (SVar v _)) = return $ Just v
-    --substL (ComplexT (CVar v)) = return $ Just v
-    --substL (DecT (DVar v)) = return $ Just v
-    --substL (IdxT (RVariablePExpr _ v)) = return $ Just $ varNameId v
-    --substL (VArrayT (VAVar v _ _)) = return $ Just v
-    substL e = return Nothing
+--        returnS $ CondType t' c'
+    --substL (BaseT (BVar v)) = returnS $ Just v
+    --substL (SecT (SVar v _)) = returnS $ Just v
+    --substL (ComplexT (CVar v)) = returnS $ Just v
+    --substL (DecT (DVar v)) = returnS $ Just v
+    --substL (IdxT (RVariablePExpr _ v)) = returnS $ Just $! varNameId v
+    --substL (VArrayT (VAVar v _ _)) = returnS $ Just v
+    substL e = returnS Nothing
 
 data DecClass
     -- A procedure
@@ -2828,18 +2844,18 @@ addDecClassVars r2 w2 (DecClass isAnn isInline r1 w1) = DecClass isAnn isInline 
       where
       --joinVs (Left b) (Right vs) = if Map.null (Map.filter snd vs) then Left b else Right vs
       --joinVs (Right vs) (Left b) = if Map.null (Map.filter snd vs) then Left b else Right vs
-      --joinVs (Left b1) (Left b2) = Left $ b1 || b1
+      --joinVs (Left b1) (Left b2) = Left $! b1 || b1
       joinVs (vs1,b1) (vs2,b2) = (Map.unionWith add vs1 vs2,b1 || b2)
           where add (x1,y1) (x2,y2) = (x1,y1 || y2)
 
 data StmtClass
-    -- | The execution of the statement may end because of reaching a return statement
+    -- | The execution of the statement may end because of reaching a returnS statement
     = StmtReturn
     -- | The execution of the statement may end because of reaching a break statement
     | StmtBreak
     -- | The execution of the statement may end because of reaching a continue statement
     | StmtContinue
-    -- | The execution of the statement may end without reaching a return, break or continue statement
+    -- | The execution of the statement may end without reaching a returnS, break or continue statement
     | StmtFallthru Type
   deriving (Show,Data,Typeable,Eq,Ord,Generic) 
 instance Binary StmtClass
@@ -2859,7 +2875,7 @@ isIterationStmtClass (StmtFallthru _) = True
 isIterationStmtClass c = False
 
 hasStmtFallthru :: Set StmtClass -> Bool
-hasStmtFallthru cs = not $ Set.null $ Set.filter isStmtFallthru cs
+hasStmtFallthru cs = not $! Set.null $! Set.filter isStmtFallthru cs
 
 isStmtFallthru :: StmtClass -> Bool
 isStmtFallthru (StmtFallthru _) = True
@@ -2876,8 +2892,8 @@ instance (DebugM m,PP m a) => PP m (Typed a) where
 instance (DebugM m,GenVar VarIdentifier m,MonadIO m,Vars GIdentifier m a) => Vars GIdentifier m (Typed a) where
     traverseVars f (Typed a t) = do
         a' <- f a
-        t' <- inRHS $ f t
-        return $ Typed a' t'
+        t' <- inRHS $! f t
+        returnS $ Typed a' t'
 
 mapTyped :: (Type -> Type) -> Typed a -> Typed a
 mapTyped f (Typed a t) = Typed a (f t)
@@ -2931,10 +2947,10 @@ instance Monad m => PP m ModuleTyVarId where
             ppm <- pp m
             ppblk <- pp blk
             ppi <- pp i
-            return $ ppm <> char '.' <> ppblk <> char '.' <> ppi
+            returnS $ ppm <> char '.' <> ppblk <> char '.' <> ppi
         Nothing -> do
             ppi <- pp i
-            return $ text "BUILTIN" <> char '.' <> ppi
+            returnS $ text "BUILTIN" <> char '.' <> ppi
 instance Binary ModuleTyVarId
 instance Hashable ModuleTyVarId
 
@@ -2942,7 +2958,7 @@ hashModuleTyVarId :: ModuleTyVarId -> Int
 hashModuleTyVarId = hashWithSalt 0 . modTyId
 
 instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m ModuleTyVarId where
-    traverseVars f x = return x
+    traverseVars f x = returnS x
 
 decTypeK :: DecType -> DecTypeK
 decTypeK (DecType i isRec _ _ _ _ _) = isRec
@@ -2953,7 +2969,7 @@ decTypeTyVarId (DVar _) = Nothing
 
 typeTyVarId :: Type -> Maybe ModuleTyVarId
 typeTyVarId (DecT dec) = decTypeTyVarId dec
-typeTyVarId t = error $ "typeTyVarId" ++ show t
+typeTyVarId t = error $! "typeTyVarId" ++ show t
 
 instance Location Type where
     locpos = const noloc
@@ -2988,42 +3004,42 @@ ppTpltArg = ppConstrained ppTpltArg'
     ppTpltArg' :: (DebugM m) => Var -> m Doc
     ppTpltArg' (VarName (BType c) v) = do
         ppv <- pp v
-        return $ maybe PP.empty ppDataClass c <+> text "type" <+> ppv
+        returnS $ maybe PP.empty ppDataClass c <+> text "type" <+> ppv
     ppTpltArg' (VarName (KType isPriv) k) = do
         ppk <- pp k
-        return $ maybe PP.empty ppKindClass isPriv <+> text "kind" <+> ppk
+        returnS $ maybe PP.empty ppKindClass isPriv <+> text "kind" <+> ppk
     ppTpltArg' (VarName (KindT k) v) = do
         ppv <- pp v
         ppk <- pp k
-        return $ text "domain" <+> ppv <+> char ':' <+> ppk
+        returnS $ text "domain" <+> ppv <+> char ':' <+> ppk
     ppTpltArg' (VarName t v) | isIntType t = liftM (text "dim" <+>) (pp v)
     ppTpltArg' (VarName (VAType b sz) v) | isIntType b = liftM (text "dim..." <+>) (pp v)
     ppTpltArg' (VarName (VAType (BType c) sz) v) = do
         ppv <- pp v
-        return $ maybe PP.empty ppDataClass c <+> text "type..." <+> ppv
+        returnS $ maybe PP.empty ppDataClass c <+> text "type..." <+> ppv
     ppTpltArg' (VarName (VAType (KType isPriv) sz) v) = do
         ppv <- pp v
-        return $ maybe PP.empty ppKindClass isPriv <+> text "kind..." <+> ppv
+        returnS $ maybe PP.empty ppKindClass isPriv <+> text "kind..." <+> ppv
     ppTpltArg' (VarName (VAType (KindT k) sz) v) = do
         ppv <- pp v
         ppk <- pp k
-        return $ text "domain..." <+> ppv <+> ppk
+        returnS $ text "domain..." <+> ppv <+> ppk
     ppTpltArg' v = do
         ppv <- pp v
         ppl <- pp (loc v)
-        error $ "ppTpltArg: " ++ show ppv ++ " " ++ show ppl
+        error $! "ppTpltArg: " ++ show ppv ++ " " ++ show ppl
     
 ppTSubsts :: (DebugM m) => TSubsts -> m Doc
-ppTSubsts xs = liftM vcat $ mapM ppSub $ Map.toList (unTSubsts xs)
+ppTSubsts xs = liftM vcat $! mapM ppSub $! Map.toList (unTSubsts xs)
     where
     ppSub (k,IdxT e) = do
         ppk <- pp k
         ppe <- ppExprTy e
-        return $ ppk <+> char '=' <+> ppe
+        returnS $ ppk <+> char '=' <+> ppe
     ppSub (k,t) = do
         ppk <- pp k
         ppt <- pp t
-        return $ ppk <+> char '=' <+> ppt
+        returnS $ ppk <+> char '=' <+> ppt
 
 ppArrayRanges :: (DebugM m) => [ArrayProj] -> m Doc
 ppArrayRanges xs = liftM (sepBy comma) (mapM pp xs)
@@ -3049,23 +3065,23 @@ primFloatBounds (DatatypeFloat32 _) = Just (-2.802597 * 10 ^^(-45),3.402823 * (1
 primFloatBounds (DatatypeFloat64 _) = Just (-4.940656 * 10 ^^ (-324),1.797693 * (10 ^^308))
 primFloatBounds _ = Nothing
 
-index = TyPrim $ DatatypeUint64 ()
-int8 = TyPrim $ DatatypeInt8 ()
-uint8 = TyPrim $ DatatypeUint8 ()
-int16 = TyPrim $ DatatypeInt16 ()
-uint16 = TyPrim $ DatatypeUint16 ()
-int32 = TyPrim $ DatatypeInt32 ()
-uint32 = TyPrim $ DatatypeUint32 ()
-int64 = TyPrim $ DatatypeInt64 ()
-uint64 = TyPrim $ DatatypeUint64 ()
-string = TyPrim $ DatatypeString ()
-bool = TyPrim $ DatatypeBool ()
-xoruint8 = TyPrim $ DatatypeXorUint8 ()
-xoruint16 = TyPrim $ DatatypeXorUint16 ()
-xoruint32 = TyPrim $ DatatypeXorUint32 ()
-xoruint64 = TyPrim $ DatatypeXorUint64 ()
-float32 = TyPrim $ DatatypeFloat32 ()
-float64 = TyPrim $ DatatypeFloat64 ()
+index = TyPrim $! DatatypeUint64 ()
+int8 = TyPrim $! DatatypeInt8 ()
+uint8 = TyPrim $! DatatypeUint8 ()
+int16 = TyPrim $! DatatypeInt16 ()
+uint16 = TyPrim $! DatatypeUint16 ()
+int32 = TyPrim $! DatatypeInt32 ()
+uint32 = TyPrim $! DatatypeUint32 ()
+int64 = TyPrim $! DatatypeInt64 ()
+uint64 = TyPrim $! DatatypeUint64 ()
+string = TyPrim $! DatatypeString ()
+bool = TyPrim $! DatatypeBool ()
+xoruint8 = TyPrim $! DatatypeXorUint8 ()
+xoruint16 = TyPrim $! DatatypeXorUint16 ()
+xoruint32 = TyPrim $! DatatypeXorUint32 ()
+xoruint64 = TyPrim $! DatatypeXorUint64 ()
+float32 = TyPrim $! DatatypeFloat32 ()
+float64 = TyPrim $! DatatypeFloat64 ()
 
 prims = [int8,uint8,int16,uint16,int32,uint32,int64,uint64,string,bool,xoruint8,xoruint16,xoruint32,xoruint64,float32,float64]
 
@@ -3075,7 +3091,7 @@ defCType :: BaseType -> ComplexType
 defCType t = CType Public t (indexExpr 0)
 
 instance Hashable VarIdentifier where
-    hashWithSalt i v = hashWithSalt (maybe i ((i+) . hashTyVarId) $ varIdUniq v) (varIdBase v)
+    hashWithSalt i v = hashWithSalt (maybe i ((i+) . hashTyVarId) $! varIdUniq v) (varIdBase v)
 
 type Prim = PrimitiveDatatype ()
 
@@ -3085,24 +3101,24 @@ removeOrWarn = everywhere (mkT f) where
     f err = err
 
 varIdxT :: Var -> Type
-varIdxT v = IdxT $ varExpr v
+varIdxT v = IdxT $! varExpr v
 
 askOpts :: Monad m => TcM m Options
-askOpts = TcM $ lift Reader.ask
+askOpts = TcM $! lift Reader.ask
 
 localOpts :: Monad m => (Options -> Options) -> TcM m a -> TcM m a
-localOpts f (TcM m) = TcM $ RWS.mapRWST (SecrecM . Reader.local f . unSecrecM) m
+localOpts f (TcM m) = TcM $! RWS.mapRWST (SecrecM . Reader.local f . unSecrecM) m
 
 withoutImplicitClassify :: Monad m => TcM m a -> TcM m a
 withoutImplicitClassify m = localOpts (\opts -> opts { implicitCoercions = OffC }) m
 
 instance MonadIO m => GenVar VarIdentifier (TcM m) where
     genVar v = freshVarId (varIdBase v) (varIdPretty v)
-    mkVar = return . mkVarId
+    mkVar = returnS . mkVarId
 
 instance (GenVar VarIdentifier m) => GenVar (GIdentifier' t) m where
-    genVar (VIden v) = liftM VIden $ genVar v
-    genVar v = return v
+    genVar (VIden v) = liftM VIden $! genVar v
+    genVar v = returnS v
     mkVar = liftM VIden . mkVar
 
 --instance MonadIO m => GenVar VarIdentifier (SecrecM m) where
@@ -3116,32 +3132,32 @@ instance (DebugM m,Location t,Vars GIdentifier m t,GenVar VarIdentifier m,MonadI
     traverseVars f n = do
         isLHS <- getLHS
         if isJust isLHS then addBV funit n else addFV funit n
-    substL (OIden v) = return $ Just $ OIden $ funit v
-    substL (VIden v) = return $ Just $ VIden v
-    substL (PIden v) = return $ Just $ PIden v
-    substL (TIden v) = return $ Just $ TIden v
-    substL v = return Nothing
+    substL (OIden v) = returnS $ Just $! OIden $! funit v
+    substL (VIden v) = returnS $ Just $! VIden v
+    substL (PIden v) = returnS $ Just $! PIden v
+    substL (TIden v) = returnS $ Just $! TIden v
+    substL v = returnS Nothing
 
 instance (PP m VarIdentifier,MonadIO m,GenVar VarIdentifier m) => Vars VarIdentifier m VarIdentifier where
     traverseVars f n = do
         isLHS <- getLHS
         if isJust isLHS then addBV id n else addFV id n
-    substL v = return $ Just v
+    substL v = returnS $ Just v
 
 -- filter the constraints that depend on a set of variables
 varsCstrGraph :: (VarsGTcM m) => Set VarIdentifier -> GCstrGraph -> TcM m GCstrGraph
 varsCstrGraph vs gr = labnfilterM aux (Graph.trc gr)
     where
     aux (i,x) = do
-        xvs <- usedVs (kCstr $ unLoc x)
+        xvs <- usedVs (kCstr $! unLoc x)
         if Set.null (vs `Set.intersection` xvs)
-            then return False
-            else return True
+            then returnS False
+            else returnS True
 
 usedVs :: (Vars GIdentifier (TcM m) a) => a -> TcM m (Set VarIdentifier)
 usedVs x = do
     (fs,bs) <- uvs x
-    return $ Set.union (videns $ Map.keysSet fs) (videns $ Map.keysSet bs)
+    returnS $ Set.union (videns $! Map.keysSet fs) (videns $! Map.keysSet bs)
 
 compoundStmts :: Location loc => loc -> [Statement iden (Typed loc)] -> [Statement iden (Typed loc)]
 compoundStmts l = maybeToList . compoundStmtMb l
@@ -3152,11 +3168,11 @@ compoundStmtMb l ss = if null ss then Nothing else Just (compoundStmt l ss)
 compoundStmt :: Location loc => loc -> [Statement iden (Typed loc)] -> Statement iden (Typed loc)
 compoundStmt l ss = CompoundStatement (Typed l t) ss
     where
-    t = unStmts $ map (typed . loc) ss
+    t = unStmts $! map (typed . loc) ss
     unStmts [] = StmtType Set.empty
     unStmts (StmtType x':xs) = do
         case unStmts xs of
-            (StmtType xs') -> StmtType $ Set.union x' xs'
+            (StmtType xs') -> StmtType $! Set.union x' xs'
             t -> NoType "compoundStmtMb"
     unStmts (x:xs) = NoType "compoundStmtMb"
 
@@ -3169,27 +3185,27 @@ annStmtMb l ss = if null ss then Nothing else Just (annStmt l ss)
 annStmt :: Location loc => loc -> [StatementAnnotation iden (Typed loc)] -> Statement iden (Typed loc)
 annStmt l ss = AnnStatement (Typed l t) ss
     where
-    t = unStmts $ map (typed . loc) ss
+    t = unStmts $! map (typed . loc) ss
     unStmts [] = StmtType Set.empty
     unStmts (StmtType x':xs) = do
         case unStmts xs of
-            (StmtType xs') -> StmtType $ Set.union x' xs'
+            (StmtType xs') -> StmtType $! Set.union x' xs'
             t -> NoType "compoundStmtMb"
     unStmts (x:xs) = NoType "compoundStmtMb"
 
 assertStmtAnn isLeak e = AnnStatement ast [AssertAnn ast isLeak e]
     where
-    ast = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
+    ast = StmtType $! Set.singleton $! StmtFallthru $! ComplexT Void
 assertStmt e = AssertStatement ast e
     where
-    ast = StmtType $ Set.singleton $ StmtFallthru $ ComplexT Void
+    ast = StmtType $! Set.singleton $! StmtFallthru $! ComplexT Void
     
 unDecT (DecT x) = x
-unDecT t = error $ "unDecT: " ++ show t
+unDecT t = error $! "unDecT: " ++ show t
 unKindT (KindT x) = x
-unKindT t = error $ "unKindT: " ++ show t
+unKindT t = error $! "unKindT: " ++ show t
 unSecT (SecT x) = x
-unSecT t = error $ "unSecT: " ++ show t
+unSecT t = error $! "unSecT: " ++ show t
 
 isDomain k = k == KindC || k == VArrayC KindC
 isKind k = k == KindStarC || k == VArrayC KindStarC
@@ -3197,7 +3213,8 @@ isType k = k == TypeStarC || k == VArrayC TypeStarC
 isVariable k = k == TypeC || k == VArrayStarC TypeC
 
 debugTc :: Monad m => TcM m () -> TcM m ()
+{-# INLINE debugTc #-}
 debugTc m = do
     opts <- askOpts
-    if debug opts then m else return ()
+    if debug opts then m else returnS ()
 

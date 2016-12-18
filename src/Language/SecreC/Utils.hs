@@ -742,3 +742,7 @@ class Monad m => DebugM m where
 
 instance DebugM Identity where
     isDebug = return False
+
+returnS :: Monad m => a -> m a
+{-# INLINE returnS #-}
+returnS x = return $! x

@@ -23,10 +23,10 @@ import Language.SecreC.Utils
 
 import Control.Monad
 import Control.Monad.Except
-import qualified Control.Monad.State as State
+import qualified Control.Monad.State.Strict as State
 import qualified Control.Monad.Reader as Reader
-import qualified Control.Monad.Writer as Writer
-import Control.Monad.RWS as RWS hiding ((<>))
+import qualified Control.Monad.Writer.Strict as Writer
+import Control.Monad.RWS.Strict as RWS hiding ((<>))
 
 import Data.Word
 import Data.Bifunctor

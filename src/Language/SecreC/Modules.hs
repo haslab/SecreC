@@ -32,9 +32,9 @@ import Control.Monad.Except
 import Control.Monad.Reader (MonadReader(..))
 import qualified Control.Monad.Reader as Reader
 import Control.Monad.Catch hiding (catchIOError)
-import Control.Monad.Writer as Writer
-import Control.Monad.State (State(..),StateT(..))
-import qualified Control.Monad.State as State
+import Control.Monad.Writer.Strict as Writer
+import Control.Monad.State.Strict (State(..),StateT(..))
+import qualified Control.Monad.State.Strict as State
 import Control.Monad.Reader (Reader(..),ReaderT(..),ask)
 import qualified Control.Monad.Reader as Reader
 
@@ -67,13 +67,13 @@ type ModuleGraph = Gr ModuleFile Position
 
 type ModuleM m = StateT (IdNodes,Int) (SecrecM m)
 
--- | Parses and resolves imports, returning all the modules to be loaded, in evaluation order 
+-- | Parses and resolves imports, returnSing all the modules to be loaded, in evaluation order 
 parseModuleFiles :: ModK m => [FilePath] -> SecrecM m [ModuleFile]
 parseModuleFiles files = do
     g <- flip State.evalStateT (Map.empty,0) $ openModuleFiles files empty
     opts <- ask
     let modules = topsort' g
-    return modules
+    returnS modules
 
 resolveModule :: ModK m => FilePath -> SecrecM m FilePath
 resolveModule file = do
@@ -93,7 +93,7 @@ openModuleFiles fs g = foldlM open g fs
         f' <- lift $ resolveModule f
         mfile <- lift $ parseModuleFile f'
         localOptsModuleM (`mappend` ppOptions (moduleFilePPArgs mfile)) $
-            openModule Nothing g f' (moduleFileId mfile) noloc (return mfile)
+            openModule Nothing g f' (moduleFileId mfile) noloc (returnS mfile)
 
 -- | Collects a graph of module dependencies from a list of SecreC input files
 -- ^ Keeps a mapping of modules to node ids and a node counter
@@ -104,7 +104,7 @@ openModule parent g f n pos load = do
         Just (f',i,False) -> if f == f'
             -- open an already closed module
             then do
-                return $ insParent parent i g
+                returnS $ insParent parent i g
             -- two files with the same module name
             else modError pos $ DuplicateModuleName n f f'
         -- dependency cycle
@@ -122,7 +122,7 @@ openModule parent g f n pos load = do
             foldlM (openImport c) g' (moduleFileImports mfile)
     g'' <- dirtyParents c g'
     closeModule n
-    return g''
+    returnS g''
   where
     insParent Nothing i = id
     insParent (Just (l,j)) i = insEdge (i,j,l)
@@ -146,12 +146,12 @@ parseModuleFile fn = do
             mb <- readModuleSCI fn
             case mb of
                 Nothing -> parse
-                Just x -> return $ Right x
+                Just x -> returnS $ Right x
   where
     parse = do
         (args,m,mlength) <- parseFileWithBuiltin fn
         t <- liftIO $ fileModificationTime fn
-        return $ Left (t,args,m,mlength)
+        returnS $ Left (t,args,m,mlength)
 
 parseFileWithBuiltin :: ModK m => FilePath -> SecrecM m (PPArgs,Module Identifier Position,Int)
 parseFileWithBuiltin fn = flushWarnings $ do
@@ -160,16 +160,16 @@ parseFileWithBuiltin fn = flushWarnings $ do
     let m' = if (implicitBuiltin (opts `mappend` ppOptions args) && moduleIdMb m /= Just "builtin")
         then addModuleImport (Import noloc $ ModuleName noloc "builtin") m
         else m
-    return (args,m',mlength)
+    returnS (args,m',mlength)
 
 -- recursively update the modification time of parent modules
 dirtyParents :: ModK m => Node -> ModuleGraph -> ModuleM m ModuleGraph
 dirtyParents i g = case contextGr g i of
-    Nothing -> return g
+    Nothing -> returnS g
     Just (_,_,n,parents) -> dirtyParents' (map snd parents) (moduleFileName n) (moduleFileModificationTime n) g
   where
     dirtyParents' :: ModK m => [Node] -> FilePath -> UnixTime -> ModuleGraph -> ModuleM m ModuleGraph
-    dirtyParents' [] pn pt g = return g
+    dirtyParents' [] pn pt g = returnS g
     dirtyParents' (i:is) pn pt g = case contextGr g i of
         Nothing -> dirtyParents' is pn pt g
         Just (_,_,inode,iparents) -> if moduleFileModificationTime inode >= pt
@@ -181,12 +181,12 @@ dirtyParents i g = case contextGr g i of
                 lift $ sciError $ "Parent " ++ show (moduleFileName inode) ++ " changed at timestamp " ++ show (moduleFileModificationTime inode)
                 inode' <- lift $ update inode pn pt
                 dirtyParents' (is++map snd iparents) pn pt (insNode (i,inode') g)
-    update (Left (_,args,m,mlength)) pn pt = return $ Left (pt,args,m,mlength)
+    update (Left (_,args,m,mlength)) pn pt = returnS $ Left (pt,args,m,mlength)
     update (Right sci) pn t = do
         let fn = sciFile sci
         sciError $ "The dependency " ++ show pn ++ " of the SecreC file " ++ show fn ++ " has changed"
         (args,m,mlines) <- parseFileWithBuiltin (sciFile sci)
-        return $ Left (t,args,m,mlines)
+        returnS $ Left (t,args,m,mlines)
 
 -- | Finds a file in the path from a module name
 findModule :: ModK m => [FilePath] -> ModuleName Identifier Position -> SecrecM m FilePath
@@ -195,7 +195,7 @@ findModule (p:ps) mn@(ModuleName l n) = do
     files <- liftIO $ FilePath.find (depth ==? 0) (canonicalName ==? addExtension n "sc") p
     case files of
         [] -> findModule ps mn
-        [file] -> return file
+        [file] -> returnS file
         otherwise -> modError l $ ModuleNotFound n 
 
 findModuleCycle :: ModK m => Node -> ModuleGraph -> SecrecM m [(Identifier,Identifier,Position)]
@@ -205,14 +205,14 @@ findModuleCycle i g = do
     let es = labEdges g'
     let label = moduleFileId . fromJust . lab g'
     let xs = map (\(from,to,lab) -> (label from,label to,lab)) es
-    return xs
+    returnS xs
 
 type ModK m = (MonadIO m,MonadCatch m)
 
 fileModificationTime :: FilePath -> IO UnixTime
 fileModificationTime fn = catchIOError
     (liftM (fromEpochTime . modificationTime) $ getFileStatus fn)
-    (const $ return $ UnixTime (CTime 0) 0)
+    (const $ returnS $ UnixTime (CTime 0) 0)
 
 writeModuleSCI :: (MonadIO m,Location loc) => PPArgs -> ModuleTcEnv -> Module Identifier loc -> Int -> SecrecM m ()
 writeModuleSCI ppargs menv m mlength = do
@@ -225,7 +225,7 @@ writeModuleSCI ppargs menv m mlength = do
         let body = SCIBody ppargs (map (fmap locpos) $ moduleImports m) menv
         e <- trySCI ("Error writing SecreC interface file " ++ show scifn) $ encodeFile scifn $ ModuleSCI header body
         case e of
-            Nothing -> return ()
+            Nothing -> returnS ()
             Just () -> sciError $ "Wrote SecreC interface file " ++ show scifn ++ " with timestamp " ++ show (sciHeaderModTime header)
     
 readModuleSCI :: MonadIO m => FilePath -> SecrecM m (Maybe ModuleSCI)
@@ -234,7 +234,7 @@ readModuleSCI fn = do
     e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ BL.readFile scifn
     case e of
         Just input -> go (runGetIncremental get) input fn scifn
-        Nothing -> return Nothing
+        Nothing -> returnS Nothing
   where
     go :: MonadIO m => Decoder SCIHeader -> ByteString -> FilePath -> FilePath -> SecrecM m (Maybe ModuleSCI)
     go (Done leftover consumed header) input fn scifn = do
@@ -245,11 +245,11 @@ readModuleSCI fn = do
                 sciError $ "SecreC file " ++ show fn ++ " has not changed"
                 let e = runGetOrFail get (BL.chunk leftover input)
                 case e of
-                    Right (_,_,body) -> return $ Just $ ModuleSCI header body
-                    Left (_,_,err) -> sciError ("Error loading SecreC interface file body " ++ show scifn) >> return Nothing
-            else sciError ("SecreC file " ++ show fn ++ " has changed") >> return Nothing
+                    Right (_,_,body) -> returnS $ Just $ ModuleSCI header body
+                    Left (_,_,err) -> sciError ("Error loading SecreC interface file body " ++ show scifn) >> returnS Nothing
+            else sciError ("SecreC file " ++ show fn ++ " has changed") >> returnS Nothing
     go (Partial k) input fn scifn = go (k . takeHeadChunk $ input) (dropHeadChunk input) fn scifn
-    go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
+    go (Fail leftover consumed msg) input fn scifn = sciError ("Error loading SecreC interface file header " ++ show scifn) >> returnS Nothing
     
 readModuleSCIHeader :: MonadIO m => FilePath -> SecrecM m (Maybe (SCIHeader,ByteString))
 readModuleSCIHeader fn = do
@@ -257,10 +257,10 @@ readModuleSCIHeader fn = do
     e <- trySCI ("SecreC interface file " ++ show scifn ++ " not found") $ liftM BL.fromStrict $ BS.readFile scifn
     case e of
         Just input -> case runGetOrFail get input of
-            Left err -> sciError ("Error loading SecreC interface file header " ++ show scifn) >> return Nothing
+            Left err -> sciError ("Error loading SecreC interface file header " ++ show scifn) >> returnS Nothing
             Right (leftover,consumed,header) -> do
-                return $ Just (header,BL.append (BL.drop consumed input) leftover)
-        Nothing -> return Nothing
+                returnS $ Just (header,BL.append (BL.drop consumed input) leftover)
+        Nothing -> returnS Nothing
 
 updateModuleSCIHeader :: MonadIO m => FilePath -> (SCIHeader -> SecrecM m (Maybe SCIHeader)) -> SecrecM m ()
 updateModuleSCIHeader scifn chg = do
@@ -272,14 +272,14 @@ updateModuleSCIHeader scifn chg = do
             Just (header,body) -> do
                 mb <- chg header
                 case mb of
-                    Nothing -> return ()
+                    Nothing -> returnS ()
                     Just header' -> do
                         let bstr = runPut $ do
                             put header'
                             putLazyByteString body
                         e <- trySCI ("Error updating SecreC interface file header " ++ show scifn) $ BL.writeFile scifn bstr
                         case e of
-                            Nothing -> return ()
+                            Nothing -> returnS ()
                             Just () -> sciError $ "Updated SecreC interface file header " ++ show scifn
 
 trySCI :: MonadIO m => String -> IO a -> SecrecM m (Maybe a)
@@ -290,8 +290,8 @@ trySCI msg io = do
             opts <- Reader.ask
             sciError msg
             when (debug opts) $ liftIO $ putStrLn $ "trySCI: " ++ show ioerr
-            return Nothing
-        Right x -> return $ Just x
+            returnS Nothing
+        Right x -> returnS $ Just x
 
 sciError :: MonadIO m => String -> SecrecM m ()
 sciError msg = do

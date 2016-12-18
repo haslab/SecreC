@@ -23,7 +23,7 @@ import qualified Data.Map as Map
 import Data.List as List
 
 import Control.Monad.Trans
-import Control.Monad.State as State
+import Control.Monad.State.Strict as State
 
 import Text.PrettyPrint
 

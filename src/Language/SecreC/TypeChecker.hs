@@ -42,8 +42,8 @@ import Data.Graph.Inductive.Graph as Graph
 
 import Control.Monad hiding (mapM,mapAndUnzipM)
 import Control.Monad.IO.Class
-import Control.Monad.State (State(..),StateT(..))
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (State(..),StateT(..))
+import qualified Control.Monad.State.Strict as State
 import qualified Control.Monad.Reader as Reader
 import Control.Monad.Trans
 
@@ -88,7 +88,7 @@ tcModule m@(Module l name prog) mlength = failTcM l $ do
         }
     liftIO resetTyVarId
     -- typecheck the program
-    prog' <- tcProgram prog
+    prog' <- returnSam prog
     -- substitute the module's environment with the module's dictionary
     --ss <- getTSubsts
     --modifyModuleEnvM $ substFromTSubsts "tcModule" l ss False Map.empty
@@ -97,11 +97,11 @@ tcModule m@(Module l name prog) mlength = failTcM l $ do
     --m'' <- substFromTSubsts "tcModule" l ss False Map.empty m'
     return m'
 
-tcProgram :: (ProverK loc m) => Program Identifier loc -> TcM m (Program GIdentifier (Typed loc))
-tcProgram (Program l imports globals) = do
-    let imports' = map (bimap (MIden . mkVarId) (notTyped "tcProgram")) imports
+returnSam :: (ProverK loc m) => Program Identifier loc -> TcM m (Program GIdentifier (Typed loc))
+returnSam (Program l imports globals) = do
+    let imports' = map (bimap (MIden . mkVarId) (notTyped "returnSam")) imports
     globals' <- mapM tcGlobalDeclaration globals
-    return $ Program (notTyped "tcProgram" l) imports' globals'
+    return $ Program (notTyped "returnSam" l) imports' globals'
 
 tcGlobalDeclaration :: (ProverK loc m) => GlobalDeclaration Identifier loc -> TcM m (GlobalDeclaration GIdentifier (Typed loc))
 tcGlobalDeclaration (GlobalVariable l vd) = tcGlobal l "variable" $ do
@@ -572,7 +572,7 @@ tcTemplate l m = {- localOptsTcM (\opts -> opts { backtrack = BacktrackNone }) $
 
 -- | TypeChecks a global declaration. At the end, forgets local declarations and solves pending constraints
 tcGlobal :: (Vars GIdentifier (TcM m) a,ProverK loc m) => loc -> String -> TcM m a -> TcM m a
-tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
+tcGlobal l msg m = returnSess (Just $ locpos l) (Just msg) $ do
     State.modify $ \e -> e { decClass = DecClass False False emptyDecClassVars emptyDecClassVars }
     debugTc $ do
         opts <- askOpts
@@ -582,7 +582,7 @@ tcGlobal l msg m = tcProgress (Just $ locpos l) (Just msg) $ do
     dict <- top . tDict =<< State.get
     x' <- substFromTSubsts "tcGlobal" dontStop l (tSubsts dict) False Map.empty x
     State.modify $ \e -> e { openedCstrs = [], decClass = DecClass False False emptyDecClassVars emptyDecClassVars, localConsts = Map.empty, localVars = Map.empty, localFrees = Map.empty, localDeps = Set.empty, tDict = WrapNe emptyTDict, moduleCount = incModuleBlock (moduleCount e) }
-    tcProgress Nothing (Just "cleanup") $ do
+    returnSess Nothing (Just "cleanup") $ do
 #if INCREMENTAL
         liftIO $ resetGlobalEnv True
 #endif

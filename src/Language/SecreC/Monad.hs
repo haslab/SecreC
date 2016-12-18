@@ -11,17 +11,17 @@ import Language.SecreC.Utils
 import Control.Monad
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.Except (MonadError(..))
-import Control.Monad.Writer (MonadWriter(..))
+import Control.Monad.Writer.Strict (MonadWriter(..))
 import Control.Monad.Trans (MonadTrans(..))
 import Control.Monad.Trans.Reader (ReaderT(..))
-import Control.Monad.Trans.Writer (WriterT(..))
+import Control.Monad.Trans.Writer.Strict (WriterT(..))
 import Control.Applicative
 import Control.Monad.Catch
 import Control.Exception (throwIO)
 import Control.Monad.Signatures
 import Control.Monad.Reader (MonadReader,ask,local)
 import qualified Control.Monad.Reader as Reader
-import qualified Control.Monad.Writer as Writer
+import qualified Control.Monad.Writer.Strict as Writer
 import Control.Monad.Trans.Control
 import Control.Monad.Base
 
@@ -49,9 +49,9 @@ instance Binary PromoteOpt
 instance Hashable PromoteOpt
 
 instance Monad m => PP m PromoteOpt where
-    pp NoP = return $ text "nop"
-    pp LocalP = return $ text "localp"
-    pp GlobalP = return $ text "globalp"
+    pp NoP = returnS $ text "nop"
+    pp LocalP = returnS $ text "localp"
+    pp GlobalP = returnS $ text "globalp"
 
 appendPromoteOpt :: PromoteOpt -> PromoteOpt -> PromoteOpt
 appendPromoteOpt x y | x == y = x
@@ -68,10 +68,10 @@ instance Binary VerifyOpt
 instance Hashable VerifyOpt
 
 instance Monad m => PP m VerifyOpt where
-    pp NoneV = return $ text "nonev"
-    pp FuncV = return $ text "funcv"
-    pp LeakV = return $ text "leakv"
-    pp BothV = return $ text "bothv"
+    pp NoneV = returnS $ text "nonev"
+    pp FuncV = returnS $ text "funcv"
+    pp LeakV = returnS $ text "leakv"
+    pp BothV = returnS $ text "bothv"
 
 appendVerifyOpt :: VerifyOpt -> VerifyOpt -> VerifyOpt
 appendVerifyOpt x y | x == y = x
@@ -89,8 +89,8 @@ instance Binary ContextOpt
 instance Hashable ContextOpt
 
 instance Monad m => PP m ContextOpt where
-    pp DelayCtx = return $ text "delayctx"
-    pp InferCtx = return $ text "inferctx"
+    pp DelayCtx = returnS $ text "delayctx"
+    pp InferCtx = returnS $ text "inferctx"
 
 data BacktrackOpt = NoneB | TryB | FullB
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
@@ -98,9 +98,9 @@ instance Binary BacktrackOpt
 instance Hashable BacktrackOpt
 
 instance Monad m => PP m BacktrackOpt where
-    pp NoneB = return $ text "noneb"
-    pp TryB = return $ text "tryb"
-    pp FullB = return $ text "fullb"
+    pp NoneB = returnS $ text "noneb"
+    pp TryB = returnS $ text "tryb"
+    pp FullB = returnS $ text "fullb"
 
 data MatchingOpt = OrderedM | GOrderedM | UnorderedM
     deriving (Data, Typeable,Generic,Eq,Ord,Show,Read)
@@ -108,9 +108,9 @@ instance Binary MatchingOpt
 instance Hashable MatchingOpt
 
 instance Monad m => PP m MatchingOpt where
-    pp OrderedM = return $ text "orderedm"
-    pp GOrderedM = return $ text "gorderedm"
-    pp UnorderedM = return $ text "unorderedm"
+    pp OrderedM = returnS $ text "orderedm"
+    pp GOrderedM = returnS $ text "gorderedm"
+    pp UnorderedM = returnS $ text "unorderedm"
 
 
 data CoercionOpt = OffC | DefaultsC | OnC | ExtendedC
@@ -119,10 +119,10 @@ instance Binary CoercionOpt
 instance Hashable CoercionOpt
 
 instance Monad m => PP m CoercionOpt where
-    pp OffC = return $ text "offc"
-    pp DefaultsC = return $ text "defaultsc"
-    pp OnC = return $ text "onc"
-    pp ExtendedC = return $ text "extendedc"
+    pp OffC = returnS $ text "offc"
+    pp DefaultsC = returnS $ text "defaultsc"
+    pp OnC = returnS $ text "onc"
+    pp ExtendedC = returnS $ text "extendedc"
 
 appendContextOpt :: ContextOpt -> ContextOpt -> ContextOpt
 appendContextOpt x y = max x y
@@ -184,7 +184,7 @@ instance Monoid Options where
     mappend x y = Opts
         { inputs = inputs x ++ inputs y
         , outputs = outputs x ++ outputs y
-        , paths = List.nub $ paths x ++ paths y
+        , paths = List.nub $! paths x ++ paths y
         , verify = verify x `appendVerifyOpt` verify y
         , simplify = simplify x && simplify y
         , typeCheck = typeCheck x || typeCheck y
@@ -259,125 +259,146 @@ newtype SecrecWarnings = ScWarns { unScWarns :: Map Int (Map Position (Set Secre
 
 instance Monoid SecrecWarnings where
     mempty = ScWarns Map.empty
-    mappend (ScWarns x) (ScWarns y) = ScWarns $ Map.unionWith (Map.unionWith Set.union) x y
+    mappend (ScWarns x) (ScWarns y) = ScWarns $! Map.unionWith (Map.unionWith Set.union) x y
 
 -- | SecreC Monad
 data SecrecM m a = SecrecM { unSecrecM :: ReaderT Options m (Either SecrecError (a,SecrecWarnings)) }
   deriving (Typeable)
 
 instance MonadTrans SecrecM where
-    lift m = SecrecM $ lift $ liftM (Right . (,mempty)) m
+    lift m = SecrecM $! lift $! liftM (Right . (,mempty)) m
 
 instance MonadIO m => MonadBase IO (SecrecM m) where
     liftBase = liftIO
 
 instance MonadIO m => MonadBaseControl IO (SecrecM m) where
     type StM (SecrecM m) a = SecrecM m a
-    liftBaseWith f = liftIO $ f return
+    liftBaseWith f = liftIO $! f returnS
     restoreM       = id
 
 mapSecrecM :: (m (Either SecrecError (a,SecrecWarnings)) -> n (Either SecrecError (b,SecrecWarnings))) -> SecrecM m a -> SecrecM n b
-mapSecrecM f (SecrecM m) = SecrecM $ Reader.mapReaderT f m
+mapSecrecM f (SecrecM m) = SecrecM $! Reader.mapReaderT f m
 
 runSecrecMWith :: Options -> SecrecM m a -> m (Either SecrecError (a,SecrecWarnings))
-runSecrecMWith opts m = flip runReaderT opts $ unSecrecM m
+runSecrecMWith opts m = flip runReaderT opts $! unSecrecM m
 
 printWarns :: SecrecWarnings -> IO ()
 printWarns (ScWarns warns) = do
-    forM_ warns $ \ws ->
-        forM_ (Map.elems ws) $ \w ->
-            forM_ w $ \x -> liftIO $ hPutStrLn stderr (pprid x)
+    forM_ warns $! \ws ->
+        forM_ (Map.elems ws) $! \w ->
+            forM_ w $! \x -> liftIO $! hPutStrLn stderr (pprid x)
             
 flushWarnings :: MonadIO m => SecrecM m a -> SecrecM m a
-flushWarnings (SecrecM m) = SecrecM $ do
+flushWarnings (SecrecM m) = SecrecM $! do
     opts <- Reader.ask
-    e <- lift $ runReaderT m opts
+    e <- lift $! runReaderT m opts
     case e of
-        Left err -> return $ Left err
+        Left err -> returnS $ Left err
         Right (x,ws) -> do
-            liftIO $ printWarns ws
-            return $ Right (x,mempty)
+            liftIO $! printWarns ws
+            returnS $ Right (x,mempty)
 
 runSecrecM :: MonadIO m => Options -> SecrecM m a -> m a
-runSecrecM opts m = flip runReaderT opts $ do
+runSecrecM opts m = flip runReaderT opts $! do
     e <- unSecrecM m
     case e of
         Left err -> do
             ppe <- ppr err
-            liftIO $ die $ ppe
+            liftIO $! die $! ppe
         Right (x,warns) -> do
-            liftIO $ printWarns warns
-            return x
+            liftIO $! printWarns warns
+            returnS x
 
 instance Monad m => MonadReader Options (SecrecM m) where
-    ask = SecrecM $ liftM (Right . (,mempty)) ask
-    local f (SecrecM m) = SecrecM $ local f m 
+    {-# INLINE ask #-}
+    ask = SecrecM $! liftM (Right . (,mempty)) ask
+    {-# INLINE local #-}
+    local f (SecrecM m) = SecrecM $! local f m 
 
 instance Monad m => MonadWriter SecrecWarnings (SecrecM m) where
-    writer (x,ws) = SecrecM $ return $ Right (x,ws)
-    listen (SecrecM io) = SecrecM $ liftM (either Left (\(x,ws) -> Right ((x,ws),ws))) io
-    pass (SecrecM io) = SecrecM $ liftM (either Left (\((x,f),ws) -> Right (x,f ws))) io
+    {-# INLINE writer #-}
+    writer (x,ws) = SecrecM $! returnS $ Right (x,ws)
+    {-# INLINE listen #-}
+    listen (SecrecM io) = SecrecM $! liftM (either Left (\(x,ws) -> Right ((x,ws),ws))) io
+    {-# INLINE pass #-}
+    pass (SecrecM io) = SecrecM $! liftM (either Left (\((x,f),ws) -> Right (x,f ws))) io
 
 instance Monad m => MonadError SecrecError (SecrecM m) where
-    throwError e = SecrecM $ return $ Left e
-    catchError (SecrecM m) f = SecrecM $ do
+    {-# INLINE throwError #-}
+    throwError e = SecrecM $! returnS $ Left e
+    {-# INLINE catchError #-}
+    catchError (SecrecM m) f = SecrecM $! do
         x <- m
         case x of
             Left err -> unSecrecM (f err)
-            otherwise -> return x
+            otherwise -> returnS x
 
 instance MonadIO m => MonadIO (SecrecM m) where
-    liftIO io = SecrecM $ liftIO $ liftM (Right . (,mempty)) io
+    {-# INLINE liftIO #-}
+    liftIO io = SecrecM $! liftIO $! liftM (Right . (,mempty)) io
 
 instance MonadThrow m => MonadThrow (SecrecM m) where
-    throwM e = SecrecM $ lift $ throwM e
+    {-# INLINE throwM #-}
+    throwM e = SecrecM $! lift $! throwM e
 
 instance MonadCatch m => MonadCatch (SecrecM m) where
+    {-# INLINE catch #-}
     catch = liftCatch catch
 
 instance Monad m => MonadPlus (SecrecM m) where
+    {-# INLINE mzero #-}
     mzero = genError noloc (text "mzero")
+    {-# INLINE mplus #-}
     mplus x y = catchError x (const y)
     
 instance Monad m => Alternative (SecrecM m) where
+    {-# INLINE empty #-}
     empty = mzero
+    {-# INLINE (<|>) #-}
     (<|>) = mplus
 
 liftCatch :: Catch e (ReaderT Options m) (Either SecrecError (a,SecrecWarnings)) -> Catch e (SecrecM m) a
-liftCatch catchE m h = SecrecM $ unSecrecM m `catchE` \ e -> unSecrecM (h e)
+liftCatch catchE m h = SecrecM $! unSecrecM m `catchE` \ e -> unSecrecM (h e)
 
 instance MonadMask m => MonadMask (SecrecM m) where
-    mask a = SecrecM $ mask $ \u -> unSecrecM (a $ liftMask u)
-    uninterruptibleMask a = SecrecM $ uninterruptibleMask $ \u -> unSecrecM (a $ liftMask u)
+    {-# INLINE mask #-}
+    mask a = SecrecM $! mask $ \u -> unSecrecM (a $ liftMask u)
+    {-# INLINE uninterruptibleMask #-}
+    uninterruptibleMask a = SecrecM $! uninterruptibleMask $ \u -> unSecrecM (a $ liftMask u)
 
 liftMask :: (ReaderT Options m ((Either SecrecError (a,SecrecWarnings))) -> ReaderT Options m ((Either SecrecError (a,SecrecWarnings)))) -> SecrecM m a -> SecrecM m a
 liftMask u (SecrecM b) = SecrecM (u b)
 
 instance Monad m => Functor (SecrecM m) where
-    fmap f (SecrecM m) = SecrecM $ do
+    {-# INLINE fmap #-}
+    fmap f (SecrecM m) = SecrecM $! do
         e <- m
         case e of
-            Left err -> return (Left err)
-            Right (x,w) -> return (Right (f x,w))
+            Left err -> returnS (Left err)
+            Right (x,w) -> returnS (Right (f x,w))
             
 instance Monad m => Monad (SecrecM m) where
-    return x = SecrecM $ return $ Right (x,mempty)
-    (SecrecM m) >>= f = SecrecM $ do
+    {-# INLINE return #-}
+    return x = SecrecM $! returnS $ Right (x,mempty)
+    {-# INLINE (>>=) #-}
+    (SecrecM m) >>= f = SecrecM $! do
         ex <- m
         case ex of
-            Left err -> return (Left err)
+            Left err -> returnS (Left err)
             Right (x,wsx) -> do
                 ey <- unSecrecM (f x)
                 case ey of
-                    Left err -> return (Left err)
-                    Right (y,wsy) -> return (Right (y,wsx `mappend` wsy))
+                    Left err -> returnS (Left err)
+                    Right (y,wsy) -> returnS (Right (y,wsx `mappend` wsy))
 
 instance Monad m => Applicative (SecrecM m) where
-    pure = return
+    {-# INLINE pure #-}
+    pure = returnS
+    {-# INLINE (<*>) #-}
     (<*>) = ap
 
 mapError :: MonadError SecrecError m => (SecrecError -> SecrecError) -> m a -> m a
 mapError f m = m `catchError` (throwError . f)
 
 warn :: (MonadWriter SecrecWarnings m,MonadError SecrecError m) => Position -> SecrecError -> m ()
-warn pos e = Writer.tell $ ScWarns $ Map.singleton 0 $ Map.singleton pos $ Set.singleton $ ErrWarn e
+warn pos e = Writer.tell $! ScWarns $! Map.singleton 0 $! Map.singleton pos $! Set.singleton $! ErrWarn e

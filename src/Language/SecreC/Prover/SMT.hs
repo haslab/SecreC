@@ -16,7 +16,7 @@ import Data.Generics hiding (GT)
 import Control.Monad.IO.Class
 import Control.Monad.Catch as Catch
 import Control.Monad.Reader as Reader
-import Control.Monad.State as State
+import Control.Monad.State.Strict as State
 import Control.Monad.Except
 
 import Language.SecreC.TypeChecker.Base

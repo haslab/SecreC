@@ -34,8 +34,8 @@ import Data.Generics hiding (GT)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
-import qualified Control.Monad.State as State
-import Control.Monad.State (StateT(..))
+import qualified Control.Monad.State.Strict as State
+import Control.Monad.State.Strict (StateT(..))
 
 import Text.PrettyPrint as PP
 
