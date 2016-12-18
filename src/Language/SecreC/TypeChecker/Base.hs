@@ -771,7 +771,7 @@ flushTcWarnings = mapTcM flush
     flush m = do
         e <- m
         case e of
-            Left err -> returnS $ Left $! err
+            Left err -> err `seq` returnS $ Left $ err
             Right ((x,env,()),warns) -> do
                 liftIO $ printWarns $ warns
                 liftIO $ hFlush stdout
