@@ -296,6 +296,8 @@ flushWarnings (SecrecM m) = SecrecM $! do
         Left err -> returnS $ Left err
         Right (x,ws) -> do
             liftIO $! printWarns ws
+            liftIO $ hFlush stdout
+            liftIO $ hFlush stderr
             returnS $ Right (x,mempty)
 
 runSecrecM :: MonadIO m => Options -> SecrecM m a -> m a

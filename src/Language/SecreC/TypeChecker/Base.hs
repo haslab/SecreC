@@ -774,6 +774,8 @@ flushTcWarnings = mapTcM flush
             Left err -> returnS $ Left err
             Right ((x,env,()),warns) -> do
                 liftIO $ printWarns $ warns
+                liftIO $ hFlush stdout
+                liftIO $ hFlush stderr
                 returnS $ Right ((x,env,()),mempty)
 
 instance MonadTrans (TcM) where
