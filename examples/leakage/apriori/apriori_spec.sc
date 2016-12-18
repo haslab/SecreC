@@ -250,4 +250,3 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires k1 <= k2;
 //@ leakage requires LeakFrequents(db,threshold,k2);
 //@ leakage ensures LeakFrequents(db,threshold,k1);
-//@ {}
