@@ -160,12 +160,16 @@ shadowDecl opts (Pos p d) = do
     ds' <- shadowBareDecl opts d
     return $ map (Pos p) ds'
 
+boolToDual :: Bool -> Maybe Bool
+boolToDual False = Nothing
+boolToDual True = Just False
+
 shadowBareDecl :: MonadIO m => Options -> BareDecl -> ShadowM m [BareDecl]
 shadowBareDecl opts d@(TypeDecl {}) = return [d]
 shadowBareDecl opts (VarDecl atts ids) = do -- duplicate global variables
     atts' <- concatMapM (shadowAttribute opts True) atts
     bools <- mapM (liftM not . isExemptType . itwType) ids
-    ids' <- concatMapM (uncurry (shadowIdTypeWhere opts)) $ zip bools ids
+    ids' <- concatMapM (uncurry (shadowIdTypeWhere opts)) $ zip (map boolToDual bools) ids
     return [VarDecl atts' ids']
 shadowBareDecl opts d@(ConstantDecl atts unique ids t orderSpec complete) = do -- duplicate global constants
     atts' <- concatMapM (shadowAttribute opts True) atts
@@ -187,8 +191,8 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
         name' <- shadowId opts DualE name
         atts' <- concatMapM (shadowAttribute opts True) atts
         -- duplicate parameters, returns and contracts
-        args' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip bools args
-        rets' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip rbools rets
+        args' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip (map boolToDual bools) args
+        rets' <- concatMapM (uncurry $ shadowIdTypeWhere opts) $ zip (map boolToDual rbools) rets
         contracts' <- concatMapM (shadowCommentOrContract opts name DualE) contracts
         
         -- create a fresh shadow assertion variable
@@ -208,8 +212,8 @@ shadowBareDecl opts d@(ProcedureDecl atts name targs args rets contracts body) =
         name' <- shadowId opts ShadowE name
         atts' <- concatMapM (shadowAttribute opts False) atts
         -- duplicate parameters, returns and contracts
-        args' <- concatMapM (shadowIdTypeWhere opts False) args
-        rets' <- concatMapM (shadowIdTypeWhere opts False) rets
+        args' <- concatMapM (shadowIdTypeWhere opts $ Just False) args
+        rets' <- concatMapM (shadowIdTypeWhere opts $ Just False) rets
         contracts' <- concatMapM (shadowCommentOrContract opts name ShadowE) contracts
         
         body' <- mapM (shadowBody opts modifies leaks False) body
@@ -280,8 +284,8 @@ shadowBody opts modifies leaks isDual (vars,block) = do
         atts' <- concatMapM (shadowAttribute opts isDual) atts
         bools <- mapM (liftM not . isExemptType . itwType) itws
         itws' <- if isDual
-            then concatMapM (uncurry (shadowIdTypeWhere opts)) $ zip bools itws
-            else concatMapM (shadowIdTypeWhere opts False) itws
+            then concatMapM (uncurry (shadowIdTypeWhere opts)) $ zip (map boolToDual bools) itws
+            else concatMapM (shadowIdTypeWhere opts $ Just False) itws
         return (atts',itws')
     vars' <- mapM shadowArg vars
     block' <- shadowBlock opts modifies leaks isDual block
@@ -405,17 +409,19 @@ shadowIdType opts True it@(i,t) = do
         i' <- shadowId opts ShadowE i
         return [removeLeakageAnns opts True it,(i',t)]
 
-shadowIdTypeWhere :: MonadIO m => Options -> Bool -> IdTypeWhere -> ShadowM m [IdTypeWhere]
-shadowIdTypeWhere opts False itw@(IdTypeWhere i t w) = do
+shadowIdTypeWhere :: MonadIO m => Options -> Maybe Bool -> IdTypeWhere -> ShadowM m [IdTypeWhere]
+shadowIdTypeWhere opts Nothing itw@(IdTypeWhere i t w) = do
     addVariable i
     addExemption opts i
     return [removeLeakageAnns opts True itw]
-shadowIdTypeWhere opts True itw@(IdTypeWhere i t w) = do
+shadowIdTypeWhere opts (Just doDual) itw@(IdTypeWhere i t w) = do
     addVariable i
     unlessExempt opts itw i $ do
         i' <- shadowId opts ShadowE i
         w' <- shadowExpression opts ShadowE w
-        return [removeLeakageAnns opts True itw,IdTypeWhere i' t w']
+        if doDual
+            then return [removeLeakageAnns opts True itw,IdTypeWhere i' t w']
+            else return [IdTypeWhere i' t w']
 
 shadowId :: MonadIO m => Options -> ShadowEMode -> Id -> ShadowM m Id
 shadowId opts mode@(isDualE -> False) i = do
