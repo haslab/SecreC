@@ -1215,7 +1215,7 @@ instance (DebugM m) => PP m HypCstr where
         returnS $ text "hypothesis" <+> pp1
     pp (HypNotCondition c) = do
         pp1 <- pp c
-        returnS $ text "hypothesis" <+> char '' <> pp1
+        returnS $ text "hypothesis" <+> char '!' <> pp1
     pp (HypEqual e1 e2) = do
         pp1 <- pp e1
         pp2 <- pp e2
