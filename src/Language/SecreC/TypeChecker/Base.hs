@@ -771,12 +771,12 @@ flushTcWarnings = mapTcM flush
     flush m = do
         e <- m
         case e of
-            Left err -> returnS $ Left err
+            Left err -> returnS $ Left $! err
             Right ((x,env,()),warns) -> do
                 liftIO $ printWarns $ warns
                 liftIO $ hFlush stdout
                 liftIO $ hFlush stderr
-                returnS $ Right ((x,env,()),mempty)
+                returnS $ Right $! ((x,env,()),mempty)
 
 instance MonadTrans (TcM) where
     lift m = TcM $ lift $ SecrecM $ lift $ liftM (\x -> Right (x,mempty)) m
