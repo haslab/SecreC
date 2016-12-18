@@ -125,14 +125,14 @@ uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold,setSize);
 {
-  //@ LeakFrequentsSmaller(db,threshold,1,setSize);
+  //@ leakage LeakFrequentsSmaller(db,threshold,1,setSize);
   frequent freq = apriori_1(db,threshold);
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
   //@ invariant FrequentsCache(freq,db,threshold,k);
   {
-      //@ LeakFrequentsSmaller(db,threshold,k+1,setSize);
+      //@ leakage LeakFrequentsSmaller(db,threshold,k+1,setSize);
       freq = apriori_k(db,threshold,freq,k);
   }
 
