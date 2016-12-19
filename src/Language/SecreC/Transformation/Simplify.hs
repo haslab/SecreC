@@ -410,7 +410,7 @@ simplifyExpression isExpr vret (SetComprehensionExpr l t x px fx) = do
     (ss3,px') <- simplifyNonVoidExpression isExpr px
     (ss4,fx') <- simplifyMaybe (simplifyNonVoidExpression isExpr) fx
     ssq <- stmtsAnns (ss1 ++ ss3 ++ ss4)
-    let (map fst -> pre,map fst -> post) = List.partition snd $! map stmtAnnExpr ssq
+    let (map fst3 -> pre,map fst3 -> post) = List.partition snd3 $! map stmtAnnExpr ssq
     assignRetExpr vret ([],Just $! SetComprehensionExpr l t' x' (andExprsLoc $! pre++[px']) fx')
 simplifyExpression isExpr vret (ToVArrayExpr l e i) = do
     (ss1,e') <- simplifyNonVoidExpression isExpr e
@@ -426,7 +426,7 @@ simplifyExpression isExpr vret (QuantifiedExpr l q args e) = do
     (argsc,args') <- simplifyQuantifierArgs args
     (sse,e') <- simplifyNonVoidExpression True e
     ssq <- stmtsAnns (argsc ++ sse)
-    let (map fst -> pre,map fst -> post) = List.partition snd $! map stmtAnnExpr ssq
+    let (map fst3 -> pre,map fst3 -> post) = List.partition snd3 $! map stmtAnnExpr ssq
     assignRetExpr vret ([],Just $! QuantifiedExpr l q args' $! impliesExprLoc (andExprsLoc pre) $! andExprsLoc $! post++[e'])
 simplifyExpression isExpr vret (ArrayConstructorPExpr t es) = do
     (sses,es') <- simplifyExpressions isExpr es
@@ -612,9 +612,9 @@ stmtAnns s = do
     pps <- pp s
     genError (locpos $! loc s) $! text "expected an annotation but found statement" <+> pps
 
-stmtAnnExpr :: StatementAnnotation iden (Typed loc) -> (Expression iden (Typed loc),Bool)
-stmtAnnExpr (AssumeAnn _ isLeak e) = (e,True)
-stmtAnnExpr (AssertAnn _ isLeak e) = (e,False)
+stmtAnnExpr :: StatementAnnotation iden (Typed loc) -> (Expression iden (Typed loc),Bool,Bool)
+stmtAnnExpr (AssumeAnn _ isLeak e) = (e,True,isLeak)
+stmtAnnExpr (AssertAnn _ isLeak e) = (e,False,isLeak)
 
 stmtAnn2LoopAnn :: StatementAnnotation iden (Typed loc) -> LoopAnnotation iden (Typed loc)
 stmtAnn2LoopAnn (AssumeAnn l isLeak e) = InvariantAnn l True isLeak e
@@ -910,6 +910,17 @@ simplifyStatement ret (AnnStatement l anns) = do
 simplifyStatement ret (SyscallStatement l n es) = do
     (ss,es') <- Utils.mapAndUnzipM simplifySyscallParameter es
     returnS $ concat ss ++ [SyscallStatement l n $! concat es']
+simplifyStatement ret (QuantifiedStatement l q args anns ss) = do
+    (argsc,args') <- simplifyQuantifierArgs args
+    anns' <- simplifyProcedureAnns anns
+    (pres,posts) <- splitProcAnns anns'
+    ssq <- stmtsAnns (argsc)
+    let (pre,post) = List.partition snd3 $! map stmtAnnExpr (ssq++pres++posts)
+    let isLeak = or $ map thr3 pre ++ map thr3 post
+    let ensures = andExprsLoc (map fst3 pre) `impliesExprLoc` andExprsLoc (map fst3 post)
+    let ensuresAnn = EnsuresAnn l False isLeak ensures
+    ss' <- simplifyStatements Nothing ss
+    return [QuantifiedStatement l q args' [ensuresAnn] ss']
 simplifyStatement ret s = returnS [s]
 
 simplifySyscallParameter :: SimplifyK loc m => SyscallParameter GIdentifier (Typed loc) -> SimplifyM m ([Statement GIdentifier (Typed loc)],[SyscallParameter GIdentifier (Typed loc)])

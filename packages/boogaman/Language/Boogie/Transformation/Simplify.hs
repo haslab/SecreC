@@ -310,7 +310,9 @@ instance Simplify BareDecl where
             (Just n,isDafnyVCGen -> Just withModules) -> if List.elem n (dafnyAnns withModules)
                 then return Nothing
                 else simplify' d
-            otherwise -> simplify' d
+            otherwise -> if hasDafnyDestroyAnn opts d
+                then return Nothing
+                else simplify' d
       where
         simplify' (AxiomDecl atts e) = do
             atts' <- simplifyMonoid atts

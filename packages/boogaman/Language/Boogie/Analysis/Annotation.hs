@@ -27,6 +27,19 @@ isDafnyAxiom withModules str = List.elem str $ concat $ map (dafnyAxioms withMod
 dafnyPrelude True = "_0_prelude"
 dafnyPrelude False = "_module"
 
+dafnyDestroyAnn :: Bool -> String -> String
+dafnyDestroyAnn withModules name = dafnyPrelude withModules ++ "._default." ++ name ++ "$T"
+
+dafnyDestroyAnns :: Bool -> [String]
+dafnyDestroyAnns withModules = map (dafnyDestroyAnn withModules) dafnyNames
+
+hasDafnyDestroyAnn :: Data a => Options -> a -> Bool
+hasDafnyDestroyAnn (dafnyVCGen -> Just withModules) x = everything (||) (mkQ False isDestroy) x
+    where
+    isDestroy :: Id -> Bool
+    isDestroy n = List.elem n (dafnyDestroyAnns withModules)
+hasDafnyDestroyAnn opts x = False
+
 dafnyAxioms withModules name = dafnyFrameAxioms ++ dafnyConsqAxioms
     where
     dafnyFrameAxioms = ["// frame axiom for "++dafnyPrelude withModules++".__default."++name]
