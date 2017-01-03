@@ -26,6 +26,12 @@ struct itemset {
     uint[[2]] items;
 }
 
+itemset itemset(uint[[2]] is) {
+    itemset i;
+    i.items = is;
+    return i;
+}
+
 frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ inline;
 {
