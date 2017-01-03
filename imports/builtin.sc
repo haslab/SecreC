@@ -580,6 +580,30 @@ context<>
 }
 
 template<domain D,type T>
+function D T[[1]] cons (D T x, D T[[1]] xs)
+context<>
+//@ inline;
+//@ free ensures size(\result) === size(xs) + 1;
+//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i+1] === xs[i]);
+//@ free ensures assertion(\result[0] === x);
+{
+    cat ({x},xs)
+}
+
+template<domain D,type T>
+D T[[2]] cons (D T[[1]] x, D T[[2]] xs)
+context<>
+//@ inline;
+//@ requires shape(xs)[1] === size(x);
+//@ free ensures shape(\result)[0] === shape(xs)[0] + 1;
+//@ free ensures shape(\result)[1] === shape(xs)[1];
+//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i+1,:] === xs[i,:]);
+//@ free ensures assertion<D>(\result[0,:] === x);
+{
+    cat (reshape(x,1,size(x)),xs);
+}
+
+template<domain D,type T>
 function D T[[1]] snoc (D T[[1]] xs, D T x)
 context<>
 //@ inline;

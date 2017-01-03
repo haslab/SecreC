@@ -30,8 +30,10 @@ buildTestTree = do
     --    tests3 <- buildTestDirectoryTree "examples"
     
     --tests5 <- buildTestDirectoryTree "examples/leakage/cut/cut.sc"
-    --tests6 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
-    return $ TestList [tests]
+    --tests6 <- buildTestDirectoryTree "examples/leakage/cut/cut_imperative.sc"
+    --tests7 <- buildTestDirectoryTree "examples/leakage/cut/cut_shuffle.sc"
+    --tests8 <- buildTestDirectoryTree "examples/leakage/qsort/qsort.sc"
+    return $ TestList [tests] --[tests5,tests6,tests7,tests8]
     
 
 buildTestDirectoryTree :: FilePath -> IO Test

@@ -176,7 +176,7 @@ tcAxiomDecl (AxiomDeclaration l isLeak qs ps ann) = tcTemplate l $ withInCtx Tru
         (ps',vars') <- mapAndUnzipM tcProcedureParam ps
         return (tvars',vars')
     hdeps <- getDeps
-    ann' <- tcProcedureAnns ann
+    ann' <- tcProcedureAnns True ann
     cl <- getDecClass
     let idec = AxiomType isLeak (locpos l) vars' (map (fmap (fmap locpos)) ann') cl
     dec <- newAxiom l tvars' hdeps idec
@@ -195,7 +195,7 @@ tcLemmaDecl (LemmaDeclaration l isLeak n@(ProcedureName pl pn) qs ps ann body) =
     let recproc' = ProcedureName (Typed pl rectproc) $ PIden $ mkVarId pn
     recdt <- addProcedureFunctionToRec tvars' hdeps recproc'
     
-    ann' <- tcProcedureAnns ann
+    ann' <- tcProcedureAnns False ann
     let tret = ComplexT Void
     s' <- tcLocal l "lemma" $ mapM (tcStmtsRet l tret) body
     cl' <- getDecClass
@@ -229,7 +229,7 @@ tcFunctionDecl addOpToRec addOp _ _ (OperatorFunDeclaration l isLeak ret op ps b
     let recop' = updLoc top (Typed l rectproc)
     rec <- addOpToRec explicitDecCtx hdeps recop'
     
-    ann' <- tcProcedureAnns ann
+    ann' <- tcProcedureAnns False ann
     s' <- tcLocal l "fun" $ tcExprTy tret s
     dropLocalVar vret
     cl' <- getDecClass
@@ -256,7 +256,7 @@ tcFunctionDecl _ _ addProcToRec addProc (FunDeclaration l isLeak ret (ProcedureN
     let recproc' = ProcedureName (Typed pl rectproc) $ PIden $ mkVarId pn
     rec <- addProcToRec explicitDecCtx hdeps recproc'
     
-    ann' <- tcProcedureAnns ann
+    ann' <- tcProcedureAnns False ann
     s' <- tcLocal l "fun" $ tcExprTy tret s
     dropLocalVar vret
     cl' <- getDecClass
@@ -293,7 +293,7 @@ tcProcedureDecl addOpToRec addOp _ _ (OperatorDeclaration l ret op ps bctx@(Temp
     let recop' = updLoc top (Typed l rectproc)
     recdt <- addOpToRec explicitDecCtx hdeps recop'
     
-    ann' <- tcProcedureAnns ann
+    ann' <- tcProcedureAnns False ann
     mapM_ dropLocalVar vret
     s' <- tcLocal l "proc" $ tcStmtsRet l tret s
     cl' <- getDecClass
@@ -322,7 +322,7 @@ tcProcedureDecl _ _ addProcToRec addProc (ProcedureDeclaration l ret (ProcedureN
     let recproc' = ProcedureName (Typed pl rectproc) $ PIden $ mkVarId pn
     recdt <- addProcToRec explicitDecCtx hdeps recproc'
     
-    ann' <- tcProcedureAnns ann
+    ann' <- tcProcedureAnns False ann
     mapM_ dropLocalVar vret
     s' <- tcLocal l "proc" $ tcStmtsRet l tret s
     cl' <- getDecClass

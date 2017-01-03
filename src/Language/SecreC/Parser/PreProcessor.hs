@@ -123,6 +123,7 @@ instance Monad m => PP m Options where
         pp17 <- pp (implicitBuiltin opts)
         pp18 <- pp (constraintStackSize opts)
         pp19 <- pp (evalTimeOut opts)
+        pp191 <- pp (verificationTimeOut opts)
         pp20 <- pp (failTypechecker opts)
         pp21 <- pp (externalSMT opts)
         pp22 <- pp (checkAssertions opts)
@@ -155,6 +156,7 @@ instance Monad m => PP m Options where
             <+> text "--implicitbuiltin=" <> pp17
             <+> text "--constraintstacksize=" <> pp18
             <+> text "--evaltimeout=" <> pp19
+            <+> text "--verificationtimeout" <> pp191
             <+> text "--failtypechecker=" <> pp20
             <+> text "--externalsmt=" <> pp21
             <+> text "--checkassertions" <> pp22
@@ -245,6 +247,7 @@ optionsDecl  = Opts {
     , externalSMT   = externalSMT defaultOptions &= name "smt" &= help "Use an external SMT solver for index constraints" &= groupname "Verification:Typechecker"
     , constraintStackSize   = constraintStackSize defaultOptions &= name "k-stack-size" &= help "Sets the constraint stack size for the typechecker" &= groupname "Verification:Typechecker"
     , evalTimeOut           = evalTimeOut defaultOptions &= help "Timeout for evaluation expression in the typechecking phase" &= groupname "Verification:Typechecker"
+    , verificationTimeOut           = verificationTimeOut defaultOptions &= help "Timeout for verification" &= groupname "Verification:Typechecker"
     , failTypechecker = failTypechecker defaultOptions &= name "fail-tc" &= help "Typechecker should fail" &= groupname "Verification:Typechecker"
     , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
     , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"

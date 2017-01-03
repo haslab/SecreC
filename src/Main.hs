@@ -210,12 +210,12 @@ verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
         -- verify functional specification
         let func =        compileDafny False (debugVerification opts) dfyfile bplfile
               `seqStatus` axiomatizeBoogaman (debugVerification opts) opts axs bplfile bplfile2
-              `seqStatus` runBoogie False (debugVerification opts) bplfile2
+              `seqStatus` runBoogie (verificationTimeOut opts) False (debugVerification opts) bplfile2
         
         -- verify leakage specification
         let spec =        compileDafny True (debugVerification opts) dfylfile bpllfile
               `seqStatus` shadowBoogaman (debugVerification opts) opts axsl bpllfile bpllfile2
-              `seqStatus` runBoogie True (debugVerification opts) bpllfile2
+              `seqStatus` runBoogie (verificationTimeOut opts) True (debugVerification opts) bpllfile2
         let mark res = case res of
                         Status (Left d) -> markVerifiedFiles vids fids lids files
                         Status (Right err) -> returnS ()
@@ -319,11 +319,12 @@ shadowBoogaman isDebug opts axioms bpl1 bpl2 = do
         <+> Pretty.sepBy space (map addaxiom $ axioms)
         <+> text ">" <+> text bpl2
 
-runBoogie :: (MonadIO m) => Bool -> Bool -> FilePath -> m Status
-runBoogie isLeak isDebug bpl = do
+runBoogie :: (MonadIO m) => Int -> Bool -> Bool -> FilePath -> m Status
+runBoogie timeout isLeak isDebug bpl = do
     when isDebug $ liftIO $ hPutStrLn stderr $ show $ text "Verifying Boogie file" <+> text (show bpl)
     let dotrace = if isDebug then ["/trace"] else []
-    res <- shellyOutput isDebug False "boogie" $ dotrace ++ ["/doModSetAnalysis",bpl]
+    let doTimeLimit = ["/timeLimit:"++show timeout]
+    res <- shellyOutput isDebug False "boogie" $ dotrace ++ doTimeLimit ++ ["/doModSetAnalysis",bpl]
     verifOutput isLeak False res
 
 getEntryPoints :: [(TypedModuleFile,OutputType)] -> TcM IO [DafnyId]

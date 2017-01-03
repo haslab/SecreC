@@ -155,6 +155,7 @@ data Options
         , debugVerification           :: Bool
         , constraintStackSize   :: Int
         , evalTimeOut           :: Int
+        , verificationTimeOut   :: Int
         , implicitCoercions      :: CoercionOpt
         , promote           :: PromoteOpt
         , implicitContext        :: ContextOpt
@@ -196,6 +197,7 @@ instance Monoid Options where
         , debugVerification = debugVerification x || debugVerification y
         , constraintStackSize = max (constraintStackSize x) (constraintStackSize y)
         , evalTimeOut = max (evalTimeOut x) (evalTimeOut y)
+        , verificationTimeOut = max (verificationTimeOut x) (verificationTimeOut y)
         , implicitCoercions = implicitCoercions x `appendCoercionOpt` implicitCoercions y
         , promote = promote x `appendPromoteOpt` promote y
         , implicitContext = implicitContext x `appendContextOpt` implicitContext y
@@ -235,6 +237,7 @@ defaultOptions = Opts
     , debugVerification = False
     , constraintStackSize = 100
     , evalTimeOut = 5
+    , verificationTimeOut = 60
     , progress = False
     , implicitCoercions = OnC
     , promote = LocalP

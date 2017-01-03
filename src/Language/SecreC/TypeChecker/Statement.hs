@@ -241,7 +241,7 @@ tcStmt ret qs@(QuantifiedStatement l q vs anns s) = tcStmtBlock l "quantified st
         q' <- tcQuantifier q
         vs' <- mapM (tcQVar l) vs
         mapM_ checkEnsures anns
-        anns' <- tcProcedureAnns anns
+        anns' <- tcProcedureAnns False anns
         (s',t) <- tcStmts (ComplexT Void) s
         topTcCstrM_ l $ Unifies (ComplexT Void) ret
         return (QuantifiedStatement (Typed l t) q' vs' anns' s',t)
@@ -343,26 +343,45 @@ tcDefaultInitExpr l False ty szs Nothing = liftM Just $ withDef True $ do
     topTcCstrM_ l $ Default szsl x
     return $ fmap (Typed l) x
 
-tcProcedureAnns :: ProverK loc m => [ProcedureAnnotation Identifier loc] -> TcM m [ProcedureAnnotation GIdentifier (Typed loc)]
-tcProcedureAnns xs = do
-    (inlines,anns') <- Utils.mapAndUnzipM tcProcedureAnn xs
+tcProcedureAnns :: ProverK loc m => Bool -> [ProcedureAnnotation Identifier loc] -> TcM m [ProcedureAnnotation GIdentifier (Typed loc)]
+tcProcedureAnns isAxiom xs = do
+    (inlines,anns') <- Utils.mapAndUnzipM (tcProcedureAnn isAxiom) xs
     case catMaybes inlines of
         [] -> return ()
         is -> chgDecClassM $ chgInlineDecClass (last is)
     return anns'
 
-tcProcedureAnn :: ProverK loc m => ProcedureAnnotation Identifier loc -> TcM m (Maybe Bool,ProcedureAnnotation GIdentifier (Typed loc))
-tcProcedureAnn (PDecreasesAnn l e) = tcStmtBlock l "decreases annotation" $ tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
-    (e') <- tcAnnExpr Nothing e
-    return (Nothing,PDecreasesAnn (Typed l $ typed $ loc e') e')
-tcProcedureAnn (RequiresAnn l isFree isLeak e) = tcStmtBlock l "requires annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
-    return (Nothing,RequiresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
-tcProcedureAnn (EnsuresAnn l isFree isLeak e) = tcStmtBlock l "ensures annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
-    return (Nothing,EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
-tcProcedureAnn (InlineAnn l isInline) = tcStmtBlock l "inline annotation" $ tcAddDeps l "pann" $ do
-    return (Just isInline,InlineAnn (notTyped "inline" l) isInline)
+tcProcedureAnn :: ProverK loc m => Bool -> ProcedureAnnotation Identifier loc -> TcM m (Maybe Bool,ProcedureAnnotation GIdentifier (Typed loc))
+tcProcedureAnn isAxiom (PDecreasesAnn l e) = tcStmtBlock l "decreases annotation" $ tcAddDeps l "pann" $ insideAnnotation $ withLeak False $ do
+    if isAxiom
+        then do
+            ppe <- pp e
+            genTcError (locpos l) False $ text "decreases annotation not supported inside axioms:" <+> ppe
+        else do
+            (e') <- tcAnnExpr Nothing e
+            return (Nothing,PDecreasesAnn (Typed l $ typed $ loc e') e')
+tcProcedureAnn isAxiom (RequiresAnn l isFree isLeak e) = tcStmtBlock l "requires annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
+    if (isAxiom && isFree)
+        then do
+            ppe <- pp e
+            genTcError (locpos l) False $ text "requires annotation must not be free inside axioms:" <+> ppe       
+        else do
+            (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+            return (Nothing,RequiresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
+tcProcedureAnn isAxiom (EnsuresAnn l isFree isLeak e) = tcStmtBlock l "ensures annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
+    if (isAxiom && isFree)
+        then do
+            ppe <- pp e
+            genTcError (locpos l) False $ text "ensures annotation must not be free inside axioms:" <+> ppe
+        else do
+            (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+            return (Nothing,EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
+tcProcedureAnn isAxiom (InlineAnn l isInline) = tcStmtBlock l "inline annotation" $ tcAddDeps l "pann" $ do
+    if isAxiom
+        then do
+            genTcError (locpos l) False $ text "inline annotation not supported inside axioms"
+        else do
+            return (Just isInline,InlineAnn (notTyped "inline" l) isInline)
 
 
 

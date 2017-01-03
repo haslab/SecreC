@@ -1447,7 +1447,8 @@ coercesSec :: (ProverK loc m) => loc -> Maybe [Type] -> Expr -> Var -> TcM m ()
 coercesSec l bvs e1@(loc -> ComplexT ct1) x2@(loc -> ComplexT t2) = do
     noSec <- checkNoSecM
     if noSec
-        then assignsExprTy l x2 e1
+        then do
+            assignsExprTy l x2 e1
         else do
             pp1 <- (ppExprTy e1)
             pp2 <- (ppVarTy x2)
@@ -2259,6 +2260,9 @@ isTokSec (Private {}) = True
 isTokSec (getTokVar -> Just v) = True
 isTokSec s = False
 
+secNo :: SecType
+secNo = Private (TIden $ mkVarId "nosec") (TIden $ mkVarId "nokind")
+
 unifiesSec :: (ProverK loc m) => loc -> SecType -> SecType -> TcM m ()
 unifiesSec l s1 s2 = do
       noSec <- checkNoSecM
@@ -2309,6 +2313,9 @@ isTokKind PublicK = True
 isTokKind (PrivateK {}) = True
 isTokKind (getTokVar -> Just v) = True
 isTokKind k = False
+
+kindNo :: KindType
+kindNo = PrivateK (TIden $ mkVarId "nokind")
 
 unifiesKind :: ProverK loc m => loc -> KindType -> KindType -> TcM m ()
 unifiesKind l k1 k2 = do

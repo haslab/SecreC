@@ -1,5 +1,6 @@
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv
 
-module cut2;
+module cut_imperative;
 
 import axioms;
 
@@ -23,8 +24,14 @@ private int[[1]] cut (private int[[1]] aS, private bool [[1]] mS)
     //@ invariant 0 <= j && j <= i && i <= size(aS);
     //@ invariant multiset(x[:j]) <= multiset(aS[:i]);
     {
-        if (declassify(mS[i])) { x[j] = aS[i]; j = j + 1; }
+        if (declassify(mS[i])) {
+            x[j] = aS[i];
+            //@ MultisetSliceOne(x,j);
+            j = j + 1;
+        }
+        //@ MultisetSliceOne(aS,i);
         i = i + 1;
     }
+    //@ MultisetSlice(aS);
     return x[:j];
 }

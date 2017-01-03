@@ -10,4 +10,4 @@ Properties of shuffle, that rely on distributions, need to be proved separately.
 Namely, if all the elements of the input array are distinct, then we can leak the comparisons of the (randomly) shuffled array.
 
 Execute:
-secrec examples/leakage/qsort/qsort.sc --verify --entrypoints="leaky_sort"
+secrec examples/leakage/qsort/qsort.sc

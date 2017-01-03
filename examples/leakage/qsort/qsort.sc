@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --verify --entrypoints="leaky_sort"
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --entrypoints="leaky_sort"
 
 module qsort;
 
@@ -28,22 +28,15 @@ domain private privatek;
 //@ }
 
 //@ leakage lemma lcomparisons_subset <nonpublic kind K,domain D : K,type T> (D T[[1]] xs,D T[[1]] ys)
-//@ context<>
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires lcomparisons(xs);
 //@ ensures lcomparisons(ys);
  
 //@ leakage lemma lcomparison_subset <nonpublic kind K,domain D : K,type T> (D T[[1]] xs,D T[[1]] ys, D T z)
-//@ context<>
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires in(z,xs);
 //@ requires lcomparisons(xs);
 //@ ensures lcomparison(ys,z);
-
-//@ lemma ArrayHead <domain D,type T> (D T[[1]] xs)
-//@ context<>
-//@ requires size(xs) > 1;
-//@ ensures xs == cat({xs[0]},xs[1:]);
 
 //* Code
 
@@ -56,17 +49,28 @@ struct partition_result {
 // the intermediate comparisons cannot be computed from the public values. they leak the "shape" of the input.
 partition_result partition (private uint[[1]] xs, private uint p)
 //@ leakage requires lcomparison(xs,p);
-//@ ensures multiset(xs) == multiset(\result.ls) + multiset(\result.rs);
+//@ ensures multiset(xs) === union(multiset(\result.ls),multiset(\result.rs));
+//@ ensures size(xs) === size(\result.ls) + size(\result.rs);
 {
     private uint[[1]] ls, rs;
     for (uint i = 0; i < size (xs); i=i+1)
     //@ invariant 0 <= i && i <= size(xs);
-    //@ invariant multiset(xs[:i]) == multiset(ls) + multiset(rs);
+    //@ invariant multiset(xs[:i]) === union(multiset(ls),multiset(rs));
+    //@ invariant size(xs[:i]) === size(ls) + size(rs);
     {
+        //@ assert i < size(xs);
+        //@ MultisetSliceOne(xs,i);
         private uint y = xs[i];
-        if (declassify (y <= p)) ls = snoc(ls,y);
-        else rs = snoc (rs, y);
+        if (declassify (y <= p)) {
+            ls = snoc(ls,y);
+            //@ MultisetSnoc(ls);
+        }
+        else {
+            rs = snoc (rs, y);
+            //@ MultisetSnoc(rs);
+        }
     }
+    //@ MultisetSlice(xs);
 
     partition_result result;
     result.ls = ls;
@@ -77,11 +81,11 @@ partition_result partition (private uint[[1]] xs, private uint p)
 private uint[[1]] leaky_sort (private uint[[1]] xs)
 //@ decreases size(xs);
 //@ leakage requires lcomparisons(xs);
-//@ ensures multiset(xs) == multiset(\result);
+//@ ensures multiset(xs) === multiset(\result);
 {
     if (size(xs) <= 1) return xs;
 
-    //@ ArrayHead(xs);
+    //@ ConsDef(xs);
 
     private uint pivot = xs[0];
     //@ leakage lcomparison_subset(xs,xs[1:],pivot);

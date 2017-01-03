@@ -697,15 +697,16 @@ newDecCtx l msg (DecCtx Nothing dict frees) doTop = do
     addHeadTDict l ("newDecCtx False"++msg) =<< fromPureTDict dict
     addFrees ("newDecCtx False"++msg) frees
     opts <- askOpts
-    if (doTop || implicitContext opts == InferCtx)
+    let doSolve = doTop || implicitContext opts == InferCtx
+    if doSolve
         then solveTop l ("newDecCtx False"++msg)
         else solve l ("newDecCtx False"++msg)
     dict' <- liftM (headNe . tDict) State.get
     frees' <- getFrees l
     solved <- getSolved
     let ks = toPureCstrs (tCstrs dict') solved
-    let recs = if doTop then mempty else (tRec dict')
-    checkFrees l frees' ks dict'
+    let recs = if doSolve then mempty else (tRec dict')
+    when doSolve $ checkFrees l frees' ks dict'
     returnS $ DecCtx Nothing (PureTDict ks emptyTSubsts recs) frees'
 newDecCtx l msg (DecCtx (Just recs) dict frees) doTop = do
     solveTop l ("newDecCtx True"++msg)
@@ -822,8 +823,12 @@ newProcedureFunction recpn bctx pn@(ProcedureName (Typed l (IDecT innerdect)) n)
     bctx' <- addLineage did $! newDecCtx l "newProcedureFunction" bctx True
     dict <- liftM (headNe . tDict) State.get
     
+    wvars <- tpltVars vars
+    let chg = writeVars wvars
+    vars' <- chgVarId chg vars
+    
     d'' <- tryRunSimplify simplifyInnerDecType =<< substFromTSubsts "newProc body" dontStop l (tSubsts dict) True Map.empty =<< writeIDecVars l innerdect
-    let dt = dropDecRecs $! DecType i (DecTypeOri False) vars implicitDecCtx bctx' [] d''
+    let dt = dropDecRecs $! DecType i (DecTypeOri False) vars' implicitDecCtx bctx' [] d''
     let e = EntryEnv (locpos l) (DecT dt)
     debugTc $! do
         ppe <- ppr (entryType e)
@@ -1179,12 +1184,14 @@ splitTpltHead l hctx bctx deps vars dec = do
     
 checkFrees :: (Vars GIdentifier (TcM m) x,ProverK loc m,PP (TcM m) d) => loc -> Frees -> x -> d -> TcM m ()
 checkFrees l frees x dict = do
-    freevars <- usedVs' x
-    forM_ (Map.keys $! Map.filter (\b -> not b) $! frees) $! \v -> unless (Set.member v freevars) $! do
-        ppv <- pp v
-        ppd <- pp dict
-        genTcError (locpos l) False $! text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd
-    
+    opts <- askOpts
+    when (debugCheck opts) $ do
+        freevars <- usedVs' x
+        forM_ (Map.keys $! Map.filter (\b -> not b) $! frees) $! \v -> unless (Set.member v freevars) $! do
+            ppv <- pp v
+            ppd <- pp dict
+            genTcError (locpos l) False $! text "free variable" <+> ppv <+> text "not dependent on a constraint from" <+> ppd
+        
 -- Adds a new (non-overloaded) template structure to the environment.
 -- Adds the template constraints from the environment
 addTemplateStruct :: (ProverK loc m) => TypeName GIdentifier (Typed loc) -> [(Constrained Var,IsVariadic)] -> DecCtx -> DecCtx -> Deps -> TypeName GIdentifier (Typed loc) -> TcM m (TypeName GIdentifier (Typed loc))

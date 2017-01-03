@@ -306,13 +306,11 @@ instance Simplify Contract where
 instance Simplify BareDecl where
     simplify d = do
         opts <- Reader.ask
-        case (bareDeclName d,vcgen opts) of
-            (Just n,isDafnyVCGen -> Just withModules) -> if List.elem n (dafnyAnns withModules)
-                then return Nothing
-                else simplify' d
-            otherwise -> if hasDafnyDestroyAnn opts d
-                then return Nothing
-                else simplify' d
+        case (d,bareDeclName d) of
+            (_,Just n@(isDafnyAnn opts -> True)) -> return Nothing
+            (_,Just n@(isDestroyDecl opts -> True)) -> return Nothing
+            (hasDafnyDestroyAxiomAnn opts -> True,_) -> return Nothing
+            otherwise -> simplify' d
       where
         simplify' (AxiomDecl atts e) = do
             atts' <- simplifyMonoid atts

@@ -1,5 +1,6 @@
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv
 
-module ex;
+module cut_shuffle;
 
 import axioms;
 
@@ -30,6 +31,8 @@ private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
     pair amS = shuffle_pair (a,m);
     private int[[1]] aS = amS.left;
     private bool[[1]] mS = amS.right;
+    //@ MultisetSize(aS);
+    //@ MultisetSize(mS);
     
     uint i = 0;
     private int[[1]] x;
@@ -39,7 +42,9 @@ private int[[1]] cut (private int[[1]] a, private bool [[1]] m)
     //@ invariant multiset(x) <= multiset(aS[:i]);
     {
         if (declassify(mS[i])) { x = cat(x,{aS[i]}); }
+        //@ MultisetSliceOne(aS,i);
         i = i + 1;
     }
+    //@ MultisetSlice(aS);
     return x;
 }

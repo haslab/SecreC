@@ -12,6 +12,21 @@ import Text.Read
 import Data.List as List
 import Data.Generics
 
+isDestroyDecl :: Options -> Id -> Bool
+isDestroyDecl opts n = List.elem n (destroyDecls opts)
+
+destroyDecls :: Options -> [String]
+destroyDecls opts@(dafnyVCGen -> Just withModules) = concatMap dropAxiomDecls (axioms opts)
+    where
+    dropAxiomDecls :: Id -> [Id]
+    dropAxiomDecls n = ["CheckWellformed$$"++n
+                       ,"IntraModuleCall$$"++n]
+destroyDecls opts = []
+
+mkAxiomName :: Options -> Id -> Id
+mkAxiomName (dafnyVCGen -> Just withModules) n = "InterModuleCall$$"++n
+mkAxiomName  _ n = n
+
 firstRE :: String -> String -> Maybe String
 firstRE re str = case matchRegexAll (mkRegex re) str of
     Just (_,match,_,_) -> Just match
@@ -27,18 +42,18 @@ isDafnyAxiom withModules str = List.elem str $ concat $ map (dafnyAxioms withMod
 dafnyPrelude True = "_0_prelude"
 dafnyPrelude False = "_module"
 
-dafnyDestroyAnn :: Bool -> String -> String
-dafnyDestroyAnn withModules name = dafnyPrelude withModules ++ "._default." ++ name ++ "$T"
+dafnyDestroyAxiomAnn :: Bool -> String -> String
+dafnyDestroyAxiomAnn withModules name = dafnyPrelude withModules ++ "._default." ++ name ++ "$T"
 
-dafnyDestroyAnns :: Bool -> [String]
-dafnyDestroyAnns withModules = map (dafnyDestroyAnn withModules) dafnyNames
+dafnyDestroyAxiomAnns :: Bool -> [String]
+dafnyDestroyAxiomAnns withModules = map (dafnyDestroyAxiomAnn withModules) dafnyNames
 
-hasDafnyDestroyAnn :: Data a => Options -> a -> Bool
-hasDafnyDestroyAnn (dafnyVCGen -> Just withModules) x = everything (||) (mkQ False isDestroy) x
+hasDafnyDestroyAxiomAnn :: Data a => Options -> a -> Bool
+hasDafnyDestroyAxiomAnn (dafnyVCGen -> Just withModules) x = everything (||) (mkQ False isDestroy) x
     where
     isDestroy :: Id -> Bool
-    isDestroy n = List.elem n (dafnyDestroyAnns withModules)
-hasDafnyDestroyAnn opts x = False
+    isDestroy n = List.elem n (dafnyDestroyAxiomAnns withModules)
+hasDafnyDestroyAxiomAnn opts x = False
 
 dafnyAxioms withModules name = dafnyFrameAxioms ++ dafnyConsqAxioms
     where
@@ -47,6 +62,10 @@ dafnyAxioms withModules name = dafnyFrameAxioms ++ dafnyConsqAxioms
 
 dafnyNames :: [String]
 dafnyNames = ["PublicIn","PublicOut","PublicMid","DeclassifiedIn","DeclassifiedOut","Leak","Leakage","Free"]
+
+isDafnyAnn :: Options -> String -> Bool
+isDafnyAnn (dafnyVCGen -> Just withModules) n = List.elem n (dafnyAnns withModules)
+isDafnyAnn _ _ = False
 
 dafnyAnns :: Bool -> [String]
 dafnyAnns withModules = concat $ map dafnyAnn dafnyNames
