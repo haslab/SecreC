@@ -116,7 +116,7 @@ itemset[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
   itemset[[1]] itemsets;
   //@ leakage LeakFrequentsSmaller(db,threshold,1,setSize);
   frequent freq = apriori_1(db,threshold);
-  itemsets = snoc(itemsets,freq.items);
+  itemsets = snoc(itemsets,itemset(freq.items));
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
@@ -126,7 +126,7 @@ itemset[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
   {
       //@ leakage LeakFrequentsSmaller(db,threshold,k+1,setSize);
       freq = apriori_k(db,threshold,freq,k);
-      itemsets = snoc(itemsets,freq.items);
+      itemsets = snoc(itemsets,itemset(freq.items));
   }
 
   return itemsets;

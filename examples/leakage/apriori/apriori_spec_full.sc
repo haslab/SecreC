@@ -116,7 +116,7 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ requires size(itemsets) === k;
 //@ noinline;
 //@ {
-//@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) <= k && frequency(js,db) >= threshold ==> in(js,set(itemsets[size(js)-1]))
+//@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) <= k && frequency(js,db) >= threshold ==> in(js,set(itemsets[size(js)-1].items))
 //@ }
 
 //* Correctness proofs
