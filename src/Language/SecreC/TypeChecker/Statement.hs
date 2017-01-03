@@ -115,7 +115,7 @@ tcLoopBodyStmt ret l s = do
         pps <- pp s
         tcWarn (locpos l) $ SingleIterationLoop (pps)
     -- return the @StmtClass@ for the whole loop
-    let t' = StmtType $ Set.insert (StmtFallthru $ ComplexT Void) (Set.filter (not . isLoopStmtClass) cs)
+    let t' = StmtType $ Set.insert (StmtFallthru $ ComplexT Void) (Set.filter (\c -> not (isLoopStmtClass c) && not (isStmtFallthru c)) cs)
     return (s',t')
     
 -- | Typechecks a @Statement@
