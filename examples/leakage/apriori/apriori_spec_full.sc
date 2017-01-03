@@ -2,16 +2,28 @@
 
 module apriori_spec;
 
-import shared3p;
 import axioms;
 
+kind shared3p;
 domain pd_shared3p shared3p;
+
+//* Stubs
+
+template <type T>
+void printVector (T[[1]] vec) {}
+
+template <type T>
+void printMatrix (T[[2]] mat) {}
 
 //* Structures
 
 struct frequent {
     uint [[2]] items;
     pd_shared3p uint [[2]] cache;
+}
+
+struct itemset {
+    uint[[2]] items;
 }
 
 frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
@@ -97,6 +109,14 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@     shape(f.cache)[1] === shape(db)[0]
 //@     &&
 //@     forall uint i; i < shape(f.items)[0] ==> IsItemSetOf(f.items[i,:],db) && FrequentCache(f.items[i,:],f.cache[i,:],db,threshold,k)
+//@ }
+
+//@ predicate AllFrequents(itemset[[1]] itemsets, pd_shared3p uint[[2]] db, uint threshold, uint k)
+//@ requires IsDB(db);
+//@ requires size(itemsets) === k;
+//@ noinline;
+//@ {
+//@     forall uint[[1]] js; IsItemSetOf(js,db) && size(js) <= k && frequency(js,db) >= threshold ==> in(js,set(itemsets[size(js)-1]))
 //@ }
 
 //* Correctness proofs
@@ -224,6 +244,8 @@ frequent newfrequent(uint F_size, pd_shared3p uint[[2]] db)
 //@ noinline;
 //@ requires IsDB(db);
 //@ { forall uint[[1]] is; (IsItemSetOf(is,db) && size(is) <= k) ==> public (frequency(is,db) >= threshold) }
+
+//* Leakage proofs
 
 //@ leakage lemma LeakFrequentsSmaller (pd_shared3p uint[[2]] db, uint threshold, uint k1, uint k2)
 //@ requires IsDB(db);

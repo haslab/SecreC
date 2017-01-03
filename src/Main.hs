@@ -148,8 +148,8 @@ typecheck modules = flushTcWarnings $ do
             printMsg "parsed OK" 
             returnS Nothing
 
-verifyOpts :: [(TypedModuleFile,OutputType)] -> Options
-verifyOpts = mconcat . map (ppOptions . either snd4 sciPPArgs . fst)
+verifyOpts :: [(GModuleFile iden loc)] -> Options
+verifyOpts = mconcat . map (ppOptions . either snd4 sciPPArgs)
 
 ignoreVerifiedFiles :: [(TypedModuleFile,OutputType)] -> TcM IO VDafnyIds
 ignoreVerifiedFiles xs = liftM (Map.unionsWith appendVerifyOpt) $ mapM ignoreVerifiedFile xs
@@ -183,7 +183,7 @@ isLeakV LeakV = True
 isLeakV _ = False
 
 verifyDafny :: [(TypedModuleFile,OutputType)]  -> TcM IO ()
-verifyDafny files = localOptsTcM (`mappend` verifyOpts files) $ do
+verifyDafny files = localOptsTcM (`mappend` verifyOpts (map fst files)) $ do
     opts <- askOpts
     when (verify opts /= NoneV) $ do
         let dfyfile = "out.dfy"
@@ -454,7 +454,9 @@ secrec opts = do
         let es = case entryPoints opts of
                     [] -> (True,Set.fromList $ defes)
                     es -> (False,Set.fromList $ defes ++ es)
-        modules' <- liftM reverse $ State.evalStateT (pruneModuleFiles (reverse modules)) es
+        modules' <- if ignoreUnusedDefs (mappend opts $ verifyOpts modules)
+            then liftM reverse $ State.evalStateT (pruneModuleFiles (reverse modules)) es
+            else return modules
         passes secrecIns secrecOuts modules'
         
 

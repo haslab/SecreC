@@ -13,34 +13,8 @@
 
 module apriori_full;
 
-import stdlib;
-import shared3p;
-import table_database;
-import shared3p_table_database;
 import axioms;
 import apriori_spec_full;
-
-template <domain D>
-D uint [[2]] load_db ()
-//@ ensures IsDB(\result);
-{
-    string data_source = "DS1";
-    string table_name = "FIMTable";
-
-    tdbOpenConnection(data_source);
-    assert(tdbTableExists(data_source, table_name));
-
-    uint columns = tdbGetColumnCount (data_source, table_name);
-    uint rows = tdbGetRowCount (data_source, table_name);
-
-    D uint [[2]] db(rows, columns);
-
-    for (uint i = 0; i < columns; i++) {
-        db[:, i] = tdbReadColumn (data_source, table_name, i);
-    }
-
-    return db;
-}
 
 frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_shared3p uint [[2]] db, uint threshold)
 //@ requires IsDB(db);
@@ -76,7 +50,7 @@ frequent apriori_1 (pd_shared3p uint [[2]] db, uint threshold)
     //@ invariant shape(f.items)[0] <= i;
     //@ invariant FrequentsCache(f,db,threshold,1);
     //x //@ invariant SortedItemsUpTo(f.items,{i});
-    //@ invariant AllFrequentsUpTo(f.items,db,threshold,{i});
+    //x //@ invariant AllFrequentsUpTo(f.items,db,threshold,{i});
     {
       f = AddFrequent(f,{i},db[:,i],db,threshold);
     }
@@ -132,30 +106,36 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
     return next;
 }
 
-uint[[2]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
+itemset[[1]] apriori (pd_shared3p uint [[2]] db, uint threshold, uint setSize)
 //@ requires IsDB(db);
 //@ requires setSize > 0;
 //@ leakage requires LeakFrequents(db,threshold,setSize);
+//@ ensures size(\result) === setSize;
+//@ free ensures AllFrequents(\result,db,threshold,setSize);
 {
+  itemset[[1]] itemsets;
   //@ leakage LeakFrequentsSmaller(db,threshold,1,setSize);
   frequent freq = apriori_1(db,threshold);
+  itemsets = snoc(itemsets,freq.items);
   
   for (uint k = 1; k < setSize; k=k+1)
   //@ invariant 1 <= k && k <= setSize;
   //@ invariant FrequentsCache(freq,db,threshold,k);
+  //@ invariant size(itemsets) === k;
   //x //@ invariant SortedItems(freq.items);
   {
       //@ leakage LeakFrequentsSmaller(db,threshold,k+1,setSize);
       freq = apriori_k(db,threshold,freq,k);
+      itemsets = snoc(itemsets,freq.items);
   }
 
-  return freq.items;
+  return itemsets;
 }
 
 
 void main () {
-    pd_shared3p uint [[2]] db = load_db ();
-    uint[[2]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
+    pd_shared3p uint [[2]] db;
+    itemset[[1]] itemsets = apriori (db, 2 :: uint, 2 :: uint);
     printMatrix (declassify(db));
-    printMatrix (itemsets);
+    printVector (itemsets);
 }
