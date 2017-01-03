@@ -71,6 +71,7 @@ withCondExpr c m = do
     addStmtCond (AnnStatement l s) = do
         s' <- mapM addAnnStmtCond s
         returnS $ AnnStatement l s'
+    addStmtCond s = returnS s
     addAnnStmtCond (AssumeAnn l isLeak e) = do
         returnS $ AssumeAnn l isLeak $! impliesExprLoc c e
     addAnnStmtCond (AssertAnn l isLeak e) = do
