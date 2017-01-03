@@ -1,6 +1,14 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc
+#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop
 
-import stdlib;
+bool all (bool[[1]] vec) {
+    uint n = size (vec);
+    for (uint i = 0; i<n; ++i) {
+        if (!vec[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 
 // \todo causes "double free or corruption" on pop_frame
 // it looks like bug in VM, but could easily be code gen
