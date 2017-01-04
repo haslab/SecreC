@@ -1,6 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
-
-import stdlib;
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=gorderedm --promote=nop
 
 bool all (bool [[2]] arr) {
   uint n = size(arr);
