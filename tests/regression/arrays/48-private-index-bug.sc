@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=gorderedm --promote=nop
 
 kind additive3pp;
 domain sharemind_test_pd additive3pp;

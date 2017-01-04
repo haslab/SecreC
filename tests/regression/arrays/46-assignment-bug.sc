@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc
+#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=fullb --matching=gorderedm --promote=nop
 
 void main () {
     int [[2]] arr (2, 2);

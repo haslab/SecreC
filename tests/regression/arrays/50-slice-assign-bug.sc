@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=gorderedm --promote=nop
 
 void main() {
     uint8 [[1]] src(1);

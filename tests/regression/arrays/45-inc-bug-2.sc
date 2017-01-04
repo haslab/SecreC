@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=gorderedm --promote=nop
 
 kind additive3p;
 domain private additive3p;

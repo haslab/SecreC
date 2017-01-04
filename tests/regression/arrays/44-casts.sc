@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=gorderedm --promote=nop
 
 bool all (bool [[1]] arr) {
   for (uint i = 0; i < size (arr); ++ i)

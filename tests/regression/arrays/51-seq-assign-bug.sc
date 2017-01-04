@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=onc
+#OPTIONS_SECREC --implicitcoercions=onc --backtrack=fullb --matching=gorderedm --promote=nop
 
 void main () {
     uint [[1]] a (1), b (1);
