@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --paths="examples/leakage/apriori" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --ignorespecdomains --nodafnymodules
+//#OPTIONS_SECREC --paths="examples/leakage/apriori" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --ignorespecdomains --nodafnymodules  --ignoreunuseddefs
 
 /*
  * This file is a part of the Sharemind framework.
