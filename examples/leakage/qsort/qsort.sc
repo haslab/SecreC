@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --entrypoints="leaky_sort"
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --entrypoints="leaky_sort" --nodafnymodules
 
 module qsort;
 

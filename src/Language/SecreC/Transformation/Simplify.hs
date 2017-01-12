@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, ConstraintKinds, ViewPatterns, FlexibleContexts, RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables, TupleSections, ConstraintKinds, ViewPatterns, FlexibleContexts, RankNTypes #-}
 
 module Language.SecreC.Transformation.Simplify where
 
@@ -285,9 +285,12 @@ simplifyVariableInitialization isConst t (VariableInitialization l v szs mbe) = 
     case mbe of
         Nothing -> returnS ss1
         Just e -> do
-            (ss2,Nothing) <- simplifyExpression False (Just v) e
-            --let ass' = maybe [] (\e -> [ExpressionStatement l $! BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e]) e'
-            returnS (ss1++ss2)
+            (ss2,e') <- simplifyExpression False (Just v) e
+            case e' of
+                Nothing -> return ss1
+                Just e' -> do
+                    let ass = [ExpressionStatement l $! BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e']
+                    return $ ss1 ++ ass
 
 simplifyReturnTypeSpecifier :: Bool -> SimplifyT loc m ReturnTypeSpecifier
 simplifyReturnTypeSpecifier isExpr (ReturnType l t) = do
@@ -683,8 +686,34 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                 ppes <- ppr es
                 ppd' <- ppr d'
                 liftIO $! putStrLn $! "not inline parameters" ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
-            returnS $ Right $! DecT d'
+            bindProc d'
   where
+    bindProc d' = if isExpr
+        then returnS $ Right $! DecT d'
+        else do
+            let tl = notTyped "procCall" l
+            case decTypeReturn d' of
+                Nothing -> returnS $ Right $! DecT d'
+                Just tret -> do
+                    res <- case vret of
+                        Nothing -> liftM (VarName (Typed l tret)) $! genVar (VIden $! mkVarId "proc")
+                        Just vres -> return vres
+                    let xe = case (n,es) of
+                                (OIden o,[(e1,False)]) -> Just $ UnaryExpr (Typed l tret) (fmap (Typed l) o) e1
+                                (OIden o,[(e1,False),(e2,False)]) -> Just $ BinaryExpr (Typed l tret) e1 (fmap (Typed l) o) e2
+                                (PIden n,es) -> Just $ ProcCallExpr (Typed l tret) (ProcedureName (Typed l $ DecT d') $ PIden n) Nothing es
+                                otherwise -> Nothing
+                    case xe of
+                        Nothing -> returnS $ Right $! DecT d'
+                        Just xe -> do
+                            tret' <- type2TypeSpecifier l tret
+                            case tret' of
+                                Nothing -> do
+                                    let def = [ExpressionStatement (Typed l $ ComplexT Void) xe]
+                                    returnS $ Left (def,Nothing)
+                                Just tret' -> do
+                                    let ass = [VarStatement tl $! VariableDeclaration tl False True tret' $! WrapNe $! VariableInitialization tl res Nothing $ Just xe]
+                                    returnS $ Left (ass,Just $ varExpr res)
     inlineProcCall' es' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just (Just body)) c)) | withBody && not isExpr && isInlineDecClass c = do
         debugTc $! do
             ppn <- ppr n
@@ -809,7 +838,7 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
             ppes <- ppr es
             ppd' <- ppr d'
             liftIO $! putStrLn $! "not inline " ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
-        returnS $ Right $! DecT d'
+        bindProc d'
 
 simplifyStmts :: SimplifyK loc m => Maybe (VarName GIdentifier (Typed loc)) -> [Statement GIdentifier (Typed loc)] -> SimplifyM m [Statement GIdentifier (Typed loc)]
 simplifyStmts ret ss = do

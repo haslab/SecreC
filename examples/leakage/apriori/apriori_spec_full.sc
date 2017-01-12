@@ -1,6 +1,6 @@
 //#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --implicitcontext=inferctx
 
-module apriori_spec;
+module apriori_spec_full;
 
 import axioms;
 

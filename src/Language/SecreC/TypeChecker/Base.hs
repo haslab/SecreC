@@ -2984,6 +2984,16 @@ hashModuleTyVarId = hashWithSalt 0 . modTyId
 instance (GenVar iden m,MonadIO m,IsScVar m iden) => Vars iden m ModuleTyVarId where
     traverseVars f x = returnS x
 
+decTypeReturn :: DecType -> Maybe Type
+decTypeReturn (DecType _ _ _ _ _ _ d) = iDecTypeReturn d
+
+iDecTypeReturn :: InnerDecType -> Maybe Type
+iDecTypeReturn (ProcType _ _ _ ret _ _ _) = Just ret
+iDecTypeReturn (FunType _ _ _ _ ret _ _ _) = Just ret
+iDecTypeReturn (StructType {}) = Nothing
+iDecTypeReturn (AxiomType {}) = Nothing
+iDecTypeReturn (LemmaType {}) = Just $ ComplexT Void
+
 decTypeK :: DecType -> DecTypeK
 decTypeK (DecType i isRec _ _ _ _ _) = isRec
 
