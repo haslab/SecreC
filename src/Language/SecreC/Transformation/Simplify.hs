@@ -688,32 +688,32 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                 liftIO $! putStrLn $! "not inline parameters" ++ pprid isExpr ++ " " ++ ppn ++ " " ++ ppes ++ " " ++ ppd'
             bindProc d'
   where
-    bindProc d' = returnS $ Right $ DecT d' --if isExpr
-        --then returnS $ Right $! DecT d'
-        --else do
-        --    let tl = notTyped "procCall" l
-        --    case decTypeReturn d' of
-        --        Nothing -> returnS $ Right $! DecT d'
-        --        Just tret -> do
-        --            res <- case vret of
-        --                Nothing -> liftM (VarName (Typed l tret)) $! genVar (VIden $! mkVarId "proc")
-        --                Just vres -> return vres
-        --            let xe = case (n,es) of
-        --                        (OIden o,[(e1,False)]) -> Just $ UnaryExpr (Typed l tret) (fmap (Typed l) o) e1
-        --                        (OIden o,[(e1,False),(e2,False)]) -> Just $ BinaryExpr (Typed l tret) e1 (fmap (Typed l) o) e2
-        --                        (PIden n,es) -> Just $ ProcCallExpr (Typed l tret) (ProcedureName (Typed l $ DecT d') $ PIden n) Nothing es
-        --                        otherwise -> Nothing
-        --            case xe of
-        --                Nothing -> returnS $ Right $! DecT d'
-        --                Just xe -> do
-        --                    tret' <- type2TypeSpecifier l tret
-        --                    case tret' of
-        --                        Nothing -> do
-        --                            let def = [ExpressionStatement (Typed l $ ComplexT Void) xe]
-        --                            returnS $ Left (def,Nothing)
-        --                        Just tret' -> do
-        --                            let ass = [VarStatement tl $! VariableDeclaration tl False True tret' $! WrapNe $! VariableInitialization tl res Nothing $ Just xe]
-        --                            returnS $ Left (ass,Just $ varExpr res)
+    bindProc d' = if isExpr
+        then returnS $ Right $! DecT d'
+        else do
+            let tl = notTyped "procCall" l
+            case decTypeReturn d' of
+                Nothing -> returnS $ Right $! DecT d'
+                Just tret -> do
+                    res <- case vret of
+                        Nothing -> liftM (VarName (Typed l tret)) $! genVar (VIden $! mkVarId "proc")
+                        Just vres -> return vres
+                    let xe = case (n,es) of
+                                (OIden o,[(e1,False)]) -> Just $ UnaryExpr (Typed l tret) (fmap (Typed l) o) e1
+                                (OIden o,[(e1,False),(e2,False)]) -> Just $ BinaryExpr (Typed l tret) e1 (fmap (Typed l) o) e2
+                                (PIden n,es) -> Just $ ProcCallExpr (Typed l tret) (ProcedureName (Typed l $ DecT d') $ PIden n) Nothing es
+                                otherwise -> Nothing
+                    case xe of
+                        Nothing -> returnS $ Right $! DecT d'
+                        Just xe -> do
+                            tret' <- type2TypeSpecifier l tret
+                            case tret' of
+                                Nothing -> do
+                                    let def = [ExpressionStatement (Typed l $ ComplexT Void) xe]
+                                    returnS $ Left (def,Nothing)
+                                Just tret' -> do
+                                    let ass = [VarStatement tl $! VariableDeclaration tl False True tret' $! WrapNe $! VariableInitialization tl res Nothing $ Just xe]
+                                    returnS $ Left (ass,Just $ varExpr res)
     inlineProcCall' es' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just (Just body)) c)) | withBody && not isExpr && isInlineDecClass c = do
         debugTc $! do
             ppn <- ppr n
