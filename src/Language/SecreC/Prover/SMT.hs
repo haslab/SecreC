@@ -159,7 +159,7 @@ checkAny check = do
 
 checkEvalOrSMT :: ProverK loc m => loc -> IExpr -> (SMTConfig -> TcM m ()) -> TcM m ()
 checkEvalOrSMT l ie check = do
-    res <- catchError (liftM Right $ fullEvalIExpr l ie) (return . Left)
+    res <- catchError (liftM Right $ fullyEvaluateIExpr l ie) (return . Left)
     case res of
         Left err -> checkAny check
         Right (IBool True) -> return ()

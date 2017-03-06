@@ -12,3 +12,5 @@ import Data.Word
 fullyEvaluateIndexExpr :: (ProverK loc m) => loc -> Expression GIdentifier Type -> TcM m Word64
 fullyEvaluateExpr :: (ProverK loc m) => loc -> Expression GIdentifier (Typed loc) -> TcM m ILit
 fullyEvaluateIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m ILit
+
+evalIExpr :: (ProverK loc m) => loc -> IExpr -> TcM m IExpr
