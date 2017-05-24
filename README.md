@@ -42,6 +42,7 @@ Next use cabal to build the analysis tool.
 cabal sandbox init
 cabal sandbox add-source packages/*
 cabal install --only-dependencies -j
+cabal install boogaman
 cabal configure
 cabal build -j
 cabal install

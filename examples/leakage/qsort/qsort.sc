@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --entrypoints="leaky_sort" --nodafnymodules
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --entrypoints="leaky_qsort" --nodafnymodules
 
 module qsort;
 
@@ -63,11 +63,11 @@ partition_result partition (private uint[[1]] xs, private uint p)
         private uint y = xs[i];
         if (declassify (y <= p)) {
             ls = snoc(ls,y);
-            //@ MultisetSnoc(ls);
+            //x //@ MultisetSnoc(ls);
         }
         else {
             rs = snoc (rs, y);
-            //@ MultisetSnoc(rs);
+            //x //@ MultisetSnoc(rs);
         }
     }
     //@ MultisetSlice(xs);
@@ -78,21 +78,23 @@ partition_result partition (private uint[[1]] xs, private uint p)
     return result;
 }
 
-private uint[[1]] leaky_sort (private uint[[1]] xs)
+private uint[[1]] leaky_qsort (private uint[[1]] xs)
 //@ decreases size(xs);
 //@ leakage requires lcomparisons(xs);
 //@ ensures multiset(xs) === multiset(\result);
 {
     if (size(xs) <= 1) return xs;
 
-    //@ ConsDef(xs);
+    //x //@ ConsDef(xs);
+    //@ MultisetCons(xs);
 
     private uint pivot = xs[0];
     //@ leakage lcomparison_subset(xs,xs[1:],pivot);
     partition_result r = partition (xs[1:], pivot);
+    //@ assert multiset(r.ls) <= multiset(xs[1:]);
     //@ leakage lcomparisons_subset(xs,r.ls);
-    private uint[[1]] ls = leaky_sort (r.ls);
+    private uint[[1]] ls = leaky_qsort (r.ls);
     //@ leakage lcomparisons_subset(xs,r.rs);
-    private uint[[1]] rs = leaky_sort (r.rs);
+    private uint[[1]] rs = leaky_qsort (r.rs);
     return cat (snoc (ls, pivot), rs);
 }

@@ -287,10 +287,10 @@ simplifyVariableInitialization isConst t (VariableInitialization l v szs mbe) = 
         Just e -> do
             (ss2,e') <- simplifyExpression False (Just v) e
             case e' of
-                Nothing -> return ss1
+                Nothing -> return (ss1++ss2)
                 Just e' -> do
-                    let ass = [ExpressionStatement l $! BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e']
-                    return $ ss1 ++ ass
+                    --let ass = [ExpressionStatement l $! BinaryAssign l (varExpr v) (BinaryAssignEqual noloc) e']
+                    return $ ss1 ++ ss2 -- ++ ass
 
 simplifyReturnTypeSpecifier :: Bool -> SimplifyT loc m ReturnTypeSpecifier
 simplifyReturnTypeSpecifier isExpr (ReturnType l t) = do
@@ -712,7 +712,9 @@ inlineProcCall withBody isExpr vret l n t@(DecT d) es = do
                                     let def = [ExpressionStatement (Typed l $ ComplexT Void) xe]
                                     returnS $ Left (def,Nothing)
                                 Just tret' -> do
-                                    let ass = [VarStatement tl $! VariableDeclaration tl False True tret' $! WrapNe $! VariableInitialization tl res Nothing $ Just xe]
+                                    let ass = case vret of
+                                                Nothing -> [VarStatement tl $! VariableDeclaration tl False True tret' $! WrapNe $! VariableInitialization tl res Nothing $ Just xe]
+                                                Just v -> [ExpressionStatement tl $! BinaryAssign tl (varExpr v) (BinaryAssignEqual tl) xe]
                                     returnS $ Left (ass,Just $ varExpr res)
     inlineProcCall' es' (DecType _ _ _ _ _ _ (LemmaType _ _ _ args ann (Just (Just body)) c)) | withBody && not isExpr && isInlineDecClass c = do
         debugTc $! do

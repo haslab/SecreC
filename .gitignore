@@ -6,3 +6,4 @@ dist/
 *.hi
 *.o-boot
 *.hi-boot
+*.DS_Store

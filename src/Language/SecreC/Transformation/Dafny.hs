@@ -116,7 +116,7 @@ addFreeMode isFree m = do
     State.modify $ \e -> e { freeMode = old }
     return x
 
-getAssumptions :: DafnyK m => DafnyM m AnnsDoc
+getAssumptions :: Monad m => DafnyM m AnnsDoc
 getAssumptions = State.gets assumptions
 
 withAssumptions :: DafnyK m => DafnyM m a -> DafnyM m a

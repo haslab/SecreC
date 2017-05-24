@@ -8,6 +8,7 @@ The input leakage assumption of leaky sort is that we can leak the comparisons b
 Assumptions:
 Properties of shuffle, that rely on distributions, need to be proved separately.
 Namely, if all the elements of the input array are distinct, then we can leak the comparisons of the (randomly) shuffled array.
+This can be generalised to lists with non-distinct elements by using the index of each element in the input list as a tie-breaker.
 
 Execute:
-secrec examples/leakage/qsort/qsort.sc
+secrec examples/leakage/qsort/qsort.sc --debugtypechecker --debugverification --progress

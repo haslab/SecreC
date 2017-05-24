@@ -54,6 +54,10 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
     if (declassify (frequence >= threshold)) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
+      //@ assert C_dot === transactions(C,db);
+      //@ assert frequency(C,db) === frequence;
+      //@ assert frequency(C,db) >= threshold;
+      //@ assert FrequentCache(C,C_dot,db,threshold,size(C));
     }
     return f;
 }

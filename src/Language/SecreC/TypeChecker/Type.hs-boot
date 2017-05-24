@@ -16,6 +16,11 @@ import Control.Monad.IO.Class
 
 castTypeToType :: CastType GIdentifier Type -> Type
 
+toSetType :: ProverK loc m => loc -> Bool -> Type -> TcM m BaseType
+toMultisetType :: ProverK loc m => loc -> Type -> TcM m BaseType
+isPrivate :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
+isPublic :: ProverK loc m => loc -> Bool -> Type -> TcM m ()
+
 typeToSecType :: (ProverK loc m) => loc -> Type -> TcM m SecType
 typeToBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
 typeToComplexType :: (ProverK loc m) => loc -> Type -> TcM m ComplexType
