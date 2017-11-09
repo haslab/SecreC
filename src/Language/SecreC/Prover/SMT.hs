@@ -139,6 +139,9 @@ validitySBV l cfg str sprop = do
 
 -- * Generic interface
 
+instance Show SMTConfig where
+    show _ = "SMTConfig"
+
 supportedSolvers :: [SMTConfig]
 supportedSolvers = map (defaultSolverConfig) [minBound..maxBound::Solver]
 

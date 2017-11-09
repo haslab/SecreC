@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --nodafnymodules
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --nodafnymodules
 
 module cut;
 

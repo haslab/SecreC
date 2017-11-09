@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --ignorespecdomains --verify=bothv --entrypoints="leaky_qsort" --nodafnymodules
+//#OPTIONS_SECREC --implicitcoercions=defaultsc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="leaky_qsort" --nodafnymodules
 
 module qsort;
 
@@ -11,28 +11,28 @@ domain private privatek;
 
 //* Annotations
 
-//@ template <nonpublic kind K,domain D : K,type T>
-//@ leakage function bool lcomparison (D T[[1]] xs,D T x)
+//@ template <type T>
+//@ leakage function bool lcomparison (T[[1]] xs,T x)
 //@ context<>
 //@ noinline;
 //@ {
 //@     forall uint i ; (0 <= i && i < size(xs)) ==> public(xs[i] <= x)
 //@ }
 
-//@ template <nonpublic kind K,domain D : K,type T>
-//@ leakage function bool lcomparisons (D T[[1]] xs)
+//@ template <type T>
+//@ leakage function bool lcomparisons (T[[1]] xs)
 //@ context<>
 //@ noinline;
 //@ {
 //@     forall uint i,uint j ; (0 <= i && i < size(xs) && 0 <= j && j < size(xs)) ==> public(xs[i] <= xs[j])
 //@ }
 
-//@ leakage lemma lcomparisons_subset <nonpublic kind K,domain D : K,type T> (D T[[1]] xs,D T[[1]] ys)
+//@ leakage lemma lcomparisons_subset <type T> (T[[1]] xs,T[[1]] ys)
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires lcomparisons(xs);
 //@ ensures lcomparisons(ys);
  
-//@ leakage lemma lcomparison_subset <nonpublic kind K,domain D : K,type T> (D T[[1]] xs,D T[[1]] ys, D T z)
+//@ leakage lemma lcomparison_subset <type T> (T[[1]] xs,T[[1]] ys, T z)
 //@ requires multiset(ys) <= multiset(xs);
 //@ requires in(z,xs);
 //@ requires lcomparisons(xs);

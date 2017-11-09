@@ -172,7 +172,6 @@ data Options
         , entryPoints           :: [String]
         , defaults              :: Bool
         , progress              :: Bool
-        , ignoreSpecDomains     :: Bool
         , ignoreUnusedDefs      :: Bool
         , noDafnyModules        :: Bool
         , parallel              :: Bool
@@ -215,7 +214,6 @@ instance Monoid Options where
         , entryPoints = entryPoints x ++ entryPoints y
         , defaults = defaults x && defaults y
         , progress = progress x || progress y
-        , ignoreSpecDomains = ignoreSpecDomains x || ignoreSpecDomains y
         , ignoreUnusedDefs = ignoreUnusedDefs x || ignoreUnusedDefs y
         , noDafnyModules = noDafnyModules x || noDafnyModules y
         , parallel = parallel x || parallel y
@@ -231,7 +229,6 @@ defaultOptions = Opts
     , simplify = True
     , typeCheck = True
     , debugCheck = False
-    , ignoreSpecDomains = False
     , ignoreUnusedDefs = False
     , debugLexer = False
     , debugParser = False

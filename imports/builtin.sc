@@ -1,4 +1,4 @@
-#OPTIONS_SECREC --implicitcoercions=defaultsc --ignorespecdomains --promote=nop
+#OPTIONS_SECREC --implicitcoercions=defaultsc --promote=nop
 
 module builtin;
 
@@ -16,18 +16,11 @@ context<>
     __builtin("core.declassify",x) :: T[[N]]
 }
 
-//@ template <domain D1,domain D2,type T,dim N>
-//@ function D2 T[[N]] reclassify (D1 T[[N]] x)
+//@ template <type T,dim N>
+//@ function T[[N]] reclassify (T[[N]] x)
 //@ context<>
 //@ {
-//@     __builtin("core.reclassify",x) :: D2 T[[N]]
-//@ }
-
-//@ template <domain D>
-//@ predicate assertion (D bool x)
-//@ context<>
-//@ {
-//@     __builtin("core.reclassify",x) :: bool
+//@     __builtin("core.reclassify",x) :: T[[N]]
 //@ }
 
 template <domain D, type T, dim N>
@@ -79,18 +72,18 @@ context<>
 
 // addition
 
-//@ template<domain D1,type T1,dim N1>
-//@ function set<D1 T1[[N1]]> union (set<D1 T1[[N1]]> x, set<D1 T1[[N1]]> y)
+//@ template<type T1,dim N1>
+//@ function set<T1[[N1]]> union (set<T1[[N1]]> x, set<T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.union",x,y) :: set<D1 T1[[N1]]>
+//@     __builtin("core.union",x,y) :: set<T1[[N1]]>
 //@ }
 
-//@ template<domain D1,type T1,dim N1>
-//@ function multiset<D1 T1[[N1]]> union (multiset<D1 T1[[N1]]> x, multiset<D1 T1[[N1]]> y)
+//@ template<type T1,dim N1>
+//@ function multiset<T1[[N1]]> union (multiset<T1[[N1]]> x, multiset<T1[[N1]]> y)
 //@ context<>
 //@ {
-//@     __builtin("core.union",x,y) :: multiset<D1 T1[[N1]]>
+//@     __builtin("core.union",x,y) :: multiset<T1[[N1]]>
 //@ }
 
 template<domain D, primitive type T>
@@ -213,25 +206,25 @@ context<>
 //@     __builtin("core.subset",x,y) :: bool
 //@ }
 
-//@ template<domain D1,type T1, dim N1>
-//@ predicate in (D1 T1[[N1]] x,set<D1 T1[[N1]]> y)
+//@ template<type T1, dim N1>
+//@ predicate in (T1[[N1]] x,set<T1[[N1]]> y)
 //@ context<>
 //@ {
 //@     __builtin("core.in",x,y) :: bool
 //@ }
 
-//@ template<domain D1,type T1, dim N1>
-//@ predicate in (D1 T1[[N1]] x, multiset<D1 T1[[N1]]> y)
+//@ template<type T1, dim N1>
+//@ predicate in (T1[[N1]] x, multiset<T1[[N1]]> y)
 //@ context<>
 //@ {
 //@     __builtin("core.in",x,y) :: bool
 //@ }
 
-//@ template<domain D,type T, dim N { N > 0 }>
-//@ function D bool in (D T x, D T[[N]] y)
+//@ template<type T, dim N { N > 0 }>
+//@ function bool in (T x, T[[N]] y)
 //@ context<>
 //@ {
-//@     __builtin("core.in",x,y) :: D bool
+//@     __builtin("core.in",x,y) :: bool
 //@ }
 
 //@ template<type T>
@@ -257,11 +250,11 @@ context<>
     __builtin("core.eq",x,y) :: D bool
 }
 
-//@ template<domain D,type T,dim N>
-//@ function D bool operator === (D T[[N]] x,D T[[N]] y)
+//@ template<type T,dim N>
+//@ function bool operator === (T[[N]] x,T[[N]] y)
 //@ context<>
 //@ {
-//@     __builtin("core.eq",x,y) :: D bool
+//@     __builtin("core.eq",x,y) :: bool
 //@ } 
 
 template<domain D, primitive type T>
@@ -315,7 +308,7 @@ template <domain D, type T, dim N { N > 0 } >
 D T[[size...(ns)]] reshape (D T[[N]] arr, uint... ns)
 context< /*@ uint product(ns...) @*/ >
 //@ inline;
-//@ requires assertion(product(ns...) === size(arr));
+//@ requires product(ns...) === size(arr);
 {
     havoc D T[[size...(ns)]] ret;
     __syscall("core.reshape",arr,ns...,__return ret);
@@ -584,8 +577,8 @@ function D T[[1]] cons (D T x, D T[[1]] xs)
 context<>
 //@ inline;
 //@ free ensures size(\result) === size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i+1] === xs[i]);
-//@ free ensures assertion(\result[0] === x);
+//@ free ensures forall uint i; i < size(xs) ==> \result[i+1] === xs[i];
+//@ free ensures \result[0] === x;
 {
     cat ({x},xs)
 }
@@ -597,8 +590,8 @@ context<>
 //@ requires shape(xs)[1] === size(x);
 //@ free ensures shape(\result)[0] === shape(xs)[0] + 1;
 //@ free ensures shape(\result)[1] === shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i+1,:] === xs[i,:]);
-//@ free ensures assertion<D>(\result[0,:] === x);
+//@ free ensures forall uint i; i < shape(xs)[0] ==> \result[i+1,:] === xs[i,:];
+//@ free ensures \result[0,:] === x;
 {
     cat (reshape(x,1,size(x)),xs);
 }
@@ -608,8 +601,8 @@ function D T[[1]] snoc (D T[[1]] xs, D T x)
 context<>
 //@ inline;
 //@ free ensures size(\result) === size(xs) + 1;
-//@ free ensures forall uint i; i < size(xs) ==> assertion<D>(\result[i] === xs[i]);
-//@ free ensures assertion(\result[size(xs)] === x);
+//@ free ensures forall uint i; i < size(xs) ==> \result[i] === xs[i];
+//@ free ensures \result[size(xs)] === x;
 {
     cat (xs, {x})
 }
@@ -621,8 +614,8 @@ context<>
 //@ requires shape(xs)[1] === size(x);
 //@ free ensures shape(\result)[0] === shape(xs)[0] + 1;
 //@ free ensures shape(\result)[1] === shape(xs)[1];
-//@ free ensures forall uint i; i < shape(xs)[0] ==> assertion<D>(\result[i,:] === xs[i,:]);
-//@ free ensures assertion<D>(\result[shape(xs)[0],:] === x);
+//@ free ensures forall uint i; i < shape(xs)[0] ==> \result[i,:] === xs[i,:];
+//@ free ensures \result[shape(xs)[0],:] === x;
 {
     cat (xs,reshape(x,1,size(x)));
 }
@@ -642,7 +635,7 @@ context<>
 //@ inline;
 //@ requires size(xs) > 0;
 //@ free ensures size(\result) === size(xs) - 1;
-//@ free ensures forall uint i; 0 < i && i < size(xs) ==> assertion<D>(\result[i-1] === xs[i]);
+//@ free ensures forall uint i; 0 < i && i < size(xs) ==> \result[i-1] === xs[i];
 {
     xs[1:]
 }
@@ -653,7 +646,7 @@ context<>
 //@ inline;
 //@ requires size(xs) > 0;
 //@ free ensures size(\result) === size(xs) - 1;
-//@ free ensures forall uint i; i < size(xs)-1 ==> assertion<D>(\result[i] === xs[i]);
+//@ free ensures forall uint i; i < size(xs)-1 ==> \result[i] === xs[i];
 {
     xs[:size(xs)-1]
 }

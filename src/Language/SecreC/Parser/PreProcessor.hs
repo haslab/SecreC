@@ -132,7 +132,6 @@ instance Monad m => PP m Options where
         pp25 <- pp (defaults opts)
         pp26 <- pp (progress opts)
         pp27 <- pp (noDafnyModules opts)
-        pp28 <- pp (ignoreSpecDomains opts)
         pp281 <- pp (ignoreUnusedDefs opts)
         pp29 <- pp (parallel opts)
         return $ PP.sepBy PP.space pp1
@@ -166,7 +165,6 @@ instance Monad m => PP m Options where
             <+> text "--defaults" <> pp25
             <+> text "--progress" <> pp26
             <+> text "--nodafnymodules" <> pp27
-            <+> text "--ignorespecdomains" <> pp28
             <+> text "--ignoreunuseddefs" <> pp281
             <+> text "--parallel" <> pp29
 
@@ -254,7 +252,6 @@ optionsDecl  = Opts {
     , checkAssertions = checkAssertions defaultOptions &= help "Check SecreC assertions" &= groupname "Verification:Typechecker"
     , forceRecomp = forceRecomp defaultOptions &= help "Force recompilation of SecreC modules" &= groupname "Verification:Typechecker"
     , writeSCI = writeSCI defaultOptions &= help "Write typechecking result to SecreC interface files" &= groupname "Verification:Typechecker"
-    , ignoreSpecDomains = ignoreSpecDomains defaultOptions &= help "Ignore domains in specifications" &= groupname "Verification:Typechecker"
     , ignoreUnusedDefs = ignoreUnusedDefs defaultOptions &= help "Ignore definitions that are not required for verification" &= groupname "Verification:Typechecker"
     , noDafnyModules =  noDafnyModules defaultOptions &= help "Do not generate Dafny modules" &= groupname "Verification:Typechecker"
     

@@ -1,135 +1,135 @@
-#OPTIONS_SECREC --implicitcoercions=offc --ignorespecdomains
+#OPTIONS_SECREC --implicitcoercions=offc
 
 module axioms;
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ requires size(xs) > 0;
-//@ ensures assertion<D>(xs === snoc(init(xs),last(xs)));
+//@ ensures xs === snoc(init(xs),last(xs));
 
-//@ lemma SnocDef <domain D,type T> (D T[[1]] xs)
+//@ lemma SnocDef <type T> (T[[1]] xs)
 //@ requires size(xs) > 0;
-//@ ensures assertion<D>(xs === snoc(init(xs),last(xs)));
+//@ ensures xs === snoc(init(xs),last(xs));
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ requires size(xs) > 1;
 //@ ensures xs === cons(head(xs),tail(xs));
 
-//@ lemma ConsDef <domain D,type T> (D T[[1]] xs)
+//@ lemma ConsDef <type T> (T[[1]] xs)
 //@ requires size(xs) > 1;
 //@ ensures xs === cons(head(xs),tail(xs));
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ ensures size(xs) === size(multiset(xs));
 
-//@ lemma MultisetSize <domain D,type T> (D T[[1]] xs)
+//@ lemma MultisetSize <type T> (T[[1]] xs)
 //@ ensures size(xs) === size(multiset(xs));
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ requires reclassify(xs) === {};
 //@ ensures multiset(xs) === multiset{};
 
-//@ lemma MultisetEmpty <domain D,type T> (D T[[1]] xs)
+//@ lemma MultisetEmpty <type T> (T[[1]] xs)
 //@ requires reclassify(xs) === {};
 //@ ensures multiset(xs) === multiset{};
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ ensures multiset(xs[:size(xs)]) === multiset(xs);
 
-//@ lemma MultisetSlice <domain D,type T> (D T[[1]] xs)
+//@ lemma MultisetSlice <type T> (T[[1]] xs)
 //@ ensures multiset(xs[:size(xs)]) === multiset(xs);
 
-//@ axiom <domain D,type T> (D T[[1]] xs, uint i)
+//@ axiom <type T> (T[[1]] xs, uint i)
 //@ requires 0 <= i && i < size(xs);
 //@ ensures multiset(xs[:i+1]) === union(multiset(xs[:i]),multiset{xs[i]});
  
-//@ lemma MultisetSliceOne <domain D,type T> (D T[[1]] xs, uint i)
+//@ lemma MultisetSliceOne <type T> (T[[1]] xs, uint i)
 //@ requires 0 <= i && i < size(xs);
 //@ ensures multiset(xs[:i+1]) === union(multiset(xs[:i]),multiset{xs[i]});
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ requires size(xs) > 0;
 //@ ensures multiset(xs) === union(multiset{head(xs)},multiset(tail(xs)));
 
-//@ lemma MultisetCons <domain D,type T> (D T[[1]] xs)
+//@ lemma MultisetCons <type T> (T[[1]] xs)
 //@ requires size(xs) > 0;
 //@ ensures multiset(xs) === union(multiset{head(xs)},multiset(tail(xs)));
 
-//@ axiom <domain D,type T> (D T[[1]] xs)
+//@ axiom <type T> (T[[1]] xs)
 //@ requires size(xs) > 0;
 //@ ensures multiset(xs) === union(multiset(init(xs)),multiset{last(xs)});
 
-//@ lemma MultisetSnoc <domain D,type T> (D T[[1]] xs)
+//@ lemma MultisetSnoc <type T> (T[[1]] xs)
 //@ requires size(xs) > 0;
 //@ ensures multiset(xs) === union(multiset(init(xs)),multiset{last(xs)});
 
-//@ axiom <domain D,type T> (D T[[1]] xs, D T x)
+//@ axiom <type T> (T[[1]] xs, T x)
 //@ ensures multiset(xs) === union(multiset(xs),multiset{x});
 
-//@ lemma MultisetSnoc1 <domain D,type T> (D T[[1]] xs, D T x)
+//@ lemma MultisetSnoc1 <type T> (T[[1]] xs, T x)
 //@ ensures multiset(xs) === union(multiset(xs),multiset{x});
 
-//@ axiom <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
+//@ axiom <type T> (T[[1]] xs, T[[1]] ys)
 //@ ensures multiset(cat(xs,ys)) === union(multiset(xs),multiset(ys));
 
-//@ lemma MultisetUnion <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
+//@ lemma MultisetUnion <type T> (T[[1]] xs, T[[1]] ys)
 //@ ensures multiset(cat(xs,ys)) === union(multiset(xs),multiset(ys));
 
-//@ axiom <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
+//@ axiom <type T> (T[[1]] xs, T[[1]] ys)
 //@ ensures set(cat(xs,ys)) === union(set(xs),set(ys));
 
-//@ lemma SetUnion <domain D,type T> (D T[[1]] xs, D T[[1]] ys)
+//@ lemma SetUnion <type T> (T[[1]] xs, T[[1]] ys)
 //@ ensures set(cat(xs,ys)) === union(set(xs),set(ys));
 
-//@ axiom <domain D,type T> (D T x)
+//@ axiom <type T> (T x)
 //@ ensures set({x}) === set{x};
 
-//@ lemma SetSingleton <domain D,type T> (D T x)
+//@ lemma SetSingleton <type T> (T x)
 //@ ensures set({x}) === set{x};
 
-//@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
+//@ axiom <type T> (T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j < shape(xs)[1];
-//@ ensures assertion<D>(xs[i,:][j] === xs[i,j]);
+//@ ensures xs[i,:][j] === xs[i,j];
 
-//@ lemma SliceProjection <domain D,type T> (D T[[2]] xs, uint i, uint j)
+//@ lemma SliceProjection <type T> (T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j < shape(xs)[1];
-//@ ensures assertion<D>(xs[i,:][j] === xs[i,j]);
+//@ ensures xs[i,:][j] === xs[i,j];
 
-//@ axiom <domain D,type T> (D T[[2]] xs, uint i, uint j)
+//@ axiom <type T> (T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j <= shape(xs)[1];
-//@ ensures assertion<D>(xs[i,:][:j] === xs[i,:j]);
+//@ ensures xs[i,:][:j] === xs[i,:j];
 
-//@ lemma DoubleSlice <domain D,type T> (D T[[2]] xs, uint i, uint j)
+//@ lemma DoubleSlice <type T> (T[[2]] xs, uint i, uint j)
 //@ requires i < shape(xs)[0];
 //@ requires j <= shape(xs)[1];
-//@ ensures assertion<D>(xs[i,:][:j] === xs[i,:j]);
+//@ ensures xs[i,:][:j] === xs[i,:j];
 
-//@ axiom <domain D,type T> (D T x)
+//@ axiom <type T> (T x)
 //@ ensures size({x}) === 1;
-//@ ensures assertion<D>({x}[0] === x);
+//@ ensures {x}[0] === x;
 
-//@ lemma SingletonProjection <domain D,type T> (D T x)
+//@ lemma SingletonProjection <type T> (T x)
 //@ ensures size({x}) === 1;
-//@ ensures assertion<D>({x}[0] === x);
+//@ ensures {x}[0] === x;
 
 // array multiplication is commutative
 
-//@ axiom <domain D> (D uint[[1]] xs, D uint[[1]] ys)
+//@ axiom (uint[[1]] xs, uint[[1]] ys)
 //@ requires size(xs) === size(ys);
 //@ ensures xs * ys === ys * xs;
 
-//@ lemma ArrMulCommu <domain D> (D uint[[1]] xs, D uint[[1]] ys)
+//@ lemma ArrMulCommu (uint[[1]] xs, uint[[1]] ys)
 //@ requires size(xs) === size(ys);
 //@ ensures xs * ys === ys * xs;
 
 // array multiplication is associative
 
-//@ axiom <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
+//@ axiom (uint[[1]] xs, uint[[1]] ys, uint[[1]] zs)
 //@ requires size(xs) === size(ys) && size(ys) === size(zs);
 //@ ensures xs * (ys * zs) === (xs * ys) * zs;
 
-//@ lemma ArrMulAssoc <domain D> (D uint[[1]] xs, D uint[[1]] ys, D uint[[1]] zs)
+//@ lemma ArrMulAssoc (uint[[1]] xs, uint[[1]] ys, uint[[1]] zs)
 //@ requires size(xs) === size(ys) && size(ys) === size(zs);
 //@ ensures xs * (ys * zs) === (xs * ys) * zs;

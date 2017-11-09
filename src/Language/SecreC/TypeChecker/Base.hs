@@ -859,7 +859,7 @@ checkNoSecM :: Monad m => TcM m Bool
 checkNoSecM = do
     cl <- State.gets decClass
     opts <- askOpts
-    if ignoreSpecDomains opts && isAnnDecClass cl
+    if isAnnDecClass cl
         then returnS True
         else returnS False
 
