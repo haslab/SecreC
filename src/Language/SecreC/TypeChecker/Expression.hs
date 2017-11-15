@@ -327,6 +327,10 @@ tcExpr ret e@(ResultExpr l) = do
         VarName tl _ <- checkVariable False False True LocalScope $ VarName l $ mkVarId "\\result"
         unifiesRet l ret $ typed tl
         return $ ResultExpr tl
+tcExpr ret (OldExpr l e) = do
+    e' <- tcExpr ret e
+    let l' = loc e'
+    return $ OldExpr l' e'
 tcExpr ret e = do
     ppe <- pp e
     genTcError (locpos $ loc e) False $ text "failed to typecheck expression" <+> ppe

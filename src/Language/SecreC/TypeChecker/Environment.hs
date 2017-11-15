@@ -2083,6 +2083,23 @@ checkLeak l True m = do
                 ppk <- pp k
                 genTcError (locpos l) False $! text "leakage annotation not supported in" <+> ppk
 
+checkLeakMb :: ProverK loc m => loc -> Maybe Bool -> TcM m a -> TcM m (Maybe Bool,a)
+checkLeakMb l Nothing m = do
+    isLeak <- getLeak
+    x <- m
+    returnS (lkgBool isLeak,x)
+checkLeakMb l (Just isOut) m = do
+    isLeak <- getLeak
+    k <- getKind
+    if isLeak
+        then liftM (Just isOut,) m
+        else case k of
+            PKind -> liftM (Just isOut,) $! withLeak True m
+            LKind -> liftM (Just isOut,) $! withLeak True m
+            otherwise -> do
+                ppk <- pp k
+                genTcError (locpos l) False $! text "leakage annotation not supported in" <+> ppk
+
 getOpens :: MonadIO m => TcM m [GCstr]
 getOpens = State.gets (map fst . openedCstrs)
 
@@ -2349,6 +2366,15 @@ isMultipleSubstsTcCstr _ = returnS False
 usedVs' :: (ProverK Position m,Vars GIdentifier (TcM m) x) => x -> TcM m (Set VarIdentifier)
 usedVs' x = do
     vs <- usedVs x
+    ss <- getTSubsts (noloc::Position)
+    vvs <- forM (Set.toList vs) $! \v -> case Map.lookup v (unTSubsts ss) of
+        Nothing -> returnS $ Set.singleton v
+        Just t -> usedVs' t
+    returnS $ Set.unions vvs
+
+writtenVs' :: (ProverK Position m,Vars GIdentifier (TcM m) x) => x -> TcM m (Set VarIdentifier)
+writtenVs' x = do
+    vs <- writtenVs x
     ss <- getTSubsts (noloc::Position)
     vvs <- forM (Set.toList vs) $! \v -> case Map.lookup v (unTSubsts ss) of
         Nothing -> returnS $ Set.singleton v

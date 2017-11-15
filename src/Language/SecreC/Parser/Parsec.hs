@@ -948,6 +948,7 @@ scPrimaryExpression = (scParens scExpression
                   <||> scCBrackets' (\x1 -> apA scExpressionList (ArrayConstructorPExpr (loc x1)))
                   <||> apA scVarId (\x1 -> RVariablePExpr (loc x1) x1)
                   <||> scAnn (apA (scTok RESULT) (\x1 -> ResultExpr (loc x1)))
+                  <||> scAnn (apA2 (scTok OLD) (scParens scExpression) (\x1 x2 -> OldExpr (loc x1) x2))
                   <||> apA scLiteral (\x1 -> LitPExpr (loc x1) x1)) <?> "primary expression"
 
 scStringLiteral :: (Monad m,MonadCatch m) => ScParserT m (Loc Position String)
@@ -992,7 +993,7 @@ scLoopAnnotation = do
     (o1 isFree <||> o2 isFree)
   where
     o1 isFree = apA3 (scTok DECREASES) scExpression (scChar ';') (\x1 x2 x3 -> DecreasesAnn (loc x1) isFree x2)
-    o2 isFree = apA4 scLeak (scTok INVARIANT) scExpression (scChar ';') (\x00 x1 x2 x3 -> InvariantAnn (loc x1) isFree x00 x2)
+    o2 isFree = apA4 scLeakOut (scTok INVARIANT) scExpression (scChar ';') (\x00 x1 x2 x3 -> InvariantAnn (loc x1) isFree x00 x2)
 
 scProcedureAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [ProcedureAnnotation Identifier Position]
 scProcedureAnnotations = scAnnotations0 $ many scProcedureAnnotation
@@ -1001,7 +1002,7 @@ scProcedureAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (ProcedureAnnot
 scProcedureAnnotation = apA2 (scTok INLINE) (scChar ';') (\x1 x2 -> InlineAnn (loc x1) True)
                    <||> apA2 (scTok NOINLINE) (scChar ';') (\x1 x2 -> InlineAnn (loc x1) False)
                    <||> apA3 (scTok DECREASES) scExpression (scChar ';') (\x1 x2 x3 -> PDecreasesAnn (loc x1) x2)
-                   <||> try ((scFree >*< scLeak) >>= \(isFree,isLeak) -> requires isFree isLeak <||> ensures isFree isLeak)
+                   <||> try ((scFree >*< scLeakOut) >>= \(isFree,isLeak) -> requires isFree isLeak <||> ensures isFree isLeak)
   where
     requires isFree isLeak = apA3 (scTok REQUIRES) scExpression (scChar ';') (\x1 x2 x3 -> RequiresAnn (loc x1) isFree isLeak x2)
     ensures isFree isLeak = apA3 (scTok ENSURES) scExpression (scChar ';') (\x1 x2 x3 -> EnsuresAnn (loc x1) isFree isLeak x2)
@@ -1016,17 +1017,24 @@ scFree :: (MonadIO m,MonadCatch m) => ScParserT m Bool
 scFree = liftM isJust $ optionMaybe (scTok FREE)
 
 scLeak :: (MonadIO m,MonadCatch m) => ScParserT m Bool
-scLeak = liftM isJust $ optionMaybe (scTok LEAKAGE)
+scLeak = liftM (isJust) $ optionMaybe (scTok LEAKAGE)
+    
+scLeakOut :: (MonadIO m,MonadCatch m) => ScParserT m (Maybe Bool)
+scLeakOut = liftM (fmap (const False)) (optionMaybe (scTok LEAKAGE))
+    <||> liftM (fmap (const True)) (optionMaybe (scTok LEAKAGEOUT))
 
 scLeak' :: (MonadIO m,MonadCatch m) => (Bool -> ScParserT m a) -> ScParserT m a
 scLeak' f = scMaybeCont (scTok LEAKAGE) (f . isJust)
+
+scLeakOut' :: (MonadIO m,MonadCatch m) => (Maybe Bool -> ScParserT m a) -> ScParserT m a
+scLeakOut' f = scMaybeCont (liftM (const False) (scTok LEAKAGE) <||> liftM (const True) (scTok LEAKAGEOUT)) (f)
 
 scStatementAnnotations :: (MonadIO m,MonadCatch m) => ScParserT m [StatementAnnotation Identifier Position]
 scStatementAnnotations = scAnnotations1 $ many1 scStatementAnnotation
 
 scStatementAnnotation :: (MonadIO m,MonadCatch m) => ScParserT m (StatementAnnotation Identifier Position)
 scStatementAnnotation = do
-    isLeak <- scLeak
+    isLeak <- scLeakOut
     (o1 isLeak <||> o2 isLeak <||> o3 isLeak)
   where
     o1 isLeak = apA3 (scTok ASSUME) scExpression (scChar ';') (\x1 x2 x3 -> AssumeAnn (loc x1) isLeak x2)

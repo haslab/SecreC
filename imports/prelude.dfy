@@ -7,6 +7,7 @@ predicate DeclassifiedOut<T> (x: T)
 predicate Leak<T> (x: T)
 // used to mark leakage annotations, since Dafny does not allow attributes everywhere
 function Leakage (x: bool) : bool
+function LeakageOut (x: bool) : bool
 function Free (x: bool) : bool
     
 //newtype uint8 = x: int | 0 <= x <= 255
@@ -40,6 +41,23 @@ newtype int64 = x: int | true
 newtype float32 = x: real | true
 newtype float64 = x: real | true
 
+function method bool_to_uint8(b:bool) : uint8 { if b then 1 else 0 }
+function method bool_to_uint16(b:bool) : uint16 { if b then 1 else 0 }
+function method bool_to_uint32(b:bool) : uint32 { if b then 1 else 0 }
+function method bool_to_uint64(b:bool) : uint64 { if b then 1 else 0 }
+function method bool_to_float32(b:bool) : float32 { if b then 1.0 else 0.0 }
+function method bool_to_float64(b:bool) : float64 { if b then 1.0 else 0.0 }
+
+function method inv_float32(x : float32) : float32 { if x == 0.0 then 0.0 else 1.0 / x }
+function method inv_float64(x : float64) : float64 { if x == 0.0 then 0.0 else 1.0 / x }
+
+function method abs_uint8(x: uint8): uint8 { if x < 0 then -x else x }
+function method abs_uint16(x: uint16): uint16 { if x < 0 then -x else x }
+function method abs_uint32(x: uint32): uint32 { if x < 0 then -x else x }
+function method abs_uint64(x: uint64): uint64 { if x < 0 then -x else x }
+function method abs_float32(x: float32): float32 { if x < 0.0 then -x else x }
+function method abs_float64(x: float64): float64 { if x < 0.0 then -x else x }
+
 function method Repeat<T> (x: T, sz: uint64) : seq<T>
 ensures |Repeat(x,sz)| as uint64 == sz;
 ensures forall y:T :: y in Repeat(x,sz) ==> x == y;  
@@ -59,6 +77,12 @@ function method sum_uint64(xs: seq<uint64>) : uint64
   if |xs| == 0
     then 0
     else xs[0] + sum_uint64(xs[1..])
+}
+function method sum_float64(xs: seq<float64>) : float64
+{
+  if |xs| == 0
+    then 0.0
+    else xs[0] + sum_float64(xs[1..])
 }
 
 function method mul1_int(xs: seq<int>, ys: seq<int>) : seq<int>
@@ -204,6 +228,40 @@ class Array2<T> {
   ensures this.project11(x1,x2,y1,y2).Length0() == x2-x1;
   ensures this.project11(x1,x2,y1,y2).Length1() == y2-y1;
   ensures forall i: uint64, j:uint64 :: (0 <= i < x2-x1 && 0 <= j < y2-y1) ==> this.project11(x1,x2,y1,y2).arr2[i,j] == this.arr2[x1+i,y1+j];
+  
+  method update00(i:uint64, j: uint64, v:T)
+  requires valid();
+  modifies arr2;
+  requires 0 <= i < this.Length0();
+  requires 0 <= j < this.Length1();
+  ensures valid();
+  ensures this.arr2.Length0 == old(this.arr2.Length0);
+  ensures this.arr2.Length1 == old(this.arr2.Length1);
+  {
+    this.arr2[i,j] := v;
+  }
+  
+  method update01(i:uint64, j1: uint64, j2: uint64, vs:seq<T>)
+  requires valid();
+  modifies arr2;
+  requires 0 <= i < this.Length0();
+  requires 0 <= j1 < this.Length1();
+  requires 0 <= j2 <= this.Length1();
+  requires |vs| == j2 as int - j1 as int;
+  requires j1 <= j2;
+  ensures valid();
+  ensures this.arr2.Length0 == old(this.arr2.Length0);
+  ensures this.arr2.Length1 == old(this.arr2.Length1);
+  {
+      var j : uint64 := j1;
+      while (j < j2)
+          invariant j1 <= j <= j2;
+      {
+          this.arr2[i,j] := vs[j-j1];
+          j:=j+1;
+      }
+  }
+  
 }
 
 

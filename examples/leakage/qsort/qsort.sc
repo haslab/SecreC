@@ -60,6 +60,7 @@ partition_result partition (private uint[[1]] xs, private uint p)
     {
         //@ assert i < size(xs);
         //@ MultisetSliceOne(xs,i);
+        //@ leakage assert lcomparison(xs,p);
         private uint y = xs[i];
         if (declassify (y <= p)) {
             ls = snoc(ls,y);

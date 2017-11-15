@@ -717,13 +717,13 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (ContextConstraint i
         ppn <- pp n
         ppts <- mapM (mapM (ppVariadicArg pp)) ts
         ppps <- mapM pp ps
-        return $ ppid cl <+> ppLeak isLeak (ppIsAnn isAnn (ppid k <+> ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)))
+        return $ ppid cl <+> ppLeak (lkgBool isLeak) (ppIsAnn isAnn (ppid k <+> ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)))
     pp (ContextODec l cl isLeak isAnn k r n ts ps) = do
         ppr <- pp r
         ppn <- pp n
         ppts <- mapM (mapM (ppVariadicArg pp)) ts
         ppps <- mapM pp ps
-        return $ ppid cl <+> ppLeak isLeak (ppIsAnn isAnn (ppid k <+> ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)))
+        return $ ppid cl <+> ppLeak (lkgBool isLeak) (ppIsAnn isAnn (ppid k <+> ppr <+> ppn <> abrackets (maybe PP.empty (sepBy comma) ppts) <> parens (sepBy comma ppps)))
     pp (ContextTDec l cl n ts) = do
         ppn <- pp n
         ppts <- mapM (ppVariadicArg pp) ts
@@ -1003,7 +1003,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (AxiomDeclaration id
         pp1 <- mapM pp qs
         pp2 <- mapM pp params
         pp3 <- pp anns
-        return $ ppLeak isLeak (text "axiom" <+> abrackets (sepBy comma pp1) <+> parens (sepBy comma pp2) $+$ pp3 )
+        return $ ppLeak (lkgBool isLeak) (text "axiom" <+> abrackets (sepBy comma pp1) <+> parens (sepBy comma pp2) $+$ pp3 )
 
 data LemmaDeclaration iden loc
     = LemmaDeclaration loc
@@ -1033,7 +1033,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (LemmaDeclaration id
         pp3 <- mapM pp params
         pp4 <- pp anns
         pp5 <- ppOpt body (\stmts -> do { x <- pp stmts; return $ lbrace $+$ nest 4 x $+$ rbrace })
-        return $ ppLeak isLeak (text "lemma" <+> pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ pp5)
+        return $ ppLeak (lkgBool isLeak) (text "lemma" <+> pp1 <+> pp2 <+> parens (sepBy comma pp3) $+$ pp4 $+$ pp5)
 
 data FunctionDeclaration iden loc
     = OperatorFunDeclaration loc
@@ -1080,7 +1080,7 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (FunctionDeclaration
         ppc <- pp ctx
         pp4 <- pp anns
         pp5 <- pp stmts
-        return $ ppLeak isLeak (text "function" <+> pp1 <+> text "operator" <+> pp2 <+> parens (sepBy comma pp3) $+$ ppc $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace)
+        return $ ppLeak (lkgBool isLeak) (text "function" <+> pp1 <+> text "operator" <+> pp2 <+> parens (sepBy comma pp3) $+$ ppc $+$ pp4 $+$ lbrace $+$ nest 4 pp5 $+$ rbrace)
     pp (FunDeclaration _ isLeak ret proc params ctx anns stmts) = do
         ppr <- pp ret
         ppp <- pp proc
@@ -1088,7 +1088,10 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (FunctionDeclaration
         ppc <- pp ctx
         p1 <- pp anns
         p2 <- pp stmts
-        return $ ppLeak isLeak (text "function" <+> ppr <+> ppp <+> parens (sepBy comma pas) $+$ ppc $+$ p1 $+$ lbrace $+$ nest 4 p2 $+$ rbrace)
+        return $ ppLeak (lkgBool isLeak) (text "function" <+> ppr <+> ppp <+> parens (sepBy comma pas) $+$ ppc $+$ p1 $+$ lbrace $+$ nest 4 p2 $+$ rbrace)
+  
+lkgBool False = Nothing
+lkgBool True = Just False
   
 data Op iden loc
     = OpAdd      loc
@@ -1465,6 +1468,7 @@ data Expression iden loc
     | MultisetConstructorPExpr loc [Expression iden loc]
     | SetConstructorPExpr loc [Expression iden loc]
     | ResultExpr loc
+    | OldExpr loc (Expression iden loc)
     | QuantifiedExpr loc (Quantifier loc) [(TypeSpecifier iden loc,VarName iden loc)] (Expression iden loc)
     | BuiltinExpr loc String [(Expression iden loc,IsVariadic)]
     | ToMultisetExpr loc (Expression iden loc)
@@ -1504,6 +1508,7 @@ instance Location loc => Located (Expression iden loc) where
     loc (RVariablePExpr l _) = l
     loc (LitPExpr l _) = l
     loc (ResultExpr l) = l
+    loc (OldExpr l e) = l
     loc (QuantifiedExpr l _ _ _) = l
     updLoc (BuiltinExpr _ n x) l = BuiltinExpr l n x
     updLoc (SetComprehensionExpr _ x y z w) l = SetComprehensionExpr l x y z w
@@ -1531,6 +1536,7 @@ instance Location loc => Located (Expression iden loc) where
     updLoc (RVariablePExpr _ x) l = RVariablePExpr l x
     updLoc (LitPExpr _ x) l = LitPExpr l x
     updLoc (ResultExpr _) l = ResultExpr l
+    updLoc (OldExpr l e) l' = OldExpr l' e
     updLoc (QuantifiedExpr _ x y z) l = QuantifiedExpr l x y z
 
 ppVariadicM :: PP m a => a -> IsVariadic -> m Doc
@@ -1653,6 +1659,9 @@ ppExpr (ArrayConstructorPExpr _ es) = do
 ppExpr (RVariablePExpr _ v) = pp v
 ppExpr (LitPExpr _ l) = pp l
 ppExpr (ResultExpr l) = return $ text "\\result"
+ppExpr (OldExpr l e) = do
+    ppe <- pp e
+    return $ text "old" <> parens ppe
 ppExpr (LeakExpr l e) = do
     ppe <- pp e
     return $ text "leak" <> parens ppe
@@ -1822,8 +1831,8 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [GlobalAnnotation id
     pp xs = liftM vcat $ mapM pp xs
 
 data ProcedureAnnotation iden loc
-    = RequiresAnn loc Bool Bool (Expression iden loc)
-    | EnsuresAnn loc Bool Bool (Expression iden loc)
+    = RequiresAnn loc Bool (Maybe Bool) (Expression iden loc)
+    | EnsuresAnn loc Bool (Maybe Bool) (Expression iden loc)
     | InlineAnn loc Bool
     | PDecreasesAnn loc (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
@@ -1856,14 +1865,16 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m (ProcedureAnnotation
     pp (InlineAnn _ False) = return $ ppAnn $ text "noinline" <> semicolon
 
 ppFree isFree doc = if isFree then text "free" <+> doc else doc
-ppLeak isLeak doc = if isLeak then text "leakage" <+> doc else doc
+ppLeak Nothing doc = doc
+ppLeak (Just True) doc = text "leakageout" <+> doc
+ppLeak (Just False) doc = text "leakage" <+> doc
 
 instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [ProcedureAnnotation iden loc] where
     pp xs = liftM vcat $ mapM pp xs
 
 data LoopAnnotation iden loc
     = DecreasesAnn loc Bool (Expression iden loc)
-    | InvariantAnn loc Bool Bool (Expression iden loc)
+    | InvariantAnn loc Bool (Maybe Bool) (Expression iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
   
 instance (Binary iden,Binary loc) => Binary (LoopAnnotation iden loc)  
@@ -1888,9 +1899,9 @@ instance (PP m loc,Location loc,DebugM m,PP m iden) => PP m [LoopAnnotation iden
     pp xs = liftM vcat $ mapM pp xs
 
 data StatementAnnotation iden loc
-    = AssumeAnn loc Bool (Expression iden loc)
-    | AssertAnn loc Bool (Expression iden loc)
-    | EmbedAnn  loc Bool (Statement iden loc)
+    = AssumeAnn loc (Maybe Bool) (Expression iden loc)
+    | AssertAnn loc (Maybe Bool) (Expression iden loc)
+    | EmbedAnn  loc (Maybe Bool) (Statement iden loc)
   deriving (Read,Show,Data,Typeable,Functor,Eq,Ord,Generic)
 
 instance (Binary iden,Binary loc) => Binary (StatementAnnotation iden loc)  

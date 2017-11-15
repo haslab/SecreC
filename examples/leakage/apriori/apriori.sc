@@ -1,4 +1,4 @@
-//#OPTIONS_SECREC --paths="examples/leakage/apriori" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --ignorespecdomains --nodafnymodules --ignoreunuseddefs
+//#OPTIONS_SECREC --paths="examples/leakage/apriori" --implicitcoercions=onc --backtrack=tryb --matching=gorderedm --promote=nop --verify=bothv --entrypoints="apriori" --nodafnymodules --ignoreunuseddefs
 
 /*
  * This file is a part of the Sharemind framework.
@@ -51,12 +51,14 @@ frequent AddFrequent(frequent f, uint[[1]] C, pd_shared3p uint[[1]] C_dot, pd_sh
 //@ ensures shape(\result.items)[0] <= shape(f.items)[0] + 1;
 {
     pd_shared3p uint frequence = sum (C_dot);
+    //@ assert IsItemSetOf(C,db);
+    //@ assert frequency(C,db) === frequence;
+    //@ leakage LeakFrequent(C,db,threshold,size(C));
     if (declassify (frequence >= threshold)) {
       f.items = snoc (f.items,C);
       f.cache = snoc (f.cache,C_dot);  
-      //@ assert C_dot === transactions(C,db);
-      //@ assert frequency(C,db) === frequence;
       //@ assert frequency(C,db) >= threshold;
+      //@ assert C_dot === transactions(C,db);
       //@ assert FrequentCache(C,C_dot,db,threshold,size(C));
     }
     return f;
@@ -111,6 +113,7 @@ frequent apriori_k (pd_shared3p uint [[2]] db, uint threshold, frequent prev,uin
         {
           //@ assert (init(prev.items[i,:]) === prev.items[i,:k-1]);
           //@ assert (init (prev.items[j,:]) === prev.items[j,:k-1]);
+          //@ assert init(prev.items[i,:]) === init(prev.items[j,:]);
           //@ assert prev.items[j,:][k-1] === prev.items[j,k-1];
           //@ assert prev.items[j,k-1] < shape(db)[1];
           uint[[1]] C = snoc (prev.items[i, :], prev.items[j, k-1]);

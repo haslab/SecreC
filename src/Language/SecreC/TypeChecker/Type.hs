@@ -111,6 +111,15 @@ typeToBaseType l t = do
     ppi <- pp $ BType Nothing
     tcError (locpos l) $ TypeConversionError ppi ppt
 
+getBaseType :: (ProverK loc m) => loc -> Type -> TcM m BaseType
+getBaseType l (BaseT s) = return s
+getBaseType l t@(ComplexT ct) = case ct of
+    (CType s b d) -> return b
+    otherwise -> do
+        ppt <- ppM l t
+        ppi <- pp $ BType Nothing
+        tcError (locpos l) $ TypeConversionError ppi ppt
+
 cVarToBaseType :: ProverK loc m => loc -> Bool -> VarIdentifier -> Bool -> TcM m BaseType
 cVarToBaseType l True v@(varIdRead -> True) isNotVoid = do
     mb <- tryResolveCVar l v isNotVoid
@@ -583,12 +592,18 @@ toMultisetType l (ComplexT ct) = readable1 toMultisetType' l ct
             Right 1 -> do
                 let ct' = CType s b (indexExpr 0)
                 return (MSet ct')
+            Right 0 -> readable1 baseToMultisetType' l b
             otherwise -> do
                 ppct <- pp ct
                 genTcError (locpos l) True $ text "cannot convert type with unknown dimension" <+> ppct <+> text "to multiset"
     toMultisetType' t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"
+    baseToMultisetType' b = case b of
+        Set c -> return $ MSet c
+        otherwise -> do
+             ppb <- pp b
+             genTcError (locpos l) True $ text "cannot convert base type" <+> ppb <+> text "to multiset"
 toMultisetType l t = do
         ppt <- pp t
         genTcError (locpos l) False $ text "cannot convert type" <+> ppt <+> text "to multiset"

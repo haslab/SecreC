@@ -131,6 +131,8 @@ data Token
     | ENSURES
     | ASSUME
     | LEAKAGE
+    | OLD
+    | LEAKAGEOUT
     | DECREASES
     | INVARIANT
     | TokenEOF
@@ -249,6 +251,7 @@ instance Monad m => PP m Token where
     pp REQUIRES =               return $ text "requires"
     pp ENSURES =                return $ text "ensures"
     pp LEAKAGE =                return $ text "leakage"
+    pp LEAKAGE =                return $ text "leakageout"
     pp DECREASES =              return $ text "decreases"
     pp INVARIANT =              return $ text "invariant"
     pp ASSUME =                 return $ text "assume"
@@ -271,6 +274,7 @@ instance Monad m => PP m Token where
     pp READONLY =               return $ text "readonly"
     pp READWRITE =              return $ text "readwrite"
     pp (ANNOTATION anns) =      return $ text "/*" <+> vcat (map (\ann -> text "@" <> text ann) anns) <+> text "*/"
+    pp OLD = return $ text "old"
 
 isAnnotation :: String -> Maybe [String]
 isAnnotation s = if ok then Just (map (takeWhile (/='@') . tail . dropWhile (/='@')) toks) else Nothing

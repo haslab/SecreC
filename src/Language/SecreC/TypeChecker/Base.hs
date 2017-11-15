@@ -2247,7 +2247,7 @@ instance (DebugM m) => PP m DecType where
         pp9 <- pp ann
         pp10 <- ppOpt stmts (liftM braces . pp)
         ppcl  <- pp cl
-        returnS $ ppLeak isLeak (pp1 <+> pp2
+        returnS $ ppLeak (lkgBool isLeak) (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "template" <> abrackets (sepBy comma pp5)
@@ -2265,7 +2265,7 @@ instance (DebugM m) => PP m DecType where
         pp6 <- mapM ppConstArg args
         pp7 <- pp ann
         ppcl <- pp cl
-        returnS $ ppLeak isLeak (pp1 <+> pp2
+        returnS $ ppLeak (lkgBool isLeak) (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "axiom" <> abrackets (sepBy comma pp5) <> abrackets (sepBy comma pp50)
@@ -2282,7 +2282,7 @@ instance (DebugM m) => PP m DecType where
         pp8 <- pp ann
         pp9 <- ppOpt stmts (liftM braces . pp)
         ppcl <- pp cl
-        returnS $ ppLeak isLeak (pp1 <+> pp2
+        returnS $ ppLeak (lkgBool isLeak) (pp1 <+> pp2
             $+$ pp3
             $+$ pp4
             $+$ text "lemma" <+> pp5 <+> abrackets (sepBy comma pp6) <> abrackets (sepBy comma pp60)
@@ -2326,7 +2326,7 @@ instance (DebugM m,Monad m) => PP m InnerDecType where
         pp1 <- mapM f1 args
         ppann <- pp ann
         ppo <- ppOpt stmts (liftM braces . pp)
-        returnS $ ppLeak isLeak (ppret <+> prefixOp (isOIden' n) ppn <> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
+        returnS $ ppLeak (lkgBool isLeak) (ppret <+> prefixOp (isOIden' n) ppn <> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
     pp (AxiomType isLeak _ args ann _) = do
         let f1 (isConst,(VarName t n),isVariadic) = do
             ppt <- pp t
@@ -2334,7 +2334,7 @@ instance (DebugM m,Monad m) => PP m InnerDecType where
             returnS $ ppConst isConst (ppVariadic (ppt) isVariadic <+> ppn)
         pp1 <- mapM f1 args
         ppann <- pp ann
-        returnS $ ppLeak isLeak (text "axiom" <+> parens (sepBy comma pp1) $+$ ppann)
+        returnS $ ppLeak (lkgBool isLeak) (text "axiom" <+> parens (sepBy comma pp1) $+$ ppann)
     pp (LemmaType isLeak _ n args ann stmts _) = do
         ppn <- pp n
         let f1 (isConst,(VarName t n),isVariadic) = do
@@ -2344,7 +2344,7 @@ instance (DebugM m,Monad m) => PP m InnerDecType where
         pp1 <- mapM f1 args
         ppann <- pp ann
         ppo <- ppOpt stmts (liftM braces . pp)
-        returnS $ ppLeak isLeak (text "lemma" <+> ppn <+> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
+        returnS $ ppLeak (lkgBool isLeak) (text "lemma" <+> ppn <+> parens (sepBy comma pp1) $+$ ppann $+$ ppo)
         
 instance (DebugM m,Monad m) => PP m BaseType where
     pp (TyPrim p) = pp p
@@ -2502,6 +2502,30 @@ isBoolType _ = False
 isBoolBaseType :: BaseType -> Bool
 isBoolBaseType (TyPrim (DatatypeBool _)) = True
 isBoolBaseType _ = False
+
+isUint8BaseType :: BaseType -> Bool
+isUint8BaseType (TyPrim (DatatypeUint8 _)) = True
+isUint8BaseType _ = False
+
+isUint16BaseType :: BaseType -> Bool
+isUint16BaseType (TyPrim (DatatypeUint16 _)) = True
+isUint16BaseType _ = False
+
+isUint32BaseType :: BaseType -> Bool
+isUint32BaseType (TyPrim (DatatypeUint32 _)) = True
+isUint32BaseType _ = False
+
+isUint64BaseType :: BaseType -> Bool
+isUint64BaseType (TyPrim (DatatypeUint64 _)) = True
+isUint64BaseType _ = False
+
+isFloat32BaseType :: BaseType -> Bool
+isFloat32BaseType (TyPrim (DatatypeFloat32 _)) = True
+isFloat32BaseType _ = False
+
+isFloat64BaseType :: BaseType -> Bool
+isFloat64BaseType (TyPrim (DatatypeFloat64 _)) = True
+isFloat64BaseType _ = False
 
 isIntType :: Type -> Bool
 isIntType (BaseT b) = isIntBaseType b
@@ -3192,6 +3216,12 @@ usedVs :: (Vars GIdentifier (TcM m) a) => a -> TcM m (Set VarIdentifier)
 usedVs x = do
     (fs,bs) <- uvs x
     returnS $ Set.union (videns $ Map.keysSet fs) (videns $ Map.keysSet bs)
+
+writtenVs :: (Vars GIdentifier (TcM m) a) => a -> TcM m (Set VarIdentifier)
+writtenVs x = do
+    (fs,bs) <- uvs x
+    returnS $ (videns $ Map.keysSet bs)
+
 
 compoundStmts :: Location loc => loc -> [Statement iden (Typed loc)] -> [Statement iden (Typed loc)]
 compoundStmts l = maybeToList . compoundStmtMb l

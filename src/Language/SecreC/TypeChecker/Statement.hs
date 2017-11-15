@@ -256,19 +256,19 @@ tcLoopAnn :: ProverK loc m => LoopAnnotation Identifier loc -> TcM m (LoopAnnota
 tcLoopAnn (DecreasesAnn l isFree e) = tcStmtBlock l "decreases annotation" $ insideAnnotation $ withKind FKind $ withLeak False $ do
     (e') <- tcAnnExpr Nothing e
     return $ DecreasesAnn (Typed l $ typed $ loc e') isFree e'
-tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "invariant annotation" $ insideAnnotation $ withKind FKind $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+tcLoopAnn (InvariantAnn l isFree isLeak e) = tcStmtBlock l "invariant annotation" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeakMb l isLeak $  withKind FKind $ tcAnnGuard e
     return $ InvariantAnn (Typed l $ typed $ loc e') isFree isLeak' e'
 
 tcStmtAnn :: (ProverK loc m) => StatementAnnotation Identifier loc -> TcM m (StatementAnnotation GIdentifier (Typed loc))
-tcStmtAnn (AssumeAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind FKind $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+tcStmtAnn (AssumeAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeakMb l isLeak $ withKind FKind $ tcAnnGuard e
     return $ AssumeAnn (Typed l $ typed $ loc e') isLeak e'
-tcStmtAnn (AssertAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind FKind $ do
-    (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+tcStmtAnn (AssertAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ do
+    (isLeak',e') <- checkLeakMb l isLeak $ withKind FKind $ tcAnnGuard e
     return $ AssertAnn (Typed l $ typed $ loc e') isLeak' e'
-tcStmtAnn (EmbedAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ withKind PKind $ do
-    (isLeak',(e',t)) <- checkLeak l isLeak $ tcStmt (ComplexT Void) e
+tcStmtAnn (EmbedAnn l isLeak e) = tcStmtBlock l "annotation statement" $ insideAnnotation $ do
+    (isLeak',(e',t)) <- checkLeakMb l isLeak $ withKind PKind $ tcStmt (ComplexT Void) e
     return $ EmbedAnn (Typed l t) isLeak' e'
 
 isSupportedSyscall :: (Monad m,Location loc) => loc -> Identifier -> [Type] -> TcM m ()
@@ -366,7 +366,7 @@ tcProcedureAnn isAxiom (RequiresAnn l isFree isLeak e) = tcStmtBlock l "requires
             ppe <- pp e
             genTcError (locpos l) False $ text "requires annotation must not be free inside axioms:" <+> ppe       
         else do
-            (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+            (isLeak',e') <- checkLeakMb l isLeak $ tcAnnGuard e
             return (Nothing,RequiresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
 tcProcedureAnn isAxiom (EnsuresAnn l isFree isLeak e) = tcStmtBlock l "ensures annotation" $ tcAddDeps l "pann" $ insideAnnotation $ do
     if (isAxiom && isFree)
@@ -374,7 +374,7 @@ tcProcedureAnn isAxiom (EnsuresAnn l isFree isLeak e) = tcStmtBlock l "ensures a
             ppe <- pp e
             genTcError (locpos l) False $ text "ensures annotation must not be free inside axioms:" <+> ppe
         else do
-            (isLeak',e') <- checkLeak l isLeak $ tcAnnGuard e
+            (isLeak',e') <- checkLeakMb l isLeak $ tcAnnGuard e
             return (Nothing,EnsuresAnn (Typed l $ typed $ loc e') isFree isLeak' e')
 tcProcedureAnn isAxiom (InlineAnn l isInline) = tcStmtBlock l "inline annotation" $ tcAddDeps l "pann" $ do
     if isAxiom

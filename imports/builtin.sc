@@ -16,6 +16,13 @@ context<>
     __builtin("core.declassify",x) :: T[[N]]
 }
 
+template <nonpublic kind K,domain D : K,type T,dim N>
+function T[[N]] declassifyOut (D T[[N]] x)
+context<>
+{
+    __builtin("core.declassifyOut",x) :: T[[N]]
+}
+
 //@ template <type T,dim N>
 //@ function T[[N]] reclassify (T[[N]] x)
 //@ context<>
@@ -104,6 +111,15 @@ function uint sum (uint n, uint... ns)
     n + sum(ns...)
 }
 
+// absolute value
+
+template <domain D, numeric type T>
+function D T abs (D T x)
+context<>
+{
+    __builtin("core.abs",x) :: D T
+} 
+
 // subtraction
 
 template <domain D, numeric type T>
@@ -137,6 +153,13 @@ function uint product (uint n, uint... ns)
 {
     n * product(ns...)
 }
+
+template<domain D, numeric type T>
+function D T inv (D T x)
+context<>
+{
+    __builtin("core.inv",x) :: D T
+} 
 
 // division
 
@@ -444,6 +467,23 @@ D T[[N]] operator - (D T[[N]] x)
     return ret;
 }
 
+template <domain D, type T>
+D T[[1]] operator * (D T[[1]] x,D T[[1]] y)
+//@ requires size(x) === size(y);
+//@ inline;
+{
+    D T [[1]] ret (size(x));
+    for (uint i = 0; i < size(x); i=i+1)
+    //@ free invariant 0 <= i && i <= size(x);
+    //@ free invariant size(x) === size(y);
+    //@ free invariant size(x) === size(ret);
+    //@ free invariant size(x) === old(size(x));
+    {
+        ret[i] = x[i] * y[i];
+    }
+    return ret;
+}
+
 template <domain D, type T, dim N { N > 0 } >
 D T[[N]] operator * (D T[[N]] x,D T[[N]] y)
 //@ requires shape(x) === shape(y);
@@ -524,6 +564,21 @@ D T[[N]] operator % (D T[[N]] x,D T[[N]] y)
     D T [[N]] ret (shape(x)...N);
     for (uint i = 0; i < shape(x)[0]; i=i+1) {
         ret[i] = x[i] % y[i];
+    }
+    return ret;
+}
+
+template <domain D, type X, type Y>
+D Y[[1]] operator (Y) (D X[[1]] x)
+//@ inline;
+{
+    D Y[[1]] ret (size(x));
+    for (uint i = 0; i < size(x); i=i+1)
+    //@ free invariant 0 <= i && i <= size(x);
+    //@ free invariant 0 <= i && i <= size(ret);
+    //@ free invariant size(ret) == size(x);
+    {
+        ret[i] = (Y) x[i];
     }
     return ret;
 }
@@ -666,6 +721,15 @@ context<>
 //@ inline;
 {
     __builtin("core.sum",xs) :: D uint
+}
+
+
+template<domain D>
+function D float64 sum (D float64[[1]] xs)
+context<>
+//@ inline;
+{
+    __builtin("core.sum",xs) :: D float64
 }
 
 template <domain D >

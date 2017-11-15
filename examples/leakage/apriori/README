@@ -1,0 +1,11 @@
+Algorithm: 
+Compute all frequent itemsets up to a given size, from a database of transactions per row and items per column.
+
+SecreC:
+The apriori function receives as known leakage whether every itemset up to k is frequent.
+
+Assumptions:
+We assume that the algorithm is correct and computes all the frequent itemsets of the given size. Under such assumption, the leakage can be inferred from the output.
+
+Execute:
+secrec examples/leakage/apriori/apriori.sc --debugtransformation --debugtypechecker --debugverification --progress

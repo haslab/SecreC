@@ -546,16 +546,16 @@ simplifyProcedureAnn (PDecreasesAnn l e) = do
     returnS $ anns' ++ [PDecreasesAnn l e']
 
 procAnn :: ProverK loc m => Bool -> StatementAnnotation GIdentifier (Typed loc) -> SimplifyM m [ProcedureAnnotation GIdentifier (Typed loc)]
-procAnn isPost s = procAnn' isPost False s
+procAnn isPost s = procAnn' isPost Nothing s
 
-procAnn' :: ProverK loc m => Bool -> Bool -> StatementAnnotation GIdentifier (Typed loc) -> SimplifyM m [ProcedureAnnotation GIdentifier (Typed loc)]
-procAnn' True l1 (AssertAnn l isLeak e) = returnS [EnsuresAnn l False (l1 || isLeak) e]
-procAnn' True l1 (AssumeAnn l isLeak e) = returnS [EnsuresAnn l True (l1 || isLeak) e]
-procAnn' False l1 (AssertAnn l isLeak e) = returnS [RequiresAnn l False (l1 || isLeak) e]
-procAnn' False l1 (AssumeAnn l isLeak e) = returnS [RequiresAnn l True (l1 || isLeak) e]
+procAnn' :: ProverK loc m => Bool -> Maybe Bool -> StatementAnnotation GIdentifier (Typed loc) -> SimplifyM m [ProcedureAnnotation GIdentifier (Typed loc)]
+procAnn' True l1 (AssertAnn l isLeak e) = returnS [EnsuresAnn l False (appendLeak l1 isLeak) e]
+procAnn' True l1 (AssumeAnn l isLeak e) = returnS [EnsuresAnn l True (appendLeak l1 isLeak) e]
+procAnn' False l1 (AssertAnn l isLeak e) = returnS [RequiresAnn l False (appendLeak l1 isLeak) e]
+procAnn' False l1 (AssumeAnn l isLeak e) = returnS [RequiresAnn l True (appendLeak l1 isLeak) e]
 procAnn' isPost l1 (EmbedAnn l isLeak s) = do
     as <- stmtAnns s
-    concatMapM (procAnn' isPost (l1 || isLeak)) as
+    concatMapM (procAnn' isPost (appendLeak l1 isLeak)) as
 
 splitProcAnns :: ProverK loc m => [ProcedureAnnotation iden (Typed loc)] -> SimplifyM m ([StatementAnnotation iden (Typed loc)],[StatementAnnotation iden (Typed loc)])
 splitProcAnns [] = returnS ([],[])
@@ -587,10 +587,10 @@ simplifyStatementAnn isExpr (EmbedAnn l isLeak e) = do
     let ss' = makeAnnStmts (unTyped l) isLeak ss
     returnS $ ss'
 
-makeAnnStmts :: Location loc => loc -> Bool -> [Statement GIdentifier (Typed loc)] -> [Statement GIdentifier (Typed loc)]
+makeAnnStmts :: Location loc => loc -> Maybe Bool -> [Statement GIdentifier (Typed loc)] -> [Statement GIdentifier (Typed loc)]
 makeAnnStmts l isLeak = concatMap (makeAnnStmt l isLeak)
 
-makeAnnStmt :: Location loc => loc -> Bool -> Statement GIdentifier (Typed loc) -> [Statement GIdentifier (Typed loc)]
+makeAnnStmt :: Location loc => loc -> Maybe Bool -> Statement GIdentifier (Typed loc) -> [Statement GIdentifier (Typed loc)]
 makeAnnStmt l isLeak s = maybeToList $! annStmtMb l [EmbedAnn (notTyped "makeAnn" l) isLeak s]
 
 simplifyLoopAnns :: SimplifyK loc m => [LoopAnnotation GIdentifier (Typed loc)] -> SimplifyM m [LoopAnnotation GIdentifier (Typed loc)]
@@ -616,7 +616,7 @@ stmtAnns s = do
     pps <- pp s
     genError (locpos $! loc s) $! text "expected an annotation but found statement" <+> pps
 
-stmtAnnExpr :: StatementAnnotation iden (Typed loc) -> (Expression iden (Typed loc),Bool,Bool)
+stmtAnnExpr :: StatementAnnotation iden (Typed loc) -> (Expression iden (Typed loc),Bool,Maybe Bool)
 stmtAnnExpr (AssumeAnn _ isLeak e) = (e,True,isLeak)
 stmtAnnExpr (AssertAnn _ isLeak e) = (e,False,isLeak)
 
@@ -948,12 +948,19 @@ simplifyStatement ret (QuantifiedStatement l q args anns ss) = do
     (pres,posts) <- splitProcAnns anns'
     ssq <- stmtsAnns (argsc)
     let (pre,post) = List.partition snd3 $! map stmtAnnExpr (ssq++pres++posts)
-    let isLeak = or $ map thr3 pre ++ map thr3 post
+    let isLeak = concatLeak $ map thr3 pre ++ map thr3 post
     let ensures = andExprsLoc (map fst3 pre) `impliesExprLoc` andExprsLoc (map fst3 post)
     let ensuresAnn = EnsuresAnn l False isLeak ensures
     ss' <- simplifyStatements Nothing ss
     return [QuantifiedStatement l q args' [ensuresAnn] ss']
 simplifyStatement ret s = returnS [s]
+
+concatLeak :: [Maybe Bool] -> Maybe Bool
+concatLeak = foldr appendLeak Nothing
+appendLeak :: Maybe Bool -> Maybe Bool -> Maybe Bool
+appendLeak Nothing y = y
+appendLeak x Nothing = x
+appendLeak (Just x) (Just y) = Just (x || y)
 
 simplifySyscallParameter :: SimplifyK loc m => SyscallParameter GIdentifier (Typed loc) -> SimplifyM m ([Statement GIdentifier (Typed loc)],[SyscallParameter GIdentifier (Typed loc)])
 simplifySyscallParameter (SyscallPush l e) = do

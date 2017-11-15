@@ -1,0 +1,13 @@
+
+Algorithm:
+Oblivious radix sort based on bit-wise counting sort.
+
+SecreC:
+No leakage.
+
+Assumptions:
+Properties of shuffle, that rely on distributions, need to be proved separately.
+Namely, of we shuffle an array together with a permutation, and declassify the permutation and apply the shuffled public permutation to the shuffled array, leaking nothing.
+
+Execute:
+secrec examples/leakage/rsort/rsort.sc --debugtransformation --debugtypechecker --debugverification --progress

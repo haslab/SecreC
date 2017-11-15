@@ -701,6 +701,10 @@ instance (Location loc,DebugM m,GenVar iden m,Vars iden2 m iden,Location loc,Var
     traverseVars f (ResultExpr l) = do
         l' <- f l
         returnS $! ResultExpr l'
+    traverseVars f (OldExpr l e) = do
+        l' <- f l
+        e' <- f e
+        returnS $! OldExpr l' e'
     traverseVars f (QuantifiedExpr l q vs e) = do
         l' <- f l
         q' <- f q
