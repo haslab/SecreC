@@ -1298,12 +1298,31 @@ assignmentToDafny annK se@(PostIndexExpr l e (Foldable.toList -> [i])) (Right up
     (ann,doc) <- assignmentToDafny annK e (Right $ dbrackets (dtext "int" <<>> dparens pi <<+>> dtext ":=" <<+>> pse <<>> upd))
     return (anni++annse++ann,doc)
 assignmentToDafny annK (PostIndexExpr l e (Foldable.toList -> [i,j])) (Left pre) = do
-    (anne,pe) <- expressionToDafny True Nothing annK e
+    (_,pe) <- expressionToDafny True Nothing annK e
     (anni,pi) <- indexToDafny True annK (Just pe) 0 i
     (annj,pj) <- indexToDafny True annK (Just pe) 1 j
     let args = pi <<>> dcomma <<>> pj <<>> dcomma <<>> pre
     let ppids = ppIndexIds [i,j]
-    return (anni++annj++anne,pe <<>> dtext ".update" <<>> ppids <<>> dparens args)
+    let ppupd = dtext ".update" <<>> ppids <<>> dparens args
+    (ann,doc) <- assignmentToDafny annK e (Right $ ppupd)
+    return (anni++annj++ann,doc)
+assignmentToDafny annK se@(PostIndexExpr l e (Foldable.toList -> [i,j])) (Right upd) = do
+    (_,pe) <- expressionToDafny True Nothing annK e
+    (annse,pse) <- expressionToDafny True Nothing annK se
+    (anni,pi) <- indexToDafny True annK (Just pe) 0 i
+    (annj,pj) <- indexToDafny True annK (Just pe) 1 j
+    let args = pi <<>> dcomma <<>> pj <<>> dcomma <<>> pse <<>> upd
+    let ppids = ppIndexIds [i,j]
+    let ppupd = dtext ".update" <<>> ppids <<>> dparens args
+    (ann,doc) <- assignmentToDafny annK e (Right $ ppupd)
+    return (anni++annj++annse++ann,doc)
+--assignmentToDafny annK (PostIndexExpr l e (Foldable.toList -> [i,j])) (Left pre) = do
+--    (anne,pe) <- expressionToDafny True Nothing annK e
+--    (anni,pi) <- indexToDafny True annK (Just pe) 0 i
+--    (annj,pj) <- indexToDafny True annK (Just pe) 1 j
+--    let args = pi <<>> dcomma <<>> pj <<>> dcomma <<>> pre
+--    let ppids = ppIndexIds [i,j]
+--    return (anni++annj++anne,pe <<>> dtext ".update" <<>> ppids <<>> dparens args)
 assignmentToDafny annK e@(RVariablePExpr {}) (Left pre) = do
     (anne,pe) <- expressionToDafny True Nothing annK e
     return (anne,pe <<+>> dtext ":=" <<+>> pre)

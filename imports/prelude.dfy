@@ -229,38 +229,30 @@ class Array2<T> {
   ensures this.project11(x1,x2,y1,y2).Length1() == y2-y1;
   ensures forall i: uint64, j:uint64 :: (0 <= i < x2-x1 && 0 <= j < y2-y1) ==> this.project11(x1,x2,y1,y2).arr2[i,j] == this.arr2[x1+i,y1+j];
   
-  method update00(i:uint64, j: uint64, v:T)
-  requires valid();
-  modifies arr2;
+  function method update00(i:uint64, j: uint64, v:T) : Array2<T>
+  reads this`arr2, this.arr2;
+  requires this.arr2 != null && this.valid();
   requires 0 <= i < this.Length0();
   requires 0 <= j < this.Length1();
-  ensures valid();
-  ensures this.arr2.Length0 == old(this.arr2.Length0);
-  ensures this.arr2.Length1 == old(this.arr2.Length1);
-  {
-    this.arr2[i,j] := v;
-  }
+  ensures this.update00(i,j,v) != null && this.update00(i,j,v).valid();
+  ensures this.update00(i,j,v).Length0() == this.Length0();
+  ensures this.update00(i,j,v).Length1() == this.Length1();
+  ensures forall i1: uint64, j1: uint64 :: (0 <= i1 < this.Length0() && 0 <= j1 < this.Length1() && i1 != i && j1 != j) ==> this.update00(i,j,v).arr2[i1,j1] == this.arr2[i1,j1];
+  ensures forall i1: uint64, j1: uint64 :: (0 <= i1 < this.Length0() && 0 <= j1 < this.Length1() && i1 == i && j1 == j) ==> this.update00(i,j,v).arr2[i1,j1] == v;
   
-  method update01(i:uint64, j1: uint64, j2: uint64, vs:seq<T>)
-  requires valid();
-  modifies arr2;
+  function method update01(i:uint64, j1: uint64, j2: uint64, vs:seq<T>) : Array2<T>
+  reads this`arr2, this.arr2;
+  requires this.arr2 != null && this.valid();
   requires 0 <= i < this.Length0();
   requires 0 <= j1 < this.Length1();
   requires 0 <= j2 <= this.Length1();
   requires |vs| == j2 as int - j1 as int;
   requires j1 <= j2;
-  ensures valid();
-  ensures this.arr2.Length0 == old(this.arr2.Length0);
-  ensures this.arr2.Length1 == old(this.arr2.Length1);
-  {
-      var j : uint64 := j1;
-      while (j < j2)
-          invariant j1 <= j <= j2;
-      {
-          this.arr2[i,j] := vs[j-j1];
-          j:=j+1;
-      }
-  }
+  ensures this.update01(i,j1,j2,vs) != null && this.update01(i,j1,j2,vs).valid();
+  ensures this.update01(i,j1,j2,vs).Length0() == this.Length0();
+  ensures this.update01(i,j1,j2,vs).Length1() == this.Length1();
+  ensures forall k1:uint64, k2:uint64 :: (0 <= k1 < this.Length0() && 0 <= k2 < this.Length1()) ==> (k1 != i || k2 < j1 || k2 >= j2) ==> this.update01(i,j1,j2,vs).arr2[k1,k2] == this.arr2[k1,k2];
+  ensures forall k1:uint64, k2:uint64 :: (0 <= k1 < this.Length0() && 0 <= k2 < this.Length1()) ==> (k1 == i && k2 >= j1 && k2 < k2) ==> this.update01(i,j1,j2,vs).arr2[k1,k2] == vs[k2-j1];
   
 }
 

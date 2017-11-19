@@ -14,6 +14,12 @@ module axioms;
 //@ requires size(xs) > 1;
 //@ ensures xs === cons(head(xs),tail(xs));
 
+//@ lemma SliceEndEqual <type T> (T[[1]] xs)
+//@ ensures xs[:size(xs)] === xs;
+
+//@ lemma SliceBeginEqual <type T> (T[[1]] xs)
+//@ ensures xs[0:] === xs;
+
 //@ lemma ConsDef <type T> (T[[1]] xs)
 //@ requires size(xs) > 1;
 //@ ensures xs === cons(head(xs),tail(xs));
@@ -133,3 +139,15 @@ module axioms;
 //@ lemma ArrMulAssoc (uint[[1]] xs, uint[[1]] ys, uint[[1]] zs)
 //@ requires size(xs) === size(ys) && size(ys) === size(zs);
 //@ ensures xs * (ys * zs) === (xs * ys) * zs;
+
+//@ lemma SumSliceEnd(uint[[1]] xs,uint i)
+//@ requires size(xs) > 0;
+//@ requires i < size(xs);
+//@ ensures sum(xs[:i+1]) === sum(xs[:i]) + xs[i];
+
+//@ lemma SumSliceBegin(uint[[1]] xs,uint i)
+//@ requires size(xs) > 0;
+//@ requires i < size(xs);
+//@ ensures sum(xs[i:]) === xs[i] + sum(xs[i+1:]);
+
+
